@@ -1,0 +1,201 @@
+﻿using EFT;
+using friendlySAIN.Components;
+using friendlySAIN.Modules;
+using HarmonyLib;
+using SPT.Reflection.Patching;
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+
+
+namespace friendlySAIN.Patches
+{
+    internal class FollowRequestPatch : ModulePatch
+    {
+
+        private static double MathClamp(double value, double min, double max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotGroupRequestController), "TryAskFollowMeRequest");
+
+        }
+        [PatchPrefix]
+        private static bool PatchPrefix(BotGroupRequestController __instance, ref bool __result, IPlayer player, BotOwner posibleExecuter)
+        {
+
+            pitAIBossPlayer playerBoss = BossPlayers.Instance.GetBossPlayer(player.ProfileId);
+
+            if (playerBoss != null && posibleExecuter != null)
+            {
+                bool isAFollower = BossPlayers.IsFollower(posibleExecuter);
+
+                if (isAFollower)
+                {
+                    // if BOT is already a follower, allow "follow me" request to take place if it is the boss who is requesting it
+                    if (posibleExecuter.BotFollower.HaveBoss)
+                    {
+                        if (posibleExecuter.BotFollower.BossToFollow.IsMe(playerBoss.Player()))
+                        {
+                            return true;
+                            // - this is a follower of someone else
+                        }
+                        else
+                        {
+                            posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Negative);
+                            posibleExecuter.Gesture.TryGestus(EInteraction.NoGesture, true);
+                            __result = false;
+                            return false;
+                        }
+                    }
+                }
+                // allow player to request a BOT to follow him
+                if (player.Side == posibleExecuter.Side)
+                {
+                    bool canPickup = false;
+                    List<Components.BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(player.ProfileId);
+                    int pickLimit = Utils.SpawnHelper.Pickups + followers.FindAll(f => f.IsSquadMate).Count;
+                    int hardPickupLimit = Math.Min(10, Utils.SpawnHelper.Pickups);
+                    int currentPickups = followers.FindAll(f => !f.IsSquadMate).Count;
+                    // if restrictions are enabled
+                    if (Utils.SpawnHelper.Restrictions && pickLimit > 0)
+                    {
+                        // - SCAV : based on fence level
+                        if (player.Side == EPlayerSide.Savage)
+                        {
+                            double standing = player.Profile.FenceInfo.Standing;
+
+                            if (standing >= 1.0)
+                            {
+                                double ratio = (standing - 1.0) / (6.0 - 1.0); // 0 to 1
+                                int maxAllowedByStanding = (int)Math.Round(1 + ratio * (10 - 1));
+
+                                int effectiveLimit = Math.Min(maxAllowedByStanding, hardPickupLimit);
+
+                                if (currentPickups < effectiveLimit)
+                                {
+                                    canPickup = true;
+                                }
+                            }
+                        }
+                        // - PMC:
+                        else
+                        {
+                            int playerLevel = player.Profile.Info.Level;
+                            int botLevel = posibleExecuter.Profile.Info.Level;
+                            int levelDiff = playerLevel - botLevel;
+                            // - - limit reached → deny
+                            if (currentPickups >= hardPickupLimit)
+                            {
+                                canPickup = false;
+                            }
+                            else if (levelDiff >= 10)
+                            {
+                                // - - player much stronger → always allow
+                                canPickup = true;
+                            }
+                            else if (levelDiff <= -10)
+                            {
+                                // - - bot much stronger → always deny
+                                canPickup = false;
+                            }
+                            else if (playerLevel == botLevel)
+                            {
+                                // -- equal levels → 50/50 chance
+                                canPickup = new Random().NextDouble() < 0.5;
+                            }
+                            else
+                            {
+                                // -- different levels → 0% to 100% chance based on level difference
+                                double chance = MathClamp((levelDiff + 10) / 20.0, 0.0, 1.0);
+                                canPickup = new Random().NextDouble() < chance;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        canPickup = currentPickups < hardPickupLimit;
+                    }
+
+                    // add BOT as follower to the player BOSS if limit was not reached
+                    if (canPickup)
+                    {
+                        if (BossPlayers.AddFollower(posibleExecuter, playerBoss) != null)
+                        {
+                            // - bot signals "OK"
+                            Utils.Utils.SetTimeout(() =>
+                            {
+                                posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                                posibleExecuter.Gesture.TryGestus(EInteraction.OkGesture, true);
+                            }, 500);
+                        }
+                        else
+                        {
+                            posibleExecuter.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
+                        }
+                    }
+                    else
+                    {
+                        // bot signals "NO"
+                        posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Negative);
+                        posibleExecuter.Gesture.TryGestus(EInteraction.NoGesture, true);
+                    }
+
+                    __result = false;
+                    return false;
+                }
+                else
+                {
+                    // bot signals "NO"
+                    posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Toxic);
+                    posibleExecuter.Gesture.TryGestus(EInteraction.GetOffGesture, true);
+                    __result = false;
+                    return false;
+                }
+
+            }
+            // allow default to take place
+            return true;
+        }
+    }
+
+    internal class HoldRequestPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotGroupRequestController), "TryActivateWait");
+
+        }
+        [PatchPrefix]
+        private static bool PatchPrefix(BotGroupRequestController __instance, IPlayer player, BotOwner posibleExecuter)
+        {
+
+            pitAIBossPlayer playerBoss = BossPlayers.Instance.GetBossPlayer(player.ProfileId);
+
+
+            if (playerBoss != null && posibleExecuter != null)
+            {
+                // boss can only send hold requests to it's followers
+                if (BossPlayers.IsFollower(posibleExecuter, playerBoss))
+                {
+
+                    return true;
+                }
+
+                // bot signals "NO"
+                posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Negative);
+                posibleExecuter.Gesture.TryGestus(EInteraction.NoGesture, true);
+
+                return false;
+            }
+            // allow default to take place
+            return true;
+        }
+    }
+
+}

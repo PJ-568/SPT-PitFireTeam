@@ -1,0 +1,289 @@
+﻿using EFT;
+using friendlySAIN.Components;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.AI;
+
+namespace friendlySAIN.Utils
+{
+    internal class BotDetails
+    {
+        public string Aid { get; set; }
+        public string Tactic { get; set; }
+
+        public string Equipment { get; set; }
+
+        public string Voice { get; set; }
+
+        public string Head { get; set; }
+    }
+    internal class BotChar
+    {
+        public MongoID Id { get; set; }
+        public string Name { get; set; }
+    }
+    internal class BotVoice : BotChar
+    {
+        public string Voice { get; set; }
+    }
+    internal class BotTactic : BotChar
+    {
+        public string Tactic { get; set; }
+    }
+    internal class BotCharacteristics
+    {
+        public List<BotVoice> Voices { get; set; }
+        public List<BotChar> Heads { get; set; }
+        public List<BotChar> Equipment { get; set; }
+        public List<BotTactic> Tactics { get; set; }
+    }
+
+    internal class PitConfig
+    {
+        public bool ScavSquad { get; set; }
+        public int ScavSquadSize { get; set; }
+        public int Pickups { get; set; }
+        public bool Restrictions { get; set; }
+    }
+
+    public class Utils
+    {
+        private static Dictionary<string, bool> flags = new Dictionary<string, bool>();
+
+        private static Dictionary<string, int> values = new Dictionary<string, int>();
+
+
+        /** Get distance between 2 points via navigation path **/
+        public static float GetNavDistance(Vector3 point1, Vector3 point2, NavMeshPath existingMesh = null)
+        {
+            NavMeshPath navMeshPath = existingMesh != null ? existingMesh : new NavMeshPath();
+            navMeshPath.ClearCorners();
+            bool resut = NavMesh.CalculatePath(point1, point2, -1, navMeshPath);
+
+            if (resut && navMeshPath.status == NavMeshPathStatus.PathComplete)
+            {
+                return navMeshPath.CalculatePathLength();
+            }
+            else
+            {
+                return Vector3.Distance(point2, point1);
+            }
+        }
+
+        public static bool IsWithinDistance(Vector3 point1, Vector3 point2, float distance)
+        {
+            return (point1 - point2).sqrMagnitude <= distance * distance;
+        }
+
+        /** Shortcut to check if bot has boss **/
+        public static bool HasBoss(BotOwner botOwner)
+        {
+            return botOwner.BotFollower.HaveBoss && botOwner.BotFollower.BossToFollow is pitAIBossPlayer;
+        }
+        /** Shortcut to get the boss the follower has **/
+        public static pitAIBossPlayer GetBoss(BotOwner botOwner)
+        {
+            return (pitAIBossPlayer)botOwner.BotFollower.BossToFollow;
+        }
+        /** Recreation of javascript SetTimeout **/
+        public static GClass620.Class292 SetTimeout(Action func, int timer, bool isLopped = false)
+        {
+            float num = timer / 1000;
+
+            GClass620.Class293 @class = new GClass620.Class293();
+            @class.gclass620_0 = StaticManager.Instance.TimerManager;
+            @class.timer = new GClass620.Class292();
+            @class.timer.Init(new Action(@class.method_0), new Action(@class.method_1));
+            @class.timer.Start(Time.time + num, num, isLopped);
+
+            @class.timer.OnTimer += () =>
+            {
+                try
+                {
+                    func();
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("Exception in SetTimeout");
+                    Modules.Logger.LogError(ex);
+                }
+            };
+
+
+            return @class.timer;
+        }
+        /** Shortcut to EFT method of doign MakeTimer in relation to bot activity **/
+        public static GClass620.IBotTimer SetBotTimer(Action func, float seconds)
+        {
+            var Timer = StaticManager.Instance.TimerManager.MakeTimer(TimeSpan.FromSeconds(seconds), false);
+
+            Timer.OnTimer += () =>
+            {
+                try
+                {
+                    func();
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("Exception in SetBotTimer");
+                    Modules.Logger.LogError(ex);
+                }
+            };
+
+            return Timer;
+        }
+
+
+        public static void FlagSet(string flag, bool value)
+        {
+            flags[flag] = value;
+        }
+
+        public static bool FlagGet(string flag)
+        {
+            flags.TryGetValue(flag, out var value);
+            return value || false;
+        }
+
+        public static void ValueSet(string flag, int value)
+        {
+            values[flag] = value;
+        }
+
+        public static int ValueGet(string flag)
+        {
+            values.TryGetValue(flag, out var value);
+            return value;
+        }
+
+        public static void FlagsClear()
+        {
+            flags.Clear();
+        }
+
+
+        public static void ValuesClear()
+        {
+            values.Clear();
+        }
+
+        public static bool PlayerHasKnightQuest(Profile playerProfile)
+        {
+            if (FlagGet("knightKiller_" + playerProfile.ProfileId)) return false;
+
+            if (FlagGet("knightFriend_" + playerProfile.ProfileId)) return true;
+
+            if (playerProfile.QuestsData == null) return false;
+
+            if (!playerProfile.TryGetTraderInfo(Props.KnightTrader, out var traderInfo))
+            {
+                FlagSet("knightKiller_" + playerProfile.ProfileId, true);
+                return false;
+            }
+
+            bool hasKnightQuest = false;
+            bool hasKnightHostileQuest = false;
+
+            foreach (var data in playerProfile.QuestsData)
+            {
+                if (Props.QuestsHostile["Knight"].Contains(data.Id))
+                {
+
+                    if (data.Status == EFT.Quests.EQuestStatus.Started)
+                    {
+                        hasKnightHostileQuest = true;
+
+                    }
+                }
+                if (data.Id == Props.Quests["Knight"][0])
+                {
+                    if (data.Status == EFT.Quests.EQuestStatus.Success || data.Status == EFT.Quests.EQuestStatus.Started)
+                    {
+                        hasKnightQuest = true;
+
+                    }
+                }
+            }
+
+            if (hasKnightHostileQuest)
+            {
+                FlagSet("knightKiller_" + playerProfile.ProfileId, true);
+                return false;
+            }
+
+            if (hasKnightQuest)
+            {
+                FlagSet("knightFriend_" + playerProfile.ProfileId, true);
+                return true;
+            }
+
+            FlagSet("knightKiller_" + playerProfile.ProfileId, true);
+            return false;
+        }
+
+        public static float GetScaledValue(float baseValue, float increment, int level, float maxValue)
+        {
+            return Math.Min(baseValue + (increment * level), maxValue);
+        }
+        /** Optimized version of GClass369.IsDangerPositionFarEnough **/
+        public static bool IsDangerPositionFarEnough(Vector3 positionToCheck, IEnumerable<Vector3> positionsIMustCare, float minSDistToEnemy)
+        {
+            foreach (var pos in positionsIMustCare)
+            {
+                if ((pos - positionToCheck).sqrMagnitude < minSDistToEnemy)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /** Optimized version of GClass344.CanShootToTarget **/
+        public static bool CanShootToTarget(ShootPointClass shootToPoint, Vector3 firePos, LayerMask mask, bool doubleSide = false)
+        {
+            if (shootToPoint == null) return false;
+
+            Vector3 direction = shootToPoint.Point - firePos;
+            float distance = direction.magnitude; // Precompute magnitude
+
+            RaycastHit[] hits = new RaycastHit[1]; // Prevents memory allocations
+
+            // Try shooting forward first
+            if (Physics.RaycastNonAlloc(new Ray(firePos, direction), hits, distance * shootToPoint.DistCoef, mask) == 0)
+            {
+                return true; // No obstruction, we can shoot
+            }
+
+            // If doubleSide is enabled, try shooting from the target back to firePos
+            if (doubleSide && Physics.RaycastNonAlloc(new Ray(shootToPoint.Point, -direction), hits, distance, mask) == 0)
+            {
+                return true; // No obstruction from the other side either
+            }
+
+            return false; // Something is blocking the shot
+        }
+
+        public static bool CanShootToTarget(ShootPointClass shootToPoint, CustomNavigationPoint point, LayerMask mask, bool doubleSide = false)
+        {
+            bool flag = CanShootToTarget(shootToPoint, point.FirePosition, mask, doubleSide);
+            point.CanIShootToEnemy = flag;
+            return flag;
+        }
+
+        public static bool CanHide(Vector3 posToHide, Vector3 wallVector, IEnumerable<Vector3> positionsIMustCare, float minSDistToEnemy, bool useRaycast, bool useAng = true)
+        {
+            return GClass384.CanIHide(posToHide, wallVector, positionsIMustCare, minSDistToEnemy, useRaycast, useAng);
+        }
+
+        public static float Random(float a, float b)
+        {
+            return GClass835.Random(a, b);
+        }
+
+        public static int RandomSing()
+        {
+            return GClass835.RandomSing();
+        }
+    }
+}

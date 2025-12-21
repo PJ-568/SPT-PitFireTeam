@@ -1,0 +1,28 @@
+-- === 4.4.10 === ---:
+- test - fix compatibility issues with the latest QuestingBots
+- fix compatibility issues with the latest SAIN
+
+-- === 4.5.0 === ---:
+- implement a Combat Mananger that help with team attack and team defense 
+--- === 4.6.0 === ---:
+- upgrade the mod for SPT 4
+
+--- ==== 4.7.0 (final phase - "The General" for followers quest - this is to be worked on after SPT 4 is released) ==== ---:
+- add "limited command points" options to:
+- - use a "command points" system that is based on player's level to limit the number of followers
+- - command points will be deducted based on level difference between player and follower
+- - command points will be deducted based on the follower's equipment power
+- - when a player levels up, the command points are increased
+- - "The General" quests will unlock more points
+- - when these quests are active enforce same side faction to not be hostile
+- - penalize player for killing same side faction members
+- - if player completes the first quest with both followers alive, choose one to become a teammate
+
+
+==================================================================================
+RELEASE NOTES (4.4.10):
+
+==================================================================================
+
+OPTIONAL:
+- add "hold fire/fire at will" commands

@@ -48,3 +48,8 @@ Thumbs.db
 *.mov
 *.wmv
 
+client/bin
+client/obj
+package-lock.json
+.vs
+types

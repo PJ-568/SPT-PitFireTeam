@@ -1,0 +1,3 @@
+Try to make the following SAIN functions not affect followers to see what happens:
+SmoothTurnPatch
+PlayerHitReactionDisablePatch

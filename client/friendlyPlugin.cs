@@ -1,0 +1,456 @@
+﻿using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Logging;
+using Comfort.Common;
+using EFT;
+using EFT.InventoryLogic;
+using HarmonyLib;
+using SPT.Common.Http;
+using SPT.Common.Utils;
+using System.Collections.Generic;
+using UnityEngine;
+using Newtonsoft.Json;
+
+using friendlySAIN.Modules;
+using friendlySAIN.Brains;
+using friendlySAIN.Utils;
+using friendlySAIN.Patches;
+
+namespace friendlySAIN
+{
+
+    public enum CustomBotRequestType
+    {
+        TakeLoot = 20,
+        Regroup = 30,
+        OverThere = 40,
+        NeedHelp = 50
+    }
+
+    public enum CustomBotDecisions
+    {
+        SniperSearch = 100,
+        CoverToCover = 101,
+        EnemySearch = 102,
+        MoveToPoint = 103,
+        RunToCover = 104,
+        GuardToCover = 105,
+        FollowBoss = 106,
+        attackRetreat = 107,
+
+        DogFight = 108,
+    }
+
+    public enum CustomPhrases
+    {
+        TeamStatus = 200,
+        OverThere = 201,
+    }
+
+    public enum CustomGestures
+    {
+        OverThere = 201,
+    }
+
+    public class LanguageOptions
+    {
+        public string baseSettings { get; set; }
+        public string miscSettings { get; set; }
+        public string testSettings { get; set; }
+        public string raidSettings { get; set; }
+        public string[] equipOptions { get; set; }
+        public string[] tacticOptions { get; set; }
+
+        public Dictionary<string, string> statusSound { get; set; }
+        public Dictionary<string, string> enemyMarker { get; set; }
+        public Dictionary<string, string> scanDistance { get; set; }
+        public Dictionary<string, string> enemyRemember { get; set; }
+        public Dictionary<string, string> healthMultiplier { get; set; }
+
+        public Dictionary<string, string> memberTactic { get; set; }
+        public Dictionary<string, string> memberEquipment { get; set; }
+        public Dictionary<string, string> memberName { get; set; }
+        public Dictionary<string, string> memberVoice { get; set; }
+        public Dictionary<string, string> memberUniformTop { get; set; }
+        public Dictionary<string, string> memberUniformBottom { get; set; }
+
+        public Dictionary<string, string> equipmentLock { get; set; }
+        public Dictionary<string, string> npcSendMessage { get; set; }
+
+        [JsonProperty("friendlyPMC")]
+        public Dictionary<string, string> friendlySAIN { get; set; }
+        public Dictionary<string, string> badGuy { get; set; }
+        public Dictionary<string, string> pmcArmbands { get; set; }
+        public Dictionary<string, string> englishBear { get; set; }
+
+        public Dictionary<string, string> pingSquad { get; set; }
+        public Dictionary<string, string> pingTime { get; set; }
+        public Dictionary<string, string> enemyContact { get; set; }
+
+        public Dictionary<string, string> gestures { get; set; }
+
+        public Dictionary<string, string> botStatus { get; set; }
+
+        public Dictionary<string, string> patrolRadius { get; set; }
+
+        public Dictionary<string, string> botTeleport { get; set; }
+        public Dictionary<string, string> botHeal { get; set; }
+
+        public Dictionary<string, string> botPrefetch { get; set; }
+
+        public Dictionary<string, string> botGrenades { get; set; }
+
+        public Dictionary<string, string> botTalk { get; set; }
+
+        public Dictionary<string, string> spawnPoint { get; set; }
+
+        // used only by BE
+        public string[] returnItems { get; set; }
+        public string[] returnItemsDeath { get; set; }
+        public string[] teamEscaped { get; set; }
+        public string[] teamSomeEscaped { get; set; }
+        public string[] friendlyEscaped { get; set; }
+    }
+
+    [BepInPlugin("xyz.pit.friendlysain", "friendlySAIN", "1.0.0")]
+    [BepInDependency("xyz.drakia.bigbrain")]
+    public class friendlySAIN : BaseUnityPlugin
+    {
+        public static bool awaken;
+
+        internal static friendlySAIN Instance { get; private set; }
+
+        public static LanguageOptions optionsLang;
+
+        public static ConfigEntry<int> enemyRemember;
+
+        public static ConfigEntry<int> heatlhMultiplier;
+
+        public static ConfigEntry<int> scanDistance;
+
+        public static ConfigEntry<int> statusSound;
+        public static ConfigEntry<bool> enemyMarker;
+        public static ConfigEntry<bool> npcSendMessage;
+
+        public static ConfigEntry<bool> friendlySAINFLAG;
+        public static ConfigEntry<bool> badGuy;
+
+        public static ConfigEntry<bool> pmcArmbands;
+        public static ConfigEntry<bool> englishBear;
+
+        public static ConfigEntry<bool> botPrefetch;
+
+        public static ConfigEntry<bool> botGrenades;
+
+        public static ConfigEntry<int> botTalk;
+
+        public static ConfigEntry<int> patrolRadius;
+
+        public static ConfigEntry<bool> spawnPoint;
+
+        public static ConfigEntry<KeyboardShortcut> pingKey;
+        public static ConfigEntry<int> pingTime;
+
+        public static ConfigEntry<KeyboardShortcut> contactKey;
+
+        public static ConfigEntry<KeyboardShortcut> teleportKey;
+        public static ConfigEntry<KeyboardShortcut> healKey;
+        public static TarkovApplication application;
+
+        private static Dictionary<ConfigDefinition, string> savedConfigValues;
+
+        public static ManualLogSource Log => Instance.Logger;
+
+        public static bool IsSAINInstalled { get; private set; }
+
+        private void Awake()
+        {
+
+            if (!awaken)
+            {
+                awaken = true;
+                Instance = this;
+                new Modules.Logger();
+                IsSAINInstalled = SAINPatch.IsSAINInstalled();
+            }
+
+            var harmony = new Harmony("xyz.pit.friendlysain");
+
+            // bot patches to help with various scenarios while being a follower of the player
+            new BotGroupAddEnemyPatch().Enable();
+            //new BotsGroupCheckAddPatch().Enable();
+            new BotGroupUsecEnemyPatch().Enable();
+
+            new BotMemoryDamagePatch().Enable();
+            new ExUsecBrainHitPatch().Enable();
+
+            new BotOwnerIsFolowerPatch().Enable();
+            new BotOwnerManualUpdatePatch().Enable();
+            new BotOwnerActivatePatch().Enable();
+
+            new FollowRequestPatch().Enable();
+            new HoldRequestPatch().Enable();
+
+            new BotReceiverInitPatch().Enable();
+            new BotReceiverDisposePatch().Enable();
+            new BotReceiverPhrasePatch().Enable();
+
+            new BotTalkTrySayPatch().Enable();
+            new BotTalkSayPatch().Enable();
+
+            new BotsControllerPatch().Enable();
+
+            new BotsControllerStopPatch().Enable();
+            new LocalGameCleanupPatch().Enable();
+
+            new AIDataContructPatch().Enable();
+
+            new QuickPanelPatch().Enable();
+
+            new GestureMenuPatch().Enable();
+            new GestureMenuAvailablePhrasesPatch().Enable();
+            new EPhraseTriggerPatch().Enable();
+
+            // spawn patches
+            harmony.PatchAll(typeof(LocalGameCtorPatch).Assembly);
+            new BotsEventsControllerSpawnPatch().Enable();
+            new BossSpawnWaveManagerClassPatch().Enable();
+
+            new GrenadeThrowPatch().Enable();
+            // patch hearing
+            new HearingSensorPatch().Enable();
+            new FootstepSoundPatch().Enable();
+            new BulletImpactPatch().Enable();
+            new PlayerSayPatch().Enable();
+            new GamePlayerOwnerPatch().Enable();
+
+            // patch bot equipment to prevent looting companions
+            new UnlootableComponentPatch().Enable();
+            new ModRaidModdablePatch().Enable();
+            new ItemSpecificationPanelPatch().Enable();
+
+            // raid patches to help with questing, having bots as being friends and part of the same group, and sending config changes to the server
+            new RaidStartPatch().Enable();
+            new MainMenuControllerPatch().Enable();
+            new MatchmakerPlayerControllerClassAddMemberPatch().Enable();
+            new MatchmakerPlayerControllerClassDisbandGroupPatch().Enable();
+            new MatchmakerPlayerControllerClassAbortPatch().Enable();
+            new MatchmakerPlayerControllerClassLeavePatch().Enable();
+            new MatchMakerAcceptScreenPatch().Enable();
+            new GClass3497PlayerRemovePatch().Enable();
+            new MatchMakerSelectionLocationScreenPatch().Enable();
+            new SelectSpawnPointPatch().Enable();
+
+            // transit paches
+            new TransitPointPatch().Enable();
+            new MatchmakerTimeHasComeShowPatch().Enable();
+
+            // quests related patches
+            new GClass1999KillPatch().Enable();
+            new PlayerKilledPatch().Enable();
+            new ConditionCounterPatch().Enable();
+
+            // follower progress patches
+            new PlayerShotPatch().Enable();
+
+            // social related patches to help with refreshing the list of friends when a quest is completed
+            new SocialNetworkClassPatch().Enable();
+            new SocialNetworkClassSendPatch().Enable();
+            new QuestClassPatch().Enable();
+
+            // set configuration manager
+            SetConfiguration();
+
+            new OtherPlayerProfileScreenPatch().Enable();
+            new OtherPlayerProfileScreenClosePatch().Enable();
+
+            // patch Donuts to prevent despawning
+            DonutsPatch.PatchDonutsIfInstalled(harmony);
+
+            // attempt to patch some sain methods
+            SAINPatch.PatchSAINIfInstalled(harmony);
+        }
+
+
+        private void GetLanguage()
+        {
+            string json = RequestHandler.GetJson("/singleplayer/pitlang");
+
+
+            var language = Json.Deserialize<LanguageOptions>(json);
+
+            optionsLang = language;
+        }
+        private void ConfigSet()
+        {
+            Config.SaveOnConfigSet = false;
+
+            savedConfigValues = new Dictionary<ConfigDefinition, string>();
+
+            var orphanedEntries = AccessTools.Property(typeof(ConfigFile), "OrphanedEntries").GetValue(Config) as Dictionary<ConfigDefinition, string>;
+
+            orphanedEntries.ExecuteForEach(it =>
+            {
+                savedConfigValues.Add(it.Key, it.Value);
+            });
+
+            scanDistance = Config.Bind("", "1 " + optionsLang.scanDistance["Name"], 140, new ConfigDescription(optionsLang.scanDistance["Description"], new AcceptableValueRange<int>(50, 300), new ConfigurationManagerAttributes { Order = -100 }));
+
+            patrolRadius = Config.Bind("", "2 " + optionsLang.patrolRadius["Name"], 50, new ConfigDescription(optionsLang.patrolRadius["Description"], new AcceptableValueRange<int>(30, 100), new ConfigurationManagerAttributes { Order = -200 }));
+
+            enemyRemember = Config.Bind("", "3 " + optionsLang.enemyRemember["Name"], 20, new ConfigDescription(optionsLang.enemyRemember["Description"], new AcceptableValueRange<int>(5, 60), new ConfigurationManagerAttributes { Order = -300 }));
+
+            heatlhMultiplier = Config.Bind("", "4 " + optionsLang.healthMultiplier["Name"], 1, new ConfigDescription(optionsLang.healthMultiplier["Description"], new AcceptableValueRange<int>(1, 10), new ConfigurationManagerAttributes { Order = -400 }));
+
+            statusSound = Config.Bind("", "5 " + optionsLang.statusSound["Name"], 100, new ConfigDescription(optionsLang.statusSound["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -500 }));
+
+            enemyMarker = Config.Bind("", "6 " + optionsLang.enemyMarker["Name"], true, new ConfigDescription(optionsLang.enemyMarker["Description"], null, new ConfigurationManagerAttributes { Order = -600 }));
+
+            npcSendMessage = Config.Bind("", "7 " + optionsLang.npcSendMessage["Name"], true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, new ConfigurationManagerAttributes { Order = -700 }));
+
+            friendlySAINFLAG = Config.Bind("", "8 " + optionsLang.friendlySAIN["Name"], true, new ConfigDescription(optionsLang.friendlySAIN["Description"], null, new ConfigurationManagerAttributes { Order = -800 }));
+
+            badGuy = Config.Bind("", "9 " + optionsLang.badGuy["Name"], false, new ConfigDescription(optionsLang.badGuy["Description"], null, new ConfigurationManagerAttributes { Order = -900 }));
+
+            pmcArmbands = Config.Bind("", "10 " + optionsLang.pmcArmbands["Name"], true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, new ConfigurationManagerAttributes { Order = -1000 }));
+
+            englishBear = Config.Bind("", "11 " + optionsLang.englishBear["Name"], true, new ConfigDescription(optionsLang.englishBear["Description"], null, new ConfigurationManagerAttributes { Order = -1001 }));
+
+            botGrenades = Config.Bind("", "12 " + optionsLang.botGrenades["Name"], true, new ConfigDescription(optionsLang.botGrenades["Description"], null, new ConfigurationManagerAttributes { Order = -1002 }));
+
+            pingKey = Config.Bind("", "13 " + optionsLang.pingSquad["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, new ConfigurationManagerAttributes { Order = -1003 }));
+
+            pingTime = Config.Bind("", "14 " + optionsLang.pingTime["Name"], 5, new ConfigDescription(optionsLang.pingTime["Description"], new AcceptableValueRange<int>(5, 30), new ConfigurationManagerAttributes { Order = -1004 }));
+
+            contactKey = Config.Bind("", "15 " + optionsLang.enemyContact["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, new ConfigurationManagerAttributes { Order = -1005 }));
+
+            teleportKey = Config.Bind("", "16 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1006 }));
+            healKey = Config.Bind("", "17 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1007 }));
+
+            botPrefetch = Config.Bind("", "18 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1008 }));
+
+            botTalk = Config.Bind("", "19 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1009 }));
+
+            spawnPoint = Config.Bind("", "20 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1010 }));
+
+            Config.SaveOnConfigSet = true;
+            Config.Save();
+        }
+        private void _BotTeleport()
+        {
+            Modules.Logger.LogInfo("Followers teleport");
+
+            if (GamePlayerOwner.MyPlayer.HealthController == null || !GamePlayerOwner.MyPlayer.HealthController.IsAlive)
+            {
+                return;
+            }
+
+            string id = GamePlayerOwner.MyPlayer.ProfileId;
+
+            if (BossPlayers.Instance != null)
+            {
+                var followers = BossPlayers.GetFollowersByBoss(id);
+                Vector3 position = GamePlayerOwner.MyPlayer.Transform.position;
+                foreach (var follower in followers)
+                {
+                    if (follower != null && follower.GetBot().HealthController.IsAlive && !follower.GetBot().DoorOpener.Interacting)
+                    {
+                        follower.GetBot().Mover.Stop();
+                        follower.GetBot().GetPlayer.Teleport(position + new Vector3(Random.Range(-1.5f, 1.5f), 0, Random.Range(-1.5f, 1.5f)));
+                    }
+                }
+            }
+        }
+
+        private void _BotHeal()
+        {
+            Modules.Logger.LogInfo("Followers fix heal");
+
+            if (GamePlayerOwner.MyPlayer.HealthController == null || !GamePlayerOwner.MyPlayer.HealthController.IsAlive)
+            {
+                return;
+            }
+
+            string id = GamePlayerOwner.MyPlayer.ProfileId;
+
+            if (BossPlayers.Instance != null)
+            {
+                var followers = BossPlayers.GetFollowersByBoss(id);
+
+                foreach (var follower in followers)
+                {
+                    var bot = follower.GetBot();
+                    var player = bot.GetPlayer;
+
+                    if (follower != null && bot.HealthController.IsAlive)
+                    {
+                        foreach (var part in GClass3058.RealBodyParts)
+                        {
+                            if (player.ActiveHealthController.IsBodyPartBroken(part)) player.ActiveHealthController.RemoveNegativeEffects(part);
+                            if (player.ActiveHealthController.IsBodyPartDestroyed(part)) player.ActiveHealthController.RestoreBodyPart(part, 0);
+                        }
+
+                        bot.AIData.Player.ActiveHealthController.RestoreFullHealth();
+
+                        (bot.Brain.BaseBrain as FollowerBrain).HandsReset();
+                        bot.WeaponManager.Selector.TakePrevWeapon();
+
+                        if (bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.FirstPrimaryWeapon)
+                        {
+                            bot.WeaponManager.Selector.TryChangeToMain();
+                        }
+                    }
+                }
+            }
+
+        }
+
+        private void SetConfiguration()
+        {
+            // - get config language
+            GetLanguage();
+            // - set config
+            ConfigSet();
+        }
+
+        void Update()
+        {
+            GameWorld gameWorld = Singleton<GameWorld>.Instance;
+            if (gameWorld == null) return;
+
+            if (GamePlayerOwner.MyPlayer == null || GamePlayerOwner.MyPlayer.HealthController == null || !GamePlayerOwner.MyPlayer.HealthController.IsAlive)
+            {
+                return;
+            }
+
+            if (pingKey.Value.IsUp() || contactKey.Value.IsUp())
+            {
+
+                string id = GamePlayerOwner.MyPlayer.ProfileId;
+
+                if (BossPlayers.Instance != null && PingTeamates.Instance != null)
+                {
+                    var boss = BossPlayers.Instance.GetBossPlayer(id);
+                    if (boss != null)
+                    {
+                        if (pingKey.Value.IsUp())
+                            boss.realPlayer.Say((EPhraseTrigger)CustomPhrases.TeamStatus, true);
+                        else
+                            boss.realPlayer.Say(EPhraseTrigger.OnRepeatedContact, true);
+                    }
+                }
+            }
+
+            else if (teleportKey.Value.IsUp())
+            {
+                _BotTeleport();
+            }
+
+            else if (healKey.Value.IsUp())
+            {
+                _BotHeal();
+            }
+
+        }
+    }
+}
