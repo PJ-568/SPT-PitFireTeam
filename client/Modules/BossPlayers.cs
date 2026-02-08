@@ -10,7 +10,6 @@ using System.Linq;
 using System.Reflection;
 
 using friendlySAIN.Components;
-using friendlySAIN.Brains;
 
 namespace friendlySAIN.Modules
 {
@@ -63,13 +62,6 @@ namespace friendlySAIN.Modules
             player.Profile.Info.Settings.Role = WildSpawnType.bossKnight; // temp switch to boss role
             pitAIBossPlayer playerBoss = new pitAIBossPlayer(player, botsController);
             player.Profile.Info.Settings.Role = roleType; // revert role back to original
-
-            GClass598.Core.MAX_BASE_REQUESTS_PER_PLAYER = 999;
-            GClass598.Core.MAX_COME_WITH_ME_REQUESTS_PER_PLAYER = 999;
-            GClass598.Core.MAX_HOLD_REQUESTS_PER_PLAYER = 999;
-            GClass598.Core.MAX_GO_TO_REQUESTS_PER_PLAYER = 999;
-            GClass598.Core.MAX_WAIT_REQUESTS_PER_PLAYER = 999;
-            GClass598.Core.MAX_GET_IN_COVER_REQUESTS_PER_PLAYER = 999;
 
             // force bosses to not warn the player (these will be exUsec and the Goons)
             if (player.Side != EPlayerSide.Savage && Utils.Utils.PlayerHasKnightQuest(player.Profile))
@@ -235,19 +227,6 @@ namespace friendlySAIN.Modules
                 Modules.Logger.LogError("Failed to init follower");
                 Modules.Logger.LogError(e);
                 return null;
-            }
-
-            if (!isAIBoss)
-            {
-                // scavs and picked up followers have special tactic
-                if (!squadMate)
-                {
-                    (bot.Brain.BaseBrain as FollowerBrain).SetBossTactic("Assist");
-                }
-                else
-                {
-                    (bot.Brain.BaseBrain as FollowerBrain).SetBossTactic(tactic);
-                }
             }
 
             _followers.Add(_follower);

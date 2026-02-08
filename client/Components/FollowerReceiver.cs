@@ -153,7 +153,7 @@ namespace friendlySAIN.Components
 
             if (all)
             {
-                var _listOfRequests = botOwner_0.BotsGroup.RequestsController._listOfRequests;
+                var _listOfRequests = botOwner_0.BotsGroup.RequestsController.ListOfRequests;
                 _listOfRequests.FindAll(request =>
                 {
                     bool good = false;
@@ -210,7 +210,7 @@ namespace friendlySAIN.Components
             return IsBossRequester(requester) || (requester != null && botOwner_0.BotsGroup.IsAlly(requester));
         }
 
-        public virtual void GestusShown(GClass516 data)
+        public virtual void GestusShown(GClass532 data)
         {
 
             EInteraction gesture = data.Gesture;
@@ -474,7 +474,7 @@ namespace friendlySAIN.Components
                 StopCurrRequest(botOwner_0, playerRequester, true);
 
                 // force current layer to trigger end decision
-                AccessTools.Field(typeof(BaseLogicLayerAbstractClass), "bool_1").SetValue(botOwner_0.Brain.BaseBrain.CurLayerInfo, true);
+                AccessTools.Field(typeof(BaseLogicLayerAbstractClass), "Bool_1").SetValue(botOwner_0.Brain.BaseBrain.CurLayerInfo, true);
                 // try to get bot unstuck in item taker logic
                 InteractableObjects.RemoveTaker(botOwner_0);
                 // try to get bot unstuck in open door logic
@@ -550,7 +550,7 @@ namespace friendlySAIN.Components
                 {
                     bool isGrenadier = false;
 
-                    GClass454 selector = botOwner_0.WeaponManager.Selector as GClass454;
+                    BotWeaponSelector selector = botOwner_0.WeaponManager.Selector as BotWeaponSelector;
                     if (
                         selector != null &&
                         selector.SecondPrimaryWeaponItem as Weapon != null &&

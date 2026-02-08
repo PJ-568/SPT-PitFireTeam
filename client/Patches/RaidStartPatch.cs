@@ -28,10 +28,10 @@ namespace friendlySAIN.Patches
         }
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(Class303), "SendRaidSettings");
+            return AccessTools.Method(typeof(Class308), "SendRaidSettings");
         }
         [PatchPostfix]
-        private static void PatchPostfix(Class303 __instance, RaidSettings settings)
+        private static void PatchPostfix(Class308 __instance, RaidSettings settings)
         {
             bool badGuy = friendlySAIN.badGuy.Value;
 
@@ -244,7 +244,7 @@ namespace friendlySAIN.Patches
         private static void PatchPrefix(MainMenuControllerClass __instance)
         {
 
-            MatchmakerPlayerControllerClass matchmakerPlayerControllerClass = __instance.matchmakerPlayerControllerClass;
+            MatchmakerPlayerControllerClass matchmakerPlayerControllerClass = __instance.MatchmakerPlayerControllerClass;
 
             var removeGroup = new playerGroup();
 
@@ -259,7 +259,7 @@ namespace friendlySAIN.Patches
                 matchmakerPlayerControllerClass.GroupPlayers.Remove(item);
             }
 
-            RaidSettings raidSettings_0 = __instance.raidSettings_0;
+            RaidSettings raidSettings_0 = __instance.RaidSettings_0;
             raidSettings_0.RaidMode = ERaidMode.Local;
 
         }
@@ -271,7 +271,7 @@ namespace friendlySAIN.Patches
     {
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(MatchmakerPlayerControllerClass), "method_39");
+            return AccessTools.Method(typeof(GClass3926<RaidSettings>), "method_39");
         }
 
         [PatchPostfix]
@@ -287,7 +287,7 @@ namespace friendlySAIN.Patches
     {
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(MatchmakerPlayerControllerClass), "method_21");
+            return AccessTools.Method(typeof(GClass3926<RaidSettings>), "method_21");
         }
 
         [PatchPrefix]
@@ -354,17 +354,17 @@ namespace friendlySAIN.Patches
     /**
      * When a player is removed from the original group, remove them from the raid group as well
      */
-    internal class GClass3497PlayerRemovePatch : ModulePatch
+    internal class ContextInteractionsPlayerRemovePatch : ModulePatch
     {
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(GClass3497), "method_21");
+            return AccessTools.Method(typeof(ContextInteractionsClass), "method_21");
         }
 
         [PatchPrefix]
-        private static void PatchPrefix(GClass3497 __instance)
+        private static void PatchPrefix(ContextInteractionsClass __instance)
         {
-            string id = __instance.gclass1340_0.AccountId;
+            string id = __instance.GroupPlayerDataClass.AccountId;
             MainMenuControllerPatch.GroupPlayers.RemoveFirst(x => x.AccountId == id);
         }
     }
@@ -433,7 +433,7 @@ namespace friendlySAIN.Patches
             RaidSettings raidSettings_0 = AccessTools.Field(typeof(MatchMakerAcceptScreen), "raidSettings_0").GetValue(__instance) as RaidSettings;
             string string_2 = AccessTools.Field(typeof(MatchMakerAcceptScreen), "string_2").GetValue(__instance) as string;
 
-            _groupPreview.Show(string_2, MatchmakerPlayersController, raidSettings_0, new Func<GroupPlayerViewModelClass, bool, bool, GClass3497>(MatchmakerPlayersController.GetContextInteractions));
+            _groupPreview.Show(string_2, MatchmakerPlayersController, raidSettings_0, new Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass>(MatchmakerPlayersController.GetContextInteractions));
             UI.AddDisposable<MatchMakerGroupPreview>(_groupPreview);
 
             // fetch current player visual representation for all bots part of the group
@@ -447,7 +447,7 @@ namespace friendlySAIN.Patches
                     {
                         groupPlayers.Add(teamer);
                         var health = teamer.PlayerVisualRepresentation.Info.Health ?? MatchmakerPlayersController.CurrentPlayer.Info.Health.Clone();
-                        var preview = new GClass1345(result.Value);
+                        var preview = new GClass1416(result.Value);
                         preview.PlayerVisualRepresentation.Info.Health = health;
                         teamer.IsReady = true;
                         teamer.Info.SavageNickname = teamer.Info.Nickname;
@@ -472,7 +472,7 @@ namespace friendlySAIN.Patches
 
                 List<MatchMakerPlayerPreview> list_0 = AccessTools.Field(typeof(MatchMakerGroupPreview), "list_0").GetValue(_groupPreview) as List<MatchMakerPlayerPreview>;
                 List<ComradeView> _comradesPositions = AccessTools.Field(typeof(MatchMakerGroupPreview), "_comradesPositions").GetValue(_groupPreview) as List<ComradeView>;
-                Func<GroupPlayerViewModelClass, bool, bool, GClass3497> func_0 = AccessTools.Field(typeof(MatchMakerGroupPreview), "func_0").GetValue(_groupPreview) as Func<GroupPlayerViewModelClass, bool, bool, GClass3497>;
+                Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass> func_0 = AccessTools.Field(typeof(MatchMakerGroupPreview), "func_0").GetValue(_groupPreview) as Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass>;
 
                 List<GroupPlayerViewModelClass> list = Enumerable.ToList<GroupPlayerViewModelClass>(Enumerable.Where<GroupPlayerViewModelClass>(groupPlayers, new Func<GroupPlayerViewModelClass, bool>(_groupPreview.method_3)));
                 for (int i = list_0.Count - 1; i >= list.Count; i--)

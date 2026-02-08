@@ -41,6 +41,7 @@ namespace friendlySAIN.Layers.GoonsLayer
         protected FollowerCommonLayer commonLayer;
         protected FollowerPusherLayer pusherLayer;
         protected FollowerGuard guardLayer;
+        protected GClass428 gclass428_0;
 
         private float hadEnemy = 0f;
 
@@ -66,7 +67,7 @@ namespace friendlySAIN.Layers.GoonsLayer
 
             if (gclass428_0 == null)
             {
-                gclass428_0 = new GClass428(botOwner_0, botOwner_0.Boss);
+                gclass428_0 = new GClass428();
             }
         }
 

@@ -3,8 +3,6 @@ using EFT;
 using System.Collections.Generic;
 
 using friendlySAIN.Modules;
-using friendlySAIN.Brains;
-using friendlySAIN.Brains.GoonsBrain;
 
 namespace friendlySAIN.Components
 {
@@ -104,21 +102,5 @@ namespace friendlySAIN.Components
             }
         }
 
-        public override FollowerBrain GetFollowerBrain(BotOwner bot, pitAIBossPlayer boss)
-        {
-
-            if (_botRole == WildSpawnType.bossKnight)
-            {
-                return new KnightFollowerBrain(bot, boss);
-            }
-
-            if (_botRole == WildSpawnType.followerBigPipe)
-                return new BigPipeFollowerBrain(bot, boss);
-
-            if (_botRole == WildSpawnType.followerBirdEye)
-                return new BirdEyeFollowerBrain(bot, boss);
-
-            return new FollowerBrain(bot, boss);
-        }
     }
 }

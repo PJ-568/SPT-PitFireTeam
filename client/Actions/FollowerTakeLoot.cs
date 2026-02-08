@@ -47,7 +47,7 @@ namespace friendlySAIN.Actions
 
             if (_lootItem == null)
             {
-                _lootItem = botOwner_0.ItemTaker._itemToTake;
+                _lootItem = botOwner_0.ItemTaker.ItemToTake;
             }
 
 
@@ -235,7 +235,7 @@ namespace friendlySAIN.Actions
 
         private void ClearLoot()
         {
-            if (_lootItem != null) botOwner_0.ItemTaker.method_7(botOwner_0.ItemTaker._itemToTake);
+            if (_lootItem != null) botOwner_0.ItemTaker.method_7(botOwner_0.ItemTaker.ItemToTake);
 
             InteractableObjects.RemoveTaker(botOwner_0);
             InteractableObjects.ClearCurLootItem();

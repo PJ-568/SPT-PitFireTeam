@@ -12,7 +12,7 @@ using UnityEngine;
 using Newtonsoft.Json;
 
 using friendlySAIN.Modules;
-using friendlySAIN.Brains;
+using friendlySAIN.BigBrain;
 using friendlySAIN.Utils;
 using friendlySAIN.Patches;
 
@@ -171,7 +171,7 @@ namespace friendlySAIN
                 awaken = true;
                 Instance = this;
                 new Modules.Logger();
-                IsSAINInstalled = SAINPatch.IsSAINInstalled();
+                IsSAINInstalled = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey("me.sol.sain");
             }
 
             var harmony = new Harmony("xyz.pit.friendlysain");
@@ -187,42 +187,22 @@ namespace friendlySAIN
             new BotOwnerIsFolowerPatch().Enable();
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
+            FollowerLayerRegistry.Init();
 
             new FollowRequestPatch().Enable();
             new HoldRequestPatch().Enable();
-
-            new BotReceiverInitPatch().Enable();
-            new BotReceiverDisposePatch().Enable();
-            new BotReceiverPhrasePatch().Enable();
-
-            new BotTalkTrySayPatch().Enable();
-            new BotTalkSayPatch().Enable();
 
             new BotsControllerPatch().Enable();
 
             new BotsControllerStopPatch().Enable();
             new LocalGameCleanupPatch().Enable();
 
-            new AIDataContructPatch().Enable();
-
-            new QuickPanelPatch().Enable();
-
-            new GestureMenuPatch().Enable();
-            new GestureMenuAvailablePhrasesPatch().Enable();
-            new EPhraseTriggerPatch().Enable();
-
             // spawn patches
             harmony.PatchAll(typeof(LocalGameCtorPatch).Assembly);
             new BotsEventsControllerSpawnPatch().Enable();
             new BossSpawnWaveManagerClassPatch().Enable();
 
-            new GrenadeThrowPatch().Enable();
-            // patch hearing
-            new HearingSensorPatch().Enable();
-            new FootstepSoundPatch().Enable();
-            new BulletImpactPatch().Enable();
-            new PlayerSayPatch().Enable();
-            new GamePlayerOwnerPatch().Enable();
+            // Grenade handling is delegated to SAIN.
 
             // patch bot equipment to prevent looting companions
             new UnlootableComponentPatch().Enable();
@@ -237,7 +217,7 @@ namespace friendlySAIN
             new MatchmakerPlayerControllerClassAbortPatch().Enable();
             new MatchmakerPlayerControllerClassLeavePatch().Enable();
             new MatchMakerAcceptScreenPatch().Enable();
-            new GClass3497PlayerRemovePatch().Enable();
+            new ContextInteractionsPlayerRemovePatch().Enable();
             new MatchMakerSelectionLocationScreenPatch().Enable();
             new SelectSpawnPointPatch().Enable();
 
@@ -245,13 +225,7 @@ namespace friendlySAIN
             new TransitPointPatch().Enable();
             new MatchmakerTimeHasComeShowPatch().Enable();
 
-            // quests related patches
-            new GClass1999KillPatch().Enable();
-            new PlayerKilledPatch().Enable();
             new ConditionCounterPatch().Enable();
-
-            // follower progress patches
-            new PlayerShotPatch().Enable();
 
             // social related patches to help with refreshing the list of friends when a quest is completed
             new SocialNetworkClassPatch().Enable();
@@ -264,11 +238,7 @@ namespace friendlySAIN
             new OtherPlayerProfileScreenPatch().Enable();
             new OtherPlayerProfileScreenClosePatch().Enable();
 
-            // patch Donuts to prevent despawning
-            DonutsPatch.PatchDonutsIfInstalled(harmony);
-
-            // attempt to patch some sain methods
-            SAINPatch.PatchSAINIfInstalled(harmony);
+            // SAIN/Donuts patches disabled (handled by SAIN)
         }
 
 
@@ -392,7 +362,6 @@ namespace friendlySAIN
 
                         bot.AIData.Player.ActiveHealthController.RestoreFullHealth();
 
-                        (bot.Brain.BaseBrain as FollowerBrain).HandsReset();
                         bot.WeaponManager.Selector.TakePrevWeapon();
 
                         if (bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.FirstPrimaryWeapon)

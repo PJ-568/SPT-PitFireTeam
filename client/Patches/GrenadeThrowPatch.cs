@@ -1,4 +1,5 @@
-﻿using EFT;
+﻿using Comfort.Common;
+using EFT;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
@@ -17,7 +18,7 @@ namespace friendlySAIN.Patches
         }
 
         [PatchPrefix]
-        public static bool Patch(BotOwner ___botOwner_0, ref bool __result, BotGrenadeController __instance, ref GrenadeActionType ___GrenadeActionType, ref bool ____checkStop, ref float ____clearTime, ThrowWeapItemClass ___grenade)
+        public static bool Patch(BotOwner ___BotOwner_0, ref bool __result, BotGrenadeController __instance, ref GrenadeActionType ___GrenadeActionType, ref bool ___CheckStop, ref float ___ClearTime, ThrowWeapItemClass ___Grenade)
         {
             if (__instance.AIGreanageThrowData == null)
             {
@@ -36,10 +37,10 @@ namespace friendlySAIN.Patches
             {
                 case GrenadeActionType.ready:
                     {
-                        ____checkStop = true;
-                        ____clearTime = Time.time + 4f;
+                        ___CheckStop = true;
+                        ___ClearTime = Time.time + 4f;
                         ___GrenadeActionType = GrenadeActionType.change2grenade;
-                        if (___grenade == null)
+                        if (___Grenade == null)
                         {
                             __instance.method_6(null);
                             return false;
@@ -48,13 +49,13 @@ namespace friendlySAIN.Patches
                         {
                             __instance.method_1(__instance.AIGreanageThrowData.GrenadeType.Value);
                         }
-                        BotPersonalStats botPersonalStats = ___botOwner_0.BotPersonalStats;
+                        BotPersonalStats botPersonalStats = ___BotOwner_0.BotPersonalStats;
                         if (botPersonalStats != null)
                         {
                             botPersonalStats.GrendateThrow(null);
                         }
                         __instance.ThrowindNow = true;
-                        ___botOwner_0.GetPlayer.SetInHandsForQuickUse(___grenade, __instance.method_9);
+                        ___BotOwner_0.GetPlayer.SetInHands(___Grenade, new Callback<IHandsThrowController>(__instance.method_9));
                         break;
                     }
             }

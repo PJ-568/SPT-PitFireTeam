@@ -168,7 +168,7 @@ namespace friendlySAIN.Actions
                 if (ischecking)
                 {
                     checkTime = Time.time + Utils.Utils.Random(4f, 6f);
-                    var _listOfRequests = AccessTools.Field(typeof(BotGroupRequestController), "_listOfRequests").GetValue(botOwner_0.BotsGroup.RequestsController) as List<BotRequest>;
+                    var _listOfRequests = AccessTools.Field(typeof(BotGroupRequestController), "ListOfRequests").GetValue(botOwner_0.BotsGroup.RequestsController) as List<BotRequest>;
                     var req = _listOfRequests.Find(request => (request is FollowerHold));
                     if (req != null)
                     {

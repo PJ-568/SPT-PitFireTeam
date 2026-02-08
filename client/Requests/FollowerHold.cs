@@ -34,7 +34,7 @@ namespace friendlySAIN.Requests
         {
             if (botRequests == null)
             {
-                botRequests = AccessTools.Field(typeof(BotGroupRequestController), "_listOfRequests").GetValue(executor.BotsGroup.RequestsController) as List<BotRequest>;
+                botRequests = AccessTools.Field(typeof(BotGroupRequestController), "ListOfRequests").GetValue(executor.BotsGroup.RequestsController) as List<BotRequest>;
             }
 
             if (botRequests != null)

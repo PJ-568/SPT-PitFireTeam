@@ -5,7 +5,6 @@ using SPT.Reflection.Patching;
 using System.Reflection;
 
 using friendlySAIN.Modules;
-using friendlySAIN.Brains;
 
 namespace friendlySAIN.Patches
 {
@@ -23,7 +22,7 @@ namespace friendlySAIN.Patches
         {
             try
             {
-                var botOwner_0 = AccessTools.Field(typeof(BotMemoryClass), "botOwner_0").GetValue(__instance) as BotOwner;
+                var botOwner_0 = AccessTools.Field(typeof(BotMemoryClass), "BotOwner_0").GetValue(__instance) as BotOwner;
 
                 if (damageInfo.Player == null) return;
 
@@ -42,9 +41,6 @@ namespace friendlySAIN.Patches
                 });
 
                 if (!(isBossEnemy || isTeamate)) return;
-
-                var brain = botOwner_0.Brain.BaseBrain as FollowerBrain;
-                if (brain == null) return;
 
                 botOwner_0.BotTalk.TrySay(EPhraseTrigger.FriendlyFire, false);
             }

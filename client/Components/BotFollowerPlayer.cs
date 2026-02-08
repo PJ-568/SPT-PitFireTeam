@@ -1,6 +1,5 @@
 ﻿using BepInEx.Bootstrap;
 using Comfort.Common;
-using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.InventoryLogic;
 
@@ -13,7 +12,6 @@ using UnityEngine;
 
 using friendlySAIN.Modules;
 using friendlySAIN.Patches;
-using friendlySAIN.Brains;
 
 namespace friendlySAIN.Components
 {
@@ -22,7 +20,7 @@ namespace friendlySAIN.Components
         protected BotOwner _bot;
         protected pitAIBossPlayer _player;
 
-        protected GClass595 settingModif;
+        protected BotLastBlindEffectModifierClass settingModif;
 
         protected bool _IsSquadMate = false;
 
@@ -48,7 +46,7 @@ namespace friendlySAIN.Components
 
             _IsSquadMate = isSquad;
 
-            settingModif = new GClass595(1f, 1.4f, 1f, 0.9f, 1f, 1f, 1f, 1f, 1f);
+            settingModif = new BotLastBlindEffectModifierClass(1f, 1.4f, 1f, 0.9f, 1f, 1f, 1f, 1f, 1f);
 
             if (player.realPlayer.Side != EPlayerSide.Savage) NpcMessage.AddNpc(bot, isSquad);
 
@@ -60,7 +58,7 @@ namespace friendlySAIN.Components
             // force current layer to trigger end decision
             try
             {
-                AccessTools.Field(typeof(BaseLogicLayerAbstractClass), "bool_1").SetValue(_bot.Brain.BaseBrain.CurLayerInfo, true);
+                AccessTools.Field(typeof(BaseLogicLayerAbstractClass), "Bool_1").SetValue(_bot.Brain.BaseBrain.CurLayerInfo, true);
             }
             catch { }
 
@@ -114,23 +112,20 @@ namespace friendlySAIN.Components
                 }
             }
 
-            // followers should not be questing, so stop it
-            if (QuestingPatch.isQuestingInstalled())
+            // followers should not be questing, so stop it (if questing mod is present)
+            Type questingBrain = Type.GetType("SPTQuestingBots.Components.BotObjectiveManager, SPTQuestingBots");
+            if (questingBrain != null && _bot.GetPlayer.gameObject.TryGetComponent(questingBrain, out var questingComponent))
             {
-                Type questingBrain = Type.GetType("SPTQuestingBots.Components.BotObjectiveManager, SPTQuestingBots");
-                if (questingBrain != null && _bot.GetPlayer.gameObject.TryGetComponent(questingBrain, out var component))
+                try
                 {
-                    try
-                    {
-                        MethodInfo stopMethod = questingBrain.GetMethod("StopQuesting", BindingFlags.Public | BindingFlags.Instance);
-                        stopMethod?.Invoke(component, null);
-                        Modules.Logger.LogInfo("Questing stopped for " + _bot.Profile.Nickname);
-                    }
-                    catch (Exception ex)
-                    {
-                        Modules.Logger.LogError("Failed to stop questing");
-                        Modules.Logger.LogError(ex);
-                    }
+                    MethodInfo stopMethod = questingBrain.GetMethod("StopQuesting", BindingFlags.Public | BindingFlags.Instance);
+                    stopMethod?.Invoke(questingComponent, null);
+                    Modules.Logger.LogInfo("Questing stopped for " + _bot.Profile.Nickname);
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("Failed to stop questing");
+                    Modules.Logger.LogError(ex);
                 }
             }
 
@@ -138,28 +133,9 @@ namespace friendlySAIN.Components
             _bot.GetPlayer.MovementContext.SetPatrol(false);
             _bot.Tilt.Stop();
 
-            // deactivate old brain
-            if (baseBrain != null && baseBrain.CurLayerInfo != null && baseBrain.CurLayerInfo.IsActive)
-            {
-                string name = baseBrain.CurLayerInfo.Name();
-                _bot.Brain.Agent.Deactivate(name);
-                baseBrain.CurLayerInfo.IsActive = false;
-            }
-            _bot.Brain.Agent.Dispose();
-            if (baseBrain != null) baseBrain.Dispose();
-            _bot.BotState = EBotState.NonActive;
-            _bot.Receiver.Dispose();
-
-
             // add special follower settings
             SetFollowerSettings(_bot);
-            // add a new receiver
-            _bot.Receiver = GetFollowerReceiver(_bot);
-            _bot.Receiver.Init();
-            // add the new follower brain
-            _bot.Brain.BaseBrain = GetFollowerBrain(_bot, _player);
-            _bot.Brain.Agent = GetFollowerAIAgent(_bot);
-            _bot.BotState = EBotState.Active;
+            // Keep the original receiver/brain/agent to avoid conflicts with SAIN and other AI mods.
             // let the bot talk
             _bot.BotTalk.SetSilence(0f);
             // force bot to turn off light
@@ -237,7 +213,7 @@ namespace friendlySAIN.Components
                         activeEnemies.Add(item2);
                 }
 
-                BotsGroup group = new BotsGroupPlayer(zone, _bot.BotsController.BotGame, _bot, activeEnemies, _bot.BotsController.BotSpawner._deadBodiesController, _bot.BotsController.BotSpawner._allPlayers, _player);
+                BotsGroup group = new BotsGroupPlayer(zone, _bot.BotsController.BotGame, _bot, activeEnemies, _bot.BotsController.BotSpawner.DeadBodiesController, _bot.BotsController.BotSpawner.AllPlayers, _player);
 
                 _bot.BotsGroup = group;
 
@@ -258,15 +234,17 @@ namespace friendlySAIN.Components
             if (isPickedUp)
             {
                 // ensure bot sees the player's group as his group
-                var _groupRequestController = _bot.BotRequestController._groupRequestController;
+                var _groupRequestController = _bot.BotRequestController.GroupRequestController_1;
+                if (_groupRequestController != null)
+                {
+                    _groupRequestController.OnAddRequest -= _bot.BotRequestController.method_0;
+                }
 
-                _groupRequestController.OnAddRequest -= _bot.BotRequestController.method_0;
-
-                _bot.Memory.botsGroup_0 = _bot.BotsGroup;
-                _bot.BotRequestController._groupRequestController = null;
+                _bot.Memory.BotsGroup_0 = _bot.BotsGroup;
+                _bot.BotRequestController.GroupRequestController_1 = null;
             }
 
-            var _bots = _bot.BotsController.BotSpawner._bots;
+            var _bots = _bot.BotsController.BotSpawner.Bots;
             var _rougeTypes = Utils.Props.BossFollowersType.ToList();
             _rougeTypes.Add(WildSpawnType.exUsec);
 
@@ -335,7 +313,7 @@ namespace friendlySAIN.Components
 
             bool isGoon = Utils.Props.BossFollowersType.Contains(_botRole);
             // increase bot's power
-            BotDifficultySettingsClass settings = Singleton<GClass600>.Instance.GetSettings(BotDifficulty.hard, _botRole);
+            BotDifficultySettingsClass settings = Singleton<GClass620>.Instance.GetSettings(BotDifficulty.hard, _botRole, _bot.BotsController.IsPvE);
 
             // - hardcode some settings to make the bot more efficient
             settings.FileSettings.Move.REACH_DIST = 1.5f;
@@ -353,14 +331,14 @@ namespace friendlySAIN.Components
 
             settings.FileSettings.Mind.CAN_TALK = true;
             settings.FileSettings.Mind.TALK_WITH_QUERY = true;
-            bot.BotTalk._canSay = true;
+            bot.BotTalk.CanSay = true;
             // - fix missing phrases (bug appeared in 0.16)
-            if (!bot.BotTalk._priority.Any(x => x.Key == EPhraseTrigger.Ready))
-                bot.BotTalk._priority.Add(EPhraseTrigger.Ready, 140f);
-            if (!bot.BotTalk._priority.Any(x => x.Key == EPhraseTrigger.Going))
-                bot.BotTalk._priority.Add(EPhraseTrigger.Going, 141f);
-            if (!bot.BotTalk._priority.Any(x => x.Key == EPhraseTrigger.DontKnow))
-                bot.BotTalk._priority.Add(EPhraseTrigger.DontKnow, 142f);
+            if (!bot.BotTalk.Priority.Any(x => x.Key == EPhraseTrigger.Ready))
+                bot.BotTalk.Priority.Add(EPhraseTrigger.Ready, 140f);
+            if (!bot.BotTalk.Priority.Any(x => x.Key == EPhraseTrigger.Going))
+                bot.BotTalk.Priority.Add(EPhraseTrigger.Going, 141f);
+            if (!bot.BotTalk.Priority.Any(x => x.Key == EPhraseTrigger.DontKnow))
+                bot.BotTalk.Priority.Add(EPhraseTrigger.DontKnow, 142f);
 
             settings.FileSettings.Mind.CAN_STAND_BY = false;
             settings.FileSettings.Mind.CAN_TAKE_ANY_ITEM = true;
@@ -571,7 +549,7 @@ namespace friendlySAIN.Components
             AccessTools.Field(typeof(LookSensor), "VISIBLE_ANGLE_LIGHT").SetValue(bot.LookSensor, Mathf.Cos(settings.FileSettings.Look.VISIBLE_ANG_LIGHT * 0.017453292f));
             AccessTools.Field(typeof(LookSensor), "VISIBLE_ANGLE_NIGHTVISION").SetValue(bot.LookSensor, Mathf.Cos(settings.FileSettings.Look.VISIBLE_ANG_NIGHTVISION * 0.017453292f));
 
-            _bot.LookSensor.UpdateLook(1f);
+            _bot.LookSensor.ManualUpdate();
 
             // force bosses to not warn the follower (these will be exUsec and the Goons)
             if (_player.realPlayer.Side != EPlayerSide.Savage && Utils.Utils.PlayerHasKnightQuest(_player.realPlayer.Profile))
@@ -589,29 +567,59 @@ namespace friendlySAIN.Components
 
         protected void AddExtraAmmo()
         {
+            InventoryController inventory = GetInventoryController();
+            SearchableItemItemClass secureContainer;
 
-            (_bot.Brain.BaseBrain as FollowerBrain).AddExtraAmmoForWeapon();
-
-        }
-
-        public virtual FollowerBrain GetFollowerBrain(BotOwner bot, pitAIBossPlayer boss)
-        {
-            return new FollowerBrain(bot, boss);
-        }
-
-        public virtual AICoreAgentClass<BotLogicDecision> GetFollowerAIAgent(BotOwner bot)
-        {
-            string name = bot.name + " " + _botRole.ToString();
-
-            return new FollowerAIAgent<BotLogicDecision>(bot.BotsController.AICoreController, bot.Brain.BaseBrain, FollowerCreateNode.ActionsList(bot), bot.gameObject, name, new Func<BotLogicDecision, GClass168>((BotLogicDecision decision) =>
+            try
             {
-                return FollowerCreateNode.CreateNode(decision, bot);
-            }));
+                secureContainer = (SearchableItemItemClass)inventory.Inventory.Equipment.GetSlot(EquipmentSlot.SecuredContainer).ContainedItem;
+            }
+            catch
+            {
+                Modules.Logger.LogError("Cannot access secure container of bot, extra ammo will not be added");
+                return;
+            }
+
+            if (secureContainer == null)
+            {
+                Modules.Logger.LogError("Bot has no secure container, cannot add extra ammo");
+                return;
+            }
+
+            StashGridClass stashGridClass = secureContainer.Grids.FirstOrDefault();
+            if (stashGridClass == null) return;
+
+            Weapon weapon = _bot.AIData?.Player?.HandsController?.Item as Weapon;
+            if (weapon == null)
+            {
+                Modules.Logger.LogError("Bot has no weapon to add ammo");
+                return;
+            }
+
+            Item ammoToAdd = weapon.GetCurrentMagazine()?.FirstRealAmmo() ??
+                Singleton<ItemFactoryClass>.Instance.CreateItem(MongoID.Generate(), weapon.CurrentAmmoTemplate._id, null);
+
+            if (ammoToAdd == null)
+            {
+                Modules.Logger.LogError("Bot has no ammo template to add");
+                return;
+            }
+
+            for (int i = 0; i < 10; i++)
+            {
+                Item ammo = ammoToAdd.CloneItem();
+                ammo.StackObjectsCount = ammo.StackMaxSize;
+                var location = stashGridClass.FindFreeSpace(ammo);
+                if (location == null) break;
+
+                var result = stashGridClass.AddItemWithoutRestrictions(ammo, location);
+                if (!result.Succeeded) break;
+            }
         }
 
-        public FollowerReceiver GetFollowerReceiver(BotOwner bot)
+        private InventoryController GetInventoryController()
         {
-            return new FollowerReceiver(bot);
+            return _bot?.GetPlayer?.InventoryController;
         }
 
         public bool IsBot(BotOwner bot)
@@ -635,15 +643,7 @@ namespace friendlySAIN.Components
             if (_bot == null) return;
             try
             {
-                // these 2 are automatically called if bot dies or leaves
-                // we call them here in the case bot is still alive but has been dismissed
-                (_bot.Receiver as FollowerReceiver).Dispose();
-                // turn off follower brain
-                (_bot.Brain.BaseBrain as FollowerBrain).Dismissed();
-
                 if (_bot.IsDead || _bot.BotState != EBotState.Active) return;
-
-                _bot.BotState = EBotState.NonActive;
 
                 // - ensure bot no longer follows the player
                 if (_bot.BotFollower.HaveBoss)
@@ -658,47 +658,6 @@ namespace friendlySAIN.Components
                     _bot.BotRequestController.CurRequest.Complete();
                 }
 
-                // remove follower brain
-                _bot.Brain.Dispose();
-                _bot.BotsController.AICoreController.Stop();
-
-                // - put back old receiver
-                _bot.Receiver = new BotReceiver(_bot);
-                _bot.Receiver.Init();
-
-
-                // put back old brain
-                // - first BigBrain has to know the bot is no longer active
-                var brainManagerInstance = AccessTools.Property(typeof(BrainManager), "Instance");
-                bool bigBraidDeactivated = false;
-                if (brainManagerInstance != null)
-                {
-                    BrainManager manager = (BrainManager)brainManagerInstance.GetValue(null);
-                    if (manager != null)
-                    {
-                        var activatedBotsProperty = AccessTools.Field(typeof(BrainManager), "ActivatedBots");
-                        if (activatedBotsProperty != null)
-                        {
-                            var activatedBots = (Dictionary<IPlayer, BotOwner>)activatedBotsProperty.GetValue(manager);
-                            if (activatedBots != null)
-                            {
-                                activatedBots.Remove(_bot.GetPlayer);
-                                bigBraidDeactivated = true;
-                            }
-                        }
-                    }
-                }
-                // - now put back the old brain
-                if (bigBraidDeactivated)
-                {
-                    _bot.Brain = new StandartBotBrain(_bot);
-                    _bot.Brain.Activate();
-                }
-
-                _bot.BotsController.AICoreController.Activate();
-
-                _bot.BotState = EBotState.Active;
-
                 _bot.GetPlayer.Physical.Stamina.ForceMode = false;
                 _bot.GetPlayer.Physical.HandsStamina.ForceMode = false;
 
@@ -708,10 +667,13 @@ namespace friendlySAIN.Components
 
                 _bot.BotsGroup = group;
 
-                _bot.BotRequestController._groupRequestController.OnAddRequest -= _bot.BotRequestController.method_0;
+                if (_bot.BotRequestController.GroupRequestController_1 != null)
+                {
+                    _bot.BotRequestController.GroupRequestController_1.OnAddRequest -= _bot.BotRequestController.method_0;
+                }
 
-                _bot.Memory.botsGroup_0 = group;
-                _bot.BotRequestController._groupRequestController = null;
+                _bot.Memory.BotsGroup_0 = group;
+                _bot.BotRequestController.GroupRequestController_1 = null;
 
                 _bot.GetPlayer.Profile.Info.GroupId = _grouId;
                 _bot.GetPlayer.Profile.Info.TeamId = _teamId;

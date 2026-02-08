@@ -87,17 +87,10 @@ namespace friendlySAIN.Utils
             return (pitAIBossPlayer)botOwner.BotFollower.BossToFollow;
         }
         /** Recreation of javascript SetTimeout **/
-        public static GClass620.Class292 SetTimeout(Action func, int timer, bool isLopped = false)
+        public static GClass641.IBotTimer SetTimeout(Action func, int timer, bool isLopped = false)
         {
-            float num = timer / 1000;
-
-            GClass620.Class293 @class = new GClass620.Class293();
-            @class.gclass620_0 = StaticManager.Instance.TimerManager;
-            @class.timer = new GClass620.Class292();
-            @class.timer.Init(new Action(@class.method_0), new Action(@class.method_1));
-            @class.timer.Start(Time.time + num, num, isLopped);
-
-            @class.timer.OnTimer += () =>
+            var timeout = StaticManager.Instance.TimerManager.MakeTimer(TimeSpan.FromMilliseconds(timer), isLopped);
+            timeout.OnTimer += () =>
             {
                 try
                 {
@@ -111,10 +104,10 @@ namespace friendlySAIN.Utils
             };
 
 
-            return @class.timer;
+            return timeout;
         }
         /** Shortcut to EFT method of doign MakeTimer in relation to bot activity **/
-        public static GClass620.IBotTimer SetBotTimer(Action func, float seconds)
+        public static GClass641.IBotTimer SetBotTimer(Action func, float seconds)
         {
             var Timer = StaticManager.Instance.TimerManager.MakeTimer(TimeSpan.FromSeconds(seconds), false);
 
@@ -273,17 +266,17 @@ namespace friendlySAIN.Utils
 
         public static bool CanHide(Vector3 posToHide, Vector3 wallVector, IEnumerable<Vector3> positionsIMustCare, float minSDistToEnemy, bool useRaycast, bool useAng = true)
         {
-            return GClass384.CanIHide(posToHide, wallVector, positionsIMustCare, minSDistToEnemy, useRaycast, useAng);
+            return GClass394.CanIHide(posToHide, wallVector, positionsIMustCare, minSDistToEnemy, useRaycast, useAng);
         }
 
         public static float Random(float a, float b)
         {
-            return GClass835.Random(a, b);
+            return UnityEngine.Random.Range(a, b);
         }
 
         public static int RandomSing()
         {
-            return GClass835.RandomSing();
+            return UnityEngine.Random.value < 0.5f ? -1 : 1;
         }
     }
 }

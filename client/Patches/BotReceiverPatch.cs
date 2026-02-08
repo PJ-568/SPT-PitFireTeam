@@ -18,7 +18,7 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static bool PatchPrefix(BotReceiver __instance)
         {
-            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "botOwner_0").GetValue(__instance);
+            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "BotOwner_0").GetValue(__instance);
             if (botOwner != null)
             {
 
@@ -44,7 +44,7 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static bool PatchPrefix(BotReceiver __instance)
         {
-            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "botOwner_0").GetValue(__instance);
+            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "BotOwner_0").GetValue(__instance);
             if (botOwner != null)
             {
 
@@ -70,10 +70,10 @@ namespace friendlySAIN.Patches
         }
 
         [PatchPrefix]
-        private static bool PatchPrefix(BotReceiver __instance, BotEventHandler.GClass670 info)
+        private static bool PatchPrefix(BotReceiver __instance, BotEventHandler.GClass692 info)
         {
 
-            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "botOwner_0").GetValue(__instance);
+            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "BotOwner_0").GetValue(__instance);
             if (botOwner != null)
             {
                 if (
@@ -138,13 +138,13 @@ namespace friendlySAIN.Patches
             return AccessTools.Method(typeof(BotReceiver), "method_6");
         }
         [PatchPrefix]
-        private static bool PatchPrefix(BotReceiver __instance, GClass516 data)
+        private static bool PatchPrefix(BotReceiver __instance, GClass532 data)
         {
             if (data == null)
             {
                 return true;
             }
-            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "botOwner_0").GetValue(__instance);
+            BotOwner botOwner = (BotOwner)AccessTools.Field(typeof(BotReceiver), "BotOwner_0").GetValue(__instance);
 
             if (botOwner != null)
             {

@@ -123,7 +123,7 @@ namespace friendlySAIN.Patches
             if (!isBossPlayerGroup) return true;
 
             // prevent followers from adding teammates
-            if (__instance._members.Any(x => x.ProfileId == person.ProfileId))
+            if (__instance.Members.Any(x => x.ProfileId == person.ProfileId))
             {
                 __result = false;
                 return false;

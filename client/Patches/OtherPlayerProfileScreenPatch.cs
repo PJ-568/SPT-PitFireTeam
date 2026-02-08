@@ -16,11 +16,10 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using UnityEngine;
-using dropDownItem = GClass3398;
-using LastPlayerStateClass = GClass1952;
+using dropDownItem = GClass3682;
 using OtherProfileController = EFT.UI.OtherPlayerProfileScreen.GClass3883;
+using OtherProfileResult = GClass2213;
 using ResultProfile = GClass1416;
-using ViewProfile = GClass1345;
 
 namespace friendlySAIN.Patches
 {
@@ -31,10 +30,10 @@ namespace friendlySAIN.Patches
     }
 
     /** Patch how items name are displayed in the dropdown as we cannot rely on the game's built-in localization for all */
-    [HarmonyPatch(typeof(GClass3388), "NameLocalizationKey", MethodType.Getter)]
+    [HarmonyPatch(typeof(GClass3672), "NameLocalizationKey", MethodType.Getter)]
     public static class NameLocalizationKeyPatch
     {
-        static bool Prefix(dropDownItem __instance, ref string __result)
+        static bool Prefix(GClass3672 __instance, ref string __result)
         {
             if (OtherPlayerProfileScreenPatch.EquipIds.Contains(__instance.Id))
             {
@@ -48,7 +47,7 @@ namespace friendlySAIN.Patches
 
     internal class OtherPlayerProfileScreenPatch : ModulePatch
     {
-        public static ViewProfile viewedProfile = null;
+        public static ResultProfile viewedProfile = null;
 
         public static Transform equipSelector = null;
 
@@ -261,12 +260,12 @@ namespace friendlySAIN.Patches
         private static void RefershPlayerVisualization(OtherProfileController controller, InventoryPlayerModelWithStatsWindow window)
         {
 
-            ViewProfile profile = controller.Profile;
+            ResultProfile profile = controller.Profile;
             try
             {
                 Task.Run(async () =>
                 {
-                    Result<ResultProfile> result = await PatchConstants.BackEndSession.GetOtherPlayerProfile(viewedProfile.AccountId);
+                    Result<OtherProfileResult> result = await PatchConstants.BackEndSession.GetOtherPlayerProfile(viewedProfile.AccountId);
                     return result;
                 }).ContinueWith(r =>
                 {
@@ -313,7 +312,7 @@ namespace friendlySAIN.Patches
         */
         private static void DisplayClothingOptions(LastPlayerStateClass playerVisualRepresentation, InventoryPlayerModelWithStatsWindow window, InventoryController inventoryController, InventoryClothingSelectionPanel inventoryClothingSelectionPanel)
         {
-            InventoryPlayerModelWithStatsWindow.Class2983 @class = new InventoryPlayerModelWithStatsWindow.Class2983();
+            InventoryPlayerModelWithStatsWindow.Class3160 @class = new InventoryPlayerModelWithStatsWindow.Class3160();
             @class.playerVisualRepresentation = playerVisualRepresentation;
             @class.inventoryPlayerModelWithStatsWindow_0 = window;
             @class.inventoryController = inventoryController;
@@ -337,19 +336,19 @@ namespace friendlySAIN.Patches
                 dropDownItem gclass4 = gclass3;
                 if (gclass4 != null)
                 {
-                    GClass3399 gclass5;
-                    if ((gclass5 = gclass4 as GClass3399) == null)
+                    GClass3683 gclass5;
+                    if ((gclass5 = gclass4 as GClass3683) == null)
                     {
-                        GClass3400 gclass6;
-                        if ((gclass6 = gclass4 as GClass3400) != null)
+                        GClass3684 gclass6;
+                        if ((gclass6 = gclass4 as GClass3684) != null)
                         {
-                            GClass3400 gclass7 = gclass6;
+                            GClass3684 gclass7 = gclass6;
                             list2.Add(gclass7);
                         }
                     }
                     else
                     {
-                        GClass3399 gclass8 = gclass5;
+                        GClass3683 gclass8 = gclass5;
                         list.Add(gclass8);
                     }
                 }
@@ -367,7 +366,7 @@ namespace friendlySAIN.Patches
 
         private static void DisplayEquipmentOptions(OtherProfileController controller, InventoryClothingSelectionPanel inventoryClothingSelectionPanel, InventoryPlayerModelWithStatsWindow window, BotCharacteristics BEChars, BotDetails BEDetails)
         {
-            ViewProfile profile = controller.Profile;
+            ResultProfile profile = controller.Profile;
 
 
             dropDownItem currentTacticItem = null;
@@ -478,7 +477,7 @@ namespace friendlySAIN.Patches
 
         private static void DisplayCharacteristicsOptions(OtherProfileController controller, InventoryClothingSelectionPanel inventoryClothingSelectionPanel, InventoryPlayerModelWithStatsWindow window, BotCharacteristics BEChars, BotDetails currentDetails)
         {
-            ViewProfile profile = controller.Profile;
+            ResultProfile profile = controller.Profile;
 
             string currentVoiceId = currentDetails.Voice ?? new MongoID();
             string currentHeadId = currentDetails.Head ?? new MongoID();

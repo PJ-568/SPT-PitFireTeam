@@ -23,9 +23,9 @@ namespace friendlySAIN.Patches
             if (
                 (
                     type == EPhraseTrigger.OnFight || type == EPhraseTrigger.OnRepeatedContact ||
-                    (__instance.botOwner_0.Memory.HaveEnemy && (type == EPhraseTrigger.MumblePhrase || type == EPhraseTrigger.OnMutter))
+                    (__instance.BotOwner_0.Memory.HaveEnemy && (type == EPhraseTrigger.MumblePhrase || type == EPhraseTrigger.OnMutter))
                 ) &&
-                    BossPlayers.IsFollower(__instance.botOwner_0)
+                    BossPlayers.IsFollower(__instance.BotOwner_0)
                 )
             {
                 int freq = friendlySAIN.botTalk.Value;

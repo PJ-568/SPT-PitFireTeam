@@ -1,264 +1,163 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{46B1B50D-BEDD-443B-BD27-2A862A78010B}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>friendlySAIN</RootNamespace>
-    <AssemblyName>friendlySAIN</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-    <Deterministic>true</Deterministic>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <ItemGroup>
-    <Reference Include="0Harmony">
-      <HintPath>bin\Debug\0Harmony.dll</HintPath>
-    </Reference>
-    <Reference Include="Assembly-CSharp, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\Assembly-CSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="ConfigurationManager">
-      <HintPath>bin\Debug\ConfigurationManager.dll</HintPath>
-    </Reference>
-    <Reference Include="ItemTemplate.Types, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\ItemTemplate.Types.dll</HintPath>
-    </Reference>
-    <Reference Include="spt-common">
-      <HintPath>bin\Debug\spt-common.dll</HintPath>
-    </Reference>
-    <Reference Include="spt-custom">
-      <HintPath>bin\Debug\spt-custom.dll</HintPath>
-    </Reference>
-    <Reference Include="spt-prepatch">
-      <HintPath>bin\Debug\spt-prepatch.dll</HintPath>
-    </Reference>
-    <Reference Include="BepInEx">
-      <HintPath>bin\Debug\BepInEx.dll</HintPath>
-    </Reference>
-    <Reference Include="bsg.console.core">
-      <HintPath>bin\Debug\bsg.console.core.dll</HintPath>
-    </Reference>
-    <Reference Include="Comfort">
-      <HintPath>bin\Debug\Comfort.dll</HintPath>
-    </Reference>
-    <Reference Include="Comfort.Unity">
-      <HintPath>bin\Debug\Comfort.Unity.dll</HintPath>
-    </Reference>
-    <Reference Include="CommonExtensions">
-      <HintPath>bin\Debug\CommonExtensions.dll</HintPath>
-    </Reference>
-    <Reference Include="DissonanceVoip, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\DissonanceVoip.dll</HintPath>
-    </Reference>
-    <Reference Include="DrakiaXYZ-BigBrain">
-      <HintPath>bin\Debug\DrakiaXYZ-BigBrain.dll</HintPath>
-    </Reference>
-    <Reference Include="ItemComponent.Types">
-      <HintPath>bin\Debug\ItemComponent.Types.dll</HintPath>
-    </Reference>
-    <Reference Include="Newtonsoft.Json">
-      <HintPath>bin\Debug\Newtonsoft.Json.dll</HintPath>
-    </Reference>
-    <Reference Include="Sirenix.Serialization">
-      <HintPath>bin\Debug\Sirenix.Serialization.dll</HintPath>
-    </Reference>
-    <Reference Include="spt-reflection">
-      <HintPath>bin\Debug\spt-reflection.dll</HintPath>
-    </Reference>
-    <Reference Include="spt-singleplayer">
-      <HintPath>bin\Debug\spt-singleplayer.dll</HintPath>
-    </Reference>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Threading" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Xml" />
-    <Reference Include="Unity.Postprocessing.Runtime">
-      <HintPath>bin\Debug\Unity.Postprocessing.Runtime.dll</HintPath>
-    </Reference>
-    <Reference Include="Unity.TextMeshPro">
-      <HintPath>bin\Debug\Unity.TextMeshPro.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.AIModule">
-      <HintPath>bin\Debug\UnityEngine.AIModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.AssetBundleModule">
-      <HintPath>bin\Debug\UnityEngine.AssetBundleModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.AudioModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.AudioModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.CoreModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.ImageConversionModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.ImageConversionModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>bin\Debug\UnityEngine.IMGUIModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.InputModule">
-      <HintPath>bin\Debug\UnityEngine.InputModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.PhysicsModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>bin\Debug\UnityEngine.TextRenderingModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UI">
-      <HintPath>bin\Debug\UnityEngine.UI.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UnityWebRequestAudioModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UnityWebRequestModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.UnityWebRequestModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UnityWebRequestWWWModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\UnityEngine.UnityWebRequestWWWModule.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Actions\FollowerAttackRetreat.cs" />
-    <Compile Include="Actions\FollowerCoverToCover.cs" />
-    <Compile Include="Actions\FollowerDogFight.cs" />
-    <Compile Include="Actions\FollowerEnemySearch.cs" />
-    <Compile Include="Actions\FollowerGoToCoverTactical.cs" />
-    <Compile Include="Actions\FollowerGoToEnemy.cs" />
-    <Compile Include="Actions\FollowerGoToPointTactical.cs" />
-    <Compile Include="Actions\FollowerGuardCover.cs" />
-    <Compile Include="Actions\FollowerMoveToPoint.cs" />
-    <Compile Include="Actions\FollowerRunToCover.cs" />
-    <Compile Include="Actions\FollowerShootFromPlace.cs" />
-    <Compile Include="Actions\FollowerSniperSearch.cs" />
-    <Compile Include="Actions\FollowerSuppressionFire.cs" />
-    <Compile Include="Layers\GoonsLayer\KnightFightLayer.cs" />
-    <Compile Include="Layers\GoonsLayer\KnightWeaponMtnLayer.cs" />
-    <Compile Include="Actions\FollowerAttackMove.cs" />
-    <Compile Include="Actions\FollowerEnemyCheck.cs" />
-    <Compile Include="Actions\FollowerGoToPoint.cs" />
-    <Compile Include="Actions\FollowerHoldPosition.cs" />
-    <Compile Include="Components\BossFollowerPlayer.cs" />
-    <Compile Include="Layers\GoonsLayer\BossFollowLayer.cs" />
-    <Compile Include="Brains\GoonsBrain\KnightFollowerBrain.cs" />
-    <Compile Include="Components\FollowerAIAgent.cs" />
-    <Compile Include="Layers\FollowerAvoidDanger.cs" />
-    <Compile Include="Layers\GoonsLayer\BigPipeArtilleryLayer.cs" />
-    <Compile Include="Brains\GoonsBrain\BigPipeFollowerBrain.cs" />
-    <Compile Include="Layers\GoonsLayer\BirdEyeFightLayer.cs" />
-    <Compile Include="Brains\GoonsBrain\BirdEyeFollowerBrain.cs" />
-    <Compile Include="Layers\GoonsLayer\BirdEyeFollowLayer.cs" />
-    <Compile Include="Components\FollowerCombatManager.cs" />
-    <Compile Include="Layers\FollowerDoorLayer.cs" />
-    <Compile Include="Layers\Tactics\FollowerCommonLayer.cs" />
-    <Compile Include="Layers\Tactics\FollowerGuard.cs" />
-    <Compile Include="Layers\Tactics\FollowerHolderLayer.cs" />
-    <Compile Include="Layers\Tactics\FollowerPusherLayer.cs" />
-    <Compile Include="Layers\Tactics\FollowerSniperLayer.cs" />
-    <Compile Include="ConfigurationManagerAttributes.cs" />
-    <Compile Include="Components\FollowerCreateNode.cs" />
-    <Compile Include="Modules\NpcMessage.cs" />
-    <Compile Include="Modules\RadioSound.cs" />
-    <Compile Include="Patches\BotMemoryPatch.cs" />
-    <Compile Include="Patches\BulletImpactPatch.cs" />
-    <Compile Include="Patches\ConditionCounterPatch.cs" />
-    <Compile Include="Patches\DonutsPatch.cs" />
-    <Compile Include="Patches\ExUsecBrainPatch.cs" />
-    <Compile Include="Patches\GestureMenuPatch.cs" />
-    <Compile Include="Patches\GrenadeThrowPatch.cs" />
-    <Compile Include="Patches\HearingSensorPatch.cs" />
-    <Compile Include="Patches\ItemPatch.cs" />
-    <Compile Include="Patches\MatchMakerSelectionLocationScreenPatch.cs" />
-    <Compile Include="Patches\OtherPlayerProfileScreenPatch.cs" />
-    <Compile Include="Patches\RaidStartPatch.cs" />
-    <Compile Include="Patches\SAINPatches.cs" />
-    <Compile Include="Patches\SocialPatch.cs" />
-    <Compile Include="Patches\TransitPointPatch.cs" />
-    <Compile Include="Requests\FollowerGoCheck.cs" />
-    <Compile Include="Requests\FollowerHold.cs" />
-    <Compile Include="Actions\FollowerPatrol.cs" />
-    <Compile Include="Actions\FollowerTakeLoot.cs" />
-    <Compile Include="Actions\FollowerOpenDoor.cs" />
-    <Compile Include="Requests\FollowerOpenDoorRequest.cs" />
-    <Compile Include="Requests\FollowerRegroup.cs" />
-    <Compile Include="Requests\FollowerRushEnemy.cs" />
-    <Compile Include="Requests\FollowerSuppress.cs" />
-    <Compile Include="Requests\FollowerTakeCover.cs" />
-    <Compile Include="Requests\FollowerTakeLootRequest.cs" />
-    <Compile Include="Components\AIBossPlayer.cs" />
-    <Compile Include="Components\BotFollowerPlayer.cs" />
-    <Compile Include="Brains\FollowerBrain.cs" />
-    <Compile Include="Layers\FollowerFightLayer.cs" />
-    <Compile Include="Layers\FollowerLayer.cs" />
-    <Compile Include="Layers\FollowerLootLayer.cs" />
-    <Compile Include="Components\FollowerReceiver.cs" />
-    <Compile Include="Layers\FollowerRequestLayer.cs" />
-    <Compile Include="Modules\Logger.cs" />
-    <Compile Include="Modules\BossPlayers.cs" />
-    <Compile Include="Modules\InteractableObjects.cs" />
-    <Compile Include="Modules\Receivers.cs" />
-    <Compile Include="Patches\BotGroupPatch.cs" />
-    <Compile Include="Patches\BotGroupRequestPatch.cs" />
-    <Compile Include="Patches\BotOwnerPatch.cs" />
-    <Compile Include="Patches\BotReceiverPatch.cs" />
-    <Compile Include="Patches\BotsControllerPatch.cs" />
-    <Compile Include="Patches\BotTalkPatch.cs" />
-    <Compile Include="friendlyPlugin.cs" />
-    <Compile Include="Patches\PlayerPatch.cs" />
-    <Compile Include="Patches\QuickPanelPatch.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Utils\BotHelpers.cs" />
-    <Compile Include="Utils\BotLogicDecisions.cs" />
-    <Compile Include="Utils\Covers.cs" />
-    <Compile Include="Utils\Enemy.cs" />
-    <Compile Include="Utils\PingTeamates.cs" />
-    <Compile Include="Utils\Props.cs" />
-    <Compile Include="Utils\Quests.cs" />
-    <Compile Include="Utils\SpawnHelper.cs" />
-    <Compile Include="Utils\Utils.cs" />
-  </ItemGroup>
-  <ItemGroup />
-  <ItemGroup>
-    <None Include=".editorconfig" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net472</TargetFramework>
+        <OutputType>Library</OutputType>
+        <RootNamespace>friendlySAIN</RootNamespace>
+        <AssemblyName>friendlySAIN</AssemblyName>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <Deterministic>true</Deterministic>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="0Harmony">
+            <HintPath>libs\0Harmony.dll</HintPath>
+        </Reference>
+        <Reference Include="Assembly-CSharp, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\Assembly-CSharp.dll</HintPath>
+        </Reference>
+        <Reference Include="ConfigurationManager">
+            <HintPath>libs\ConfigurationManager.dll</HintPath>
+        </Reference>
+        <Reference Include="ItemTemplate.Types, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\ItemTemplate.Types.dll</HintPath>
+        </Reference>
+        <Reference Include="spt-common">
+            <HintPath>libs\spt-common.dll</HintPath>
+        </Reference>
+        <Reference Include="spt-custom">
+            <HintPath>libs\spt-custom.dll</HintPath>
+        </Reference>
+        <Reference Include="spt-prepatch">
+            <HintPath>libs\spt-prepatch.dll</HintPath>
+        </Reference>
+        <Reference Include="BepInEx">
+            <HintPath>libs\BepInEx.dll</HintPath>
+        </Reference>
+        <Reference Include="bsg.console.core">
+            <HintPath>libs\bsg.console.core.dll</HintPath>
+        </Reference>
+        <Reference Include="Comfort">
+            <HintPath>libs\Comfort.dll</HintPath>
+        </Reference>
+        <Reference Include="Comfort.Unity">
+            <HintPath>libs\Comfort.Unity.dll</HintPath>
+        </Reference>
+        <Reference Include="CommonExtensions">
+            <HintPath>libs\CommonExtensions.dll</HintPath>
+        </Reference>
+        <Reference Include="DissonanceVoip, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\DissonanceVoip.dll</HintPath>
+        </Reference>
+        <Reference Include="DrakiaXYZ-BigBrain">
+            <HintPath>libs\DrakiaXYZ-BigBrain.dll</HintPath>
+        </Reference>
+        <Reference Include="ItemComponent.Types">
+            <HintPath>libs\ItemComponent.Types.dll</HintPath>
+        </Reference>
+        <Reference Include="Newtonsoft.Json">
+            <HintPath>libs\Newtonsoft.Json.dll</HintPath>
+        </Reference>
+        <Reference Include="Sirenix.Serialization">
+            <HintPath>libs\Sirenix.Serialization.dll</HintPath>
+        </Reference>
+        <Reference Include="spt-reflection">
+            <HintPath>libs\spt-reflection.dll</HintPath>
+        </Reference>
+        <Reference Include="spt-singleplayer">
+            <HintPath>libs\spt-singleplayer.dll</HintPath>
+        </Reference>
+
+        <Reference Include="System" />
+        <Reference Include="System.Core" />
+        <Reference Include="System.Data" />
+        <Reference Include="System.Drawing" />
+        <Reference Include="System.IO.Compression" />
+        <Reference Include="System.IO.Compression.FileSystem" />
+        <Reference Include="System.Numerics" />
+        <Reference Include="System.Runtime.Serialization" />
+        <Reference Include="System.Xml" />
+        <Reference Include="System.Xml.Linq" />
+
+        <Reference Include="UnityEngine">
+            <HintPath>libs\UnityEngine.dll</HintPath>
+        </Reference>
+        <Reference Include="Unity.Postprocessing.Runtime">
+            <HintPath>libs\Unity.Postprocessing.Runtime.dll</HintPath>
+        </Reference>
+        <Reference Include="Unity.TextMeshPro">
+            <HintPath>libs\Unity.TextMeshPro.dll</HintPath>
+        </Reference>
+
+        <Reference Include="UnityEngine.AIModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.AIModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.AssetBundleModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.AssetBundleModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.AudioModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.AudioModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.CoreModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.ImageConversionModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.ImageConversionModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.IMGUIModule">
+            <HintPath>libs\UnityEngine.IMGUIModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.InputModule">
+            <HintPath>libs\UnityEngine.InputModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.PhysicsModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.TextRenderingModule">
+            <HintPath>libs\UnityEngine.TextRenderingModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.UI">
+            <HintPath>libs\UnityEngine.UI.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.UnityWebRequestAudioModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.UnityWebRequestModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.UnityWebRequestModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.UnityWebRequestWWWModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+            <HintPath>libs\UnityEngine.UnityWebRequestWWWModule.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include=".editorconfig" />
+    </ItemGroup>
+
+    <!-- 4.x migration: keep SAIN/BigBrain follower-layer path and stop compiling legacy custom brain/receiver/action stack -->
+    <ItemGroup>
+        <Compile Remove="Actions\**\*.cs" />
+        <Compile Remove="Brains\**\*.cs" />
+        <Compile Remove="Layers\**\*.cs" />
+        <Compile Remove="Requests\**\*.cs" />
+
+        <Compile Remove="Components\FollowerAIAgent.cs" />
+        <Compile Remove="Components\FollowerReceiver.cs" />
+        <Compile Remove="Components\FollowerCreateNode.cs" />
+        <Compile Remove="Modules\Receivers.cs" />
+        <Compile Remove="Utils\BotHelpers.cs" />
+
+        <Compile Remove="Patches\BotReceiverPatch.cs" />
+        <Compile Remove="Patches\BotTalkPatch.cs" />
+        <Compile Remove="Patches\GestureMenuPatch.cs" />
+        <Compile Remove="Patches\HearingSensorPatch.cs" />
+        <Compile Remove="Patches\QuickPanelPatch.cs" />
+        <Compile Remove="Patches\BulletImpactPatch.cs" />
+        <Compile Remove="Patches\PlayerPatch.cs" />
+        <Compile Remove="Patches\GrenadeThrowPatch.cs" />
+        <Compile Remove="Patches\DonutsPatch.cs" />
+        <Compile Remove="Patches\SAINPatches.cs" />
+    </ItemGroup>
+
 </Project>

@@ -19,9 +19,9 @@ namespace friendlySAIN.Patches
         }
 
         [PatchPostfix]
-        public static void PatchPostfix(BotHearingSensor __instance, BotOwner ____botOwner, IPlayer player, Vector3 position, float power, AISoundType type)
+        public static void PatchPostfix(BotHearingSensor __instance, IPlayer player, Vector3 position, float power, AISoundType type)
         {
-            BotOwner botOwner_0 = ____botOwner;
+            BotOwner botOwner_0 = __instance.BotOwner;
             // check if enemy is trying to sneak up on the bot - only during combat
             if (type == AISoundType.step)
             {

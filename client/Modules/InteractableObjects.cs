@@ -324,8 +324,8 @@ namespace friendlySAIN.Modules
                         return false;
                     }
 
-                    bot.ItemTaker._thrownItems.Add(Instance._lootItem);
-                    bot.ItemTaker._itemToTake = Instance._lootItem;
+                    bot.ItemTaker.ThrownItems.Add(Instance._lootItem);
+                    bot.ItemTaker.ItemToTake = Instance._lootItem;
 
                     Instance._lootPosition = navMeshHit.position;
 

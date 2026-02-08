@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-using friendlySAIN.Brains;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
 
@@ -256,7 +255,7 @@ namespace friendlySAIN.Utils
                         }
                     }
 
-                    if (bt.Data.Brain.BaseBrain is FollowerBrain)
+                    if (BossPlayers.IsFollower(bt.Data))
                     {
                         var decision = bt.Data.Brain.Agent.LastResult();
 
@@ -270,30 +269,8 @@ namespace friendlySAIN.Utils
                         }
                         else
                         {
-                            string tactic = (bt.Data.Brain.BaseBrain as FollowerBrain).currentTactic;
-                            switch (tactic)
-                            {
-                                case "Guard":
-                                    tactic = friendlySAIN.optionsLang.tacticOptions[1];
-                                    break;
-                                case "Marksman":
-                                    tactic = friendlySAIN.optionsLang.tacticOptions[2];
-                                    break;
-                                case "Defend":
-                                case "Hold":
-                                    tactic = friendlySAIN.optionsLang.tacticOptions[4];
-                                    break;
-                                case "Push":
-                                    tactic = friendlySAIN.optionsLang.tacticOptions[3];
-                                    break;
-                                case "Assist":
-                                    tactic = friendlySAIN.optionsLang.tacticOptions[5];
-                                    break;
-                                default:
-                                    tactic = friendlySAIN.optionsLang.tacticOptions[0];
-                                    break;
-
-                            }
+                            // Custom follower brain tactics are removed in 4.x path.
+                            string tactic = friendlySAIN.optionsLang.tacticOptions[0];
                             if (tactic != null)
                             {
                                 stringBuilder.Append($" | MD: {tactic}");

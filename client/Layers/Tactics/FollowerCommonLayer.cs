@@ -103,7 +103,7 @@ namespace friendlySAIN.Layers.Tactics
 
         private System.Timers.Timer _panicResetTimer;
 
-        private GClass620.Class292 _damageTimer;
+        private GClass641.IBotTimer _damageTimer;
 
         public string coverType = "close";
 

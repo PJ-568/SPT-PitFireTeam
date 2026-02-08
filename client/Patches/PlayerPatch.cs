@@ -10,7 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
-using GestureData = GClass516;
+using GestureData = GClass532;
 
 namespace friendlySAIN.Patches
 {
@@ -18,14 +18,14 @@ namespace friendlySAIN.Patches
     internal class AIDataContructPatch : ModulePatch
     {
 
-        public static Dictionary<string, GClass567> playerAIData = new Dictionary<string, GClass567>();
+        public static Dictionary<string, PlayerAIDataClass> playerAIData = new Dictionary<string, PlayerAIDataClass>();
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Constructor(typeof(GClass567), new Type[] { typeof(BotOwner), typeof(Player) });
+            return AccessTools.Constructor(typeof(PlayerAIDataClass), new Type[] { typeof(BotOwner), typeof(Player) });
         }
         // overwrite AIData to make it use our pitAIBossPlayer
         [PatchPostfix]
-        private static void PatchPostfix(GClass567 __instance, BotOwner owner, Player player)
+        private static void PatchPostfix(PlayerAIDataClass __instance, BotOwner owner, Player player)
         {
             if (owner == null && player != null)
             {
@@ -39,7 +39,7 @@ namespace friendlySAIN.Patches
                         // replace AIBossPlayer with ours
                         if (boss != null)
                         {
-                            var field = AccessTools.Field(typeof(GClass567), "<AIBossPlayer>k__BackingField");
+                            var field = AccessTools.Field(typeof(PlayerAIDataClass), "AibossPlayer_0");
                             field.SetValue(__instance, boss);
                             Logger.LogInfo("Replaced AIBossPlayer in AIData with ours");
                         }

@@ -16,8 +16,8 @@ using static EFT.Player;
 
 using HandEvent = GEventArgs1;
 
-using LauncherSelector = GClass454;
-using WeaponSelector = GClass455;
+using LauncherSelector = GClass466;
+using WeaponSelector = BotWeaponSelector;
 
 namespace friendlySAIN.Brains
 {
@@ -234,7 +234,7 @@ namespace friendlySAIN.Brains
             FollowerAvoidDanger layer = new FollowerAvoidDanger(_owner, 80);
             method_0(4, layer, true);
             // - weapon malfunction
-            GClass115 layer3 = new GClass115(_owner, 88);
+            GClass115 layer3 = new GClass115(_owner, 88, 300f);
             method_0(5, layer3, true);
             // - stay at position in prone mode
             //GClass123 layer8 = new GClass123(_owner, 10, false, CoverLevel.Lay);
@@ -252,9 +252,9 @@ namespace friendlySAIN.Brains
             return "FLBPlayer";
         }
 
-        public override GClass649 EventsPriority()
+        public override GClass671 EventsPriority()
         {
-            return new GClass649(1, 75, 45, 76);
+            return new GClass671(1, 75, 45, 76);
         }
 
         protected virtual void OnDead(EDamageType damageType)

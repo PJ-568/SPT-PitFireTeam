@@ -53,7 +53,7 @@ namespace friendlySAIN.Patches
 
                             bool isBoss = Utils.Props.BossFollowersType.Contains(bot.Profile.Info.Settings.Role);
 
-                            GClass1952 playerVisualization = new GClass1952(new GClass1410
+                            LastPlayerStateClass playerVisualization = new LastPlayerStateClass(new GClass1410
                             {
                                 Level = isBoss ? 60 : info.Level,
                                 MemberCategory = isBoss ? EMemberCategory.Sherpa : ((info.Side != EPlayerSide.Savage) ? info.SelectedMemberCategory : EMemberCategory.Default),

@@ -40,7 +40,7 @@ namespace friendlySAIN.Patches
             if (socialNetworkClass != null && delay < Time.time)
             {
                 delay = Time.time + 2;
-                iChatInteractions.GetFriendsList(new Callback<GClass1023>(socialNetworkClass.method_13));
+                iChatInteractions.GetFriendsList(new Callback<GClass1055>(socialNetworkClass.method_13));
             }
         }
     }
@@ -86,7 +86,7 @@ namespace friendlySAIN.Patches
 
                     foreach (var friend in __instance.FriendsList)
                     {
-                        if (friend._info.Nickname == playerName)
+                        if (friend.Info.Nickname == playerName)
                         {
                             playerToInvite = friend;
                             break;

@@ -18,11 +18,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using BotCreator = BotCreatorClass;
-using IProfileData = GClass663;
+using IProfileData = BotProfileDataClass;
 using ProfileEndPoint = ProfileEndpointFactoryAbstractClass;
 using ProfileEndPointHelper = GClass1392;
-using ProfileResult = GClass1998;
-using spawnPosition = GClass660;
+using ProfileResult = CompleteProfileDescriptorClass;
+using spawnPosition = GClass682;
 
 namespace friendlySAIN.Patches
 {
@@ -81,8 +81,8 @@ namespace friendlySAIN.Patches
             var botGame = botSpawnerClass.BotGame;
 
             var spawnGroups = botSpawnerClass.Groups;
-            var deadBodiesController = botSpawnerClass._deadBodiesController;
-            var allPlayers = botSpawnerClass._allPlayers;
+            var deadBodiesController = botSpawnerClass.DeadBodiesController;
+            var allPlayers = botSpawnerClass.AllPlayers;
 
             bool _freeForAll = true;
 
@@ -263,12 +263,12 @@ namespace friendlySAIN.Patches
             customization["Health"] = friendlySAIN.heatlhMultiplier.Value;
             customization["English"] = friendlySAIN.englishBear.Value;
 
-            var botPresets = AccessTools.Field(typeof(BotCreator), "ginterface21_0").GetValue(botCreator) as BotsPresets;
-            var profileEndpoint = AccessTools.Field(typeof(BotsPresets), "iSession").GetValue(botPresets) as ProfileEndPoint;
+            var botPresets = AccessTools.Field(typeof(BotCreator), "Ginterface21_0").GetValue(botCreator) as BotsPresets;
+            var profileEndpoint = AccessTools.Field(typeof(BotsPresets), "ISession").GetValue(botPresets) as ProfileEndPoint;
             var gclass1200_0 = AccessTools.Field(typeof(ProfileEndPoint), "Gclass1392_0").GetValue(profileEndpoint) as ProfileEndPointHelper;
 
 
-            List<WaveInfoClass> limit = GClass368.OptimizeBotWaves(data.PrepareToLoadBackend(1).ToList(), out var list3); ;
+            List<WaveInfoClass> limit = GClass378.OptimizeBotWaves(data.PrepareToLoadBackend(1).ToList(), out var list3);
 
             // call backend - follow ProfileEndpointFactoryAbstractClass.LoadBots
             ProfileResult[] result;
@@ -305,7 +305,7 @@ namespace friendlySAIN.Patches
                 return null;
             }
 
-            Profile profile = result.Select(new Func<ProfileResult, Profile>(ProfileEndpointFactoryAbstractClass.Class1426.class1426_0.method_10)).ToList<Profile>().Random();
+            Profile profile = result.Select(new Func<ProfileResult, Profile>(ProfileEndpointFactoryAbstractClass.Class1550.class1550_0.method_10)).ToList<Profile>().Random();
             // process backend result
             await Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(PoolManagerClass.PoolsCategory.Raid, PoolManagerClass.AssemblyType.Local, profile.GetAllPrefabPaths(false).ToArray<ResourceKey>(), JobPriorityClass.General, null, PoolManagerClass.DefaultCancellationToken);
 
@@ -321,7 +321,7 @@ namespace friendlySAIN.Patches
             ConcurrentDictionary<string, Profile> profiles = new ConcurrentDictionary<string, Profile>();
 
             var botSpawnerClass = Controller.BotSpawner;
-            var botCreator = botSpawnerClass._botCreator as BotCreator;
+            var botCreator = botSpawnerClass.BotCreator as BotCreator;
 
             EPlayerSide side = player.realPlayer.Side;
             Vector3 position = player.Position;
@@ -407,7 +407,7 @@ namespace friendlySAIN.Patches
 
             var botSpawnerClass = Controller.BotSpawner;
 
-            BotCreator botCreator = botSpawnerClass._botCreator as BotCreator;
+            BotCreator botCreator = botSpawnerClass.BotCreator as BotCreator;
 
             WildSpawnType[] bosses = new WildSpawnType[] { WildSpawnType.bossKnight, WildSpawnType.followerBigPipe, WildSpawnType.followerBirdEye };
 
@@ -458,7 +458,7 @@ namespace friendlySAIN.Patches
             if (Controller == null) return;
 
             var botSpawnerClass = Controller.BotSpawner;
-            BotCreator botCreator = botSpawnerClass._botCreator as BotCreator;
+            BotCreator botCreator = botSpawnerClass.BotCreator as BotCreator;
 
             int memberCount = Utils.SpawnHelper.spawnMemberIdsScav.Count > 0 ? Utils.SpawnHelper.spawnMemberIdsScav.Count : Utils.SpawnHelper.ScavSquadSize;
 
@@ -526,7 +526,7 @@ namespace friendlySAIN.Patches
                 CancelToken token = cancelToken != null ? cancelToken : new CancelToken();
 
                 BotSpawner botSpawnerClass = Controller.BotSpawner;
-                BotCreator botCreator = botSpawnerClass._botCreator as BotCreator;
+                BotCreator botCreator = botSpawnerClass.BotCreator as BotCreator;
 
                 Vector3 position = player.Position;
                 EPlayerSide side = player.Player().Side;
@@ -670,7 +670,7 @@ namespace friendlySAIN.Patches
                                         if (me.Boss.BossLogic != null)
                                             me.Boss.BossLogic.Dispose();
 
-                                        me.Boss.BossLogic = new GClass429(me, me.Boss);
+                                        me.Boss.BossLogic = new GClass440(me, me.Boss);
                                         me.Boss.NeedProtection = false;
                                     }
 
@@ -740,7 +740,7 @@ namespace friendlySAIN.Patches
             CancelToken token = new CancelToken();
 
             BotSpawner botSpawnerClass = Controller.BotSpawner;
-            BotCreator botCreator = botSpawnerClass._botCreator as BotCreator;
+            BotCreator botCreator = botSpawnerClass.BotCreator as BotCreator;
 
             EPlayerSide side = player.Player().Side;
             Vector3 position = player.Position;
@@ -928,8 +928,8 @@ namespace friendlySAIN.Patches
 
                 Modules.Logger.LogInfo("Trying to spawn " + profile.Nickname + " follower");
 
-                int _inSpawnProcess = botSpawnerClass._inSpawnProcess;
-                botSpawnerClass._inSpawnProcess = _inSpawnProcess + 1;
+                int _inSpawnProcess = botSpawnerClass.InSpawnProcess;
+                botSpawnerClass.InSpawnProcess = _inSpawnProcess + 1;
 
                 // activate the bot
                 BossPlayers.ShallBeFollower(profile.AccountId);
@@ -968,8 +968,6 @@ namespace friendlySAIN.Patches
                     new BossPlayers();
                     new InteractableObjects();
                     new NpcMessage();
-                    new Receivers();
-
                     PingTeamates.Enable();
 
                     Props.Reset();
@@ -1219,7 +1217,6 @@ namespace friendlySAIN.Patches
             InteractableObjects.Dispose();
             NpcMessage.Dispose();
             BossPlayers.Dispose();
-            Receivers.Dispose();
 
             BotsControllerPatch.spawnedPlayers.Clear();
             BotsControllerPatch.followerCreationTask.Clear();
@@ -1236,7 +1233,6 @@ namespace friendlySAIN.Patches
             Utils.Utils.FlagsClear();
             Utils.Utils.ValuesClear();
 
-            AIDataContructPatch.playerAIData.Clear();
 
             BotsEventsControllerSpawnPatch.squadSpawned = false;
 

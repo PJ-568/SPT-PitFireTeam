@@ -19,8 +19,8 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(GesturesMenu __instance)
         {
-            var list_0 = (List<GesturesAudioItem>)AccessTools.Field(typeof(GesturesMenu), "list_0").GetValue(__instance);
-            var list_1 = (List<GestureBaseItem>)AccessTools.Field(typeof(GesturesMenu), "list_1").GetValue(__instance);
+            var list_0 = (List<GesturesAudioItem>)AccessTools.Field(typeof(GesturesMenu), "list_1").GetValue(__instance);
+            var list_1 = (List<GestureBaseItem>)AccessTools.Field(typeof(GesturesMenu), "list_2").GetValue(__instance);
 
             list_0.ForEach(item =>
             {

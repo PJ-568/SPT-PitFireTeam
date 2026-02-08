@@ -5,7 +5,7 @@ using EFT.InventoryLogic;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Selector = GClass454;
+using Selector = BotWeaponSelector;
 using StandardBrain = GClass26;
 
 using friendlySAIN.Utils;
