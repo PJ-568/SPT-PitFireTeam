@@ -9,6 +9,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
+
+using EventInfo = BotEventHandler.GClass692;
+using GestusInfo = GClass532;
+
 namespace friendlySAIN.Components
 {
     public class pitAIBossPlayer : AIBossPlayer
@@ -36,6 +40,8 @@ namespace friendlySAIN.Components
         public readonly Player realPlayer;
 
         private List<BotOwner> bossEnemies = new List<BotOwner>();
+        private const float TeamStatusGestureDistance = 23f;
+        private const float ContactLookDistance = 45f;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -151,29 +157,148 @@ namespace friendlySAIN.Components
             _group.CheckAndAddEnemy(enemy);
         }
 
-        public void PhraseSaid(BotEventHandler.GClass692 info)
+        public void PhraseSaid(EventInfo info)
         {
             if (info.PlayerRequester != null && info.PlayerRequester.ProfileId == realPlayer.ProfileId)
             {
                 if (info.phrase == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
                     PingTeamates.Instance.Ping(this);
+                    SignalTeamStatusFollowers();
+                }
+                else if (info.phrase == (EPhraseTrigger)CustomPhrases.OverThere)
+                {
+                    ProcessContactCommand(info.PlayerRequester, true);
                 }
                 else if (info.phrase == EPhraseTrigger.OnRepeatedContact)
                 {
-                    InteractableObjects.CheckSeenEnemies(Player());
+                    ProcessContactCommand(info.PlayerRequester);
                 }
             }
+
+            foreach (var item in Followers)
+            {
+                item?.Receiver?.method_0(info);
+            }
         }
-        public void GestusShown(GClass532 info)
+        public void GestusShown(GestusInfo info)
         {
+            if (info == null) return;
+
             if (info.Player != null && info.Player.ProfileId == realPlayer.ProfileId)
             {
                 if (info.Gesture == (EInteraction)CustomGestures.OverThere)
                 {
-                    InteractableObjects.CheckSeenEnemies(Player());
+                    ProcessContactCommand(info.Player, true);
+
+                    EventInfo overThereInfo = new EventInfo
+                    {
+                        phrase = EPhraseTrigger.OnRepeatedContact,
+                        PlayerRequester = info.Player
+                    };
+
+                    foreach (var item in Followers)
+                    {
+                        if (!CanReactToBossGesture(item, info.Player)) continue;
+                        item?.Receiver?.method_0(overThereInfo);
+                    }
+                    return;
                 }
             }
+
+            foreach (var item in Followers)
+            {
+                item?.Receiver?.method_6(info);
+            }
+        }
+
+        private void SignalTeamStatusFollowers()
+        {
+            Vector3 bossPos = realPlayer.Transform.position;
+
+            foreach (var follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (follower.Memory.HaveEnemy) continue;
+
+                float distSqr = (follower.Position - bossPos).sqrMagnitude;
+                if (distSqr > TeamStatusGestureDistance * TeamStatusGestureDistance) continue;
+
+                follower.Gesture.TryGestus(EInteraction.FriendlyGesture, true);
+
+                // Retry shortly after in case bot was between movement/gesture states.
+                string followerId = follower.ProfileId;
+                Utils.Utils.SetTimeout(() =>
+                {
+                    try
+                    {
+                        BotOwner stillThere = Followers.Find(fl => fl != null && fl.ProfileId == followerId);
+                        if (stillThere == null || stillThere.IsDead || stillThere.BotState != EBotState.Active) return;
+                        if (stillThere.Memory.HaveEnemy) return;
+
+                        float retryDist = (stillThere.Position - realPlayer.Transform.position).sqrMagnitude;
+                        if (retryDist > TeamStatusGestureDistance * TeamStatusGestureDistance) return;
+
+                        stillThere.Gesture.TryGestus(EInteraction.FriendlyGesture, true);
+                    }
+                    catch
+                    {
+                    }
+                }, 250);
+            }
+        }
+
+        private void ProcessContactCommand(IPlayer requester, bool requireGestureVisibility = false)
+        {
+            if (requester == null) return;
+
+            InteractableObjects.CheckSeenEnemies(Player());
+            List<Player> seenEnemies = InteractableObjects.GetSeenEnemies();
+            Vector3 lookTarget = requester.Transform.position + requester.LookDirection.normalized * ContactLookDistance;
+
+            foreach (var follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (requireGestureVisibility && !CanReactToBossGesture(follower, requester)) continue;
+
+                // Make followers orient toward boss reported direction.
+                follower.Steering.LookToPoint(lookTarget);
+
+                if (seenEnemies == null || seenEnemies.Count == 0) continue;
+
+                foreach (Player enemy in seenEnemies)
+                {
+                    if (enemy == null || enemy.ProfileId == follower.ProfileId || enemy.ProfileId == realPlayer.ProfileId) continue;
+
+                    BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.addPlayerToBoss)
+                    {
+                        EnemyLastPosition = enemy.Position
+                    };
+
+                    follower.Memory.AddEnemy(enemy, botSettings, false);
+                }
+            }
+        }
+
+        private bool CanReactToBossGesture(BotOwner follower, IPlayer requester)
+        {
+            if (follower == null || requester == null) return false;
+            if (follower.IsDead || follower.BotState != EBotState.Active) return false;
+
+            float distSqr = (follower.Position - requester.Position).sqrMagnitude;
+            if (distSqr > TeamStatusGestureDistance * TeamStatusGestureDistance) return false;
+
+            if (realPlayer?.MainParts == null || !realPlayer.MainParts.ContainsKey(BodyPartType.head)) return false;
+
+            Vector3 bossHead = realPlayer.MainParts[BodyPartType.head].Position;
+            Vector3 followerFirePos = follower.WeaponRoot.position;
+
+            return Utils.Utils.CanShootToTarget(
+                new ShootPointClass(bossHead, 1),
+                followerFirePos,
+                LayerMaskClass.HighPolyWithTerrainMask,
+                false
+            );
         }
         public new AIBossPlayerLogic GetBossLogic()
         {

@@ -452,7 +452,7 @@ namespace friendlySAIN.Modules
             return botFollowers;
         }
 
-        public static pitAIBossPlayer GetBoss(string name)
+        public static pitAIBossPlayer? GetBoss(string name)
         {
             if (Instance == null) return null;
             return Instance.GetBossPlayer(name);

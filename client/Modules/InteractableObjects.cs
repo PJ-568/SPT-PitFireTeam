@@ -474,7 +474,7 @@ namespace friendlySAIN.Modules
             Instance._closestEnemySeen = null;
             Instance._enemiesSeen.Clear();
 
-            pitAIBossPlayer boss = BossPlayers.GetBoss(player.ProfileId);
+            pitAIBossPlayer? boss = BossPlayers.GetBoss(player.ProfileId);
 
             if (boss == null || boss.bossGroup == null) return;
 
@@ -572,7 +572,7 @@ namespace friendlySAIN.Modules
             }
 
             float dist = Mathf.Infinity;
-            Player closest = null;
+            Player? closest = null;
             foreach (var item in Instance._enemiesSeen)
             {
                 float edist = Vector3.Distance(playerPosition, item.Position);
@@ -648,8 +648,11 @@ namespace friendlySAIN.Modules
                     {
                         try
                         {
-                            var components = AccessTools.Field(typeof(Item), "Components").GetValue(contained) as List<IItemComponent>;
-                            components.Add(new UnlootableComponent(contained, contained.Template));
+                            List<IItemComponent>? components = AccessTools.Field(typeof(Item), "Components").GetValue(contained) as List<IItemComponent>;
+                            if (components != null)
+                            {
+                                components.Add(new UnlootableComponent(contained, contained.Template));
+                            }
                         }
                         catch (Exception ex)
                         {

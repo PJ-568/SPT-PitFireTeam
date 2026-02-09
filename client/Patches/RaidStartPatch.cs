@@ -171,7 +171,7 @@ namespace friendlySAIN.Patches
 
             var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
 
-            string pitConfig = RequestHandler.PostJson("/client/raid/pitconfig", new
+            /* string pitConfig = RequestHandler.PostJson("/client/raid/pitconfig", new
             {
                 Config = new Dictionary<string, object>
                 {
@@ -220,8 +220,8 @@ namespace friendlySAIN.Patches
                     }
                 }
             }
-
-            if (Utils.SpawnHelper.ScavSquadSize < 1) Utils.SpawnHelper.ScavSquad = false;
+ */
+            //if (Utils.SpawnHelper.ScavSquadSize < 1) Utils.SpawnHelper.ScavSquad = false;
 
             if (friendlySAIN.badGuy.Value) Utils.Utils.FlagSet("isBadGuy", true);
             if (friendlySAIN.friendlySAINFLAG.Value) Utils.Utils.FlagSet("friendlySAIN", true);

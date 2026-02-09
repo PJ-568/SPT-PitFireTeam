@@ -145,16 +145,13 @@
         <Compile Remove="Components\FollowerAIAgent.cs" />
         <Compile Remove="Components\FollowerReceiver.cs" />
         <Compile Remove="Components\FollowerCreateNode.cs" />
+        <Compile Remove="FollowerPatrol.cs" />
         <Compile Remove="Modules\Receivers.cs" />
         <Compile Remove="Utils\BotHelpers.cs" />
 
         <Compile Remove="Patches\BotReceiverPatch.cs" />
-        <Compile Remove="Patches\BotTalkPatch.cs" />
-        <Compile Remove="Patches\GestureMenuPatch.cs" />
         <Compile Remove="Patches\HearingSensorPatch.cs" />
-        <Compile Remove="Patches\QuickPanelPatch.cs" />
         <Compile Remove="Patches\BulletImpactPatch.cs" />
-        <Compile Remove="Patches\PlayerPatch.cs" />
         <Compile Remove="Patches\GrenadeThrowPatch.cs" />
         <Compile Remove="Patches\DonutsPatch.cs" />
         <Compile Remove="Patches\SAINPatches.cs" />

@@ -13,6 +13,7 @@ using Newtonsoft.Json;
 
 using friendlySAIN.Modules;
 using friendlySAIN.BigBrain;
+using friendlySAIN.Localization;
 using friendlySAIN.Utils;
 using friendlySAIN.Patches;
 
@@ -173,12 +174,14 @@ namespace friendlySAIN
                 new Modules.Logger();
                 IsSAINInstalled = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey("me.sol.sain");
             }
+            // initialize follower brain layers
+            FollowerLayerRegistry.Init();
 
             var harmony = new Harmony("xyz.pit.friendlysain");
 
             // bot patches to help with various scenarios while being a follower of the player
+            // Temporarily disabled for 4.x stability; revisit once BotsGroup method signatures are remapped.
             new BotGroupAddEnemyPatch().Enable();
-            //new BotsGroupCheckAddPatch().Enable();
             new BotGroupUsecEnemyPatch().Enable();
 
             new BotMemoryDamagePatch().Enable();
@@ -187,56 +190,69 @@ namespace friendlySAIN
             new BotOwnerIsFolowerPatch().Enable();
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
-            FollowerLayerRegistry.Init();
 
+            // recruit/request patches
+            new BotReceiverFollowMeRecruitPatch().Enable();
             new FollowRequestPatch().Enable();
             new HoldRequestPatch().Enable();
 
-            new BotsControllerPatch().Enable();
 
+            // spawn patches
+            new BotsControllerPatch().Enable();
             new BotsControllerStopPatch().Enable();
             new LocalGameCleanupPatch().Enable();
 
-            // spawn patches
             harmony.PatchAll(typeof(LocalGameCtorPatch).Assembly);
             new BotsEventsControllerSpawnPatch().Enable();
             new BossSpawnWaveManagerClassPatch().Enable();
-
-            // Grenade handling is delegated to SAIN.
 
             // patch bot equipment to prevent looting companions
             new UnlootableComponentPatch().Enable();
             new ModRaidModdablePatch().Enable();
             new ItemSpecificationPanelPatch().Enable();
 
-            // raid patches to help with questing, having bots as being friends and part of the same group, and sending config changes to the server
+            // bot misc patches
+            new BotTalkTrySayPatch().Enable();
+            new BotTalkSayPatch().Enable();
+
+            // AIBossPlayer class patch
+            new AIDataContructPatch().Enable();
+
+            // command/request patches
+            new QuickPanelPatch().Enable();
+            new GestureMenuPatch().Enable();
+            new GestureMenuAvailablePhrasesPatch().Enable();
+            new EPhraseTriggerPatch().Enable();
+            new PlayPhraseOrGesturePatch().Enable();
+
+            // Temporarily disable screen/matchmaker patching while focusing on in-raid recruit/follow flow.
             new RaidStartPatch().Enable();
-            new MainMenuControllerPatch().Enable();
-            new MatchmakerPlayerControllerClassAddMemberPatch().Enable();
-            new MatchmakerPlayerControllerClassDisbandGroupPatch().Enable();
-            new MatchmakerPlayerControllerClassAbortPatch().Enable();
-            new MatchmakerPlayerControllerClassLeavePatch().Enable();
-            new MatchMakerAcceptScreenPatch().Enable();
-            new ContextInteractionsPlayerRemovePatch().Enable();
-            new MatchMakerSelectionLocationScreenPatch().Enable();
-            new SelectSpawnPointPatch().Enable();
+            // new MainMenuControllerPatch().Enable();
+            // new MatchmakerPlayerControllerClassAddMemberPatch().Enable();
+            // new MatchmakerPlayerControllerClassDisbandGroupPatch().Enable();
+            // new MatchmakerPlayerControllerClassAbortPatch().Enable();
+            // new MatchmakerPlayerControllerClassLeavePatch().Enable();
+            // new MatchMakerAcceptScreenPatch().Enable();
+            // new ContextInteractionsPlayerRemovePatch().Enable();
+            // new MatchMakerSelectionLocationScreenPatch().Enable();
+            // new SelectSpawnPointPatch().Enable();
 
-            // transit paches
-            new TransitPointPatch().Enable();
-            new MatchmakerTimeHasComeShowPatch().Enable();
+            // transit patches
+            // new TransitPointPatch().Enable();
+            // new MatchmakerTimeHasComeShowPatch().Enable();
 
-            new ConditionCounterPatch().Enable();
+            //new ConditionCounterPatch().Enable();
 
-            // social related patches to help with refreshing the list of friends when a quest is completed
-            new SocialNetworkClassPatch().Enable();
-            new SocialNetworkClassSendPatch().Enable();
-            new QuestClassPatch().Enable();
+            // social/screen related patches disabled for now
+            // new SocialNetworkClassPatch().Enable();
+            // new SocialNetworkClassSendPatch().Enable();
+            // new QuestClassPatch().Enable();
 
             // set configuration manager
             SetConfiguration();
 
-            new OtherPlayerProfileScreenPatch().Enable();
-            new OtherPlayerProfileScreenClosePatch().Enable();
+            // new OtherPlayerProfileScreenPatch().Enable();
+            // new OtherPlayerProfileScreenClosePatch().Enable();
 
             // SAIN/Donuts patches disabled (handled by SAIN)
         }
@@ -244,12 +260,8 @@ namespace friendlySAIN
 
         private void GetLanguage()
         {
-            string json = RequestHandler.GetJson("/singleplayer/pitlang");
-
-
-            var language = Json.Deserialize<LanguageOptions>(json);
-
-            optionsLang = language;
+            // Temporary no-BE default. Replace with BE language route when backend is reintroduced.
+            optionsLang = TempEnglishLanguageProvider.Create();
         }
         private void ConfigSet()
         {

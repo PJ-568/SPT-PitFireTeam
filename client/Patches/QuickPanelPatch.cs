@@ -26,7 +26,7 @@ namespace friendlySAIN.Patches
                 try
                 {
                     // original
-                    LootItem lootItem = player.InteractableObject as LootItem;
+                    LootItem? lootItem = player.InteractableObject as LootItem;
                     bool flag = lootItem != null && lootItem.ItemOwner.RootItem.GetItemComponent<KeyComponent>() != null;
                     bool flag2 = lootItem != null && lootItem.ItemOwner.RootItem is MoneyItemClass;
                     bool flag3 = lootItem != null && (lootItem.ItemOwner.RootItem is Weapon || lootItem.ItemOwner.RootItem.GetItemComponent<KnifeComponent>() != null);
@@ -41,7 +41,7 @@ namespace friendlySAIN.Patches
                     __instance.method_7(EPhraseTrigger.LootWeapon, flag3);
                     __instance.method_7(EPhraseTrigger.LootGeneric, lootItem != null && !flag && !flag2 && !flag3);
                     // modification here - disable loot body and loot container command
-                    Corpse corpse = player.InteractableObject as Corpse;
+                    Corpse? corpse = player.InteractableObject as Corpse;
                     __instance.method_7(EPhraseTrigger.LootBody, false);
                     __instance.method_7(EPhraseTrigger.CheckHim, false);
                     __instance.method_7(EPhraseTrigger.LootContainer, false);
@@ -53,12 +53,15 @@ namespace friendlySAIN.Patches
                 }
 
                 // modification here - open door command
-                Door door = player.InteractableObject as Door;
+                Door? door = player.InteractableObject as Door;
                 try
                 {
-                    InteractableObjects.SetCurDoor(door);
-
-                    __instance.method_7(EPhraseTrigger.OpenDoor, door != null);
+                    bool canOpen = door != null && door.DoorState != EDoorState.Open;
+                    if (door != null && canOpen)
+                    {
+                        InteractableObjects.SetCurDoor(door);
+                    }
+                    __instance.method_7(EPhraseTrigger.OpenDoor, canOpen);
                 }
                 catch (Exception e)
                 {

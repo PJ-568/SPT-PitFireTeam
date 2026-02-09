@@ -1,4 +1,5 @@
 ﻿using EFT;
+using friendlySAIN.BigBrain;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using HarmonyLib;
@@ -57,10 +58,13 @@ namespace friendlySAIN.Patches
                 // allow player to request a BOT to follow him
                 if (player.Side == posibleExecuter.Side)
                 {
+                    Utils.SpawnHelper.EnsureRecruitDefaults();
+
                     bool canPickup = false;
                     List<Components.BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(player.ProfileId);
-                    int pickLimit = Utils.SpawnHelper.Pickups + followers.FindAll(f => f.IsSquadMate).Count;
-                    int hardPickupLimit = Math.Min(10, Utils.SpawnHelper.Pickups);
+                    int configuredPickups = Math.Max(1, Utils.SpawnHelper.Pickups);
+                    int pickLimit = configuredPickups + followers.FindAll(f => f.IsSquadMate).Count;
+                    int hardPickupLimit = Math.Min(10, configuredPickups);
                     int currentPickups = followers.FindAll(f => !f.IsSquadMate).Count;
                     // if restrictions are enabled
                     if (Utils.SpawnHelper.Restrictions && pickLimit > 0)
@@ -127,6 +131,8 @@ namespace friendlySAIN.Patches
                     {
                         if (BossPlayers.AddFollower(posibleExecuter, playerBoss) != null)
                         {
+                            FollowerLayerRegistry.EnsureRegisteredForBot(posibleExecuter);
+
                             // - bot signals "OK"
                             Utils.Utils.SetTimeout(() =>
                             {

@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using UnityEngine;
 
 namespace friendlySAIN.Patches
 {
@@ -14,7 +15,7 @@ namespace friendlySAIN.Patches
     {
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(BotsGroup), "method_0");
+            return AccessTools.Method(typeof(BotsGroup), "method_1");
 
         }
         [PatchPrefix]
@@ -33,6 +34,8 @@ namespace friendlySAIN.Patches
 
     internal class BotGroupAddEnemyPatch : ModulePatch
     {
+        private const float FollowerGroupEnemyAcquireMaxDistanceSqr = 90f * 90f;
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(BotsGroup), "AddEnemy");
@@ -42,14 +45,14 @@ namespace friendlySAIN.Patches
         private static bool PatchPrefix(BotsGroup __instance, ref bool __result, IPlayer person, EBotEnemyCause cause)
         {
             if (person == null || (person.IsAI && person.AIData?.BotOwner?.GetPlayer == null)) return true;
-            if (new EBotEnemyCause[] { EBotEnemyCause.addPlayerToBoss, EBotEnemyCause.checkAddTODO }.Contains(cause)) return true;
+            if (cause == EBotEnemyCause.addPlayerToBoss) return true;
 
 
             bool isBossPlayerGroup = __instance is BotsGroupPlayer;
 
-            pitAIBossPlayer plBoss = BossPlayers.GetBoss(person.ProfileId);
+            pitAIBossPlayer? plBoss = BossPlayers.GetBoss(person.ProfileId);
 
-            BotsGroup bossGroup = plBoss != null ? plBoss.bossGroup : null;
+            BotsGroup? bossGroup = plBoss != null ? plBoss.bossGroup : null;
 
             bool isInitialCause = new EBotEnemyCause[] { EBotEnemyCause.initial, EBotEnemyCause.AddNewMember, EBotEnemyCause.warn, EBotEnemyCause.addBotNoGroup }.Contains(cause);
 
@@ -122,6 +125,29 @@ namespace friendlySAIN.Patches
             // from this point if this is not the player boss group, allow adding enemies
             if (!isBossPlayerGroup) return true;
 
+            // Followers must ignore BTR targets/causes.
+            if (cause == EBotEnemyCause.attackBTR || cause == EBotEnemyCause.serviceBTR)
+            {
+                __result = false;
+                return false;
+            }
+
+            WildSpawnType? personRole = person.Profile?.Info?.Settings?.Role;
+            if (personRole == WildSpawnType.shooterBTR)
+            {
+                __result = false;
+                return false;
+            }
+
+            // For follower groups, prevent "omniscient" enemy acquisition:
+            // apply this only to soft/propagated causes. High-confidence/direct causes are allowed.
+            bool shouldGateByAwareness = RequiresAwarenessGate(cause);
+            if (shouldGateByAwareness && !HasGroupEnemyContact(__instance, person) && !IsEnemyNearGroup(__instance, person))
+            {
+                __result = false;
+                return false;
+            }
+
             // prevent followers from adding teammates
             if (__instance.Members.Any(x => x.ProfileId == person.ProfileId))
             {
@@ -134,8 +160,6 @@ namespace friendlySAIN.Patches
                 __result = false;
                 return false;
             }
-
-            WildSpawnType? personRole = person.Profile?.Info?.Settings?.Role;
 
             // prevent followers group from adding friendly bots as enemies
             if (
@@ -172,6 +196,81 @@ namespace friendlySAIN.Patches
 
             return true;
         }
+
+        private static bool RequiresAwarenessGate(EBotEnemyCause cause)
+        {
+            switch (cause)
+            {
+                // Direct/aggressive causes: let these pass immediately.
+                case EBotEnemyCause.byKill:
+                case EBotEnemyCause.followGetHit:
+                case EBotEnemyCause.addPlayer:
+                case EBotEnemyCause.callBot:
+                case EBotEnemyCause.gifterKill:
+                case EBotEnemyCause.bossKillArena:
+                case EBotEnemyCause.KillaSyncTagilla:
+                case EBotEnemyCause.tagillaFindENemy:
+                case EBotEnemyCause.fuckGestus:
+                case EBotEnemyCause.pmcBossKill:
+                case EBotEnemyCause.christmas:
+                case EBotEnemyCause.synWithKilla:
+                case EBotEnemyCause.ravangeZryachiy:
+                case EBotEnemyCause.partisanBadKarma:
+                case EBotEnemyCause.attackBTR:
+                case EBotEnemyCause.tagillaAlarm:
+                case EBotEnemyCause.MarkOfUnknowsDist:
+                case EBotEnemyCause.zryachiyLogic:
+                case EBotEnemyCause.pairLogic:
+                    return false;
+            }
+
+            // Soft/ambient/group propagation causes must pass awareness check.
+            return true;
+        }
+
+        private static bool HasGroupEnemyContact(BotsGroup group, IPlayer enemy)
+        {
+            if (group == null || enemy == null) return false;
+
+            for (int i = 0; i < group.MembersCount; i++)
+            {
+                BotOwner member = group.Member(i);
+                if (member == null) continue;
+
+                if (member.EnemiesController != null &&
+                    member.EnemiesController.EnemyInfos != null &&
+                    member.EnemiesController.EnemyInfos.TryGetValue(enemy, out EnemyInfo info) &&
+                    info != null)
+                {
+                    if (info.IsVisible || info.HaveSeen || Time.time - info.PersonalLastSeenTime < 3f)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsEnemyNearGroup(BotsGroup group, IPlayer enemy)
+        {
+            if (group == null || enemy == null) return false;
+
+            Vector3 enemyPos = enemy.Position;
+            for (int i = 0; i < group.MembersCount; i++)
+            {
+                BotOwner member = group.Member(i);
+                if (member == null) continue;
+
+                if ((member.Position - enemyPos).sqrMagnitude <= FollowerGroupEnemyAcquireMaxDistanceSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /**
          * Whoever makes the player or his followers an enemy will become the enemy of the player's boss group (BTR is the exception)
          */

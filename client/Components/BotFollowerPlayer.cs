@@ -24,8 +24,8 @@ namespace friendlySAIN.Components
 
         protected bool _IsSquadMate = false;
 
-        protected string _grouId;
-        protected string _teamId;
+        protected string _grouId = "";
+        protected string _teamId = "";
 
         public bool IsSquadMate
         {
@@ -37,6 +37,15 @@ namespace friendlySAIN.Components
 
 
         protected WildSpawnType _botRole;
+        protected bool _canPatrol = false;
+
+        public bool CanPatrol
+        {
+            get
+            {
+                return _canPatrol;
+            }
+        }
 
         public BotFollowerPlayer(BotOwner bot, pitAIBossPlayer player, bool isSquad = false, WildSpawnType botRole = WildSpawnType.assault)
         {
@@ -54,27 +63,36 @@ namespace friendlySAIN.Components
 
         public virtual void Init()
         {
+            _canPatrol = false;
+            bool wasLootLayer = false;
 
             // force current layer to trigger end decision
             try
             {
-                AccessTools.Field(typeof(BaseLogicLayerAbstractClass), "Bool_1").SetValue(_bot.Brain.BaseBrain.CurLayerInfo, true);
+                var currentLayer = _bot.Brain?.BaseBrain?.CurLayerInfo;
+                string currentLayerName = currentLayer?.Name();
+
+                if (currentLayer is BaseLogicLayerSimpleAbstractClass simpleLayer)
+                {
+                    simpleLayer.CalcActionNextFrame();
+                }
+                else if (currentLayer is BaseLogicLayerAbstractClass baseLayer)
+                {
+                    baseLayer.Bool_1 = true;
+                }
             }
             catch { }
 
-            var baseBrain = _bot.Brain.BaseBrain;
-            // guess work because we cannot access the private property dictionary_0 where the layers are, but no brain has 20 layers, usually it's 10
-            for (int i = 1; i < 20; i++)
+            // clear movement/task state so next brain update can switch control cleanly
+            try
             {
-                try
-                {
-                    if (baseBrain != null) baseBrain.method_3(i);
-                }
-                catch (Exception)
-                {
-
-                }
+                _bot.StopMove();
+                _bot.GoToSomePointData.UpdateToGo(false);
+                _bot.PatrollingData.Pause();
+                _bot.Brain?.BaseBrain?.CalcActionNextFrame();
             }
+            catch { }
+
 
             // bot might be following someone, reset that
             if (_bot.BotFollower.HaveBoss)
@@ -86,6 +104,7 @@ namespace friendlySAIN.Components
             if (_bot.BotRequestController.CurRequest != null)
             {
                 _bot.BotRequestController.CurRequest.Complete();
+                _bot.BotRequestController.CurRequest = null;
             }
             // bot might have an enemy in his mind, clear it
             if (_bot.Memory.HaveEnemy)
@@ -94,7 +113,7 @@ namespace friendlySAIN.Components
             }
 
             // remove looting brain, if present
-            if (Chainloader.PluginInfos.ContainsKey("me.skwizzy.lootingbots"))
+            /*if (Chainloader.PluginInfos.ContainsKey("me.skwizzy.lootingbots"))
             {
                 Type lootingBrain = Type.GetType("LootingBots.Patch.Components.LootingBrain, skwizzy.LootingBots");
 
@@ -110,10 +129,10 @@ namespace friendlySAIN.Components
                 {
                     Modules.Logger.LogInfo("Looting brain not found");
                 }
-            }
+            }*/
 
             // followers should not be questing, so stop it (if questing mod is present)
-            Type questingBrain = Type.GetType("SPTQuestingBots.Components.BotObjectiveManager, SPTQuestingBots");
+           /* Type questingBrain = Type.GetType("SPTQuestingBots.Components.BotObjectiveManager, SPTQuestingBots");
             if (questingBrain != null && _bot.GetPlayer.gameObject.TryGetComponent(questingBrain, out var questingComponent))
             {
                 try
@@ -127,7 +146,7 @@ namespace friendlySAIN.Components
                     Modules.Logger.LogError("Failed to stop questing");
                     Modules.Logger.LogError(ex);
                 }
-            }
+            }*/
 
             /// reset bot animation stances
             _bot.GetPlayer.MovementContext.SetPatrol(false);
@@ -135,7 +154,6 @@ namespace friendlySAIN.Components
 
             // add special follower settings
             SetFollowerSettings(_bot);
-            // Keep the original receiver/brain/agent to avoid conflicts with SAIN and other AI mods.
             // let the bot talk
             _bot.BotTalk.SetSilence(0f);
             // force bot to turn off light
@@ -567,8 +585,15 @@ namespace friendlySAIN.Components
 
         protected void AddExtraAmmo()
         {
-            InventoryController inventory = GetInventoryController();
-            SearchableItemItemClass secureContainer;
+            InventoryController? inventory = GetInventoryController();
+            
+            if(inventory == null)
+            {
+                Modules.Logger.LogError("Cannot access inventory of bot, extra ammo will not be added");
+                return;
+            }
+
+            SearchableItemItemClass? secureContainer;
 
             try
             {
@@ -589,7 +614,7 @@ namespace friendlySAIN.Components
             StashGridClass stashGridClass = secureContainer.Grids.FirstOrDefault();
             if (stashGridClass == null) return;
 
-            Weapon weapon = _bot.AIData?.Player?.HandsController?.Item as Weapon;
+            Weapon? weapon = _bot.AIData?.Player?.HandsController?.Item as Weapon;
             if (weapon == null)
             {
                 Modules.Logger.LogError("Bot has no weapon to add ammo");
@@ -617,7 +642,7 @@ namespace friendlySAIN.Components
             }
         }
 
-        private InventoryController GetInventoryController()
+        private InventoryController? GetInventoryController()
         {
             return _bot?.GetPlayer?.InventoryController;
         }
@@ -721,5 +746,11 @@ namespace friendlySAIN.Components
             }
             // @TODO : see what else can be reverted
         }
+
+        public void SetCanPatrol(bool value)
+        {
+            _canPatrol = value;
+        }
+
     }
 }
