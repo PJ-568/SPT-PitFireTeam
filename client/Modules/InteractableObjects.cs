@@ -72,7 +72,7 @@ namespace friendlySAIN.Modules
 
             if (flatItems != null && flatItems.Any())
             {
-                RequestHandler.PutJson("/singleplayer/returnitems", new
+                RequestHandler.PostJson("/singleplayer/returnitems", new
                 {
                     items = flatItems,
                 }.ToJson(_defaultJsonConverters));

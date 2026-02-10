@@ -38,6 +38,7 @@ namespace friendlySAIN.Components
 
         protected WildSpawnType _botRole;
         protected bool _canPatrol = false;
+        private bool _peaceChangeHooked = false;
 
         public bool CanPatrol
         {
@@ -64,12 +65,16 @@ namespace friendlySAIN.Components
         public virtual void Init()
         {
             _canPatrol = false;
-            bool wasLootLayer = false;
-
+            var baseBrain = _bot.Brain.BaseBrain;
+            if(baseBrain == null)
+            {
+                Modules.Logger.LogError("BaseBrain is null for " + _bot.Profile.Nickname);
+                return;
+            }
             // force current layer to trigger end decision
             try
             {
-                var currentLayer = _bot.Brain?.BaseBrain?.CurLayerInfo;
+                var currentLayer = baseBrain.CurLayerInfo;
                 string currentLayerName = currentLayer?.Name();
 
                 if (currentLayer is BaseLogicLayerSimpleAbstractClass simpleLayer)
@@ -81,17 +86,61 @@ namespace friendlySAIN.Components
                     baseLayer.Bool_1 = true;
                 }
             }
-            catch { }
-
-            // clear movement/task state so next brain update can switch control cleanly
-            try
+            catch(Exception ex)
             {
-                _bot.StopMove();
-                _bot.GoToSomePointData.UpdateToGo(false);
-                _bot.PatrollingData.Pause();
-                _bot.Brain?.BaseBrain?.CalcActionNextFrame();
+                Modules.Logger.LogError("Error while trying to deactivate vanilla layers");
+                Modules.Logger.LogError(ex);
             }
-            catch { }
+
+            // deactive current layer to prevent conflicts with our layers, if any
+            if (baseBrain != null && baseBrain.CurLayerInfo != null && baseBrain.CurLayerInfo.IsActive)
+            {
+                string name = baseBrain.CurLayerInfo.Name();
+                _bot.Brain.Agent.Deactivate(name);
+                baseBrain.CurLayerInfo.IsActive = false;
+            }
+            /* try
+            {
+
+                _bot.PatrollingData.LootData.SetTargetLootCluster(null);
+
+                var currentLayer = _bot.Brain?.BaseBrain?.CurLayerInfo;
+                string currentLayerName = currentLayer?.Name();
+
+                if (
+                    currentLayer != null &&
+                    (
+                        currentLayer.GetType().Name == "GClass117" ||
+                        (!string.IsNullOrEmpty(currentLayerName) && currentLayerName.IndexOf("LootPatrol", StringComparison.OrdinalIgnoreCase) >= 0)
+                    )
+                )
+                {
+                    TryDeactivateLootPatrolLayer();
+                }
+
+                if (
+                    currentLayer != null &&
+                    (
+                        currentLayer.GetType().Name == "GClass139" ||
+                        (!string.IsNullOrEmpty(currentLayerName) && currentLayerName.StartsWith("PcReq:", StringComparison.OrdinalIgnoreCase))
+                    )
+                )
+                {
+                    TryDeactivateFollowRequestLayer();
+                }
+
+                _bot.Brain?.BaseBrain?.Dictionary_0.ExecuteForEach(item =>
+                {
+                    var layer = item.Value;
+                    if (layer == null) return;
+                    _bot.Brain.BaseBrain.Gclass32_0.Deactivate(layer.Name());
+                });
+            }
+            catch(Exception ex)
+            {
+                Modules.Logger.LogError("Error while trying to deactivate vanilla layers");
+                Modules.Logger.LogError(ex);
+            } */
 
 
             // bot might be following someone, reset that
@@ -160,6 +209,8 @@ namespace friendlySAIN.Components
             if (_bot.BotLight != null && _bot.BotLight.IsEnable) _bot.BotLight.TurnOff(false, true);
             // make bot follower of player
             _player.AddFollower(_bot);
+
+            HookPeaceChange();
 
             bool isPickedUp = !_IsSquadMate && (_player.bossGroup == null || _player.bossGroup.Id != _bot.BotsGroup.Id);
 
@@ -744,12 +795,109 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogInfo("Error on dismiss for a follower: " + ex.Message);
                 Modules.Logger.LogInfo(ex.StackTrace);
             }
+            finally
+            {
+                UnhookPeaceChange();
+            }
             // @TODO : see what else can be reverted
         }
 
         public void SetCanPatrol(bool value)
         {
             _canPatrol = value;
+        }
+        /** Ensure vanilla patrolling is not conflicting with our layers */
+        private void HookPeaceChange()
+        {
+            if (_peaceChangeHooked) return;
+            if (_bot?.Memory == null) return;
+            _bot.Memory.OnPeaceChange += OnPeaceChange;
+            _peaceChangeHooked = true;
+        }
+
+        private void UnhookPeaceChange()
+        {
+            if (!_peaceChangeHooked) return;
+            if (_bot?.Memory == null) return;
+            _bot.Memory.OnPeaceChange -= OnPeaceChange;
+            _peaceChangeHooked = false;
+        }
+
+        private void OnPeaceChange(bool isPeace)
+        {
+            _bot?.PatrollingData?.Pause();
+        }
+
+        private void TryDeactivateLootPatrolLayer()
+        {
+            try
+            {
+                var brain = _bot?.Brain?.BaseBrain;
+                if (brain == null) return;
+
+                var dictField = AccessTools.Field(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "Dictionary_0");
+                var layers = dictField?.GetValue(brain) as Dictionary<int, AICoreLayerClass<BotLogicDecision>>;
+                if (layers == null) return;
+
+                int? lootLayerIndex = null;
+                foreach (var kvp in layers)
+                {
+                    if (kvp.Value == null) continue;
+                    if (kvp.Value.GetType().Name == "GClass117")
+                    {
+                        lootLayerIndex = kvp.Key;
+                        break;
+                    }
+                }
+
+                if (!lootLayerIndex.HasValue) return;
+
+                AccessTools.Method(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "method_3")
+                    ?.Invoke(brain, new object[] { lootLayerIndex.Value });
+
+                Modules.Logger.LogInfo($"Disabled LootPatrol layer index {lootLayerIndex.Value} for recruited follower {_bot.Profile.Nickname}");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to disable LootPatrol layer on recruit");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private void TryDeactivateFollowRequestLayer()
+        {
+            try
+            {
+                var brain = _bot?.Brain?.BaseBrain;
+                if (brain == null) return;
+
+                var dictField = AccessTools.Field(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "Dictionary_0");
+                var layers = dictField?.GetValue(brain) as Dictionary<int, AICoreLayerClass<BotLogicDecision>>;
+                if (layers == null) return;
+
+                int? followLayerIndex = null;
+                foreach (var kvp in layers)
+                {
+                    if (kvp.Value == null) continue;
+                    if (kvp.Value.GetType().Name == "GClass139")
+                    {
+                        followLayerIndex = kvp.Key;
+                        break;
+                    }
+                }
+
+                if (!followLayerIndex.HasValue) return;
+
+                AccessTools.Method(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "method_3")
+                    ?.Invoke(brain, new object[] { followLayerIndex.Value });
+
+                Modules.Logger.LogInfo($"Disabled follow request layer index {followLayerIndex.Value} for recruited follower {_bot.Profile.Nickname}");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to disable follow request layer on recruit");
+                Modules.Logger.LogError(ex);
+            }
         }
 
     }

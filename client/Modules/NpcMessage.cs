@@ -149,10 +149,10 @@ namespace friendlySAIN.Modules
 
             var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
 
-            RequestHandler.PutJson("/singleplayer/teamescaped", new
+            /* RequestHandler.PostJson("/singleplayer/teamescaped", new
             {
                 member = info,
-            }.ToJson(_defaultJsonConverters));
+            }.ToJson(_defaultJsonConverters)); */
         }
 
         public static void Flush()

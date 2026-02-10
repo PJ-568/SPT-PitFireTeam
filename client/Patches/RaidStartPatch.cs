@@ -311,7 +311,7 @@ namespace friendlySAIN.Patches
         {
             MainMenuControllerPatch.GroupPlayers.Clear();
 
-            RequestHandler.GetJson("/client/raid/pitabort");
+            /* RequestHandler.GetJson("/client/raid/pitabort"); */
         }
     }
     /**

@@ -44,13 +44,13 @@ namespace friendlySAIN
 
     public enum CustomPhrases
     {
-        TeamStatus = 200,
-        OverThere = 201,
+        TeamStatus = 300,
+        OverThere = 301,
     }
 
     public enum CustomGestures
     {
-        OverThere = 201,
+        OverThere = 301,
     }
 
     public class LanguageOptions

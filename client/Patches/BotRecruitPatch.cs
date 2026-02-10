@@ -56,28 +56,25 @@ namespace friendlySAIN.Patches
             if (!accepted)
             {
                 botOwner.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
+                botOwner.Gesture.TryGestus(EInteraction.NoGesture, true);
+            } else
+            {
+                botOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                botOwner.Gesture.TryGestus(EInteraction.OkGesture, true);
             }
 
             // Request was handled by the mod flow, suppress vanilla duplicate processing.
             return false;
         }
 
-        private static EPhraseTrigger? ReadPhrase(EventInfo info)
+        private static EPhraseTrigger ReadPhrase(EventInfo info)
         {
-            object? value =
-                AccessTools.Field(info.GetType(), "phrase")?.GetValue(info) ??
-                AccessTools.Field(info.GetType(), "Phrase")?.GetValue(info);
-
-            if (value is EPhraseTrigger phrase) return phrase;
-            return null;
+            return info.phrase;
         }
 
         private static IPlayer ReadRequester(EventInfo info)
         {
-            return
-                AccessTools.Field(info.GetType(), "PlayerRequester")?.GetValue(info) as IPlayer ??
-                AccessTools.Field(info.GetType(), "playerRequester")?.GetValue(info) as IPlayer ??
-                AccessTools.Field(info.GetType(), "Player")?.GetValue(info) as IPlayer;
+            return info.PlayerRequester;
         }
     }
 }

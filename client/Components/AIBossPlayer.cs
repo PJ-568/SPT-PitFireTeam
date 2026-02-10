@@ -40,7 +40,7 @@ namespace friendlySAIN.Components
         public readonly Player realPlayer;
 
         private List<BotOwner> bossEnemies = new List<BotOwner>();
-        private const float TeamStatusGestureDistance = 23f;
+        private const float TeamStatusGestureDistance = 15f;
         private const float ContactLookDistance = 45f;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
@@ -224,27 +224,7 @@ namespace friendlySAIN.Components
                 float distSqr = (follower.Position - bossPos).sqrMagnitude;
                 if (distSqr > TeamStatusGestureDistance * TeamStatusGestureDistance) continue;
 
-                follower.Gesture.TryGestus(EInteraction.FriendlyGesture, true);
-
-                // Retry shortly after in case bot was between movement/gesture states.
-                string followerId = follower.ProfileId;
-                Utils.Utils.SetTimeout(() =>
-                {
-                    try
-                    {
-                        BotOwner stillThere = Followers.Find(fl => fl != null && fl.ProfileId == followerId);
-                        if (stillThere == null || stillThere.IsDead || stillThere.BotState != EBotState.Active) return;
-                        if (stillThere.Memory.HaveEnemy) return;
-
-                        float retryDist = (stillThere.Position - realPlayer.Transform.position).sqrMagnitude;
-                        if (retryDist > TeamStatusGestureDistance * TeamStatusGestureDistance) return;
-
-                        stillThere.Gesture.TryGestus(EInteraction.FriendlyGesture, true);
-                    }
-                    catch
-                    {
-                    }
-                }, 250);
+                follower.Gesture.TryGestus(EInteraction.FriendlyGesture, false);
             }
         }
 
@@ -430,14 +410,9 @@ namespace friendlySAIN.Components
             // dispose of the original patrol mode
             bot.BotFollower.PatrolDataFollower.InitPlayer(realPlayer);
 
-            bot.BotFollower.Index = Followers.Count - 1;
-            bot.BotFollower.BossToFollow = this;
-
-            PatrolMode mode = PatrolMode.follower;
-            PatrolMode mode2 = PatrolMode.simple;
-
-            PatrolPointChooserBasic pointChooser = PatrollingData.GetPointChooser(bot, mode2, bot.SpawnProfileData);
-            bot.PatrollingData.SetMode(mode, pointChooser);
+            bot.BotFollower.SetToFollow(this,Followers.Count - 1);
+            bot.PatrollingData.Pause();
+            bot.PatrollingData.Disable();
         }
     }
     public class AIBossPlayerLogic : GClass430

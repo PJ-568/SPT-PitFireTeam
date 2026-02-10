@@ -330,10 +330,10 @@ namespace friendlySAIN.Modules
 
             if (toRecruit.Count > 0)
             {
-                RequestHandler.PostJson("/client/game/bot/recruit", new
+                /* RequestHandler.PostJson("/client/game/bot/recruit", new
                 {
                     Ids = toRecruit.ToArray()
-                }.ToJson(_defaultJsonConverters));
+                }.ToJson(_defaultJsonConverters)); */
 
             }
         }

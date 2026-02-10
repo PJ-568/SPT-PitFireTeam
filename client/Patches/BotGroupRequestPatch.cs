@@ -131,8 +131,7 @@ namespace friendlySAIN.Patches
                     {
                         if (BossPlayers.AddFollower(posibleExecuter, playerBoss) != null)
                         {
-                            FollowerLayerRegistry.EnsureRegisteredForBot(posibleExecuter);
-
+                            
                             // - bot signals "OK"
                             Utils.Utils.SetTimeout(() =>
                             {

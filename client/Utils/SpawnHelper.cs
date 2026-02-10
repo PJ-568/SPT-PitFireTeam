@@ -5,7 +5,7 @@ namespace friendlySAIN.Utils
 {
     internal class SpawnHelper
     {
-        public const int DefaultPickups = 3;
+        public const int DefaultPickups = 2;
         public const bool DefaultRestrictions = false;
 
         public static readonly List<string> spawnMemberIds = new List<string>();

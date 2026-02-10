@@ -130,7 +130,7 @@ namespace friendlySAIN.Patches
                 return false;
             }
             // fix for 0.15+ not triggering the gesture shown event when it comes from the boss
-            if (boss != null && actionId <= 9)
+            /* if (boss != null && actionId <= 9)
             {
 
                 boss.Followers.ForEach(follower =>
@@ -141,7 +141,7 @@ namespace friendlySAIN.Patches
                         Player = boss.Player()
                     });
                 });
-            }
+            } */
 
             return true;
         }

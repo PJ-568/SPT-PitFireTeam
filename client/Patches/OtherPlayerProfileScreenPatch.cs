@@ -249,7 +249,7 @@ namespace friendlySAIN.Patches
 
             var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
 
-            RequestHandler.PutJson("/client/game/bot/followersuit", new
+            RequestHandler.PostJson("/client/game/bot/followersuit", new
             {
                 aid = viewedProfile.AccountId,
                 suit = new String[] { viewedProfile.Customization[EBodyModelPart.Body], viewedProfile.Customization[EBodyModelPart.Feet] }
