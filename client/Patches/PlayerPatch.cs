@@ -108,22 +108,10 @@ namespace friendlySAIN.Patches
                         Player = __instance.Player
                     };
 
-                    if (__instance.Player.HandsController is Player.FirearmController)
-                    {
+                    boss?.GestusShown(data);
 
-
-
-                        boss?.GestusShown(data);
-
-
-                        (__instance.Player.HandsController as Player.FirearmController).CurrentOperation.ShowGesture(EInteraction.ThereGesture);
-
-                    }
-                    else if (__instance.Player.HandsIsEmpty)
-                    {
-
-                        boss?.GestusShown(data);
-                    }
+                    // Use hands controller directly for player gestures.
+                    __instance.Player.HandsController.ShowGesture(EInteraction.ThereGesture);
                 }
 
 

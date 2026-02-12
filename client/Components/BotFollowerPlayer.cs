@@ -11,6 +11,7 @@ using System.Reflection;
 using UnityEngine;
 
 using friendlySAIN.Modules;
+using DrakiaXYZ.BigBrain.Brains;
 using friendlySAIN.Patches;
 
 namespace friendlySAIN.Components
@@ -26,6 +27,8 @@ namespace friendlySAIN.Components
 
         protected string _grouId = "";
         protected string _teamId = "";
+
+        protected List<AICoreLayerClass<BotLogicDecision>> vanillaLayers;
 
         public bool IsSquadMate
         {
@@ -65,26 +68,17 @@ namespace friendlySAIN.Components
         public virtual void Init()
         {
             _canPatrol = false;
-            var baseBrain = _bot.Brain.BaseBrain;
+            BaseBrain baseBrain = _bot.Brain.BaseBrain;
             if(baseBrain == null)
             {
                 Modules.Logger.LogError("BaseBrain is null for " + _bot.Profile.Nickname);
                 return;
             }
+
             // force current layer to trigger end decision
             try
             {
-                var currentLayer = baseBrain.CurLayerInfo;
-                string currentLayerName = currentLayer?.Name();
-
-                if (currentLayer is BaseLogicLayerSimpleAbstractClass simpleLayer)
-                {
-                    simpleLayer.CalcActionNextFrame();
-                }
-                else if (currentLayer is BaseLogicLayerAbstractClass baseLayer)
-                {
-                    baseLayer.Bool_1 = true;
-                }
+                ResetBrainForFollower(baseBrain);
             }
             catch(Exception ex)
             {
@@ -92,13 +86,25 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogError(ex);
             }
 
-            // deactive current layer to prevent conflicts with our layers, if any
-            if (baseBrain != null && baseBrain.CurLayerInfo != null && baseBrain.CurLayerInfo.IsActive)
+           
+            if (baseBrain != null)
             {
-                string name = baseBrain.CurLayerInfo.Name();
-                _bot.Brain.Agent.Deactivate(name);
-                baseBrain.CurLayerInfo.IsActive = false;
+                // deactive current layer to prevent conflicts with our layers, if any
+                if (baseBrain.CurLayerInfo != null && baseBrain.CurLayerInfo.IsActive)
+                {
+                    string name = baseBrain.CurLayerInfo.Name();
+                    _bot.Brain.Agent.Deactivate(name);
+                    baseBrain.CurLayerInfo.IsActive = false;
+                }
             }
+
+            // remove layers that might conflict with our logic (like vanilla follow or loot patrol layers)
+            RemoveConflictingLayers(_bot.Brain.BaseBrain, _bot.Brain.Agent);
+
+            ForceEndCurrentDecision(_bot);
+            HookPeaceChange();
+            //LogBrainState("after init");
+            
             /* try
             {
 
@@ -209,8 +215,7 @@ namespace friendlySAIN.Components
             if (_bot.BotLight != null && _bot.BotLight.IsEnable) _bot.BotLight.TurnOff(false, true);
             // make bot follower of player
             _player.AddFollower(_bot);
-
-            HookPeaceChange();
+            
 
             bool isPickedUp = !_IsSquadMate && (_player.bossGroup == null || _player.bossGroup.Id != _bot.BotsGroup.Id);
 
@@ -806,6 +811,88 @@ namespace friendlySAIN.Components
         {
             _canPatrol = value;
         }
+
+        private void ResetBrainForFollower(BaseBrain baseBrain)
+        {
+            if (baseBrain == null) return;
+
+            // Deactivate current layer if possible
+            var currentLayer = baseBrain.CurLayerInfo;
+            if (currentLayer != null && currentLayer.IsActive)
+            {
+                string name = currentLayer.Name();
+                _bot.Brain.Agent.Deactivate(name);
+                currentLayer.IsActive = false;
+            }
+
+            // Remove peaceful/patrol style layers
+            RemoveBrainLayer(baseBrain, layer =>
+            {
+                if (layer == null) return false;
+                string name = layer.Name();
+                return name.Contains("Utility") || name.Contains("Patrol") || name == "PtrlBirdEye";
+            });
+
+            // Force decision to end so new layer can take over
+            if (currentLayer is BaseLogicLayerSimpleAbstractClass simpleLayer)
+            {
+                simpleLayer.CalcActionNextFrame();
+            }
+            else if (currentLayer is BaseLogicLayerAbstractClass baseLayer)
+            {
+                baseLayer.Bool_1 = true;
+            }
+        }
+
+        private void RemoveBrainLayer(BaseBrain baseBrain, Func<AICoreLayerClass<BotLogicDecision>, bool> shouldRemove)
+        {
+            try
+            {
+                if (baseBrain == null) return;
+
+                var dictField = AccessTools.Field(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "Dictionary_0");
+                var layers = dictField?.GetValue(baseBrain) as Dictionary<int, AICoreLayerClass<BotLogicDecision>>;
+                if (layers == null) return;
+
+                var toRemove = new List<int>();
+                foreach (var kvp in layers)
+                {
+                    if (shouldRemove(kvp.Value))
+                    {
+                        toRemove.Add(kvp.Key);
+                    }
+                }
+
+                var brainHelpersType = AccessTools.TypeByName("DrakiaXYZ.BigBrain.Internal.BrainHelpers");
+                var removeLayerForBot = brainHelpersType != null
+                    ? AccessTools.Method(brainHelpersType, "RemoveLayerForBot", new[] { typeof(BotOwner), typeof(string) })
+                    : null;
+
+                foreach (var index in toRemove)
+                {
+                    if (layers.TryGetValue(index, out var layer) && layer != null)
+                    {
+                        string name = layer.Name();
+                        if (removeLayerForBot != null)
+                        {
+                            removeLayerForBot.Invoke(null, new object[] { _bot, name });
+                        }
+                        else
+                        {
+                            _bot.Brain.Agent.Deactivate(name);
+                            layer.IsActive = false;
+                            baseBrain.List_0.Remove(layer);
+                            layers.Remove(index);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Error while removing brain layer");
+                Modules.Logger.LogError(ex);
+            }
+        }
         /** Ensure vanilla patrolling is not conflicting with our layers */
         private void HookPeaceChange()
         {
@@ -826,6 +913,189 @@ namespace friendlySAIN.Components
         private void OnPeaceChange(bool isPeace)
         {
             _bot?.PatrollingData?.Pause();
+        }
+
+        private void ForceEndCurrentDecision(BotOwner bot)
+        {
+            if(bot == null) return;
+            
+            var brain = bot?.Brain?.BaseBrain;
+            var agent = bot?.Brain?.Agent;
+            if (brain == null || agent == null) return;
+
+            string layer = brain.CurLayerInfo?.Name() ?? "<null>";
+            string node = agent.GetActiveNodeName() ?? "<null>";
+
+            EnsureFollowerLayerPresent(brain);
+
+            if (bot.BotRequestController?.CurRequest != null)
+            {
+                bot.BotRequestController.CurRequest.Complete();
+                bot.BotRequestController.CurRequest = null;
+            }
+
+            bot.PatrollingData?.LootData?.StopLootCluster();
+            bot.PatrollingData?.LootData?.SetTargetLootCluster(null);
+            bot.PatrollingData?.Pause();
+
+            if (brain.CurLayerInfo is BaseLogicLayerSimpleAbstractClass simpleLayer)
+            {
+                simpleLayer.CalcActionNextFrame(BotLogicDecision.holdPosition);
+            }
+            else if (brain.CurLayerInfo is BaseLogicLayerAbstractClass baseLayer)
+            {
+                baseLayer.Bool_1 = true;
+            }
+
+            bot.StopMove();
+            bot.GoToSomePointData?.SetPoint(bot.Position);
+
+            ClearActiveLayerPointers(brain, agent);
+            brain.CalcActionNextFrame();
+        }
+
+        private void RemoveConflictingLayers(BaseBrain brain, AICoreAgentClass<BotLogicDecision> agent)
+        {
+            if (brain == null || agent == null) return;
+
+            string[] blockedExact =
+            {
+                "Exfiltration",
+                "SAIN : Extract",
+                "SAIN : Squad Layer",
+                "Follow Player"
+            };
+
+            var toRemove = new List<int>();
+            foreach (var kvp in brain.Dictionary_0)
+            {
+                var layer = kvp.Value;
+                if (layer == null) continue;
+
+                string name = layer.Name();
+                if (string.IsNullOrEmpty(name)) continue;
+
+                bool exactMatch = blockedExact.Contains(name);
+                bool containsMatch =
+                    name.IndexOf("Exfil", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    name.IndexOf("Extract", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (exactMatch || containsMatch)
+                {
+                    toRemove.Add(kvp.Key);
+                }
+            }
+
+            foreach (int index in toRemove)
+            {
+                if (!brain.Dictionary_0.TryGetValue(index, out var layer) || layer == null) continue;
+
+                agent.Deactivate(layer.Name());
+                brain.method_3(index);
+                layer.IsActive = false;
+
+                brain.List_0.Remove(layer);
+                //brain.Dictionary_0.Remove(index);
+            }
+        }
+
+        private void EnsureFollowerLayerPresent(BaseBrain brain)
+        {
+            if (brain == null) return;
+
+            foreach (var kvp in brain.Dictionary_0)
+            {
+                if (kvp.Value != null && kvp.Value.Name() == "friendlySAIN.FollowerPatrol")
+                {
+                    if (!brain.method_2(kvp.Value))
+                    {
+                        brain.method_1(kvp.Key);
+                    }
+                    return;
+                }
+            }
+
+            var customEntry = BrainManager.CustomLayersReadOnly
+                .FirstOrDefault(x => x.Value.customLayerType.FullName == "friendlySAIN.BigBrain.FollowerPatrolLayer");
+
+            if (customEntry.Value == null) return;
+
+            var wrapperType = AccessTools.TypeByName("DrakiaXYZ.BigBrain.Internal.CustomLayerWrapper");
+            if (wrapperType == null) return;
+
+            object wrapper = Activator.CreateInstance(
+                wrapperType,
+                new object[] { customEntry.Value.customLayerType, _bot, customEntry.Value.customLayerPriority }
+            );
+            if (wrapper == null) return;
+
+            AccessTools
+                .Method(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "method_0")
+                ?.Invoke(brain, new object[] { customEntry.Key, wrapper, true });
+        }
+
+        private void ClearActiveLayerPointers(BaseBrain brain, AICoreAgentClass<BotLogicDecision> agent)
+        {
+            try
+            {
+                var activeLayerField = AccessTools.Field(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "Gclass35_0");
+                activeLayerField?.SetValue(brain, null);
+
+                var agentActiveLayerField = AccessTools.Field(typeof(AICoreAgentClass<BotLogicDecision>), "Gclass35_0");
+                agentActiveLayerField?.SetValue(agent, null);
+
+                agent.UsingLayer = string.Empty;
+
+                var lastResultField = AccessTools.Field(typeof(AICoreAgentClass<BotLogicDecision>), "Gstruct8_0");
+                if (lastResultField != null)
+                {
+                    var defaultResult = default(AICoreActionResultStruct<BotLogicDecision, GClass26>);
+                    lastResultField.SetValue(agent, defaultResult);
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to clear active layer pointers");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private void LogBrainState(string tag)
+        {
+            try
+            {
+                var brain = _bot?.Brain?.BaseBrain;
+                var agent = _bot?.Brain?.Agent;
+                if (brain == null || agent == null) return;
+
+                string shortName = brain.ShortName();
+                string curLayer = brain.CurLayerInfo?.Name() ?? "<null>";
+                string agentLayer = agent.UsingLayer ?? "<null>";
+                string agentNode = agent.GetActiveNodeName() ?? "<null>";
+
+                List<string> listNames = new List<string>();
+                foreach (var layer in brain.List_0)
+                {
+                    if (layer == null) continue;
+                    listNames.Add($"{layer.Name()}:{layer.Priority}");
+                }
+
+                List<string> dictNames = new List<string>();
+                foreach (var kvp in brain.Dictionary_0)
+                {
+                    if (kvp.Value == null) continue;
+                    dictNames.Add($"{kvp.Key}:{kvp.Value.Name()}:{kvp.Value.Priority}");
+                }
+
+                Modules.Logger.LogInfo($"Follower brain dump [{tag}] bot={_bot.Profile.Nickname} brain={shortName} curLayer={curLayer} agentLayer={agentLayer} agentNode={agentNode}");
+                Modules.Logger.LogInfo($"Follower brain dump [{tag}] list={string.Join(", ", listNames)}");
+                Modules.Logger.LogInfo($"Follower brain dump [{tag}] dict={string.Join(", ", dictNames)}");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to log brain state");
+                Modules.Logger.LogError(ex);
+            }
         }
 
         private void TryDeactivateLootPatrolLayer()

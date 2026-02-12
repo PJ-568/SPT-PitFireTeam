@@ -154,7 +154,6 @@
         <Compile Remove="Patches\BulletImpactPatch.cs" />
         <Compile Remove="Patches\GrenadeThrowPatch.cs" />
         <Compile Remove="Patches\DonutsPatch.cs" />
-        <Compile Remove="Patches\SAINPatches.cs" />
     </ItemGroup>
 
 </Project>

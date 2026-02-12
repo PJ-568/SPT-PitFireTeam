@@ -44,13 +44,13 @@ namespace friendlySAIN
 
     public enum CustomPhrases
     {
-        TeamStatus = 300,
-        OverThere = 301,
+        TeamStatus = 219,
+        OverThere = 220,
     }
 
     public enum CustomGestures
     {
-        OverThere = 301,
+        OverThere = 220,
     }
 
     public class LanguageOptions
@@ -190,6 +190,7 @@ namespace friendlySAIN
             new BotOwnerIsFolowerPatch().Enable();
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
+            new AICoreAgentUpdatePatch().Enable();
 
             // recruit/request patches
             new BotReceiverFollowMeRecruitPatch().Enable();
@@ -254,7 +255,8 @@ namespace friendlySAIN
             // new OtherPlayerProfileScreenPatch().Enable();
             // new OtherPlayerProfileScreenClosePatch().Enable();
 
-            // SAIN/Donuts patches disabled (handled by SAIN)
+            // SAIN/Donuts patches
+            SAINPatch.PatchSAINIfInstalled(harmony);
         }
 
 

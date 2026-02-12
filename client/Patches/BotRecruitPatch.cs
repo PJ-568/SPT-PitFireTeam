@@ -43,6 +43,9 @@ namespace friendlySAIN.Patches
             if (phrase != EPhraseTrigger.Cooperation && phrase != EPhraseTrigger.FollowMe)
             {
                 return true;
+            } else if (BossPlayers.IsFollower(botOwner))
+            {
+                return false;
             }
 
             IPlayer requester = ReadRequester(info);

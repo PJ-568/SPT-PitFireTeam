@@ -16,12 +16,11 @@ namespace friendlySAIN.Patches
             return AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "SAIN");
         }
 
-        private static Type squadType = null;
-        private static Type SAINEnableClass = null;
+        private static Type? squadType = null;
+        private static Type? SAINEnableClass = null;
 
-        private static Type enemyTalk = null;
-        private static Type GroupClass = null;
-
+        private static Type? enemyTalk = null;
+        private static Type? GroupClass = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
             if (!IsSAINInstalled()) return;
@@ -62,6 +61,11 @@ namespace friendlySAIN.Patches
 
             if (squadType != null && SAINEnableClass != null)
             {
+                var assignLeader = AccessTools.Method(squadType, "assignSquadLeader");
+                if (assignLeader != null)
+                {
+                    harmony.Patch(assignLeader, new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchAssignSquadLeader), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
+                }
                 Logger.LogInfo("SAIN Patched");
             }
         }
@@ -81,6 +85,29 @@ namespace friendlySAIN.Patches
         private static bool PatchEnemyConvesation(EPhraseTrigger trigger, ETagStatus status, Player player)
         {
             return PatchPlayerTalked(trigger, status, player);
+        }
+
+        [HarmonyPrefix]
+        private static bool PatchAssignSquadLeader(object __instance, object sain)
+        {
+            try
+            {
+                if (sain == null) return true;
+
+                var botOwnerProp = AccessTools.Property(sain.GetType(), "BotOwner");
+                var botOwner = botOwnerProp?.GetValue(sain) as BotOwner;
+                if (botOwner == null) return true;
+
+                if (BossPlayers.IsFollower(botOwner))
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+            return true;
         }
     }
 }

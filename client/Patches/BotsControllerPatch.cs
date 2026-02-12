@@ -1241,7 +1241,7 @@ namespace friendlySAIN.Patches
 
             Modules.Logger.LogInfo("Raid Ended");
 
-            try
+            /* try
             {
                 if (!raidTransit) RequestHandler.GetJson("/singleplayer/pitraidend");
                 else
@@ -1254,7 +1254,7 @@ namespace friendlySAIN.Patches
             catch (Exception ex)
             {
                 Modules.Logger.LogError(ex);
-            }
+            } */
 
             return true;
         }
