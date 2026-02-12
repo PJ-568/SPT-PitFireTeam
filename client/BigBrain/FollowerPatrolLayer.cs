@@ -61,6 +61,8 @@ namespace friendlySAIN.BigBrain
         private float float_4 = 0f;
         private float healStartAt = 0f;
         private bool healing = false;
+
+        private Action? currentAction = null;
         public FollowerPatrolLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
         {
         }
@@ -87,6 +89,7 @@ namespace friendlySAIN.BigBrain
         public override void Stop()
         {
             healing = false;
+            currentAction = null;
             base.Stop();
         }
 
@@ -106,21 +109,7 @@ namespace friendlySAIN.BigBrain
                 BotOwner.BotRequestController.CurRequest = null;
             }
 
-            /* try
-            {
-                if (!BotOwner.Medecine.FirstAid.Using && !BotOwner.Medecine.SurgicalKit.Using)
-                {
-                    ClearActiveLayerPointers();
-                }
-                DisableExfiltrationLayers();
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError("FollowerPatrolLayer.Start: failed to reset brain state");
-                Modules.Logger.LogError(ex);
-            }
-
-            ResetSainCombatState(); */
+            ResetSainCombatState();
         }
 
         public override Action GetNextAction()
@@ -137,25 +126,39 @@ namespace friendlySAIN.BigBrain
 
                 healing = true;
                 float_4 = Time.time + 10f;
-                return new Action(typeof(HealAction), "Heal");   
+                currentAction = new Action(typeof(HealAction), "Heal");   
             }
 
             healing = false;
-            return new Action(typeof(FollowAction), "FollowerPatrol");
+            currentAction = new Action(typeof(FollowAction), "FollowerPatrol");
+
+            return currentAction;
         }
 
         public override bool IsCurrentActionEnding()
         {
-            if (!healing)
+
+
+            bool isHealAction = currentAction?.Type == typeof(HealAction);
+            bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
+
+            if (!isHealAction && !isHealDecision)
             {
                 return !IsActive();
             }
+
+            return EndHealing();
+        }
+
+        private bool EndHealing()
+        {
+            bool isHealAction = currentAction?.Type == typeof(HealAction);
 
             bool usingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
             bool haveHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
 
             // Old EndHeal equivalent: no pending heal work -> end heal action.
-            if (healing && !haveHealWork && !usingHeal)
+            if (!haveHealWork && !usingHeal)
             {
                 healing = false;
                 HealBot();
@@ -171,7 +174,7 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            // Old EndHeal timeout equivalent.
+            // end heal timeout.
             float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 20f : 7f;
             if (healStartAt + healTimeout < Time.time || (healing && Time.time > float_4))
             {
@@ -181,13 +184,12 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            if (!IsActive() && healing)
+            if (!IsActive() && isHealAction)
             {
                 CancelCurrentHeal();
                 healing = false;
                 return true;
             }
-
             return false;
         }
 
@@ -270,56 +272,6 @@ namespace friendlySAIN.BigBrain
             }
         }
 
-        private void ClearActiveLayerPointers()
-        {
-            var brain = BotOwner?.Brain?.BaseBrain;
-            var agent = BotOwner?.Brain?.Agent;
-            if (brain == null || agent == null) return;
-
-            var activeLayerField = AccessTools.Field(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "Gclass35_0");
-            activeLayerField?.SetValue(brain, null);
-
-            var agentActiveLayerField = AccessTools.Field(typeof(AICoreAgentClass<BotLogicDecision>), "Gclass35_0");
-            agentActiveLayerField?.SetValue(agent, null);
-
-            agent.UsingLayer = string.Empty;
-
-            var lastResultField = AccessTools.Field(typeof(AICoreAgentClass<BotLogicDecision>), "Gstruct8_0");
-            if (lastResultField != null)
-            {
-                var defaultResult = default(AICoreActionResultStruct<BotLogicDecision, GClass26>);
-                lastResultField.SetValue(agent, defaultResult);
-            }
-        }
-
-        private void DisableExfiltrationLayers()
-        {
-            var brain = BotOwner?.Brain?.BaseBrain;
-            if (brain == null) return;
-
-            var toDeactivate = new List<int>();
-            foreach (var kvp in brain.Dictionary_0)
-            {
-                if (kvp.Value == null) continue;
-                string name = kvp.Value.Name();
-                if (string.IsNullOrEmpty(name)) continue;
-
-                if (name.IndexOf("Exfil", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    name.IndexOf("Extract", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    toDeactivate.Add(kvp.Key);
-                }
-            }
-
-            foreach (int index in toDeactivate)
-            {
-                brain.method_3(index);
-                if (brain.Dictionary_0.TryGetValue(index, out var layer) && layer != null)
-                {
-                    layer.IsActive = false;
-                }
-            }
-        }
     }
 
 }
