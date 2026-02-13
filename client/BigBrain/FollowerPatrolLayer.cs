@@ -34,7 +34,7 @@ namespace friendlySAIN.BigBrain
                 "BirdEye"
             };
 
-            List<string> vanillLayers = new List<string>
+            List<string> vanillaLayersToDisable = new List<string>
             {
                 "FightReqNull",
                 "PeacecReqNull"
@@ -42,7 +42,7 @@ namespace friendlySAIN.BigBrain
 
             try
             {
-                BrainManager.RemoveLayers(vanillLayers,brains);
+                BrainManager.RemoveLayers(vanillaLayersToDisable,brains);
                 BrainManager.AddCustomLayer(typeof(FollowerPatrolLayer), brains, FollowerLayerPriority);
                 Modules.Logger.LogInfo($"Registered follower patrol layer for brains: {string.Join(", ", brains)}");
             }
@@ -58,11 +58,17 @@ namespace friendlySAIN.BigBrain
     internal sealed class FollowerPatrolLayer : CustomLayer
     {
 
-        private float float_4 = 0f;
+        private float healSoftTimeoutAt = 0f;
         private float healStartAt = 0f;
-        private bool healing = false;
+        private bool isHealing = false;
+        private bool triedSwitchToMainWeapon = false;
+        private bool triedFillMagazines = false;
+        private bool reloadingInProgress = false;
+        private bool triedReloadSecondaryWeapon = false;
+        private float nextReloadCheckAt = 0f;
+        private float nextMagazineFillCheckAt = 0f;
 
-        private Action? currentAction = null;
+        private Action? selectedAction = null;
         public FollowerPatrolLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
         {
         }
@@ -88,15 +94,17 @@ namespace friendlySAIN.BigBrain
 
         public override void Stop()
         {
-            healing = false;
-            currentAction = null;
+            isHealing = false;
+            selectedAction = null;
+            ResetReloadState();
             base.Stop();
         }
 
         public override void Start()
         {
             base.Start();
-            healing = false;
+            isHealing = false;
+            ResetReloadState();
             BotOwner.Mover.Pause = false;
             
             BotOwner.PatrollingData?.LootData?.StopLootCluster();
@@ -110,36 +118,47 @@ namespace friendlySAIN.BigBrain
             }
 
             ResetSainCombatState();
+
+            BotLogicDecision logicDecision = BotOwner.Brain.Agent.LastResult().Action;
+            if (BotOwner.Brain.Agent.Dictionary_0.TryGetValue(logicDecision, out var logicInstance))
+            {
+                logicInstance.Dispose();
+            }
         }
 
         public override Action GetNextAction()
         {
-            bool usingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
-            bool haveHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
+            bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
+            bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
 
-            if (usingHeal || haveHealWork)
+            if (isUsingHeal || hasPendingHealWork)
             {
-                if (!healing)
+                if (!isHealing)
                 {
                     healStartAt = Time.time;
                 }
 
-                healing = true;
-                float_4 = Time.time + 10f;
-                currentAction = new Action(typeof(HealAction), "Heal");   
+                isHealing = true;
+                healSoftTimeoutAt = Time.time + 10f;
+                selectedAction = new Action(typeof(HealAction), "Heal");
+                return selectedAction;
             }
 
-            healing = false;
-            currentAction = new Action(typeof(FollowAction), "FollowerPatrol");
+            isHealing = false;
 
-            return currentAction;
+
+            // put the weapon reload here
+            TryHandleOutOfCombatReload();
+
+            selectedAction = new Action(typeof(FollowAction), "FollowerPatrol");
+
+            return selectedAction;
         }
 
         public override bool IsCurrentActionEnding()
         {
-
-
-            bool isHealAction = currentAction?.Type == typeof(HealAction);
+            
+            bool isHealAction = selectedAction?.Type == typeof(HealAction);
             bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
 
             if (!isHealAction && !isHealDecision)
@@ -152,34 +171,34 @@ namespace friendlySAIN.BigBrain
 
         private bool EndHealing()
         {
-            bool isHealAction = currentAction?.Type == typeof(HealAction);
+            bool isHealAction = selectedAction?.Type == typeof(HealAction);
 
-            bool usingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
-            bool haveHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
+            bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
+            bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
 
             // Old EndHeal equivalent: no pending heal work -> end heal action.
-            if (!haveHealWork && !usingHeal)
+            if (!hasPendingHealWork && !isUsingHeal)
             {
-                healing = false;
+                isHealing = false;
                 HealBot();
                 return true;
             }
 
             // If heal work is gone but med action is still "using", cancel to avoid stuck animation/state.
-            if (usingHeal && !haveHealWork)
+            if (isUsingHeal && !hasPendingHealWork)
             {
                 CancelCurrentHeal();
-                healing = false;
+                isHealing = false;
                 HealBot();
                 return true;
             }
 
             // end heal timeout.
             float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 20f : 7f;
-            if (healStartAt + healTimeout < Time.time || (healing && Time.time > float_4))
+            if (healStartAt + healTimeout < Time.time || (isHealing && Time.time > healSoftTimeoutAt))
             {
                 CancelCurrentHeal();
-                healing = false;
+                isHealing = false;
                 HealBot();
                 return true;
             }
@@ -187,7 +206,7 @@ namespace friendlySAIN.BigBrain
             if (!IsActive() && isHealAction)
             {
                 CancelCurrentHeal();
-                healing = false;
+                isHealing = false;
                 return true;
             }
             return false;
@@ -232,37 +251,37 @@ namespace friendlySAIN.BigBrain
             {
                 if (BotOwner == null) return;
 
-                var mgrType = AccessTools.TypeByName("SAIN.Components.BotManagerComponent");
-                if (mgrType == null) return;
+                var managerType = AccessTools.TypeByName("SAIN.Components.BotManagerComponent");
+                if (managerType == null) return;
 
-                var instProp = AccessTools.Property(mgrType, "Instance");
-                var mgr = instProp?.GetValue(null);
-                if (mgr == null) return;
+                var instanceProperty = AccessTools.Property(managerType, "Instance");
+                var manager = instanceProperty?.GetValue(null);
+                if (manager == null) return;
 
-                var getSain = AccessTools.Method(mgrType, "GetSAIN");
-                if (getSain == null) return;
+                var getSainMethod = AccessTools.Method(managerType, "GetSAIN");
+                if (getSainMethod == null) return;
 
                 object[] args = new object[] { BotOwner, null };
-                bool hasSain = (bool)getSain.Invoke(mgr, args);
+                bool hasSain = (bool)getSainMethod.Invoke(manager, args);
                 if (!hasSain) return;
 
-                var botComp = args[1];
-                if (botComp == null) return;
+                var sainBot = args[1];
+                if (sainBot == null) return;
 
-                var botType = botComp.GetType();
-                var decision = AccessTools.Property(botType, "Decision")?.GetValue(botComp);
+                var sainBotType = sainBot.GetType();
+                var decision = AccessTools.Property(sainBotType, "Decision")?.GetValue(sainBot);
                 AccessTools.Method(decision?.GetType(), "ResetDecisions")?.Invoke(decision, new object[] { false });
 
-                var enemyController = AccessTools.Property(botType, "EnemyController")?.GetValue(botComp);
+                var enemyController = AccessTools.Property(sainBotType, "EnemyController")?.GetValue(sainBot);
                 AccessTools.Method(enemyController?.GetType(), "ClearEnemy")?.Invoke(enemyController, null);
 
-                var search = AccessTools.Property(botType, "Search")?.GetValue(botComp);
+                var search = AccessTools.Property(sainBotType, "Search")?.GetValue(sainBot);
                 AccessTools.Method(search?.GetType(), "Reset")?.Invoke(search, null);
 
-                var suppression = AccessTools.Property(botType, "Suppression")?.GetValue(botComp);
+                var suppression = AccessTools.Property(sainBotType, "Suppression")?.GetValue(sainBot);
                 AccessTools.Method(suppression?.GetType(), "ResetSuppressing")?.Invoke(suppression, null);
 
-                var manualShoot = AccessTools.Property(botType, "ManualShoot")?.GetValue(botComp);
+                var manualShoot = AccessTools.Property(sainBotType, "ManualShoot")?.GetValue(sainBot);
                 AccessTools.Method(manualShoot?.GetType(), "Reset")?.Invoke(manualShoot, null);
             }
             catch (Exception ex)
@@ -272,6 +291,89 @@ namespace friendlySAIN.BigBrain
             }
         }
 
+        private void ResetReloadState()
+        {
+            triedSwitchToMainWeapon = false;
+            triedFillMagazines = false;
+            reloadingInProgress = false;
+            triedReloadSecondaryWeapon = false;
+            nextReloadCheckAt = Time.time + 5f;
+            nextMagazineFillCheckAt = Time.time + 5f;
+        }
+
+        private void TryHandleOutOfCombatReload()
+        {
+            if (BotOwner?.WeaponManager == null) return;
+            if (Time.time < nextReloadCheckAt) return;
+            if (!BotOwner.WeaponManager.IsWeaponReady || BotOwner.WeaponManager.Reload.Reloading) return;
+
+            var selector = BotOwner.WeaponManager.Selector;
+
+            if (
+                !triedReloadSecondaryWeapon &&
+                selector.CanChangeToSecondWeapons &&
+                selector.SecondPrimaryWeaponItem != null &&
+                selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon &&
+                selector.SecondPrimaryWeaponItem.GetCurrentMagazine() != null &&
+                selector.SecondPrimaryWeaponItem is Weapon secondWeapon &&
+                selector.SecondPrimaryWeaponItem.GetCurrentMagazine().MaxCount != secondWeapon.GetCurrentMagazineCount()
+            )
+            {
+                selector.TryChangeWeapon(true);
+                triedReloadSecondaryWeapon = true;
+                reloadingInProgress = true;
+                nextReloadCheckAt = Time.time + 5f;
+                nextMagazineFillCheckAt = Time.time + 5f;
+            }
+
+            if (
+                !reloadingInProgress &&
+                !triedSwitchToMainWeapon &&
+                (
+                    selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon ||
+                    selector.LastEquipmentSlot == EquipmentSlot.Holster
+                )
+            )
+            {
+                selector.TryChangeToMain();
+                triedSwitchToMainWeapon = true;
+                nextReloadCheckAt = Time.time + 5f;
+                nextMagazineFillCheckAt = Time.time + 5f;
+            }
+
+            if (
+                Time.time > nextReloadCheckAt &&
+                (
+                    selector.LastEquipmentSlot == EquipmentSlot.FirstPrimaryWeapon ||
+                    selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon ||
+                    selector.LastEquipmentSlot == EquipmentSlot.Holster
+                ) &&
+                BotOwner.WeaponManager.IsWeaponReady &&
+                (float)BotOwner.WeaponManager.Reload.BulletCount / BotOwner.WeaponManager.Reload.MaxBulletCount < 0.35f
+            )
+            {
+                nextReloadCheckAt = Time.time + 30f;
+                reloadingInProgress = BotOwner.WeaponManager.Reload.TryReload();
+                nextMagazineFillCheckAt = Time.time + 10f;
+            }
+
+            if (reloadingInProgress && !BotOwner.WeaponManager.Reload.Reloading)
+            {
+                reloadingInProgress = false;
+            }
+
+            if (
+                Time.time > nextMagazineFillCheckAt &&
+                BotOwner.WeaponManager.IsWeaponReady &&
+                !BotOwner.WeaponManager.Reload.Reloading &&
+                !triedFillMagazines
+            )
+            {
+                BotOwner.WeaponManager.Reload.TryFillMagazines();
+                triedFillMagazines = true;
+                nextMagazineFillCheckAt = Time.time + 20f;
+            }
+        }
     }
 
 }
