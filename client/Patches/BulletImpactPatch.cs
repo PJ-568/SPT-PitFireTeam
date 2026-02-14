@@ -1,10 +1,11 @@
-﻿using HarmonyLib;
+﻿using EFT;
+using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 using Systems.Effects;
 
 using friendlySAIN.Modules;
-using friendlySAIN.Brains;
+using friendlySAIN.Utils;
 
 namespace friendlySAIN.Patches
 {
@@ -19,19 +20,15 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         public static void PatchPostfix(EffectsCommutator __instance, EftBulletClass info, ShotInfoClass playerHitInfo)
         {
-            var player = info.Player;
-
             if (!__instance.IsHitPointAlreadyProcessed(info.HitPoint))
             {
                 if (info.Player != null)
                 {
                     BossPlayers.GetFollowers().ForEach(follower =>
                     {
-                        var brain = follower.GetBot().Brain.BaseBrain as FollowerBrain;
-                        if (brain != null)
-                        {
-                            brain.BulletFelt(info);
-                        }
+                        BotOwner bot = follower.GetBot();
+                        if (bot == null || !BossPlayers.IsFollower(bot)) return;
+                        FollowerAwareness.BulletFelt(bot, info);
                     });
                 }
                 return;

@@ -7,7 +7,7 @@ using System.Reflection;
 using UnityEngine;
 
 using friendlySAIN.Modules;
-using friendlySAIN.Brains;
+using friendlySAIN.Utils;
 
 namespace friendlySAIN.Patches
 {
@@ -40,7 +40,10 @@ namespace friendlySAIN.Patches
                     bool shouldReact = __instance.method_6(position, power, out var distance);
 
                     Player person = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(player.ProfileId);
-                    if (person != null && shouldReact) (botOwner_0.Brain.BaseBrain as FollowerBrain).SoundHeard(person, position, distance, type);
+                    if (person != null && shouldReact)
+                    {
+                        FollowerAwareness.SoundHeard(botOwner_0, person, position, distance, type);
+                    }
                 }
 
                 return;
@@ -64,10 +67,13 @@ namespace friendlySAIN.Patches
                         shouldReact = false;
                     }
 
-                    if (shouldReact && botOwner_0.Brain.BaseBrain is FollowerBrain)
+                    if (shouldReact)
                     {
                         Player person = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(player.ProfileId);
-                        if (person != null) (botOwner_0.Brain.BaseBrain as FollowerBrain).SoundHeard(person, position, distance, type);
+                        if (person != null)
+                        {
+                            FollowerAwareness.SoundHeard(botOwner_0, person, position, distance, type);
+                        }
                     }
                 }
             }
@@ -84,7 +90,7 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         public static void PatchPostfix(Player __instance, BetterSource ___NestedStepSoundSource)
         {
-            float volume = __instance.MovementContext.CovertMovementVolumeBySpeed * __instance.method_55();
+            float volume = __instance.MovementContext.CovertMovementVolumeBySpeed * __instance.method_57();
             float range = ___NestedStepSoundSource.MaxDistance * 0.85f;
 
             if (BossPlayers.IsPlayerBoss(__instance.ProfileId)) return;
@@ -107,7 +113,7 @@ namespace friendlySAIN.Patches
 
                 if (!shouldReact) continue;
 
-                (bot.Brain.BaseBrain as FollowerBrain).SoundHeard(__instance, position, distance, AISoundType.step);
+                FollowerAwareness.SoundHeard(bot, __instance, position, distance, AISoundType.step);
 
             }
         }
@@ -127,6 +133,7 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(Player __instance)
         {
+            if (__instance == null) return;
             if (Time.time < reported || Time.time < freq) return;
 
             freq = Time.time + 0.5f;
@@ -148,10 +155,11 @@ namespace friendlySAIN.Patches
             bool reportEnemy = false;
             BossPlayers.GetFollowers().ForEach(follower =>
             {
+                if (follower == null) return;
                 BotOwner bot = follower.GetBot();
-                FollowerBrain brain = bot.Brain.BaseBrain as FollowerBrain;
-
-                if (brain == null || brain.WasHit || bot.Memory.HaveEnemy || bot.BotsGroup == null) return;
+                if (bot == null || bot.IsDead || bot.GetPlayer == null || bot.HearingSensor == null) return;
+                if (bot.EnemiesController == null || bot.Memory == null || bot.BotsGroup == null) return;
+                if (FollowerAwareness.WasRecentlyHit(bot) || bot.Memory.HaveEnemy) return;
                 if (
                     bot.HearingSensor.method_6(__instance.Transform.position, 40f, out var distance) &&
                     (bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance))
@@ -159,7 +167,7 @@ namespace friendlySAIN.Patches
                 {
                     if (distance < 16f)
                     {
-                        if (!reportEnemy) bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.Visible);
+                        if (!reportEnemy) bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.Visible,bot);
                         EnemyInfo info = Utils.Enemy.MakeEnemy(bot, __instance);
 
                         reported = Time.time + 3f;
@@ -170,10 +178,15 @@ namespace friendlySAIN.Patches
                     else if (distance <= 40f)
                     {
                         reported = Time.time + 3f;
-                        brain.FakeShot(__instance.MainParts[BodyPartType.body].Position);
+                        Vector3 sourcePos = __instance.Transform.position;
+                        if (__instance.MainParts != null && __instance.MainParts.TryGetValue(BodyPartType.body, out var mainBodyPart) && mainBodyPart != null)
+                        {
+                            sourcePos = mainBodyPart.Position;
+                        }
+                        FollowerAwareness.FakeShot(bot, sourcePos);
                         if (!reportEnemy)
                         {
-                            bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible);
+                            bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible,bot);
                             bot.BotTalk.TrySay(EPhraseTrigger.NoisePhrase);
                         }
                         reportEnemy = true;

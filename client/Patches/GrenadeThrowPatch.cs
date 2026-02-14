@@ -2,64 +2,107 @@
 using EFT;
 using HarmonyLib;
 using SPT.Reflection.Patching;
+using System;
 using System.Reflection;
 using UnityEngine;
 
 namespace friendlySAIN.Patches
 {
-    /**
-     * This is same as the SAIN Patch, but replicated since we marked our followers as excluded 
-     */
+    
+    // Guard vanilla straight-contact grenade logic from null refs (seen in GClass274.UpdateTryThrow).
     internal class GrenadeThrowPatch : ModulePatch
     {
+        private static readonly FieldInfo BotOwnerField = AccessTools.Field(typeof(GClass274), "BotOwner_0");
+
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(BotGrenadeController), "DoThrow");
+            return AccessTools.Method(typeof(GClass274), "UpdateTryThrow");
         }
 
         [PatchPrefix]
-        public static bool Patch(BotOwner ___BotOwner_0, ref bool __result, BotGrenadeController __instance, ref GrenadeActionType ___GrenadeActionType, ref bool ___CheckStop, ref float ___ClearTime, ThrowWeapItemClass ___Grenade)
+        private static bool PatchPrefix(GClass274 __instance, ref bool __result)
         {
-            if (__instance.AIGreanageThrowData == null)
+            try
             {
-                return false;
-            }
-            if (__instance.CheckPeriodTime())
-            {
-                return false;
-            }
-            if (__instance.ThrowindNow == true)
-            {
-                return false;
-            }
-            __instance.method_5();
-            switch (___GrenadeActionType)
-            {
-                case GrenadeActionType.ready:
+                BotOwner bot = BotOwnerField?.GetValue(__instance) as BotOwner;
+                if (bot == null)
+                {
+                    return true;
+                }
+
+                BotGrenadeController grenades = bot.WeaponManager?.Grenades;
+                if (grenades == null || !grenades.HaveGrenade)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                if (!bot.Settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                bool hasGoalEnemy = bot.Memory?.GoalEnemy != null;
+                if (hasGoalEnemy && Time.time - bot.Memory.EnemySetTime < bot.Settings.FileSettings.Grenade.STRAIGHT_CONTACT_DELTA_SEC)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                if (grenades.ReadyToThrow)
+                {
+                    if (grenades.AIGreanageThrowData == null || !grenades.AIGreanageThrowData.IsUpToDate())
                     {
-                        ___CheckStop = true;
-                        ___ClearTime = Time.time + 4f;
-                        ___GrenadeActionType = GrenadeActionType.change2grenade;
-                        if (___Grenade == null)
-                        {
-                            __instance.method_6(null);
-                            return false;
-                        }
-                        if (__instance.AIGreanageThrowData.GrenadeType != null)
-                        {
-                            __instance.method_1(__instance.AIGreanageThrowData.GrenadeType.Value);
-                        }
-                        BotPersonalStats botPersonalStats = ___BotOwner_0.BotPersonalStats;
-                        if (botPersonalStats != null)
-                        {
-                            botPersonalStats.GrendateThrow(null);
-                        }
-                        __instance.ThrowindNow = true;
-                        ___BotOwner_0.GetPlayer.SetInHands(___Grenade, new Callback<IHandsThrowController>(__instance.method_9));
-                        break;
+                        __result = false;
+                        return false;
                     }
+
+                    if (bot.Settings.FileSettings.Grenade.STOP_WHEN_THROW_GRENADE)
+                    {
+                        bot.StopMove();
+                    }
+                    bot.WeaponManager.Grenades.DoThrow();
+                    __result = true;
+                    return false;
+                }
+
+                if (hasGoalEnemy)
+                {
+                    IPlayer enemyPlayer = bot.Memory.GoalEnemy?.Person;
+                    if (enemyPlayer == null)
+                    {
+                        __result = false;
+                        return false;
+                    }
+
+                    Player liveEnemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyPlayer.ProfileId);
+                    if (liveEnemy == null)
+                    {
+                        __result = false;
+                        return false;
+                    }
+
+                    if (liveEnemy.IsSprintEnabled)
+                    {
+                        __result = false;
+                        return false;
+                    }
+
+                    if (Time.time - bot.Memory.GoalEnemy.FirstTimeSeen > bot.Settings.FileSettings.Grenade.FIRST_TIME_SEEN_DELTA_CAN_THROW)
+                    {
+                        grenades.CanThrowGrenade(bot.Memory.GoalEnemy.CurrPosition + Vector3.up);
+                    }
+                }
+
+                __result = false;
+                return false;
             }
-            return false;
+            catch (Exception)
+            {
+                __result = false;
+                return false;
+            }
         }
     }
 }

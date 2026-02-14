@@ -195,7 +195,8 @@ namespace friendlySAIN.Utils
                     }
                     else if (bt.Data.Memory.HaveEnemy)
                     {
-                        if (bt.Data.Memory.GoalEnemy.IsVisible || bt.Data.Memory.GoalEnemy.PersonalLastSeenTime < 5f)
+                        float lastSeenAgo = Time.time - bt.Data.Memory.GoalEnemy.PersonalLastSeenTime;
+                        if (bt.Data.Memory.GoalEnemy.IsVisible || lastSeenAgo < 5f)
                         {
                             stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Engaged"]);
                         }

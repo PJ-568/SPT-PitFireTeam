@@ -9,6 +9,7 @@ using SPT.Common.Http;
 using SPT.Common.Utils;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 using Newtonsoft.Json;
 
 using friendlySAIN.Modules;
@@ -220,6 +221,7 @@ namespace friendlySAIN
             // bot misc patches
             new BotTalkTrySayPatch().Enable();
             new BotTalkSayPatch().Enable();
+            new GrenadeThrowPatch().Enable();
             new BulletImpactPatch().Enable();
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();
@@ -344,15 +346,71 @@ namespace friendlySAIN
             {
                 var followers = BossPlayers.GetFollowersByBoss(id);
                 Vector3 position = GamePlayerOwner.MyPlayer.Transform.position;
+                List<Vector3> reservedSpots = new List<Vector3> { position };
+                int followerIndex = 0;
                 foreach (var follower in followers)
                 {
                     if (follower != null && follower.GetBot().HealthController.IsAlive && !follower.GetBot().DoorOpener.Interacting)
                     {
-                        follower.GetBot().Mover.Stop();
-                        follower.GetBot().GetPlayer.Teleport(position + new Vector3(Random.Range(-1.5f, 1.5f), 0, Random.Range(-1.5f, 1.5f)));
+                        BotOwner bot = follower.GetBot();
+                        Vector3 target = FindTeleportSpot(position, reservedSpots, followerIndex);
+                        followerIndex++;
+
+                        bot.Mover.Stop();
+                        bot.GetPlayer.Teleport(target);
+                        reservedSpots.Add(target);
                     }
                 }
             }
+        }
+
+        private static Vector3 FindTeleportSpot(Vector3 playerPosition, List<Vector3> reservedSpots, int index)
+        {
+            const float minDistanceToPlayer = 2f;
+            const float minDistanceBetweenFollowers = 1.6f;
+            const float sampleRadius = 1.4f;
+            const float baseRadius = 2.25f;
+            const float ringStep = 1.4f;
+
+            float seedAngle = UnityEngine.Random.Range(0f, 360f);
+
+            for (int attempt = 0; attempt < 24; attempt++)
+            {
+                int ring = attempt / 8;
+                float radius = baseRadius + ring * ringStep;
+                float angle = seedAngle + (index * 67f) + (attempt * 45f);
+                float radians = angle * Mathf.Deg2Rad;
+                Vector3 candidate = playerPosition + new Vector3(Mathf.Cos(radians), 0f, Mathf.Sin(radians)) * radius;
+
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, sampleRadius, NavMesh.AllAreas))
+                {
+                    if ((hit.position - playerPosition).sqrMagnitude < minDistanceToPlayer * minDistanceToPlayer)
+                    {
+                        continue;
+                    }
+
+                    bool overlaps = false;
+                    foreach (Vector3 spot in reservedSpots)
+                    {
+                        if ((hit.position - spot).sqrMagnitude < minDistanceBetweenFollowers * minDistanceBetweenFollowers)
+                        {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                    if (!overlaps)
+                    {
+                        return hit.position;
+                    }
+                }
+            }
+
+            // Fallback near player if no valid spread point is found.
+            if (NavMesh.SamplePosition(playerPosition, out NavMeshHit fallbackHit, 1.2f, NavMesh.AllAreas))
+            {
+                return fallbackHit.position;
+            }
+            return playerPosition;
         }
 
         private void _BotHeal()

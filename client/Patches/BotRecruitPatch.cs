@@ -69,10 +69,9 @@ namespace friendlySAIN.Patches
                 {
                     if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return;
                     botOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
-                    botOwner.Gesture.TryGestus(EInteraction.OkGesture, true);
                 }, responseDelayMs);
 
-                botOwner.Gesture.TryGestus(EInteraction.None, true);
+                botOwner.Gesture.TryGestus(EInteraction.OkGesture, true);
             }
 
             // Request was handled by the mod flow, suppress vanilla duplicate processing.

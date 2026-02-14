@@ -684,6 +684,9 @@ namespace friendlySAIN.Components
             {
                 if (_bot.IsDead || _bot.BotState != EBotState.Active) return;
 
+                // Prevent stale enemy refs from surviving the follower->regular bot handoff.
+                ClearInvalidEnemyState();
+
                 // - ensure bot no longer follows the player
                 if (_bot.BotFollower.HaveBoss)
                 {
@@ -763,6 +766,58 @@ namespace friendlySAIN.Components
                 UnhookPeaceChange();
             }
             // @TODO : see what else can be reverted
+        }
+
+        private void ClearInvalidEnemyState()
+        {
+            if (_bot == null) return;
+
+            // Clear current/last enemy pointers first to avoid group decision sorting stale EnemyInfo.
+            _bot.Memory.GoalEnemy = null;
+            _bot.Memory.LastEnemy = null;
+
+            if (_bot.EnemiesController?.EnemyInfos != null)
+            {
+                foreach (IPlayer enemy in _bot.EnemiesController.EnemyInfos.Keys.ToList())
+                {
+                    if (!IsValidEnemyRef(enemy))
+                    {
+                        _bot.Memory.DeleteInfoAboutEnemy(enemy);
+                    }
+                }
+            }
+
+            if (_bot.BotsGroup?.Enemies != null)
+            {
+                foreach (IPlayer enemy in _bot.BotsGroup.Enemies.Keys.ToList())
+                {
+                    if (!IsValidEnemyRef(enemy))
+                    {
+                        _bot.BotsGroup.RemoveEnemy(enemy);
+                    }
+                }
+            }
+        }
+
+        private static bool IsValidEnemyRef(IPlayer enemy)
+        {
+            if (enemy == null) return false;
+
+            try
+            {
+                var _ = enemy.Position;
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (enemy.IsAI && enemy.AIData?.BotOwner?.GetPlayer == null)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         public void SetCanPatrol(bool value)
@@ -892,8 +947,6 @@ namespace friendlySAIN.Components
                 bot.BotRequestController.CurRequest = null;
             }
 
-            bot.PatrollingData?.LootData?.StopLootCluster();
-            bot.PatrollingData?.LootData?.SetTargetLootCluster(null);
             bot.PatrollingData?.Pause();
 
             if (brain.CurLayerInfo is BaseLogicLayerSimpleAbstractClass simpleLayer)

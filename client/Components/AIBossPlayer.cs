@@ -174,6 +174,10 @@ namespace friendlySAIN.Components
                 {
                     ProcessContactCommand(info.PlayerRequester);
                 }
+                else if (info.phrase == EPhraseTrigger.Look)
+                {
+                    HandleAttentionCommand();
+                }
             }
 
             foreach (var item in Followers)
@@ -280,6 +284,56 @@ namespace friendlySAIN.Components
                 false
             );
         }
+
+        private void HandleAttentionCommand()
+        {
+            foreach (var follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (!BossPlayers.IsFollower(follower)) continue;
+
+                // Old FollowerReceiver "Look"/Attention behavior.
+                InteractableObjects.RemoveTaker(follower);
+                InteractableObjects.RemoveOpener(follower);
+
+                ClearEnemyStateForAttention(follower);
+
+                FollowerRecovery.SoftReset(follower);
+
+                follower.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
+            }
+        }
+
+        private static void ClearEnemyStateForAttention(BotOwner follower)
+        {
+            if (follower == null || follower.Memory == null)
+            {
+                return;
+            }
+
+            // Clear current goal enemy flags first.
+            if (follower.Memory.GoalEnemy != null && follower.Memory.GoalEnemy.GroupInfo != null)
+            {
+                follower.Memory.GoalEnemy.GroupInfo.EnemyLastSeenTimeSense = 0f;
+                follower.Memory.GoalEnemy.GroupInfo.IsHaveSeen = false;
+            }
+
+            // Remove all known enemies from bot memory + group cache so they are not immediately reacquired as "visible".
+            if (follower.EnemiesController?.EnemyInfos != null)
+            {
+                List<IPlayer> knownEnemies = follower.EnemiesController.EnemyInfos.Keys.ToList();
+                foreach (IPlayer enemy in knownEnemies)
+                {
+                    if (enemy == null) continue;
+                    follower.Memory.DeleteInfoAboutEnemy(enemy);
+                    follower.BotsGroup?.RemoveEnemy(enemy);
+                }
+            }
+
+            follower.Memory.GoalEnemy = null;
+            follower.Memory.LastEnemy = null;
+        }
+
         public new AIBossPlayerLogic GetBossLogic()
         {
             return aBossLogic;
