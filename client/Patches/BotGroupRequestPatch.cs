@@ -7,6 +7,7 @@ using SPT.Reflection.Patching;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using UnityEngine;
 
 
 namespace friendlySAIN.Patches
@@ -111,13 +112,13 @@ namespace friendlySAIN.Patches
                             else if (playerLevel == botLevel)
                             {
                                 // -- equal levels → 50/50 chance
-                                canPickup = new Random().NextDouble() < 0.5;
+                                canPickup = new System.Random().NextDouble() < 0.5;
                             }
                             else
                             {
                                 // -- different levels → 0% to 100% chance based on level difference
                                 double chance = MathClamp((levelDiff + 10) / 20.0, 0.0, 1.0);
-                                canPickup = new Random().NextDouble() < chance;
+                                canPickup = new System.Random().NextDouble() < chance;
                             }
                         }
                     }
@@ -135,9 +136,10 @@ namespace friendlySAIN.Patches
                             // - bot signals "OK"
                             Utils.Utils.SetTimeout(() =>
                             {
+                                if (posibleExecuter.IsDead || posibleExecuter.BotState != EBotState.Active) return;
                                 posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Roger, false);
                                 posibleExecuter.Gesture.TryGestus(EInteraction.OkGesture, true);
-                            }, 500);
+                            }, UnityEngine.Random.Range(300, 700));
                         }
                         else
                         {

@@ -150,8 +150,6 @@
         <Compile Remove="Utils\BotHelpers.cs" />
 
         <Compile Remove="Patches\BotReceiverPatch.cs" />
-        <Compile Remove="Patches\HearingSensorPatch.cs" />
-        <Compile Remove="Patches\BulletImpactPatch.cs" />
         <Compile Remove="Patches\GrenadeThrowPatch.cs" />
         <Compile Remove="Patches\DonutsPatch.cs" />
     </ItemGroup>

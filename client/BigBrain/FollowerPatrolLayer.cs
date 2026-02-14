@@ -3,7 +3,7 @@ using EFT;
 using EFT.InventoryLogic;
 using friendlySAIN.BigBrain.Actions;
 using friendlySAIN.Components;
-using HarmonyLib;
+using friendlySAIN.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -107,8 +107,6 @@ namespace friendlySAIN.BigBrain
             ResetReloadState();
             BotOwner.Mover.Pause = false;
             
-            BotOwner.PatrollingData?.LootData?.StopLootCluster();
-            BotOwner.PatrollingData?.LootData?.SetTargetLootCluster(null);
             BotOwner.PatrollingData?.Pause();
 
             if (BotOwner.BotRequestController?.CurRequest != null)
@@ -117,7 +115,7 @@ namespace friendlySAIN.BigBrain
                 BotOwner.BotRequestController.CurRequest = null;
             }
 
-            ResetSainCombatState();
+            Utils.FollowerRecovery.SoftReset(BotOwner);
 
             BotLogicDecision logicDecision = BotOwner.Brain.Agent.LastResult().Action;
             if (BotOwner.Brain.Agent.Dictionary_0.TryGetValue(logicDecision, out var logicInstance))
@@ -242,52 +240,6 @@ namespace friendlySAIN.BigBrain
             else if (BotOwner.Medecine.SurgicalKit.Using)
             {
                 BotOwner.Medecine.SurgicalKit.CancelCurrent();
-            }
-        }
-
-        private void ResetSainCombatState()
-        {
-            try
-            {
-                if (BotOwner == null) return;
-
-                var managerType = AccessTools.TypeByName("SAIN.Components.BotManagerComponent");
-                if (managerType == null) return;
-
-                var instanceProperty = AccessTools.Property(managerType, "Instance");
-                var manager = instanceProperty?.GetValue(null);
-                if (manager == null) return;
-
-                var getSainMethod = AccessTools.Method(managerType, "GetSAIN");
-                if (getSainMethod == null) return;
-
-                object[] args = new object[] { BotOwner, null };
-                bool hasSain = (bool)getSainMethod.Invoke(manager, args);
-                if (!hasSain) return;
-
-                var sainBot = args[1];
-                if (sainBot == null) return;
-
-                var sainBotType = sainBot.GetType();
-                var decision = AccessTools.Property(sainBotType, "Decision")?.GetValue(sainBot);
-                AccessTools.Method(decision?.GetType(), "ResetDecisions")?.Invoke(decision, new object[] { false });
-
-                var enemyController = AccessTools.Property(sainBotType, "EnemyController")?.GetValue(sainBot);
-                AccessTools.Method(enemyController?.GetType(), "ClearEnemy")?.Invoke(enemyController, null);
-
-                var search = AccessTools.Property(sainBotType, "Search")?.GetValue(sainBot);
-                AccessTools.Method(search?.GetType(), "Reset")?.Invoke(search, null);
-
-                var suppression = AccessTools.Property(sainBotType, "Suppression")?.GetValue(sainBot);
-                AccessTools.Method(suppression?.GetType(), "ResetSuppressing")?.Invoke(suppression, null);
-
-                var manualShoot = AccessTools.Property(sainBotType, "ManualShoot")?.GetValue(sainBot);
-                AccessTools.Method(manualShoot?.GetType(), "Reset")?.Invoke(manualShoot, null);
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError("FollowerPatrolLayer.Start: failed to reset SAIN combat state");
-                Modules.Logger.LogError(ex);
             }
         }
 

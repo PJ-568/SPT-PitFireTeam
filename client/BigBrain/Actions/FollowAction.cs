@@ -12,47 +12,44 @@ namespace friendlySAIN.BigBrain.Actions
     internal class FollowAction : CustomLogic
     {
         private const int DefaultFollowDistance = 12;
+        private const bool EnableFollowDebug = false;
+        private const float MaxBossSpeedForSettle = 0.35f;
+        private const float SettleSpacing = 2.5f;
+        private const float SettleSpacingSqr = SettleSpacing * SettleSpacing;
 
         private Player? bossPlayer;
         private pitAIBossPlayer? bossData;
         private BotFollowerPlayer? followerData;
 
-        private float nextFollowUpdateAt = 0f;
-        private float nextSettlePointAt = 0f;
-        private Vector3 lastMoveTarget;
-        private bool isPathBlocked = false;
-        private bool wasInFollowRange = false;
-        private float holdPositionUntil = 0f;
-        private float nextPatrolUpdateAt = 0f;
+        private float nextFollowUpdateAt;
+        private float nextSettlePointAt;
+        private Vector3? lastMoveTarget;
+        private bool isPathBlocked;
+
+        private float holdPositionUntil;
+        private float nextPatrolUpdateAt;
         private bool movingToPatrolPoint;
-        private bool movingToSettlePoint = false;
+        private bool movingToSettlePoint;
+        private bool patrolEnabled;
 
-        private bool patrolEnabled = false;
-
-        private Vector3? lastLeaderPatrolGridPos = null;
-        private Vector3? lastLeaderCampGridPos = null;
-
-        private float resumeFollowUntil = 0f;
-        private bool isPatrolCampInitialized = false;
+        private Vector3? lastLeaderPatrolGridPos;
+        private Vector3? lastLeaderCampGridPos;
+        private float resumeFollowUntil;
+        private bool isPatrolCampInitialized;
 
         private CustomNavigationPoint? lastCoverPoint;
-        private bool noCoverFound = false;
-
+        private bool noCoverFound;
         private float patrolPerimeterRadius;
 
-        private bool playPeacefulActions = false;
-        private bool playPeaceLook = false;
-        private bool playPeaceHardAim = false;
-        private bool playSecondWeaponWatch = false;
+        private bool playPeacefulActions;
+        private bool playPeaceLook;
+        private bool playPeaceHardAim;
+        private bool playSecondWeaponWatch;
 
-        private bool? lastSprintState = null;
-        private Vector3 chaseTarget;
-        private bool hasChaseTarget;
-        private float nextChaseRepathAt;
+        private bool poseCorrected;
 
         public FollowAction(BotOwner botOwner) : base(botOwner)
         {
-            lastMoveTarget = botOwner.Position;
             patrolPerimeterRadius = friendlySAIN.patrolRadius.Value;
         }
 
@@ -60,18 +57,24 @@ namespace friendlySAIN.BigBrain.Actions
         {
             base.Start();
             isPathBlocked = false;
-            wasInFollowRange = false;
             isPatrolCampInitialized = false;
             movingToPatrolPoint = false;
             movingToSettlePoint = false;
+            patrolEnabled = false;
+
             nextFollowUpdateAt = 0f;
             nextSettlePointAt = 0f;
             resumeFollowUntil = 0f;
             holdPositionUntil = 0f;
             nextPatrolUpdateAt = 0f;
-            lastSprintState = null;
-            hasChaseTarget = false;
-            nextChaseRepathAt = 0f;
+
+            poseCorrected = false;
+
+            lastLeaderPatrolGridPos = null;
+            lastLeaderCampGridPos = null;
+            lastCoverPoint = null;
+            noCoverFound = false;
+
             ResetPeaceActions();
         }
 
@@ -81,7 +84,7 @@ namespace friendlySAIN.BigBrain.Actions
 
             BotOwner.DoorOpener.UpdateDoorInteractionStatus();
             followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
-            SetPatrolEnabled(followerData?.CanPatrol == true);
+            //SetPatrolEnabled(followerData?.CanPatrol == true);
 
             if (!TryGetBossAndPlayer())
             {
@@ -91,14 +94,7 @@ namespace friendlySAIN.BigBrain.Actions
 
             try
             {
-                if (!patrolEnabled)
-                {
-                    Follow();
-                }
-                else
-                {
-                    Patrol();
-                }
+                Follow();
             }
             catch (Exception ex)
             {
@@ -113,6 +109,7 @@ namespace friendlySAIN.BigBrain.Actions
             {
                 return false;
             }
+
             bossData = boss;
             bossPlayer = boss.realPlayer;
             return true;
@@ -132,37 +129,28 @@ namespace friendlySAIN.BigBrain.Actions
             {
                 BotOwner.GoToSomePointData.UpdateToGo(false);
             }
-            else if (BotOwner.Mover.TargetPose != 1f)
+            else if (BotOwner.Mover.TargetPose != 1f && !poseCorrected)
             {
+                poseCorrected = true;
                 BotOwner.Mover.SetPose(1f);
             }
 
-            if (nextFollowUpdateAt >= Time.time) return;
+            if (nextFollowUpdateAt > Time.time && !forceFollow) return;
             nextFollowUpdateAt = Time.time + Utils.Utils.Random(1f, 2f);
 
             Vector3 leaderPosition = GetLeaderTargetPosition();
-            int followDistance = DefaultFollowDistance;
 
-            float distanceToLeader;
-            if (forceFollow)
-            {
-                distanceToLeader = forcedDistance;
-            }
-            else
-            {
-                distanceToLeader = Mathf.Abs((isPathBlocked ? lastMoveTarget : (leaderPosition - BotOwner.Position)).magnitude);
-            }
+            float distance = forceFollow
+                ? forcedDistance
+                : Mathf.Abs((isPathBlocked && lastMoveTarget.HasValue ? (lastMoveTarget.Value - BotOwner.Position) : (leaderPosition - BotOwner.Position)).magnitude);
 
-            bool inRange = distanceToLeader < followDistance;
-            bool rangeChanged = inRange != wasInFollowRange;
-            wasInFollowRange = inRange;
+            bool inRange = distance < DefaultFollowDistance;
 
             if (inRange)
             {
                 if (isPathBlocked)
                 {
                     BotOwner.StopMove();
-                    hasChaseTarget = false;
                     return;
                 }
 
@@ -175,99 +163,126 @@ namespace friendlySAIN.BigBrain.Actions
                     return;
                 }
 
-                if (nextSettlePointAt < Time.time || rangeChanged)
+                if (nextSettlePointAt > Time.time)
                 {
-                    nextSettlePointAt = Time.time + 8f;
-                    int settleDistance = followDistance;
+                    return;
+                }
 
-                    CustomNavigationPoint? settlePoint = null;
-                    if (lastCoverPoint == null && !noCoverFound)
-                    {
-                        List<CustomNavigationPoint> coverPoints = BotOwner.Covers.GetClosePoints(bossPlayer.Transform.position, settleDistance + 5f);
+                nextSettlePointAt = Time.time + 8f;
+                int settleDistance = DefaultFollowDistance;
 
-                        float maxDist = settleDistance;
-                        NavMeshPath navMeshPath = new NavMeshPath();
-                        List<CustomNavigationPoint> availableCover = new List<CustomNavigationPoint>();
+                CustomNavigationPoint? coverPoint = TryGetSettleCoverPoint(leaderPosition, settleDistance);
+                if (coverPoint != null)
+                {
+                    lastCoverPoint = coverPoint;
+                    BotOwner.Memory.SetCoverPoints(coverPoint);
+                    BotOwner.GoToSomePointData.SetPoint(coverPoint.Position);
+                    BotOwner.GoToSomePointData.UpdateToGo(false);
+                    BotOwner.Steering.LookToPathDestPoint();
+                    movingToSettlePoint = true;
+                    nextFollowUpdateAt = Time.time + 0.5f;
+                    return;
+                }
 
-                        foreach (var point in coverPoints)
-                        {
-                            if (point == null) continue;
-                            if (!point.IsFreeById(BotOwner.Id)) continue;
-                            if (Utils.Utils.GetNavDistance(leaderPosition, point.Position, navMeshPath) <= maxDist)
-                            {
-                                availableCover.Add(point);
-                            }
-                        }
-
-                        if (availableCover.Count > 0)
-                        {
-                            settlePoint = availableCover[UnityEngine.Random.Range(0, availableCover.Count)];
-                        }
-                    }
-                    else
-                    {
-                        settlePoint = lastCoverPoint;
-                    }
-
-                    if (settlePoint != null)
-                    {
-                        lastCoverPoint = settlePoint;
-                        BotOwner.Memory.SetCoverPoints(settlePoint);
-                        BotOwner.GoToSomePointData.SetPoint(settlePoint.Position);
-                        BotOwner.GoToSomePointData.UpdateToGo(false);
-                        BotOwner.Steering.LookToPathDestPoint();
-
-                        movingToSettlePoint = true;
-                        nextFollowUpdateAt = Time.time + 0.5f;
-                        return;
-                    }
-
-                    noCoverFound = true;
-                    float minOffset = Mathf.Min(1f, settleDistance * 0.19f);
-                    float maxOffset = Mathf.Min(5f, settleDistance * 0.65f);
-                    float xOffset = (float)Utils.Utils.RandomSing() * Utils.Utils.Random(minOffset, maxOffset);
-                    float zOffset = (float)Utils.Utils.RandomSing() * Utils.Utils.Random(minOffset, maxOffset);
-                    float targetX = xOffset + leaderPosition.x;
-                    float targetZ = zOffset + leaderPosition.z;
-
-                    if (!NavMesh.SamplePosition(new Vector3(targetX, leaderPosition.y, targetZ), out NavMeshHit navMeshHit, 2f, -1))
-                    {
-                        BotOwner.StopMove();
-                        isPathBlocked = true;
-                        return;
-                    }
-
-                    BotOwner.GoToSomePointData.SetPoint(navMeshHit.position);
+                noCoverFound = true;
+                if (TryGetRandomSettlePoint(leaderPosition, settleDistance, out Vector3 settlePosition))
+                {
+                    BotOwner.GoToSomePointData.SetPoint(settlePosition);
                     BotOwner.GoToSomePointData.UpdateToGo(false);
                     BotOwner.Steering.LookToPathDestPoint();
                     movingToSettlePoint = true;
                     nextFollowUpdateAt = Time.time + 0.5f;
                 }
-
                 return;
             }
 
             movingToSettlePoint = false;
             lastCoverPoint = null;
             noCoverFound = false;
-            if (ShouldRefreshChase(leaderPosition))
-            {
-                MoveTowardLeader(leaderPosition);
-                chaseTarget = leaderPosition;
-                hasChaseTarget = true;
-                nextChaseRepathAt = Time.time + 0.6f;
-            }
-            bool mustSprint = distanceToLeader > Math.Min(followDistance + 3, 16);
 
-            if (BotOwner.Mover.TargetPose != 1f) BotOwner.Mover.SetPose(1f);
-            SetSprint(mustSprint);
+            UpdateFollowPath(leaderPosition);
+
+            bool shouldSprint = distance > Mathf.Min(DefaultFollowDistance + 3f, 16f);
+            if (BotOwner.Mover.TargetPose != 1f)
+            {
+                BotOwner.Mover.SetPose(1f);
+            }
+            BotOwner.Mover.Sprint(shouldSprint, false);
+            
         }
 
-        private bool ShouldRefreshChase(Vector3 leaderPosition)
+        private CustomNavigationPoint? TryGetSettleCoverPoint(Vector3 leaderPosition, int settleDistance)
         {
-            if (!hasChaseTarget) return true;
-            if (Time.time >= nextChaseRepathAt) return true;
-            return (leaderPosition - chaseTarget).sqrMagnitude > 9f;
+            if (lastCoverPoint != null || noCoverFound)
+            {
+                return lastCoverPoint;
+            }
+
+            if (bossPlayer == null) return null;
+
+            List<CustomNavigationPoint> coverPoints = BotOwner.Covers.GetClosePoints(bossPlayer.Transform.position, settleDistance + 5f);
+            float maxDistance = settleDistance;
+            NavMeshPath navMeshPath = new NavMeshPath();
+            List<CustomNavigationPoint> availableCover = new List<CustomNavigationPoint>();
+
+            foreach (var point in coverPoints)
+            {
+                if (point == null) continue;
+                if (!point.IsFreeById(BotOwner.Id)) continue;
+                if (!IsSettlePositionClear(point.Position)) continue;
+                if (Utils.Utils.GetNavDistance(leaderPosition, point.Position, navMeshPath) <= maxDistance)
+                {
+                    availableCover.Add(point);
+                }
+            }
+
+            if (availableCover.Count == 0) return null;
+            return availableCover[UnityEngine.Random.Range(0, availableCover.Count)];
+        }
+
+        private bool TryGetRandomSettlePoint(Vector3 leaderPosition, int settleDistance, out Vector3 settlePosition)
+        {
+            float minOffset = Mathf.Min(1f, settleDistance * 0.19f);
+            float maxOffset = Mathf.Min(5f, settleDistance * 0.65f);
+            float xOffset = (float)Utils.Utils.RandomSing() * Utils.Utils.Random(minOffset, maxOffset);
+            float zOffset = (float)Utils.Utils.RandomSing() * Utils.Utils.Random(minOffset, maxOffset);
+            Vector3 candidate = new Vector3(leaderPosition.x + xOffset, leaderPosition.y, leaderPosition.z + zOffset);
+
+            if (NavMesh.SamplePosition(candidate, out NavMeshHit navMeshHit, 2f, -1))
+            {
+                if (!IsSettlePositionClear(navMeshHit.position))
+                {
+                    settlePosition = default;
+                    return false;
+                }
+                settlePosition = navMeshHit.position;
+                return true;
+            }
+
+            settlePosition = default;
+            return false;
+        }
+
+        private bool IsSettlePositionClear(Vector3 position)
+        {
+            if (bossPlayer != null && (bossPlayer.Transform.position - position).sqrMagnitude < SettleSpacingSqr)
+            {
+                return false;
+            }
+
+            if (bossData != null)
+            {
+                foreach (BotOwner follower in bossData.Followers)
+                {
+                    if (follower == null || follower == BotOwner || follower.GetPlayer == null || follower.IsDead) continue;
+                    if ((follower.GetPlayer.Transform.position - position).sqrMagnitude < SettleSpacingSqr)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         }
 
         private void Patrol()
@@ -293,7 +308,7 @@ namespace friendlySAIN.BigBrain.Actions
                     Mathf.Floor(leaderPosition.z / 3f) * 3f
                 );
 
-                float distanceToLeader = Mathf.Abs((isPathBlocked ? lastMoveTarget : (leaderGridPosition - botPosition)).magnitude);
+                float distanceToLeader = Mathf.Abs((isPathBlocked && lastMoveTarget.HasValue ? (lastMoveTarget.Value - botPosition) : (leaderGridPosition - botPosition)).magnitude);
                 bool inRange = distanceToLeader < followDistance;
 
                 if (!inRange)
@@ -319,7 +334,7 @@ namespace friendlySAIN.BigBrain.Actions
             if (nextPatrolUpdateAt > Time.time) return;
 
             nextPatrolUpdateAt = Time.time + 1.5f;
-            float campRadius = 30f;
+            const float campRadius = 30f;
 
             Vector3 campCenter = new Vector3(
                 Mathf.Floor(leaderPosition.x / campRadius) * campRadius,
@@ -336,6 +351,7 @@ namespace friendlySAIN.BigBrain.Actions
                 Follow();
                 return;
             }
+
             lastLeaderCampGridPos = campCenter;
 
             if (holdPositionUntil > Time.time)
@@ -391,7 +407,10 @@ namespace friendlySAIN.BigBrain.Actions
 
                 if (BotOwner.GoToPoint(navMeshHit.position, true, -1f, false, false) != NavMeshPathStatus.PathComplete) continue;
 
-                SetSprint(false);
+                if (BotOwner.Mover.Sprinting)
+                {
+                    BotOwner.Mover.Sprint(false, false);
+                }
                 BotOwner.Mover.SetTargetMoveSpeed(0.5f);
                 BotOwner.Steering.LookToPoint(navMeshHit.position + Vector3.up * 1.5f);
 
@@ -415,20 +434,30 @@ namespace friendlySAIN.BigBrain.Actions
             }
         }
 
-        private void MoveTowardLeader(Vector3 leaderPosition)
+
+        private NavMeshPathStatus GoToPosition(Vector3 position)
+        {
+            NavMeshPathStatus pathStatus = BotOwner.GoToPoint(position, true, -1f, false, false);
+            if (pathStatus == NavMeshPathStatus.PathComplete)
+            {
+                BotOwner.Steering.LookToMovingDirection();
+                lastMoveTarget = position;
+            }
+
+            return pathStatus;
+        }
+
+        private void UpdateFollowPath(Vector3 leaderPosition)
         {
             isPathBlocked = false;
-
-            if (TryGoToPoint(leaderPosition) == NavMeshPathStatus.PathComplete)
+            if (GoToPosition(leaderPosition) == NavMeshPathStatus.PathComplete)
             {
-                isPathBlocked = false;
+                return;
             }
-            else if (NavMesh.SamplePosition(leaderPosition, out NavMeshHit navMeshHit, 1.5f, -1))
+
+            if (NavMesh.SamplePosition(leaderPosition, out _, 1.5f, -1) && GoToPosition(leaderPosition) != NavMeshPathStatus.PathComplete)
             {
-                if (TryGoToPoint(navMeshHit.position) != NavMeshPathStatus.PathComplete)
-                {
-                    isPathBlocked = true;
-                }
+                isPathBlocked = true;
             }
 
             if (isPathBlocked)
@@ -436,31 +465,12 @@ namespace friendlySAIN.BigBrain.Actions
                 CustomNavigationPoint freeClosePoint = BotOwner.Covers.GetFreeClosePoint(leaderPosition, 0f, false);
                 if (freeClosePoint != null)
                 {
-                    isPathBlocked = true;
-                    TryGoToPoint(freeClosePoint.Position);
+                    GoToPosition(freeClosePoint.Position);
                 }
             }
         }
 
-        private NavMeshPathStatus TryGoToPoint(Vector3 position)
-        {
-            NavMeshPathStatus pathStatus = BotOwner.Mover.GoToPoint(position, false, 0.5f, false, false);
-            if (pathStatus == NavMeshPathStatus.PathComplete)
-            {
-                if (lastMoveTarget != position) BotOwner.Steering.LookToMovingDirection();
-                lastMoveTarget = position;
-            }
-            return pathStatus;
-        }
-
-        private void SetSprint(bool state)
-        {
-            if (lastSprintState.HasValue && lastSprintState.Value == state) return;
-            BotOwner.Mover.Sprint(state, false);
-            lastSprintState = state;
-        }
-
-        private void SetPatrolEnabled(bool state = false)
+        private void SetPatrolEnabled(bool state)
         {
             patrolEnabled = state;
 
@@ -481,5 +491,6 @@ namespace friendlySAIN.BigBrain.Actions
             playPeaceHardAim = false;
             playSecondWeaponWatch = false;
         }
+
     }
 }

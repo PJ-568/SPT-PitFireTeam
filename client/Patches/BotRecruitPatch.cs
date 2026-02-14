@@ -3,6 +3,7 @@ using friendlySAIN.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
+using UnityEngine;
 
 using EventInfo = BotEventHandler.GClass692;
 
@@ -22,7 +23,7 @@ namespace friendlySAIN.Patches
         {
             if (__instance == null || info == null) return true;
 
-            BotOwner? botOwner = AccessTools.Field(typeof(BotReceiver), "BotOwner_0")?.GetValue(__instance) as BotOwner;
+            BotOwner? botOwner = __instance.BotOwner_0;
             if (botOwner == null) return true;
 
             EPhraseTrigger? phrase = ReadPhrase(info);
@@ -60,10 +61,18 @@ namespace friendlySAIN.Patches
             {
                 botOwner.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
                 botOwner.Gesture.TryGestus(EInteraction.NoGesture, true);
-            } else
+            }
+            else
             {
-                botOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
-                botOwner.Gesture.TryGestus(EInteraction.OkGesture, true);
+                int responseDelayMs = Random.Range(300, 700);
+                Utils.Utils.SetTimeout(() =>
+                {
+                    if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return;
+                    botOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                    botOwner.Gesture.TryGestus(EInteraction.OkGesture, true);
+                }, responseDelayMs);
+
+                botOwner.Gesture.TryGestus(EInteraction.None, true);
             }
 
             // Request was handled by the mod flow, suppress vanilla duplicate processing.

@@ -190,6 +190,11 @@ namespace friendlySAIN
             new BotOwnerIsFolowerPatch().Enable();
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
+            
+            if(!IsSAINInstalled)
+                new FollowerSprintPatch().Enable();
+            new FollowerSprintStateDirectionPatch().Enable();
+
             new AICoreAgentUpdatePatch().Enable();
 
             // recruit/request patches
@@ -215,6 +220,10 @@ namespace friendlySAIN
             // bot misc patches
             new BotTalkTrySayPatch().Enable();
             new BotTalkSayPatch().Enable();
+            new BulletImpactPatch().Enable();
+            new HearingSensorPatch().Enable();
+            new FootstepSoundPatch().Enable();
+            new PlayerSayPatch().Enable();
 
             // AIBossPlayer class patch
             new AIDataContructPatch().Enable();
