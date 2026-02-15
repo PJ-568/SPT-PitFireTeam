@@ -46,6 +46,7 @@ namespace friendlySAIN.Components
         private const float GestureCommandDistance = 15f;
         private const float GoThereMaxDistance = 50f;
         private const float LookAtFollowerDistance = 27f;
+        private float _ignoreNextThereGestureUntil;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -204,6 +205,25 @@ namespace friendlySAIN.Components
 
             if (info.Player != null && info.Player.ProfileId == realPlayer.ProfileId)
             {
+                if (info.Gesture == (EInteraction)CustomGestures.OverThere)
+                {
+                    _ignoreNextThereGestureUntil = Time.time + 0.75f;
+                    ProcessContactCommand(info.Player, true);
+
+                    EventInfo overThereInfo = new EventInfo
+                    {
+                        phrase = EPhraseTrigger.OnRepeatedContact,
+                        PlayerRequester = info.Player
+                    };
+
+                    foreach (var item in Followers)
+                    {
+                        if (!CanReactToBossGesture(item, info.Player)) continue;
+                        item?.Receiver?.method_0(overThereInfo);
+                    }
+                    return;
+                }
+
                 if (info.Gesture == EInteraction.HoldGesture)
                 {
                     ApplyHoldGesture(info.Player);
@@ -218,25 +238,11 @@ namespace friendlySAIN.Components
 
                 if (info.Gesture == EInteraction.ThereGesture)
                 {
-                    ApplyThereGesture(info.Player);
-                    return;
-                }
-
-                if (info.Gesture == (EInteraction)CustomGestures.OverThere)
-                {
-                    ProcessContactCommand(info.Player, true);
-
-                    EventInfo overThereInfo = new EventInfo
+                    if (Time.time < _ignoreNextThereGestureUntil)
                     {
-                        phrase = EPhraseTrigger.OnRepeatedContact,
-                        PlayerRequester = info.Player
-                    };
-
-                    foreach (var item in Followers)
-                    {
-                        if (!CanReactToBossGesture(item, info.Player)) continue;
-                        item?.Receiver?.method_0(overThereInfo);
+                        return;
                     }
+                    ApplyThereGesture(info.Player);
                     return;
                 }
             }

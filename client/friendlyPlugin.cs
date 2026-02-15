@@ -191,7 +191,7 @@ namespace friendlySAIN
             new BotOwnerIsFolowerPatch().Enable();
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
-            new LootPatrolFollowerGuardPatch().Enable();
+            new LootPatrolActiveLayerListPatch().Enable();
             
             if(!IsSAINInstalled)
                 new FollowerSprintPatch().Enable();

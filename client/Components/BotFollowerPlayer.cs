@@ -53,6 +53,7 @@ namespace friendlySAIN.Components
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
+        private bool _resumeHoldAfterComeCloser;
 
         public bool CanPatrol
         {
@@ -846,8 +847,9 @@ namespace friendlySAIN.Components
         public void SetHoldPosition(float duration)
         {
             _activeCommand = FollowerCommandType.HoldPosition;
-            _commandUntilTime = Time.time + Mathf.Max(0.5f, duration);
+            _commandUntilTime = float.PositiveInfinity;
             _commandTarget = Vector3.zero;
+            _resumeHoldAfterComeCloser = false;
         }
 
         public void SetMoveToPoint(Vector3 target, float duration)
@@ -855,13 +857,47 @@ namespace friendlySAIN.Components
             _activeCommand = FollowerCommandType.MoveToPoint;
             _commandTarget = target;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
+            _resumeHoldAfterComeCloser = false;
         }
 
         public void SetComeCloser(float duration)
         {
+            if (_activeCommand == FollowerCommandType.HoldPosition)
+            {
+                _resumeHoldAfterComeCloser = true;
+            }
+            else
+            {
+                _resumeHoldAfterComeCloser = false;
+            }
+
             _activeCommand = FollowerCommandType.ComeCloser;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
             _commandTarget = Vector3.zero;
+        }
+
+        public void CompleteComeCloser()
+        {
+            if (_activeCommand != FollowerCommandType.ComeCloser)
+            {
+                return;
+            }
+
+            if (_resumeHoldAfterComeCloser)
+            {
+                _activeCommand = FollowerCommandType.HoldPosition;
+                _commandTarget = Vector3.zero;
+                _commandUntilTime = float.PositiveInfinity;
+                _resumeHoldAfterComeCloser = false;
+                return;
+            }
+
+            ClearCommand();
+        }
+
+        public bool IsComeCloserFromHold()
+        {
+            return _activeCommand == FollowerCommandType.ComeCloser && _resumeHoldAfterComeCloser;
         }
 
         public bool TryGetActiveCommand(out FollowerCommandType command, out Vector3 target)
@@ -891,6 +927,7 @@ namespace friendlySAIN.Components
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
+            _resumeHoldAfterComeCloser = false;
         }
 
         private void ResetBrainForFollower(BaseBrain baseBrain)

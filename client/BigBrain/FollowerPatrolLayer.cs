@@ -13,8 +13,8 @@ namespace friendlySAIN.BigBrain
     internal static class FollowerLayerRegistry
     {
         private static bool initialized;
-        private const int FollowerRequestLayerPriority = 77;
-        private const int FollowerLayerPriority = 75;
+        private const int FollowerRequestLayerPriority = 73;
+        private const int FollowerLayerPriority = 72;
 
         public static void Init()
         {

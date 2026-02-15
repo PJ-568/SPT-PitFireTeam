@@ -14,6 +14,9 @@ namespace friendlySAIN.BigBrain.Actions
         private bool moveCommandInitialized;
         private float nextHoldLookChangeAt;
         private Vector3 holdLookPoint;
+        private float moveArrivalLookUntil;
+        private float comeArrivalHoldUntil;
+        private Vector3 activeMoveTarget;
 
         public GestureCommandAction(BotOwner botOwner) : base(botOwner) { }
 
@@ -24,6 +27,9 @@ namespace friendlySAIN.BigBrain.Actions
             moveCommandInitialized = false;
             nextHoldLookChangeAt = 0f;
             holdLookPoint = Vector3.zero;
+            moveArrivalLookUntil = 0f;
+            comeArrivalHoldUntil = 0f;
+            activeMoveTarget = Vector3.zero;
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -52,7 +58,11 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void HandleComeCloser()
         {
-            if(BotOwner.Mover.TargetPose != 1f) BotOwner.Mover.SetPose(1f);
+            // Keep current pose for "come here"; only force out of prone.
+            if (BotOwner.Mover.TargetPose < 0.1f)
+            {
+                BotOwner.Mover.SetPose(0.1f);
+            }
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer boss || boss.realPlayer == null)
             {
                 followerData?.ClearCommand();
@@ -61,9 +71,26 @@ namespace friendlySAIN.BigBrain.Actions
 
             Vector3 leaderPos = boss.realPlayer.Transform.position;
             float distance = (leaderPos - BotOwner.Position).magnitude;
+            if (distance > 1f && comeArrivalHoldUntil > 0f)
+            {
+                comeArrivalHoldUntil = 0f;
+            }
             if (distance <= 1f)
             {
-                followerData?.ClearCommand();
+                if (followerData?.IsComeCloserFromHold() == true)
+                {
+                    followerData.CompleteComeCloser();
+                    BotOwner.StopMove();
+                    return;
+                }
+
+                HandleComeArrivalPause();
+                if (Time.time < comeArrivalHoldUntil)
+                {
+                    return;
+                }
+                comeArrivalHoldUntil = 0f;
+                followerData?.CompleteComeCloser();
                 BotOwner.StopMove();
                 return;
             }
@@ -73,6 +100,9 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.Steering.LookToPathDestPoint();
             moveCommandInitialized = false;
             nextHoldLookChangeAt = 0f;
+            moveArrivalLookUntil = 0f;
+            comeArrivalHoldUntil = 0f;
+            activeMoveTarget = Vector3.zero;
         }
 
         private void HandleMoveToPoint(Vector3 target)
@@ -86,17 +116,34 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             float distance = (target - BotOwner.Position).magnitude;
-            if (distance <= 2f)
+            if (distance > 1.5f && moveArrivalLookUntil > 0f)
             {
-                followerData?.ClearCommand();
+                moveArrivalLookUntil = 0f;
+            }
+            if (distance <= 1.5f)
+            {
+                HandleMovePointArrivalLookAround();
+                if (Time.time < moveArrivalLookUntil)
+                {
+                    return;
+                }
+                moveArrivalLookUntil = 0f;
                 BotOwner.StopMove();
+                holdLookPoint = Vector3.zero;
+                nextHoldLookChangeAt = 0f;
+                moveCommandInitialized = false;
+                followerData?.ClearCommand();
                 return;
             }
 
-            if (!moveCommandInitialized)
+            bool targetChanged = !moveCommandInitialized || (activeMoveTarget - target).sqrMagnitude > 0.25f;
+            if (targetChanged)
             {
                 BotOwner.GoToSomePointData.SetPoint(target);
                 moveCommandInitialized = true;
+                activeMoveTarget = target;
+                moveArrivalLookUntil = 0f;
+                nextHoldLookChangeAt = 0f;
             }
 
             if (Time.time >= nextPathCheckAt)
@@ -111,9 +158,40 @@ namespace friendlySAIN.BigBrain.Actions
                 }
             }
 
-            BotOwner.GoToSomePointData.UpdateToGo(distance > 16f);
+            // "There" should always be a walk move.
+            BotOwner.GoToSomePointData.UpdateToGo(false);
             BotOwner.Steering.LookToPathDestPoint();
             nextHoldLookChangeAt = 0f;
+        }
+
+        private void HandleMovePointArrivalLookAround()
+        {
+            BotOwner.StopMove();
+            if (BotOwner.Mover.Sprinting)
+            {
+                BotOwner.Mover.Sprint(false, false);
+            }
+            if (BotOwner.Mover.TargetPose != 1f)
+            {
+                BotOwner.Mover.SetPose(1f);
+            }
+
+            if (moveArrivalLookUntil <= 0f)
+            {
+                moveArrivalLookUntil = Time.time + Utils.Utils.Random(2f, 4f);
+                nextHoldLookChangeAt = 0f;
+            }
+
+            if (Time.time >= nextHoldLookChangeAt)
+            {
+                holdLookPoint = PickNextHoldLookPoint();
+                nextHoldLookChangeAt = Time.time + Utils.Utils.Random(0.8f, 2f);
+            }
+
+            if (holdLookPoint != Vector3.zero)
+            {
+                BotOwner.Steering.LookToPoint(holdLookPoint);
+            }
         }
 
         private void HandleHoldPosition()
@@ -140,6 +218,35 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             moveCommandInitialized = false;
+            moveArrivalLookUntil = 0f;
+            comeArrivalHoldUntil = 0f;
+            activeMoveTarget = Vector3.zero;
+        }
+
+        private void HandleComeArrivalPause()
+        {
+            BotOwner.StopMove();
+            if (BotOwner.Mover.Sprinting)
+            {
+                BotOwner.Mover.Sprint(false, false);
+            }
+
+            if (comeArrivalHoldUntil <= 0f)
+            {
+                comeArrivalHoldUntil = Time.time + Utils.Utils.Random(1.25f, 2.5f);
+                nextHoldLookChangeAt = 0f;
+            }
+
+            if (Time.time >= nextHoldLookChangeAt)
+            {
+                holdLookPoint = PickNextHoldLookPoint();
+                nextHoldLookChangeAt = Time.time + Utils.Utils.Random(0.6f, 1.5f);
+            }
+
+            if (holdLookPoint != Vector3.zero)
+            {
+                BotOwner.Steering.LookToPoint(holdLookPoint);
+            }
         }
 
         private Vector3 PickNextHoldLookPoint()
