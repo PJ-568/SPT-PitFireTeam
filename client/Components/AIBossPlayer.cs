@@ -47,6 +47,7 @@ namespace friendlySAIN.Components
         private const float GoThereMaxDistance = 50f;
         private const float LookAtFollowerDistance = 27f;
         private float _ignoreNextThereGestureUntil;
+        private float _nextThereGestureAt;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -284,6 +285,7 @@ namespace friendlySAIN.Components
 
                 // Make followers orient toward boss reported direction.
                 follower.Steering.LookToPoint(lookTarget);
+                BossPlayers.Instance?.GetFollower(follower)?.PauseCommandLookRandom(Utils.Utils.Random(2f, 4f));
 
                 if (seenEnemies == null || seenEnemies.Count == 0) continue;
 
@@ -457,6 +459,8 @@ namespace friendlySAIN.Components
         private void ApplyThereGesture(IPlayer requester)
         {
             if (requester == null) return;
+            if (Time.time < _nextThereGestureAt) return;
+            _nextThereGestureAt = Time.time + 0.6f;
 
             BotOwner closestFollower = null;
             float bestDist = float.MaxValue;

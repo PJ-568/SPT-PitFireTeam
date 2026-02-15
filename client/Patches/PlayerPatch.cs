@@ -75,7 +75,8 @@ namespace friendlySAIN.Patches
         {
             pitAIBossPlayer? boss = BossPlayers.GetBoss(__instance.Player.ProfileId);
 
-            if ((EPhraseTrigger)actionId == (EPhraseTrigger)CustomPhrases.TeamStatus)
+            if (!GClass3937.IsPlayerGesture(actionId) &&
+                (EPhraseTrigger)actionId == (EPhraseTrigger)CustomPhrases.TeamStatus)
             {
 
                 if (boss != null)
@@ -92,7 +93,8 @@ namespace friendlySAIN.Patches
                 return false;
 
             }
-            else if ((EPhraseTrigger)actionId == (EPhraseTrigger)CustomPhrases.OverThere)
+            else if (!GClass3937.IsPlayerGesture(actionId) &&
+                     (EPhraseTrigger)actionId == (EPhraseTrigger)CustomPhrases.OverThere)
             {
 
                 if (boss != null)
@@ -111,7 +113,7 @@ namespace friendlySAIN.Patches
                     boss?.GestusShown(data);
 
                     // Use hands controller directly for player gestures.
-                    __instance.Player.HandsController.ShowGesture(EInteraction.ThereGesture);
+                    __instance.Player.MovementContext.SetInteractInHands(EInteraction.ThereGesture);
                 }
 
 

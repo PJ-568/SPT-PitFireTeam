@@ -63,10 +63,21 @@ namespace friendlySAIN.Patches
 
                     bool canPickup = false;
                     List<Components.BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(player.ProfileId);
+                    List<Components.BotFollowerPlayer> activeFollowers = followers.FindAll(f =>
+                    {
+                        if (f == null) return false;
+                        BotOwner bot = f.GetBot();
+                        return bot != null &&
+                               !bot.IsDead &&
+                               bot.BotState == EBotState.Active &&
+                               bot.GetPlayer != null &&
+                               bot.GetPlayer.HealthController != null &&
+                               bot.GetPlayer.HealthController.IsAlive;
+                    });
                     int configuredPickups = Math.Max(1, Utils.SpawnHelper.Pickups);
-                    int pickLimit = configuredPickups + followers.FindAll(f => f.IsSquadMate).Count;
+                    int pickLimit = configuredPickups + activeFollowers.FindAll(f => f.IsSquadMate).Count;
                     int hardPickupLimit = Math.Min(10, configuredPickups);
-                    int currentPickups = followers.FindAll(f => !f.IsSquadMate).Count;
+                    int currentPickups = activeFollowers.FindAll(f => !f.IsSquadMate).Count;
                     // if restrictions are enabled
                     if (Utils.SpawnHelper.Restrictions && pickLimit > 0)
                     {

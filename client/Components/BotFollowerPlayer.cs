@@ -54,6 +54,7 @@ namespace friendlySAIN.Components
         private Vector3 _commandTarget;
         private float _commandUntilTime;
         private bool _resumeHoldAfterComeCloser;
+        private float _commandLookPauseUntil;
 
         public bool CanPatrol
         {
@@ -900,6 +901,16 @@ namespace friendlySAIN.Components
             return _activeCommand == FollowerCommandType.ComeCloser && _resumeHoldAfterComeCloser;
         }
 
+        public void PauseCommandLookRandom(float duration)
+        {
+            _commandLookPauseUntil = Mathf.Max(_commandLookPauseUntil, Time.time + Mathf.Max(0f, duration));
+        }
+
+        public bool IsCommandLookRandomPaused()
+        {
+            return Time.time < _commandLookPauseUntil;
+        }
+
         public bool TryGetActiveCommand(out FollowerCommandType command, out Vector3 target)
         {
             if (_bot != null)
@@ -928,6 +939,7 @@ namespace friendlySAIN.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
             _resumeHoldAfterComeCloser = false;
+            _commandLookPauseUntil = 0f;
         }
 
         private void ResetBrainForFollower(BaseBrain baseBrain)

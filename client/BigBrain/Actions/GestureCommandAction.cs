@@ -17,6 +17,11 @@ namespace friendlySAIN.BigBrain.Actions
         private float moveArrivalLookUntil;
         private float comeArrivalHoldUntil;
         private Vector3 activeMoveTarget;
+        private bool comeTargetInitialized;
+        private Vector3 comeTarget;
+        private bool comePoseInitialized;
+        private float comeMovePose = 1f;
+        private FollowerCommandType lastCommand = FollowerCommandType.None;
 
         public GestureCommandAction(BotOwner botOwner) : base(botOwner) { }
 
@@ -30,6 +35,11 @@ namespace friendlySAIN.BigBrain.Actions
             moveArrivalLookUntil = 0f;
             comeArrivalHoldUntil = 0f;
             activeMoveTarget = Vector3.zero;
+            comeTargetInitialized = false;
+            comeTarget = Vector3.zero;
+            comePoseInitialized = false;
+            comeMovePose = 1f;
+            lastCommand = FollowerCommandType.None;
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -37,7 +47,27 @@ namespace friendlySAIN.BigBrain.Actions
             followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
             if (followerData == null || !followerData.TryGetActiveCommand(out FollowerCommandType command, out Vector3 target))
             {
+                lastCommand = FollowerCommandType.None;
                 return;
+            }
+
+            if (command != lastCommand)
+            {
+                if (command == FollowerCommandType.ComeCloser)
+                {
+                    comeTargetInitialized = false;
+                    comeTarget = Vector3.zero;
+                    comePoseInitialized = false;
+                    comeMovePose = 1f;
+                }
+                else
+                {
+                    comeTargetInitialized = false;
+                    comeTarget = Vector3.zero;
+                    comePoseInitialized = false;
+                    comeMovePose = 1f;
+                }
+                lastCommand = command;
             }
 
             switch (command)
@@ -58,19 +88,30 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void HandleComeCloser()
         {
-            // Keep current pose for "come here"; only force out of prone.
-            if (BotOwner.Mover.TargetPose < 0.1f)
-            {
-                BotOwner.Mover.SetPose(0.1f);
-            }
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer boss || boss.realPlayer == null)
             {
                 followerData?.ClearCommand();
                 return;
             }
 
-            Vector3 leaderPos = boss.realPlayer.Transform.position;
-            float distance = (leaderPos - BotOwner.Position).magnitude;
+            if (!comeTargetInitialized)
+            {
+                comeTarget = boss.realPlayer.Transform.position;
+                comeTargetInitialized = true;
+            }
+            if (!comePoseInitialized)
+            {
+                float bossPose = Mathf.Clamp01(boss.realPlayer.MovementContext?.PoseLevel ?? 1f);
+                // Snapshot boss stance at command start.
+                comeMovePose = bossPose < 0.75f ? 0.1f : 1f;
+                comePoseInitialized = true;
+            }
+            if (Mathf.Abs(BotOwner.Mover.TargetPose - comeMovePose) > 0.05f)
+            {
+                BotOwner.Mover.SetPose(comeMovePose);
+            }
+
+            float distance = (comeTarget - BotOwner.Position).magnitude;
             if (distance > 1f && comeArrivalHoldUntil > 0f)
             {
                 comeArrivalHoldUntil = 0f;
@@ -90,12 +131,16 @@ namespace friendlySAIN.BigBrain.Actions
                     return;
                 }
                 comeArrivalHoldUntil = 0f;
+                comeTargetInitialized = false;
+                comeTarget = Vector3.zero;
+                comePoseInitialized = false;
+                comeMovePose = 1f;
                 followerData?.CompleteComeCloser();
                 BotOwner.StopMove();
                 return;
             }
 
-            BotOwner.GoToSomePointData.SetPoint(leaderPos);
+            BotOwner.GoToSomePointData.SetPoint(comeTarget);
             BotOwner.GoToSomePointData.UpdateToGo(distance > 16f);
             BotOwner.Steering.LookToPathDestPoint();
             moveCommandInitialized = false;
@@ -176,6 +221,13 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.Mover.SetPose(1f);
             }
 
+            if (followerData?.IsCommandLookRandomPaused() == true)
+            {
+                holdLookPoint = Vector3.zero;
+                nextHoldLookChangeAt = 0f;
+                return;
+            }
+
             if (moveArrivalLookUntil <= 0f)
             {
                 moveArrivalLookUntil = Time.time + Utils.Utils.Random(2f, 4f);
@@ -206,6 +258,17 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.Mover.Sprint(false, false);
             }
 
+            if (followerData?.IsCommandLookRandomPaused() == true)
+            {
+                holdLookPoint = Vector3.zero;
+                nextHoldLookChangeAt = 0f;
+                moveCommandInitialized = false;
+                moveArrivalLookUntil = 0f;
+                comeArrivalHoldUntil = 0f;
+                activeMoveTarget = Vector3.zero;
+                return;
+            }
+
             if (Time.time >= nextHoldLookChangeAt)
             {
                 holdLookPoint = PickNextHoldLookPoint();
@@ -229,6 +292,13 @@ namespace friendlySAIN.BigBrain.Actions
             if (BotOwner.Mover.Sprinting)
             {
                 BotOwner.Mover.Sprint(false, false);
+            }
+
+            if (followerData?.IsCommandLookRandomPaused() == true)
+            {
+                holdLookPoint = Vector3.zero;
+                nextHoldLookChangeAt = 0f;
+                return;
             }
 
             if (comeArrivalHoldUntil <= 0f)
