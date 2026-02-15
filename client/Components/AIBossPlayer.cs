@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.AI;
 
 
 using EventInfo = BotEventHandler.GClass692;
@@ -42,6 +43,9 @@ namespace friendlySAIN.Components
         private List<BotOwner> bossEnemies = new List<BotOwner>();
         private const float TeamStatusGestureDistance = 15f;
         private const float ContactLookDistance = 45f;
+        private const float GestureCommandDistance = 15f;
+        private const float GoThereMaxDistance = 50f;
+        private const float LookAtFollowerDistance = 27f;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -178,6 +182,15 @@ namespace friendlySAIN.Components
                 {
                     HandleAttentionCommand();
                 }
+                else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
+                {
+                    foreach (var follower in Followers)
+                    {
+                        if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                        BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                        followerData?.ClearCommand();
+                    }
+                }
             }
 
             foreach (var item in Followers)
@@ -191,6 +204,24 @@ namespace friendlySAIN.Components
 
             if (info.Player != null && info.Player.ProfileId == realPlayer.ProfileId)
             {
+                if (info.Gesture == EInteraction.HoldGesture)
+                {
+                    ApplyHoldGesture(info.Player);
+                    return;
+                }
+
+                if (info.Gesture == EInteraction.ComeWithMeGesture)
+                {
+                    ApplyComeWithMeGesture(info.Player);
+                    return;
+                }
+
+                if (info.Gesture == EInteraction.ThereGesture)
+                {
+                    ApplyThereGesture(info.Player);
+                    return;
+                }
+
                 if (info.Gesture == (EInteraction)CustomGestures.OverThere)
                 {
                     ProcessContactCommand(info.Player, true);
@@ -292,6 +323,9 @@ namespace friendlySAIN.Components
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 if (!BossPlayers.IsFollower(follower)) continue;
 
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                followerData?.ClearCommand();
+
                 // Old FollowerReceiver "Look"/Attention behavior.
                 InteractableObjects.RemoveTaker(follower);
                 InteractableObjects.RemoveOpener(follower);
@@ -365,6 +399,154 @@ namespace friendlySAIN.Components
             {
                 bossEnemies.Remove(bot);
             }
+        }
+
+        private void ApplyHoldGesture(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (follower.Memory.HaveEnemy) continue;
+                if ((follower.Position - requester.Position).sqrMagnitude > GestureCommandDistance * GestureCommandDistance) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                followerData.SetHoldPosition(20f);
+                Modules.Logger.LogInfo($"[Req] Hold set for {follower.Profile.Nickname}");
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ApplyComeWithMeGesture(IPlayer requester)
+        {
+            if (requester is not Player requesterPlayer) return;
+
+            BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, LookAtFollowerDistance);
+            if (lookedFollower == null)
+            {
+                Modules.Logger.LogInfo("[Req] ComeWithMe ignored: no looked-at follower");
+                return;
+            }
+            if ((lookedFollower.Position - requesterPlayer.Position).sqrMagnitude > GestureCommandDistance * GestureCommandDistance)
+            {
+                Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower too far ({lookedFollower.Profile.Nickname})");
+                return;
+            }
+
+            BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(lookedFollower);
+            if (followerData == null)
+            {
+                Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower data missing ({lookedFollower.Profile.Nickname})");
+                return;
+            }
+
+            followerData.SetComeCloser(10f);
+            Modules.Logger.LogInfo($"[Req] ComeWithMe set for {lookedFollower.Profile.Nickname}");
+            lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private void ApplyThereGesture(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            BotOwner closestFollower = null;
+            float bestDist = float.MaxValue;
+            Vector3 requesterPos = requester.Position;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                float sqrDist = (follower.Position - requesterPos).sqrMagnitude;
+                if (sqrDist > GestureCommandDistance * GestureCommandDistance) continue;
+                if (sqrDist >= bestDist) continue;
+                if (!CanAcceptThereCommand(follower)) continue;
+
+                closestFollower = follower;
+                bestDist = sqrDist;
+            }
+
+            if (closestFollower == null)
+            {
+                Modules.Logger.LogInfo("[Req] There ignored: no eligible follower");
+                return;
+            }
+
+            Vector3 lookDir = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+
+            Vector3 rawTarget = requesterPos + lookDir * GoThereMaxDistance;
+            if (Physics.Raycast(requesterPos + Vector3.up * 1.5f, lookDir, out RaycastHit lookHit, GoThereMaxDistance, LayerMaskClass.HighPolyWithTerrainMask))
+            {
+                rawTarget = lookHit.point;
+            }
+
+            if (!NavMesh.SamplePosition(rawTarget, out NavMeshHit navHit, 12f, NavMesh.AllAreas))
+            {
+                Modules.Logger.LogInfo($"[Req] There ignored: no navmesh near target {rawTarget}");
+                return;
+            }
+
+            BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(closestFollower);
+            if (followerData == null)
+            {
+                Modules.Logger.LogInfo($"[Req] There ignored: follower data missing ({closestFollower.Profile.Nickname})");
+                return;
+            }
+
+            followerData.SetMoveToPoint(navHit.position, 14f);
+            Modules.Logger.LogInfo($"[Req] There set for {closestFollower.Profile.Nickname} -> {navHit.position}");
+            closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private static bool CanAcceptThereCommand(BotOwner follower)
+        {
+            if (follower == null) return false;
+            if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null) return true;
+
+            EnemyInfo enemy = follower.Memory.GoalEnemy;
+            if (enemy.IsVisible) return false;
+
+            float lastSeenAgo = Time.time - enemy.PersonalLastSeenTime;
+            if (lastSeenAgo <= 3f) return false;
+
+            BotLogicDecision action = follower.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            return action != BotLogicDecision.goToEnemy &&
+                   action != BotLogicDecision.runToEnemy &&
+                   action != BotLogicDecision.runToEnemyZigZag &&
+                   action != BotLogicDecision.attackMoving &&
+                   action != BotLogicDecision.attackMovingWithSuppress &&
+                   action != BotLogicDecision.attackMovingFlank;
+        }
+
+        private BotOwner FindLookedAtFollower(Player requester, float distance)
+        {
+            if (requester == null) return null;
+
+            const float sphereRadius = 0.4f;
+            RaycastHit[] hits = new RaycastHit[10];
+            Ray ray = requester.InteractionRay;
+            int hitCount = Physics.SphereCastNonAlloc(ray, sphereRadius, hits, distance, LayerMaskClass.PlayerMask);
+            if (hitCount <= 0) return null;
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                var hit = hits[i];
+                if (hit.collider?.gameObject == null) continue;
+                BotOwner bot = hit.collider.gameObject.GetComponentInParent<BotOwner>();
+                if (bot == null) continue;
+                if (!BossPlayers.IsFollower(bot, this)) continue;
+
+                if (Utils.Utils.CanShootToTarget(new ShootPointClass(hit.point, 1), ray.origin, LayerMaskClass.HighPolyWithTerrainMask))
+                {
+                    return bot;
+                }
+            }
+
+            return null;
         }
 
         public List<BotOwner> GetEnemies()

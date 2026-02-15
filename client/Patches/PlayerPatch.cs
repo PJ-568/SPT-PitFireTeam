@@ -116,20 +116,20 @@ namespace friendlySAIN.Patches
 
 
                 return false;
-            }
-            // fix for 0.15+ not triggering the gesture shown event when it comes from the boss
-            /* if (boss != null && actionId <= 9)
+            } else
             {
-
-                boss.Followers.ForEach(follower =>
+                // fix for boss gestures not propagating to followers
+                List<EInteraction> bossInteractions = new List<EInteraction> { EInteraction.ComeWithMeGesture, EInteraction.ThereGesture, EInteraction.HoldGesture };
+                if (boss != null && bossInteractions.Contains((EInteraction)actionId))
                 {
-                    follower.Receiver.method_6(new GestureData
+                    boss.GestusShown(new GestureData
                     {
                         Gesture = (EInteraction)actionId,
-                        Player = boss.Player()
+                        Player = __instance.Player
                     });
-                });
-            } */
+                }
+
+            }
 
             return true;
         }

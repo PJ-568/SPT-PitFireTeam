@@ -11,23 +11,19 @@ namespace friendlySAIN.Patches
     {
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(GClass117), "GetDecision");
+            return AccessTools.Method(typeof(GClass117), "ShallUseNow");
         }
 
         [PatchPrefix]
-        private static bool PatchPrefix(GClass117 __instance, ref AICoreActionResultStruct<BotLogicDecision, GClass26> __result)
+        private static bool PatchPrefix(GClass117 __instance, ref bool __result)
         {
             BotOwner bot = __instance?.BotOwner_0;
-            if (bot == null || !BossPlayers.IsFollower(bot))
+            if (bot != null && BossPlayers.IsFollower(bot))
             {
-                return true;
+                __result = false;
+                return false;
             }
-
-            __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
-                BotLogicDecision.holdPosition,
-                "FollowerSkipLootPatrol"
-            );
-            return false;
+            return true;
         }
     }
 }

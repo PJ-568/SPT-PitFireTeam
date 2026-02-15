@@ -83,16 +83,6 @@ namespace friendlySAIN.Patches
                     return;
                 }
 
-                /* if ((bot.Brain?.BaseBrain?.CurLayerInfo?.Name() ?? string.Empty) != "friendlySAIN.FollowerPatrol")
-                {
-                    return;
-                }
-
-                if (bot.Memory.HaveEnemy || !bot.BotFollower.HaveBoss)
-                {
-                    return;
-                } */
-
                 MovementContext movementContext = __instance.MovementContext;
                 if (!movementContext.IsSprintEnabled || !movementContext.CanSprint || !movementContext.CanWalk)
                 {
@@ -118,9 +108,6 @@ namespace friendlySAIN.Patches
                 if (!NextLogAt.TryGetValue(key, out float nextAt) || now >= nextAt)
                 {
                     NextLogAt[key] = now + 0.5f;
-                    Logger.LogInfo(
-                        $"[MvFix] KeepDirection bot={bot.Profile.Nickname} dirIn={direction} dirOut={__instance.Direction} " +
-                        $"moveDir={movementContext.MovementDirection} speed={movementContext.ClampedSpeed:F2}");
                 }
             }
             catch (System.Exception ex)

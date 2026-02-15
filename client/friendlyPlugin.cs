@@ -237,6 +237,7 @@ namespace friendlySAIN
             new GestureMenuAvailablePhrasesPatch().Enable();
             new EPhraseTriggerPatch().Enable();
             new PlayPhraseOrGesturePatch().Enable();
+            new BotReceiverGestureOverridePatch().Enable();
 
             // Temporarily disable screen/matchmaker patching while focusing on in-raid recruit/follow flow.
             new RaidStartPatch().Enable();

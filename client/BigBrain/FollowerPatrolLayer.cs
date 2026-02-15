@@ -13,6 +13,7 @@ namespace friendlySAIN.BigBrain
     internal static class FollowerLayerRegistry
     {
         private static bool initialized;
+        private const int FollowerRequestLayerPriority = 77;
         private const int FollowerLayerPriority = 75;
 
         public static void Init()
@@ -43,8 +44,8 @@ namespace friendlySAIN.BigBrain
             try
             {
                 BrainManager.RemoveLayers(vanillaLayersToDisable,brains);
+                BrainManager.AddCustomLayer(typeof(FollowerRequestLayer), brains, FollowerRequestLayerPriority);
                 BrainManager.AddCustomLayer(typeof(FollowerPatrolLayer), brains, FollowerLayerPriority);
-                Modules.Logger.LogInfo($"Registered follower patrol layer for brains: {string.Join(", ", brains)}");
             }
             catch (Exception ex)
             {
@@ -155,7 +156,6 @@ namespace friendlySAIN.BigBrain
 
         public override bool IsCurrentActionEnding()
         {
-            
             bool isHealAction = selectedAction?.Type == typeof(HealAction);
             bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
 

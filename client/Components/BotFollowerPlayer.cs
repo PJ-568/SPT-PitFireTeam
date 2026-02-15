@@ -16,6 +16,14 @@ using friendlySAIN.Patches;
 
 namespace friendlySAIN.Components
 {
+    public enum FollowerCommandType
+    {
+        None = 0,
+        HoldPosition = 1,
+        MoveToPoint = 2,
+        ComeCloser = 3
+    }
+
     public class BotFollowerPlayer
     {
         protected BotOwner _bot;
@@ -42,6 +50,9 @@ namespace friendlySAIN.Components
         protected WildSpawnType _botRole;
         protected bool _canPatrol = false;
         private bool _peaceChangeHooked = false;
+        private FollowerCommandType _activeCommand = FollowerCommandType.None;
+        private Vector3 _commandTarget;
+        private float _commandUntilTime;
 
         public bool CanPatrol
         {
@@ -169,6 +180,8 @@ namespace friendlySAIN.Components
             SetFollowerSettings(_bot);
             // let the bot talk
             _bot.BotTalk.SetSilence(0f);
+            _bot.GetPlayer.BeingHitAction -= OnBeingHit;
+            _bot.GetPlayer.BeingHitAction += OnBeingHit;
             // force bot to turn off light
             if (_bot.BotLight != null && _bot.BotLight.IsEnable) _bot.BotLight.TurnOff(false, true);
             // make bot follower of player
@@ -763,6 +776,11 @@ namespace friendlySAIN.Components
             }
             finally
             {
+                if (_bot?.GetPlayer != null)
+                {
+                    _bot.GetPlayer.BeingHitAction -= OnBeingHit;
+                }
+                ClearCommand();
                 UnhookPeaceChange();
             }
             // @TODO : see what else can be reverted
@@ -823,6 +841,56 @@ namespace friendlySAIN.Components
         public void SetCanPatrol(bool value)
         {
             _canPatrol = value;
+        }
+
+        public void SetHoldPosition(float duration)
+        {
+            _activeCommand = FollowerCommandType.HoldPosition;
+            _commandUntilTime = Time.time + Mathf.Max(0.5f, duration);
+            _commandTarget = Vector3.zero;
+        }
+
+        public void SetMoveToPoint(Vector3 target, float duration)
+        {
+            _activeCommand = FollowerCommandType.MoveToPoint;
+            _commandTarget = target;
+            _commandUntilTime = Time.time + Mathf.Max(2f, duration);
+        }
+
+        public void SetComeCloser(float duration)
+        {
+            _activeCommand = FollowerCommandType.ComeCloser;
+            _commandUntilTime = Time.time + Mathf.Max(2f, duration);
+            _commandTarget = Vector3.zero;
+        }
+
+        public bool TryGetActiveCommand(out FollowerCommandType command, out Vector3 target)
+        {
+            if (_bot != null)
+            {
+                bool isUsingHeal = _bot.Medecine.FirstAid.Using || _bot.Medecine.SurgicalKit.Using;
+                bool isInHealDecision = _bot.Brain?.Agent?.LastResult().Action == BotLogicDecision.heal;
+                if (isUsingHeal || isInHealDecision)
+                {
+                    ClearCommand();
+                }
+            }
+
+            if (_activeCommand != FollowerCommandType.None && Time.time > _commandUntilTime)
+            {
+                ClearCommand();
+            }
+
+            command = _activeCommand;
+            target = _commandTarget;
+            return command != FollowerCommandType.None;
+        }
+
+        public void ClearCommand()
+        {
+            _activeCommand = FollowerCommandType.None;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = 0f;
         }
 
         private void ResetBrainForFollower(BaseBrain baseBrain)
@@ -925,7 +993,16 @@ namespace friendlySAIN.Components
 
         private void OnPeaceChange(bool isPeace)
         {
+            if (!isPeace)
+            {
+                ClearCommand();
+            }
             _bot?.PatrollingData?.Pause();
+        }
+
+        private void OnBeingHit(DamageInfoStruct arg1, EBodyPart arg2, float arg3)
+        {
+            ClearCommand();
         }
 
         private void ForceEndCurrentDecision(BotOwner bot)
