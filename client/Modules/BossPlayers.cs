@@ -195,7 +195,7 @@ namespace friendlySAIN.Modules
                 return _follower;
             }
 
-            if (_shallBeFollower.Contains(bot.name)) _shallBeFollower.Remove(bot.name);
+            if (_shallBeFollower.Contains(bot.ProfileId)) _shallBeFollower.Remove(bot.ProfileId);
 
             bool isAIBoss = false;
 
@@ -486,7 +486,7 @@ namespace friendlySAIN.Modules
         public static bool IsFollower(BotOwner bot, AIBossPlayer boss = null)
         {
             if (Instance == null || bot == null) return false;
-            return Instance.IsBotFollower(bot, boss) || Instance._shallBeFollower.Contains(bot.AccountId);
+            return Instance.IsBotFollower(bot, boss) || Instance._shallBeFollower.Contains(bot.ProfileId);
         }
 
         public static void AddGroupToBoss(pitAIBossPlayer player, BotsGroup group)
@@ -565,9 +565,9 @@ namespace friendlySAIN.Modules
             return Instance.AddBotFollower(bot, player, squadMate, role, tactic);
         }
 
-        public static void ShallBeFollower(string accountId)
+        public static void ShallBeFollower(string profileId)
         {
-            if (!Instance._shallBeFollower.Contains(accountId)) Instance._shallBeFollower.Add(accountId);
+            if (!Instance._shallBeFollower.Contains(profileId)) Instance._shallBeFollower.Add(profileId);
         }
     }
 }
