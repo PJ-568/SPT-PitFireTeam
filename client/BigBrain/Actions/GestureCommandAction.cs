@@ -111,8 +111,8 @@ namespace friendlySAIN.BigBrain.Actions
             if(command != lastCommand)
             {
                 lastCommand = command;
-                if(command == FollowerCommandType.MoveToPoint)
-                    BotOwner.Steering.LookToPathDestPoint();
+                if(command == FollowerCommandType.MoveToPoint || command == FollowerCommandType.ComeCloser)
+                    BotOwner.Steering.LookToMovingDirection();
             }
         }
 
@@ -131,7 +131,13 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            if (BotOwner.Mover.TargetPose != 1f)
+            // Regroup is an urgent converge order: force move-capable state each tick.
+            if (BotOwner.Mover.Pause)
+            {
+                BotOwner.Mover.Pause = false;
+            }
+
+            if (BotOwner.Mover.TargetPose < 0.85f)
             {
                 BotOwner.Mover.SetPose(1f);
             }
@@ -175,7 +181,9 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             // Regroup should be an urgent converge command: run/sprint while closing.
-            BotOwner.GoToSomePointData.UpdateToGo(true);
+            BotOwner.GoToSomePointData.UpdateToGo(true, 1, 1f);
+            BotOwner.Mover.Sprint(true, false);
+            BotOwner.Mover.SetTargetMoveSpeed(1f);
             BotOwner.Steering.LookToPathDestPoint();
             moveCommandInitialized = false;
             moveArrivalLookUntil = 0f;
@@ -254,11 +262,11 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             float distance = (comeTarget - BotOwner.Position).magnitude;
-            if (distance > 1f && comeArrivalHoldUntil > 0f)
+            if (distance > 1.5f && comeArrivalHoldUntil > 0f)
             {
                 comeArrivalHoldUntil = 0f;
             }
-            if (distance <= 1f)
+            if (distance <= 1.5f)
             {
                 if (followerData?.IsComeCloserFromHold() == true)
                 {
