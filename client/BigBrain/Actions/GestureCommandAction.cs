@@ -62,6 +62,8 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
+            EnsureCommandControl();
+
             if (command != lastCommand)
             {
                 if (command == FollowerCommandType.ComeCloser)
@@ -113,6 +115,23 @@ namespace friendlySAIN.BigBrain.Actions
                 lastCommand = command;
                 if(command == FollowerCommandType.MoveToPoint || command == FollowerCommandType.ComeCloser)
                     BotOwner.Steering.LookToMovingDirection();
+            }
+        }
+
+        private void EnsureCommandControl()
+        {
+            if (BotOwner?.Mover != null)
+            {
+                if (BotOwner.Mover.Pause)
+                {
+                    BotOwner.Mover.Pause = false;
+                }
+            }
+
+            if (BotOwner?.BotRequestController?.CurRequest != null)
+            {
+                BotOwner.BotRequestController.CurRequest.Complete();
+                BotOwner.BotRequestController.CurRequest = null;
             }
         }
 
@@ -182,9 +201,6 @@ namespace friendlySAIN.BigBrain.Actions
 
             // Regroup should be an urgent converge command: run/sprint while closing.
             BotOwner.GoToSomePointData.UpdateToGo(true, 1, 1f);
-            BotOwner.Mover.Sprint(true, false);
-            BotOwner.Mover.SetTargetMoveSpeed(1f);
-            BotOwner.Steering.LookToPathDestPoint();
             moveCommandInitialized = false;
             moveArrivalLookUntil = 0f;
             comeArrivalHoldUntil = 0f;

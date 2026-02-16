@@ -141,21 +141,38 @@ namespace friendlySAIN.Patches
                     // add BOT as follower to the player BOSS if limit was not reached
                     if (canPickup)
                     {
-                        if (BossPlayers.AddFollower(posibleExecuter, playerBoss) != null)
+                        // Defer conversion to BotOwner manual-update cycle to avoid recruit-time activation races.
+                        BotOwnerManualUpdatePatch.BotOwnerUpdate[posibleExecuter.ProfileId] = me =>
                         {
-                            
-                            // - bot signals "OK"
-                            Utils.Utils.SetTimeout(() =>
+                            BotOwnerManualUpdatePatch.BotOwnerUpdate.Remove(me.ProfileId);
+
+                            try
                             {
-                                if (posibleExecuter.IsDead || posibleExecuter.BotState != EBotState.Active) return;
-                                posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Roger, false);
-                                posibleExecuter.Gesture.TryGestus(EInteraction.OkGesture, true);
-                            }, UnityEngine.Random.Range(300, 700));
-                        }
-                        else
-                        {
-                            posibleExecuter.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
-                        }
+                                if (me == null || me.IsDead || me.BotState != EBotState.Active || me.GetPlayer == null || !me.GetPlayer.HealthController.IsAlive)
+                                {
+                                    return;
+                                }
+
+                                if (BossPlayers.AddFollower(me, playerBoss) != null)
+                                {
+                                    Utils.Utils.SetTimeout(() =>
+                                    {
+                                        if (me.IsDead || me.BotState != EBotState.Active) return;
+                                        me.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                                        me.Gesture.TryGestus(EInteraction.OkGesture, true);
+                                    }, UnityEngine.Random.Range(300, 700));
+                                }
+                                else
+                                {
+                                    me.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Modules.Logger.LogError("Failed deferred recruit conversion");
+                                Modules.Logger.LogError(ex);
+                            }
+                        };
                     }
                     else
                     {

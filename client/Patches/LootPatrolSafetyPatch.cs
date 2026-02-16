@@ -37,7 +37,7 @@ namespace friendlySAIN.Patches
                 if (activeLayerList == null || activeLayerList.Count == 0) return;
 
                 BotOwner botOwner = GetBotOwner(activeLayerList);
-                if (botOwner == null || !BossPlayers.IsFollower(botOwner)) return;
+                if (!IsConfirmedFollower(botOwner)) return;
 
                 bool removed = false;
                 for (int i = activeLayerList.Count - 1; i >= 0; i--)
@@ -160,6 +160,15 @@ namespace friendlySAIN.Patches
 
             return null;
         }
+
+        private static bool IsConfirmedFollower(BotOwner botOwner)
+        {
+            if (botOwner == null) return false;
+            if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return false;
+            if (botOwner.BotFollower == null || !botOwner.BotFollower.HaveBoss) return false;
+            if (botOwner.BotFollower.BossToFollow is not Components.pitAIBossPlayer) return false;
+            return BossPlayers.Instance?.GetFollower(botOwner) != null;
+        }
     }
 
     // Hard-stop vanilla LootPatrol decision for followers if it still leaks through active-layer filtering.
@@ -185,9 +194,15 @@ namespace friendlySAIN.Patches
                 }
 
                 BotOwner botOwner = _botOwnerGetter?.Invoke(__instance);
-                if (botOwner == null) return true;
+                if (botOwner == null)
+                {
+                    __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                        default,
+                        "friendlySAIN_skipLootPatrol_no_owner");
+                    return false;
+                }
 
-                if (!BossPlayers.IsFollower(botOwner)) return true;
+                if (!IsConfirmedFollower(botOwner)) return true;
 
                 __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BaseLogicLayerAbstractClass.HoldOrCover(botOwner),
@@ -200,6 +215,15 @@ namespace friendlySAIN.Patches
                 Logger.LogError(ex);
                 return true;
             }
+        }
+
+        private static bool IsConfirmedFollower(BotOwner botOwner)
+        {
+            if (botOwner == null) return false;
+            if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return false;
+            if (botOwner.BotFollower == null || !botOwner.BotFollower.HaveBoss) return false;
+            if (botOwner.BotFollower.BossToFollow is not Components.pitAIBossPlayer) return false;
+            return BossPlayers.Instance?.GetFollower(botOwner) != null;
         }
     }
 }

@@ -327,8 +327,8 @@ namespace friendlySAIN.Components
             if (distSqr > TeamStatusGestureDistance * TeamStatusGestureDistance) return false;
 
             if (realPlayer?.MainParts == null) return false;
-            bool hasHead = realPlayer.MainParts.TryGetValue(BodyPartType.head, out BodyPartState headPart);
-            bool hasBody = realPlayer.MainParts.TryGetValue(BodyPartType.body, out BodyPartState bodyPart);
+            bool hasHead = realPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart);
+            bool hasBody = realPlayer.MainParts.TryGetValue(BodyPartType.body, out var bodyPart);
             if (!hasHead && !hasBody) return false;
             Vector3 followerFirePos = follower.WeaponRoot.position;
 
@@ -796,8 +796,8 @@ namespace friendlySAIN.Components
             if (follower.GetPlayer?.MainParts == null) return false;
             if (requester.PlayerBones?.WeaponRoot == null) return false;
 
-            bool hasHead = follower.GetPlayer.MainParts.TryGetValue(BodyPartType.head, out BodyPartState headPart);
-            bool hasBody = follower.GetPlayer.MainParts.TryGetValue(BodyPartType.body, out BodyPartState bodyPart);
+            bool hasHead = follower.GetPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart);
+            bool hasBody = follower.GetPlayer.MainParts.TryGetValue(BodyPartType.body, out var bodyPart);
             if (!hasHead && !hasBody) return false;
 
             Vector3 bossFirePos = requester.PlayerBones.WeaponRoot.position;

@@ -216,7 +216,8 @@ namespace friendlySAIN
             new BotsControllerStopPatch().Enable();
             new LocalGameCleanupPatch().Enable();
 
-            harmony.PatchAll(typeof(LocalGameCtorPatch).Assembly);
+            // Only patch LocalGame ctor here; avoid broad PatchAll side effects at menu/hideout time.
+            harmony.CreateClassProcessor(typeof(LocalGameCtorPatch)).Patch();
             new BotsEventsControllerSpawnPatch().Enable();
             new BossSpawnWaveManagerClassPatch().Enable();
 

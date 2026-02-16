@@ -3,6 +3,7 @@ using EFT;
 using friendlySAIN.BigBrain.Actions;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
+using friendlySAIN.Utils;
 
 namespace friendlySAIN.BigBrain
 {
@@ -18,6 +19,33 @@ namespace friendlySAIN.BigBrain
         public override string GetName()
         {
             return "friendlySAIN.FollowerRequest";
+        }
+
+        public override void Start()
+        {
+            base.Start();
+
+            if (BotOwner?.Mover != null)
+            {
+                BotOwner.Mover.Pause = false;
+                if (BotOwner.Mover.Sprinting)
+                {
+                    BotOwner.Mover.Sprint(false, false);
+                }
+            }
+
+            BotOwner?.PatrollingData?.Pause();
+
+            if (BotOwner?.BotRequestController?.CurRequest != null)
+            {
+                BotOwner.BotRequestController.CurRequest.Complete();
+                BotOwner.BotRequestController.CurRequest = null;
+            }
+
+            if (BotOwner != null)
+            {
+                FollowerRecovery.SoftReset(BotOwner);
+            }
         }
 
         public override bool IsActive()

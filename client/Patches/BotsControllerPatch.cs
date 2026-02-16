@@ -715,7 +715,7 @@ namespace friendlySAIN.Patches
                         return GetPlayerGroup(player, bt, zn, bossAlly.Count);
                     });
                     // activate the boss bot
-                    BossPlayers.ShallBeFollower(profile.AccountId);
+                    BossPlayers.ShallBeFollower(profile.ProfileId);
                     await ActivateBotFollower(
                         botCreator,
                         profile,
@@ -932,7 +932,7 @@ namespace friendlySAIN.Patches
                 botSpawnerClass.InSpawnProcess = _inSpawnProcess + 1;
 
                 // activate the bot
-                BossPlayers.ShallBeFollower(profile.AccountId);
+                BossPlayers.ShallBeFollower(profile.ProfileId);
                 try
                 {
                     await ActivateBotFollower(
@@ -1128,7 +1128,7 @@ namespace friendlySAIN.Patches
                 botSpawnerClass.method_11(owner, botsData, _ => { }, shallBeGroup, stopWatch);
             };
 
-            BossPlayers.ShallBeFollower(profile.AccountId);
+
             botSpawnerClass.InSpawnProcess++;
             bool activated = false;
             try

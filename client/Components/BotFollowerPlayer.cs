@@ -181,6 +181,9 @@ namespace friendlySAIN.Components
 
             // add special follower settings
             SetFollowerSettings(_bot);
+            // Ensure newly-converted followers can acquire enemies immediately.
+            // Recruited bots can carry over a peaceful state from prior AI context.
+            _bot.Memory.IsPeace = false;
             // let the bot talk
             _bot.BotTalk.SetSilence(0f);
             _bot.GetPlayer.BeingHitAction -= OnBeingHit;
@@ -353,7 +356,7 @@ namespace friendlySAIN.Components
             if (_bot.WeaponManager.ShootController.Item != null && _bot.WeaponManager.ShootController.Item.WeapFireType.Contains(Weapon.EFireMode.fullauto))
                 _bot.WeaponManager.ShootController.ChangeFireMode(Weapon.EFireMode.fullauto);
 
-            Modules.Logger.LogInfo($"Bot {_bot.Profile.Nickname} is now a follower of {_player.Player().Profile.Nickname}");
+            Modules.Logger.LogInfo($"Bot {_bot.Profile.Nickname} is now a follower of {_player.Player().Profile.Nickname} (IsSquadMate={_IsSquadMate}, IsPeace={_bot.Memory.IsPeace})");
         }
 
         protected virtual void SetFollowerSettings(BotOwner bot)
