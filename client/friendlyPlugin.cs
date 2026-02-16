@@ -188,6 +188,7 @@ namespace friendlySAIN
             // Temporarily disabled for 4.x stability; revisit once BotsGroup method signatures are remapped.
             new BotGroupAddEnemyPatch().Enable();
             new BotGroupUsecEnemyPatch().Enable();
+            new BotControllerEnemyPropagationSafetyPatch().Enable();
 
             new BotMemoryDamagePatch().Enable();
             new ExUsecBrainHitPatch().Enable();

@@ -6,7 +6,8 @@ Scope: runtime behavior currently present in `friendlySAIN/client` (based on act
 ## BE / Server State (Important)
 
 - Backend (BE) support for this plugin is **not implemented yet**.
-- Do **not** add new runtime paths that depend on BE profile generation/fetch endpoints for debug/runtime bot spawn flows.
+- Do **not** add new runtime paths that depend on **plugin-owned/custom** BE profile generation/fetch endpoints for debug/runtime bot spawn flows.
+- Using existing **game-side** profile loading flow (`ISession.LoadBots`) is allowed.
 - If a spawn flow requires BE profile data and no local/prefetched profile exists, it should fail fast with a clear reason instead of attempting BE fallback.
 
 ## 0) Project Context
@@ -70,6 +71,18 @@ Request/gesture movement:
   - `HoldPosition`: stop, crouch pose, periodic random look-around, no command timeout (persists until replaced/cleared).
   - `ComeCloser`: move to boss until close (about `1m`).
   - `MoveToPoint` (`There`): move to projected/navmesh-validated target point (walk-only), then brief look-around on arrival.
+  - `Regroup` (`EPhraseTrigger.Regroup`):
+    - in combat context: followers regroup near boss (run/sprint converge),
+    - out of combat: command is treated as a clear/reset (`ClearFollowerCommands`), matching current follow-me style usage.
+  - Regroup ignore/interruption safeguards:
+    - ignored when follower is healing, has visible enemy, or is already close enough (`~8m` nav-path distance on same level),
+    - interrupted by combat transition, being hit, follower death, attention reset (`EPhraseTrigger.Look`), or replacement by a newer command,
+    - on successful regroup arrival follower says `EPhraseTrigger.OnPosition`.
+- Gesture visibility requirements:
+  - `HoldGesture` and `ThereGesture` require follower to see boss gesture target (`head` or `torso` visibility; either is enough).
+  - `ComeWithMeGesture` requires both directions:
+    - boss can see follower gesture target (`head` or `torso`),
+    - selected follower can see boss (`head` or `torso`).
 - Command sequencing details:
   - If `ComeCloser` was issued while `HoldPosition` was active:
     - bot approaches,
@@ -97,7 +110,6 @@ Main files:
 - `client/Components/AIBossPlayer.cs`
 - `client/Patches/BotRecruitPatch.cs`
 - `client/Patches/BotGroupRequestPatch.cs`
-- `client/Patches/BotReceiverPatch.cs`
 
 Implemented:
 - Recruit flow through phrase/request patching and follower conversion.
@@ -123,6 +135,7 @@ Implemented:
 Bot/group/follower stability:
 - `BotGroupAddEnemyPatch`
 - `BotGroupUsecEnemyPatch`
+- `BotControllerEnemyPropagationSafetyPatch`
 - `BotMemoryDamagePatch`
 - `ExUsecBrainHitPatch`
 - `BotOwnerIsFolowerPatch`
@@ -167,6 +180,7 @@ Combat/hearing/talk:
 AI data / command UI:
 - `AIDataContructPatch`
 - `QuickPanelPatch`
+  - cooperation entry is shown for any alive, non-follower AI target (still subject to recruit acceptance checks elsewhere)
 - `GestureMenuPatch`
 - `GestureMenuAvailablePhrasesPatch`
 - `EPhraseTriggerPatch`
@@ -185,6 +199,12 @@ SAIN integration:
   - `client/Patches/GrenadeThrowPatch.cs` includes null-safe guard for `GClass274.UpdateTryThrow`.
 - Player say/hearing null guards:
   - `client/Patches/HearingSensorPatch.cs` hardened against null bot/follower references.
+- Enemy propagation guard:
+  - `client/Patches/BotGroupPatch.cs` (`BotControllerEnemyPropagationSafetyPatch`)
+  - validates `AddEnemyToAllGroupsInBotZone(...)` player refs and skips invalid propagation calls that can occur after debug/out-of-band spawns.
+- Interaction/visibility null guards:
+  - `client/Modules/InteractableObjects.cs`
+  - hardened seen-enemy and boss-state checks against null/missing player/bot references.
 
 ## 6) Teleport / Utility
 
@@ -198,6 +218,12 @@ SAIN integration:
 - `PingTeamates` enemy marker/status timing corrected:
   - uses `Time.time - PersonalLastSeenTime` for recency.
 - Several debug/trace patches were iterated during movement work; current runtime path is focused on minimal active tracing.
+- Debug console command:
+  - `fs_spawnfollower`
+  - available in-raid, spawns one follower for the player side.
+  - profile generation uses game-side bot profile flow (direct `ISession.LoadBots` path via game profile/session objects), then injects into `BotCreationDataClass.CreateWithoutProfile(...)`.
+  - bot spawner `InSpawnProcess` is incremented/decremented with failure rollback to avoid breaking later vanilla bot spawns.
+  - fallback safe profile request may be used if requested side/role generation fails.
 
 ## 8) Known Open Issues
 
@@ -209,6 +235,9 @@ Examples currently tracked there:
 - SAIN post-combat idle/freeze behavior for followers.
 - Enemy propagation consistency across all followers.
 - Follow-up behavior when player is hit out of combat.
+- Follower death reaction:
+  - when a follower dies, nearest follower with visibility says `EPhraseTrigger.OnFriendlyDown`;
+  - if nobody saw death, corpse-position visibility is checked for up to `~60s` and reaction can still trigger.
 
 ## 9) Practical Entry Points (for next edits)
 

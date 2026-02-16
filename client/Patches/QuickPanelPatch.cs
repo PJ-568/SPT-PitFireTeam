@@ -72,12 +72,13 @@ namespace friendlySAIN.Patches
                 // original
                 __instance.method_7(EPhraseTrigger.LockedDoor, door != null && (door.DoorState == EDoorState.Locked || door.DoorState == EDoorState.Shut));
 
-                // modification is here - cooperation command available only if bot is not a follower and is of the same side
+                // Show cooperation for any alive non-follower AI target.
                 try
                 {
                     if (player.InteractablePlayer != null && player.InteractablePlayer.IsAI && player.InteractablePlayer.HealthController.IsAlive)
                     {
-                        if (BossPlayers.IsFollower(player.InteractablePlayer.AIData.BotOwner) || player.InteractablePlayer.Side != player.Side)
+                        BotOwner targetBot = player.InteractablePlayer.AIData?.BotOwner;
+                        if (targetBot == null || BossPlayers.IsFollower(targetBot))
                         {
                             __instance.method_7(EPhraseTrigger.Cooperation, false);
 

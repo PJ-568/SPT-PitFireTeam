@@ -21,7 +21,8 @@ namespace friendlySAIN.Components
         None = 0,
         HoldPosition = 1,
         MoveToPoint = 2,
-        ComeCloser = 3
+        ComeCloser = 3,
+        RegroupNearBoss = 4
     }
 
     public class BotFollowerPlayer
@@ -875,6 +876,14 @@ namespace friendlySAIN.Components
             _activeCommand = FollowerCommandType.ComeCloser;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
             _commandTarget = Vector3.zero;
+        }
+
+        public void SetRegroup(float duration)
+        {
+            _activeCommand = FollowerCommandType.RegroupNearBoss;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(2f, duration);
+            _resumeHoldAfterComeCloser = false;
         }
 
         public void CompleteComeCloser()

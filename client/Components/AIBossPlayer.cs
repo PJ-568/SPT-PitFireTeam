@@ -46,8 +46,16 @@ namespace friendlySAIN.Components
         private const float GestureCommandDistance = 15f;
         private const float GoThereMaxDistance = 50f;
         private const float LookAtFollowerDistance = 27f;
+        private const float RegroupCloseNavDistance = 8f;
+        private const float RegroupSameLevelTolerance = 1.75f;
+        private const float FriendlyDownVisibilityDistance = 60f;
+        private const float FriendlyDownObserveWindow = 60f;
+        private const float FriendlyDownPollMs = 3000f;
         private float _ignoreNextThereGestureUntil;
         private float _nextThereGestureAt;
+        private readonly Dictionary<string, Action<EDamageType>> _followerDeathHandlers = new Dictionary<string, Action<EDamageType>>();
+        private readonly Dictionary<string, FallenFollowerInfo> _pendingFriendlyDown = new Dictionary<string, FallenFollowerInfo>();
+        private GClass641.IBotTimer _friendlyDownTimer;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -184,14 +192,21 @@ namespace friendlySAIN.Components
                 {
                     HandleAttentionCommand();
                 }
+                else if (info.phrase == EPhraseTrigger.Regroup)
+                {
+                    if (IsCombatRegroupContext())
+                    {
+                        ApplyRegroupCommand(info.PlayerRequester);
+                    }
+                    else
+                    {
+                        ClearFollowerCommands();
+                    }
+                    return;
+                }
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
                 {
-                    foreach (var follower in Followers)
-                    {
-                        if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
-                        BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                        followerData?.ClearCommand();
-                    }
+                    ClearFollowerCommands();
                 }
             }
 
@@ -311,17 +326,27 @@ namespace friendlySAIN.Components
             float distSqr = (follower.Position - requester.Position).sqrMagnitude;
             if (distSqr > TeamStatusGestureDistance * TeamStatusGestureDistance) return false;
 
-            if (realPlayer?.MainParts == null || !realPlayer.MainParts.ContainsKey(BodyPartType.head)) return false;
-
-            Vector3 bossHead = realPlayer.MainParts[BodyPartType.head].Position;
+            if (realPlayer?.MainParts == null) return false;
+            bool hasHead = realPlayer.MainParts.TryGetValue(BodyPartType.head, out BodyPartState headPart);
+            bool hasBody = realPlayer.MainParts.TryGetValue(BodyPartType.body, out BodyPartState bodyPart);
+            if (!hasHead && !hasBody) return false;
             Vector3 followerFirePos = follower.WeaponRoot.position;
 
-            return Utils.Utils.CanShootToTarget(
-                new ShootPointClass(bossHead, 1),
+            bool seesHead = hasHead && Utils.Utils.CanShootToTarget(
+                new ShootPointClass(headPart.Position, 1),
                 followerFirePos,
                 LayerMaskClass.HighPolyWithTerrainMask,
                 false
             );
+            if (seesHead) return true;
+
+            bool seesBody = hasBody && Utils.Utils.CanShootToTarget(
+                new ShootPointClass(bodyPart.Position, 1),
+                followerFirePos,
+                LayerMaskClass.HighPolyWithTerrainMask,
+                false
+            );
+            return seesBody;
         }
 
         private void HandleAttentionCommand()
@@ -334,7 +359,6 @@ namespace friendlySAIN.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 followerData?.ClearCommand();
 
-                // Old FollowerReceiver "Look"/Attention behavior.
                 InteractableObjects.RemoveTaker(follower);
                 InteractableObjects.RemoveOpener(follower);
 
@@ -418,6 +442,7 @@ namespace friendlySAIN.Components
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 if (follower.Memory.HaveEnemy) continue;
                 if ((follower.Position - requester.Position).sqrMagnitude > GestureCommandDistance * GestureCommandDistance) continue;
+                if (!CanReactToBossGesture(follower, requester)) continue;
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
@@ -426,6 +451,206 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogInfo($"[Req] Hold set for {follower.Profile.Nickname}");
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
+        }
+
+        private void ApplyRegroupCommand(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            Vector3 bossPos = requester.Position;
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+                if (ShouldIgnoreRegroup(follower, bossPos)) continue;
+
+                followerData.SetRegroup(20f);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ClearFollowerCommands()
+        {
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                followerData?.ClearCommand();
+            }
+        }
+
+        private bool IsCombatRegroupContext()
+        {
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (follower.Memory?.HaveEnemy == true) return true;
+            }
+
+            return false;
+        }
+
+        private static bool ShouldIgnoreRegroup(BotOwner follower, Vector3 bossPos)
+        {
+            if (follower == null) return true;
+
+            BotLogicDecision currentDecision = follower.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            bool healing = follower.Medecine?.FirstAid?.Using == true ||
+                           follower.Medecine?.SurgicalKit?.Using == true ||
+                           currentDecision == BotLogicDecision.heal;
+            if (healing) return true;
+
+            if (follower.Memory?.HaveEnemy == true && follower.Memory.GoalEnemy?.IsVisible == true)
+            {
+                return true;
+            }
+
+            float verticalDiff = Mathf.Abs(follower.Position.y - bossPos.y);
+            if (verticalDiff > RegroupSameLevelTolerance)
+            {
+                return false;
+            }
+
+            float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
+            return navDistance <= RegroupCloseNavDistance;
+        }
+
+        private void HookFollowerDeath(BotOwner follower)
+        {
+            if (follower == null || follower.HealthController == null) return;
+            if (_followerDeathHandlers.ContainsKey(follower.ProfileId)) return;
+
+            Action<EDamageType> handler = _ => HandleFollowerDeath(follower);
+            _followerDeathHandlers[follower.ProfileId] = handler;
+            follower.HealthController.DiedEvent += handler;
+        }
+
+        private void UnhookFollowerDeath(BotOwner follower)
+        {
+            if (follower == null || follower.HealthController == null) return;
+            if (!_followerDeathHandlers.TryGetValue(follower.ProfileId, out Action<EDamageType> handler)) return;
+
+            follower.HealthController.DiedEvent -= handler;
+            _followerDeathHandlers.Remove(follower.ProfileId);
+        }
+
+        private void HandleFollowerDeath(BotOwner deadFollower)
+        {
+            if (deadFollower == null) return;
+
+            FallenFollowerInfo info = new FallenFollowerInfo
+            {
+                DeadFollowerProfileId = deadFollower.ProfileId,
+                Position = deadFollower.Position,
+                ExpiresAt = Time.time + FriendlyDownObserveWindow
+            };
+
+            _pendingFriendlyDown[deadFollower.ProfileId] = info;
+            TryAnnounceFriendlyDown(info);
+            EnsureFriendlyDownTimer();
+        }
+
+        private void EnsureFriendlyDownTimer()
+        {
+            if (_friendlyDownTimer != null) return;
+
+            _friendlyDownTimer = Utils.Utils.SetTimeout(() =>
+            {
+                try
+                {
+                    ProcessFriendlyDownPending();
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("FriendlyDown timer update failed");
+                    Modules.Logger.LogError(ex);
+                }
+            }, (int)FriendlyDownPollMs, true);
+        }
+
+        private void StopFriendlyDownTimerIfIdle()
+        {
+            if (_pendingFriendlyDown.Count > 0) return;
+            if (_friendlyDownTimer == null) return;
+
+            _friendlyDownTimer.Stop();
+            _friendlyDownTimer = null;
+        }
+
+        private void ProcessFriendlyDownPending()
+        {
+            if (_pendingFriendlyDown.Count == 0)
+            {
+                StopFriendlyDownTimerIfIdle();
+                return;
+            }
+
+            List<string> keys = _pendingFriendlyDown.Keys.ToList();
+            foreach (string key in keys)
+            {
+                if (!_pendingFriendlyDown.TryGetValue(key, out FallenFollowerInfo info)) continue;
+
+                if (Time.time > info.ExpiresAt)
+                {
+                    _pendingFriendlyDown.Remove(key);
+                    continue;
+                }
+
+                if (info.Announced) continue;
+                TryAnnounceFriendlyDown(info);
+            }
+
+            StopFriendlyDownTimerIfIdle();
+        }
+
+        private void TryAnnounceFriendlyDown(FallenFollowerInfo info)
+        {
+            if (info == null || info.Announced) return;
+
+            BotOwner witness = FindClosestWitness(info.DeadFollowerProfileId, info.Position);
+            if (witness == null) return;
+
+            witness.BotTalk.TrySay(EPhraseTrigger.OnFriendlyDown, false);
+            info.Announced = true;
+            _pendingFriendlyDown.Remove(info.DeadFollowerProfileId);
+        }
+
+        private BotOwner FindClosestWitness(string deadFollowerProfileId, Vector3 deathPos)
+        {
+            BotOwner best = null;
+            float bestDist = float.MaxValue;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (follower.ProfileId == deadFollowerProfileId) continue;
+
+                float sqrDist = (follower.Position - deathPos).sqrMagnitude;
+                if (sqrDist > FriendlyDownVisibilityDistance * FriendlyDownVisibilityDistance) continue;
+                if (sqrDist >= bestDist) continue;
+                if (!CanFollowerSeePosition(follower, deathPos)) continue;
+
+                best = follower;
+                bestDist = sqrDist;
+            }
+
+            return best;
+        }
+
+        private static bool CanFollowerSeePosition(BotOwner follower, Vector3 position)
+        {
+            if (follower == null) return false;
+
+            Vector3 from = follower.WeaponRoot != null ? follower.WeaponRoot.position : follower.Position + Vector3.up * 1.2f;
+            Vector3 target = position + Vector3.up * 0.6f;
+
+            return Utils.Utils.CanShootToTarget(
+                new ShootPointClass(target, 1),
+                from,
+                LayerMaskClass.HighPolyWithTerrainMask,
+                false
+            );
         }
 
         private void ApplyComeWithMeGesture(IPlayer requester)
@@ -441,6 +666,11 @@ namespace friendlySAIN.Components
             if ((lookedFollower.Position - requesterPlayer.Position).sqrMagnitude > GestureCommandDistance * GestureCommandDistance)
             {
                 Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower too far ({lookedFollower.Profile.Nickname})");
+                return;
+            }
+            if (!CanReactToBossGesture(lookedFollower, requesterPlayer))
+            {
+                Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower cannot see boss ({lookedFollower.Profile.Nickname})");
                 return;
             }
 
@@ -471,6 +701,7 @@ namespace friendlySAIN.Components
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 float sqrDist = (follower.Position - requesterPos).sqrMagnitude;
                 if (sqrDist > GestureCommandDistance * GestureCommandDistance) continue;
+                if (!CanReactToBossGesture(follower, requester)) continue;
                 if (sqrDist >= bestDist) continue;
                 if (!CanAcceptThereCommand(follower)) continue;
 
@@ -550,13 +781,42 @@ namespace friendlySAIN.Components
                 if (bot == null) continue;
                 if (!BossPlayers.IsFollower(bot, this)) continue;
 
-                if (Utils.Utils.CanShootToTarget(new ShootPointClass(hit.point, 1), ray.origin, LayerMaskClass.HighPolyWithTerrainMask))
+                if (CanBossSeeFollowerGestureTarget(bot, requester))
                 {
                     return bot;
                 }
             }
 
             return null;
+        }
+
+        private static bool CanBossSeeFollowerGestureTarget(BotOwner follower, Player requester)
+        {
+            if (follower == null || requester == null) return false;
+            if (follower.GetPlayer?.MainParts == null) return false;
+            if (requester.PlayerBones?.WeaponRoot == null) return false;
+
+            bool hasHead = follower.GetPlayer.MainParts.TryGetValue(BodyPartType.head, out BodyPartState headPart);
+            bool hasBody = follower.GetPlayer.MainParts.TryGetValue(BodyPartType.body, out BodyPartState bodyPart);
+            if (!hasHead && !hasBody) return false;
+
+            Vector3 bossFirePos = requester.PlayerBones.WeaponRoot.position;
+
+            bool seesHead = hasHead && Utils.Utils.CanShootToTarget(
+                new ShootPointClass(headPart.Position, 1),
+                bossFirePos,
+                LayerMaskClass.HighPolyWithTerrainMask,
+                false
+            );
+            if (seesHead) return true;
+
+            bool seesBody = hasBody && Utils.Utils.CanShootToTarget(
+                new ShootPointClass(bodyPart.Position, 1),
+                bossFirePos,
+                LayerMaskClass.HighPolyWithTerrainMask,
+                false
+            );
+            return seesBody;
         }
 
         public List<BotOwner> GetEnemies()
@@ -646,6 +906,13 @@ namespace friendlySAIN.Components
             {
                 bossGroup.RemoveInfo(Player());
             }
+
+            foreach (BotOwner follower in Followers.ToList())
+            {
+                UnhookFollowerDeath(follower);
+            }
+            _pendingFriendlyDown.Clear();
+            StopFriendlyDownTimerIfIdle();
             aBossLogic.Dispose();
 
             Modules.Logger.LogInfo("Player Boss Disposed");
@@ -653,12 +920,21 @@ namespace friendlySAIN.Components
         public void AddFollower(BotOwner bot)
         {
             Followers.Add(bot);
+            HookFollowerDeath(bot);
             // dispose of the original patrol mode
             bot.BotFollower.PatrolDataFollower.InitPlayer(realPlayer);
 
             bot.BotFollower.SetToFollow(this,Followers.Count - 1);
             bot.PatrollingData.Pause();
             bot.PatrollingData.Disable();
+        }
+
+        private sealed class FallenFollowerInfo
+        {
+            public string DeadFollowerProfileId;
+            public Vector3 Position;
+            public float ExpiresAt;
+            public bool Announced;
         }
     }
     public class AIBossPlayerLogic : GClass430

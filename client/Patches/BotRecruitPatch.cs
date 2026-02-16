@@ -13,6 +13,8 @@ namespace friendlySAIN.Patches
     // Intercept FollowMe/Cooperation phrase receipt and forward it to the existing follow-request flow.
     internal class BotReceiverFollowMeRecruitPatch : ModulePatch
     {
+        private const float RecruitPhraseDistance = 15f;
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(BotReceiver), "method_0");
@@ -54,7 +56,7 @@ namespace friendlySAIN.Patches
             if (!BossPlayers.IsPlayerBoss(requester.ProfileId)) return true;
 
             // Keep vanilla behavior at longer range.
-            if ((botOwner.Position - requester.Position).sqrMagnitude > 10f * 10f) return true;
+            if ((botOwner.Position - requester.Position).sqrMagnitude > RecruitPhraseDistance * RecruitPhraseDistance) return true;
 
             bool accepted = botOwner.BotsGroup?.RequestsController?.TryAskFollowMeRequest(requester, botOwner) == true;
             if (!accepted)
