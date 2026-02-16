@@ -471,6 +471,10 @@ namespace friendlySAIN.Modules
         /** Store what enemies the player might have seen during "CONTACT" phrase */
         public static void CheckSeenEnemies(IPlayer player)
         {
+            if (Instance == null || player == null) return;
+            if (Instance._enemiesSeen == null) return;
+            if (player.Transform == null) return;
+
             Instance._closestEnemySeen = null;
             Instance._enemiesSeen.Clear();
 
@@ -553,15 +557,24 @@ namespace friendlySAIN.Modules
 
                         if (isenemy)
                         {
+                            if (player.PlayerBones?.WeaponRoot == null) continue;
+                            if (enemy.MainParts == null) continue;
+                            if (!enemy.MainParts.TryGetValue(BodyPartType.head, out var headPart)) continue;
+                            if (!enemy.MainParts.TryGetValue(BodyPartType.body, out var bodyPart)) continue;
+                            if (!enemy.MainParts.TryGetValue(BodyPartType.leftArm, out var leftArmPart)) continue;
+                            if (!enemy.MainParts.TryGetValue(BodyPartType.rightArm, out var rightArmPart)) continue;
+                            if (!enemy.MainParts.TryGetValue(BodyPartType.leftLeg, out var leftLegPart)) continue;
+                            if (!enemy.MainParts.TryGetValue(BodyPartType.rightLeg, out var rightLegPart)) continue;
+
                             Vector3 firePos = player.PlayerBones.WeaponRoot.position;
                             // - we check if any part of the enemy is visible to the player
                             if (
-                                Utils.Utils.CanShootToTarget(new ShootPointClass(enemy.MainParts[BodyPartType.head].Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
-                                Utils.Utils.CanShootToTarget(new ShootPointClass(enemy.MainParts[BodyPartType.body].Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
-                                Utils.Utils.CanShootToTarget(new ShootPointClass(enemy.MainParts[BodyPartType.leftArm].Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
-                                Utils.Utils.CanShootToTarget(new ShootPointClass(enemy.MainParts[BodyPartType.rightArm].Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
-                                Utils.Utils.CanShootToTarget(new ShootPointClass(enemy.MainParts[BodyPartType.leftLeg].Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
-                                Utils.Utils.CanShootToTarget(new ShootPointClass(enemy.MainParts[BodyPartType.rightLeg].Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false)
+                                Utils.Utils.CanShootToTarget(new ShootPointClass(headPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
+                                Utils.Utils.CanShootToTarget(new ShootPointClass(bodyPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
+                                Utils.Utils.CanShootToTarget(new ShootPointClass(leftArmPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
+                                Utils.Utils.CanShootToTarget(new ShootPointClass(rightArmPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
+                                Utils.Utils.CanShootToTarget(new ShootPointClass(leftLegPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false) ||
+                                Utils.Utils.CanShootToTarget(new ShootPointClass(rightLegPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false)
                             )
                             {
                                 Instance._enemiesSeen.Add(enemy);
@@ -591,22 +604,26 @@ namespace friendlySAIN.Modules
         /** Get all enemies the player might have seen during "CONTACT" phrase */
         public static List<Player> GetSeenEnemies()
         {
+            if (Instance == null || Instance._enemiesSeen == null) return new List<Player>();
             return Instance._enemiesSeen;
 
         }
         /** Get the closest enemy the player might have seen during "CONTACT" phrase */
         public static Player GetClosestSeenEnemy()
         {
+            if (Instance == null) return null;
             return Instance._closestEnemySeen;
         }
 
         public static void BossIsDead()
         {
+            if (Instance == null) return;
             Instance._isBossDead = true;
         }
 
         public static bool IsBossDead()
         {
+            if (Instance == null) return false;
             return Instance._isBossDead;
         }
 

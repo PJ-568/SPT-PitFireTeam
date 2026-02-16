@@ -14,7 +14,7 @@ namespace friendlySAIN.Patches
     {
         private static FieldInfo _activeLayerListField;
         private static PropertyInfo _activeLayerProperty;
-        private static FieldInfo _layerBotOwnerField;
+        private static Func<object, BotOwner> _layerBotOwnerGetter;
         private static bool _resolved;
 
         protected override MethodBase GetTargetMethod()
@@ -99,18 +99,18 @@ namespace friendlySAIN.Patches
                 type = type.BaseType;
             }
 
-            _layerBotOwnerField = AccessTools.Field(typeof(AICoreLayerClass<BotLogicDecision>), "BotOwner_0");
+            _layerBotOwnerGetter = BuildBotOwnerGetter(typeof(AICoreLayerClass<BotLogicDecision>));
         }
 
         private static BotOwner GetBotOwner(List<AICoreLayerClass<BotLogicDecision>> activeLayerList)
         {
-            if (_layerBotOwnerField == null) return null;
+            if (_layerBotOwnerGetter == null) return null;
 
             for (int i = 0; i < activeLayerList.Count; i++)
             {
                 object layer = activeLayerList[i];
                 if (layer == null) continue;
-                BotOwner botOwner = _layerBotOwnerField.GetValue(layer) as BotOwner;
+                BotOwner botOwner = _layerBotOwnerGetter(layer);
                 if (botOwner != null) return botOwner;
             }
             return null;
@@ -132,6 +132,74 @@ namespace friendlySAIN.Patches
             }
 
             return name.IndexOf("LootPatrol", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        internal static Func<object, BotOwner> BuildBotOwnerGetter(Type layerType)
+        {
+            if (layerType == null) return null;
+
+            for (Type type = layerType; type != null; type = type.BaseType)
+            {
+                foreach (FieldInfo field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (typeof(BotOwner).IsAssignableFrom(field.FieldType))
+                    {
+                        return instance => instance == null ? null : field.GetValue(instance) as BotOwner;
+                    }
+                }
+
+                foreach (PropertyInfo property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (!property.CanRead || property.GetIndexParameters().Length != 0) continue;
+                    if (typeof(BotOwner).IsAssignableFrom(property.PropertyType))
+                    {
+                        return instance => instance == null ? null : property.GetValue(instance, null) as BotOwner;
+                    }
+                }
+            }
+
+            return null;
+        }
+    }
+
+    // Hard-stop vanilla LootPatrol decision for followers if it still leaks through active-layer filtering.
+    internal class LootPatrolDecisionBypassPatch : ModulePatch
+    {
+        private static Func<object, BotOwner> _botOwnerGetter;
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass117), "GetDecision");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(GClass117 __instance, ref AICoreActionResultStruct<BotLogicDecision, GClass26> __result)
+        {
+            try
+            {
+                if (__instance == null) return true;
+
+                if (_botOwnerGetter == null)
+                {
+                    _botOwnerGetter = LootPatrolActiveLayerListPatch.BuildBotOwnerGetter(__instance.GetType());
+                }
+
+                BotOwner botOwner = _botOwnerGetter?.Invoke(__instance);
+                if (botOwner == null) return true;
+
+                if (!BossPlayers.IsFollower(botOwner)) return true;
+
+                __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BaseLogicLayerAbstractClass.HoldOrCover(botOwner),
+                    "friendlySAIN_skipLootPatrol");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("LootPatrolDecisionBypassPatch failed");
+                Logger.LogError(ex);
+                return true;
+            }
         }
     }
 }

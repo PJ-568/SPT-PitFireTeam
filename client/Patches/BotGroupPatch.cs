@@ -435,4 +435,48 @@ namespace friendlySAIN.Patches
             }
         }
     }
+
+    // Guard vanilla propagation path from invalid players/zones, which can happen after out-of-band debug spawns.
+    internal class BotControllerEnemyPropagationSafetyPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(
+                typeof(BotsController),
+                "AddEnemyToAllGroupsInBotZone",
+                new[] { typeof(IPlayer), typeof(IPlayer), typeof(IPlayer) });
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(IPlayer aggressor, IPlayer groupOwner, IPlayer target)
+        {
+            if (!IsValidPlayerRef(aggressor) || !IsValidPlayerRef(groupOwner) || !IsValidPlayerRef(target))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsValidPlayerRef(IPlayer player)
+        {
+            if (player == null) return false;
+
+            try
+            {
+                var _ = player.Position;
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (player.IsAI && player.AIData?.BotOwner?.GetPlayer == null)
+            {
+                return false;
+            }
+
+            return true;
+        }
+    }
 }

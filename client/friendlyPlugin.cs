@@ -7,13 +7,17 @@ using EFT.InventoryLogic;
 using HarmonyLib;
 using SPT.Common.Http;
 using SPT.Common.Utils;
+using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AI;
 using Newtonsoft.Json;
 
 using friendlySAIN.Modules;
 using friendlySAIN.BigBrain;
+using friendlySAIN.Components;
 using friendlySAIN.Localization;
 using friendlySAIN.Utils;
 using friendlySAIN.Patches;
@@ -45,8 +49,8 @@ namespace friendlySAIN
 
     public enum CustomPhrases
     {
-        TeamStatus = 219,
-        OverThere = 220,
+        TeamStatus = 10001,
+        OverThere = 10002,
     }
 
     public enum CustomGestures
@@ -192,6 +196,7 @@ namespace friendlySAIN
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
             new LootPatrolActiveLayerListPatch().Enable();
+            new LootPatrolDecisionBypassPatch().Enable();
             
             if(!IsSAINInstalled)
                 new FollowerSprintPatch().Enable();
@@ -463,6 +468,157 @@ namespace friendlySAIN
             GetLanguage();
             // - set config
             ConfigSet();
+            RegisterDebugConsoleCommands();
+        }
+
+        private void RegisterDebugConsoleCommands()
+        {
+            try
+            {
+                Type consoleType = AccessTools.TypeByName("EFT.UI.ConsoleScreen")
+                    ?? AccessTools.TypeByName("ConsoleScreen");
+                if (consoleType == null)
+                {
+                    Modules.Logger.LogError("ConsoleScreen type not found; fs_spawnfollower not registered.");
+                    return;
+                }
+
+                FieldInfo processorField = AccessTools.Field(consoleType, "Processor");
+                object processor = processorField?.GetValue(null);
+                if (processor == null)
+                {
+                    PropertyInfo processorProperty = AccessTools.Property(consoleType, "Processor");
+                    processor = processorProperty?.GetValue(null);
+                }
+                if (processor == null)
+                {
+                    Modules.Logger.LogError("ConsoleScreen.Processor not found; fs_spawnfollower not registered.");
+                    return;
+                }
+
+                MethodInfo registerWithDescription = AccessTools.Method(
+                    processor.GetType(),
+                    "RegisterCommand",
+                    new[] { typeof(string), typeof(Action), typeof(string) });
+                MethodInfo registerSimple = AccessTools.Method(
+                    processor.GetType(),
+                    "RegisterCommand",
+                    new[] { typeof(string), typeof(Action) });
+
+                if (registerWithDescription != null)
+                {
+                    registerWithDescription.Invoke(
+                        processor,
+                        new object[] { "fs_spawnfollower", (Action)SpawnFollowerConsoleCommand, "Spawn a follower bot near the player" });
+                    Modules.Logger.LogInfo("Registered console command: fs_spawnfollower");
+                    return;
+                }
+
+                if (registerSimple != null)
+                {
+                    registerSimple.Invoke(processor, new object[] { "fs_spawnfollower", (Action)SpawnFollowerConsoleCommand });
+                    Modules.Logger.LogInfo("Registered console command: fs_spawnfollower");
+                    return;
+                }
+
+                Modules.Logger.LogError("RegisterCommand overload not found; fs_spawnfollower not registered.");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to register fs_spawnfollower console command");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static void SpawnFollowerConsoleCommand()
+        {
+            _ = SpawnFollowerConsoleCommandAsync();
+        }
+
+        private static async Task SpawnFollowerConsoleCommandAsync()
+        {
+            if (!Singleton<AbstractGame>.Instantiated || Singleton<GameWorld>.Instance == null || GamePlayerOwner.MyPlayer == null)
+            {
+                DebugConsoleLog("fs_spawnfollower: this command can only be used in-raid.", true);
+                return;
+            }
+
+            Player player = GamePlayerOwner.MyPlayer;
+            EPlayerSide spawnSide = player.Side;
+
+            if (BossPlayers.Instance == null)
+            {
+                DebugConsoleLog("fs_spawnfollower: boss system is not initialized.", true);
+                return;
+            }
+
+            pitAIBossPlayer boss = BossPlayers.GetBoss(player.ProfileId);
+            if (boss == null)
+            {
+                if (BotsControllerPatch.Controller == null)
+                {
+                    DebugConsoleLog("fs_spawnfollower: bots controller is not ready.", true);
+                    return;
+                }
+
+                boss = BossPlayers.AddPlayerAsBoss(player, BotsControllerPatch.Controller);
+                if (boss == null)
+                {
+                    DebugConsoleLog("fs_spawnfollower: failed to initialize player boss.", true);
+                    return;
+                }
+            }
+
+            if (BotsControllerPatch.Instance == null)
+            {
+                DebugConsoleLog("fs_spawnfollower: bots patch instance is missing.", true);
+                return;
+            }
+
+            try
+            {
+                string spawnFailureReason = null;
+                bool result = await BotsControllerPatch.Instance.SpawnDebugFollower(
+                    boss,
+                    spawnSide,
+                    reason => spawnFailureReason = reason
+                );
+                if (result)
+                {
+                    DebugConsoleLog($"fs_spawnfollower: spawn requested ({spawnSide}).", false);
+                }
+                else
+                {
+                    string details = string.IsNullOrEmpty(spawnFailureReason) ? "unknown reason" : spawnFailureReason;
+                    DebugConsoleLog($"fs_spawnfollower: spawn request failed ({details}).", true);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugConsoleLog($"fs_spawnfollower: exception: {ex.Message}", true);
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static void DebugConsoleLog(string message, bool isError)
+        {
+            try
+            {
+                Type consoleType = AccessTools.TypeByName("EFT.UI.ConsoleScreen")
+                    ?? AccessTools.TypeByName("ConsoleScreen");
+                if (consoleType != null)
+                {
+                    MethodInfo logMethod = AccessTools.Method(consoleType, isError ? "LogError" : "Log", new[] { typeof(string) });
+                    logMethod?.Invoke(null, new object[] { message });
+                }
+            }
+            catch
+            {
+                // ignore console reflection errors
+            }
+
+            if (isError) Modules.Logger.LogError(message);
+            else Modules.Logger.LogInfo(message);
         }
 
         void Update()

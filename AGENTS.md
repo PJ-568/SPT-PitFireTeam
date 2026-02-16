@@ -1,7 +1,23 @@
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-02-15  
+Last updated: 2026-02-16  
 Scope: runtime behavior currently present in `friendlySAIN/client` (based on active code paths in `friendlyPlugin.cs` and related components).
+
+## BE / Server State (Important)
+
+- Backend (BE) support for this plugin is **not implemented yet**.
+- Do **not** add new runtime paths that depend on BE profile generation/fetch endpoints for debug/runtime bot spawn flows.
+- If a spawn flow requires BE profile data and no local/prefetched profile exists, it should fail fast with a clear reason instead of attempting BE fallback.
+
+## 0) Project Context
+
+- Old plugin codebase: `F:/Projects/SPT-Tarkov/friendlypmc`
+- Old client reference (3.11): `F:/Projects/SPT-Tarkov/Client-Decompiled-3.11`
+- New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
+- Positioning:
+  - `friendlySAIN` is both:
+    - a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment,
+    - and an alternative plugin implementation with new BigBrain-native follower layers/actions.
 
 ## 1) Core Runtime Model
 
@@ -51,9 +67,23 @@ Request/gesture movement:
 - Registers `friendlySAIN.FollowerRequest` custom layer (priority `77`) above patrol (`75`).
 - `FollowerRequestLayer` activates when follower has an active command in `BotFollowerPlayer`.
 - `GestureCommandAction` handles:
-  - `HoldPosition`: stop, crouch pose, periodic random look-around.
+  - `HoldPosition`: stop, crouch pose, periodic random look-around, no command timeout (persists until replaced/cleared).
   - `ComeCloser`: move to boss until close (about `1m`).
-  - `MoveToPoint` (`There`): move to projected/navmesh-validated target point.
+  - `MoveToPoint` (`There`): move to projected/navmesh-validated target point (walk-only), then brief look-around on arrival.
+- Command sequencing details:
+  - If `ComeCloser` was issued while `HoldPosition` was active:
+    - bot approaches,
+    - then resumes hold (unless interrupted by a new command/clear event).
+  - If `ComeCloser` was not issued from hold:
+    - bot performs a short arrival pause/look-around, then clears command.
+  - If a new `There` is issued while bot is in arrival look-around:
+    - bot immediately starts moving to the new point.
+  - `Hold` / `Come` interrupt and replace `There`/arrival-look behavior.
+- Contact look pause:
+  - On enemy-contact orders (`OnRepeatedContact` / custom `OverThere`), command random look logic is paused for ~`2-4s` so bots keep contact orientation.
+- Gesture routing:
+  - Custom `OverThere` is handled separately from `There`.
+  - A short suppression guard prevents immediate `There` echo from being treated as move-to-point after custom `OverThere`.
 - Commands are cleared on:
   - `FollowMe` / `Cooperation`,
   - `Look` (attention),
@@ -141,15 +171,16 @@ AI data / command UI:
 - `GestureMenuAvailablePhrasesPatch`
 - `EPhraseTriggerPatch`
 - `PlayPhraseOrGesturePatch`
+  - intercepts only custom phrase IDs and skips interception when the action is a real player gesture (`GClass3937.IsPlayerGesture(actionId)`), so vanilla gestures are not hijacked
 
 SAIN integration:
 - `SAINPatch.PatchSAINIfInstalled(harmony)` applies selective SAIN behavior patches when SAIN assembly is present.
 
 ## 5) Safety/Crash Guards Added
 
-- LootPatrol follower guard:
+- LootPatrol active-layer guard:
   - `client/Patches/LootPatrolSafetyPatch.cs`
-  - prevents follower bots from executing vanilla `GClass117.GetDecision` path that was throwing null refs.
+  - strips vanilla LootPatrol (`GClass117`) from BigBrain active layer list for followers before layer update, preventing `GClass117.GetDecision` null refs.
 - Grenade throw safety:
   - `client/Patches/GrenadeThrowPatch.cs` includes null-safe guard for `GClass274.UpdateTryThrow`.
 - Player say/hearing null guards:
@@ -191,3 +222,15 @@ Examples currently tracked there:
   - `client/Components/BotFollowerPlayer.cs`
 - Boss command/event behavior:
   - `client/Components/AIBossPlayer.cs`
+
+## 10) Command/Gesture IDs (Current)
+
+- Custom phrases:
+  - `CustomPhrases.TeamStatus = 10001`
+  - `CustomPhrases.OverThere = 10002`
+- Custom gesture:
+  - `CustomGestures.OverThere = 220` (`EInteraction` is byte-backed, so stay within `0..255`)
+- Vanilla 4.x gestures:
+  - `Rock/Scissor/Paper/AllRight = 200..203`
+- UI visibility note:
+  - gesture buttons are created from `CustomizationSolverClass.GetAvailableGestures(side)`, so visibility is side/template-data dependent (e.g., can differ for PMC vs Savage).
