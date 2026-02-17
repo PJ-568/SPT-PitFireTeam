@@ -175,6 +175,7 @@ namespace friendlySAIN.Patches
     internal class LootPatrolDecisionBypassPatch : ModulePatch
     {
         private static Func<object, BotOwner> _botOwnerGetter;
+        private static float _nextExceptionLogAt;
 
         protected override MethodBase GetTargetMethod()
         {
@@ -215,6 +216,44 @@ namespace friendlySAIN.Patches
                 Logger.LogError(ex);
                 return true;
             }
+        }
+
+        [PatchFinalizer]
+        private static Exception PatchFinalizer(
+            GClass117 __instance,
+            Exception __exception,
+            ref AICoreActionResultStruct<BotLogicDecision, GClass26> __result)
+        {
+            if (__exception == null) return null;
+
+            BotOwner botOwner = null;
+            try
+            {
+                if (_botOwnerGetter == null && __instance != null)
+                {
+                    _botOwnerGetter = LootPatrolActiveLayerListPatch.BuildBotOwnerGetter(__instance.GetType());
+                }
+
+                botOwner = _botOwnerGetter?.Invoke(__instance);
+                __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    botOwner != null ? BaseLogicLayerAbstractClass.HoldOrCover(botOwner) : default,
+                    "friendlySAIN_lootPatrol_exception_guard");
+            }
+            catch
+            {
+                __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    default,
+                    "friendlySAIN_lootPatrol_exception_guard_failed");
+            }
+
+            if (UnityEngine.Time.time >= _nextExceptionLogAt)
+            {
+                _nextExceptionLogAt = UnityEngine.Time.time + 1f;
+                Logger.LogError("LootPatrol GetDecision exception suppressed to keep AI update alive");
+                Logger.LogError(__exception);
+            }
+
+            return null;
         }
 
         private static bool IsConfirmedFollower(BotOwner botOwner)

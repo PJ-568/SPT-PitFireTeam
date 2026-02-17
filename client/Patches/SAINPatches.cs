@@ -21,6 +21,7 @@ namespace friendlySAIN.Patches
 
         private static Type? enemyTalk = null;
         private static Type? GroupClass = null;
+        private static Type? playerMovementControllerClass = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
             if (!IsSAINInstalled()) return;
@@ -47,6 +48,11 @@ namespace friendlySAIN.Patches
                 GroupClass = Type.GetType("SAIN.SAINComponent.Classes.Talk.GroupTalk, SAIN");
             }
 
+            if (playerMovementControllerClass == null)
+            {
+                playerMovementControllerClass = Type.GetType("SAIN.Classes.PlayerMovementController, SAIN");
+            }
+
 
             if (enemyTalk != null)
             {
@@ -56,6 +62,15 @@ namespace friendlySAIN.Patches
             if (GroupClass != null)
             {
                 harmony.Patch(AccessTools.Method(GroupClass, "EnemyConversation"), new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchEnemyConvesation), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
+            }
+
+            if (playerMovementControllerClass != null)
+            {
+                var setTargetMoveDirection = AccessTools.Method(playerMovementControllerClass, "SetTargetMoveDirection");
+                if (setTargetMoveDirection != null)
+                {
+                    harmony.Patch(setTargetMoveDirection, new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchSetTargetMoveDirection), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
+                }
             }
 
 
@@ -108,6 +123,40 @@ namespace friendlySAIN.Patches
                 return true;
             }
             return true;
+        }
+
+        [HarmonyPrefix]
+        private static bool PatchSetTargetMoveDirection(object playerComp)
+        {
+            try
+            {
+                if (playerComp == null) return true;
+
+                var botOwnerProp = AccessTools.Property(playerComp.GetType(), "BotOwner");
+                BotOwner botOwner = botOwnerProp?.GetValue(playerComp) as BotOwner;
+                if (botOwner == null) return true;
+
+                if (!ShouldSkipSainMoveDirection(botOwner)) return true;
+
+                if (botOwner.Mover != null)
+                {
+                    botOwner.Mover.Pause = false;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool ShouldSkipSainMoveDirection(BotOwner botOwner)
+        {
+            if (botOwner == null) return false;
+            if (!BossPlayers.IsFollower(botOwner)) return false;
+            if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return false;
+            return botOwner.Memory?.HaveEnemy != true;
         }
     }
 }
