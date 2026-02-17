@@ -58,6 +58,7 @@ namespace friendlySAIN.BigBrain
 
     internal sealed class FollowerPatrolLayer : CustomLayer
     {
+        private const float PostCombatFollowDelaySeconds = 3f;
 
         private float healSoftTimeoutAt = 0f;
         private float healStartAt = 0f;
@@ -68,6 +69,8 @@ namespace friendlySAIN.BigBrain
         private bool triedReloadSecondaryWeapon = false;
         private float nextReloadCheckAt = 0f;
         private float nextMagazineFillCheckAt = 0f;
+        private bool sawEnemyDuringCurrentCycle = false;
+        private float combatEndedAt = -1f;
 
         private Action? selectedAction = null;
         public FollowerPatrolLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
@@ -88,7 +91,30 @@ namespace friendlySAIN.BigBrain
 
             if (!BotOwner.BotFollower.HaveBoss) return false;
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer) return false;
-            if (BotOwner.Memory.HaveEnemy) return false;
+
+            if (BotOwner.Memory.HaveEnemy)
+            {
+                sawEnemyDuringCurrentCycle = true;
+                combatEndedAt = -1f;
+                return false;
+            }
+
+            if (sawEnemyDuringCurrentCycle)
+            {
+                if (combatEndedAt < 0f)
+                {
+                    combatEndedAt = Time.time;
+                    return false;
+                }
+
+                if (Time.time < combatEndedAt + PostCombatFollowDelaySeconds)
+                {
+                    return false;
+                }
+
+                sawEnemyDuringCurrentCycle = false;
+                combatEndedAt = -1f;
+            }
 
             return true;
         }
