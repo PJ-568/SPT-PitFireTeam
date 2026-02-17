@@ -291,6 +291,10 @@ namespace friendlySAIN.Components
 
             InteractableObjects.CheckSeenEnemies(Player());
             List<Player> seenEnemies = InteractableObjects.GetSeenEnemies();
+            if (seenEnemies == null || seenEnemies.Count == 0)
+            {
+                seenEnemies = GetBossVisibleEnemiesForContact(requester);
+            }
             Vector3 lookTarget = requester.Transform.position + requester.LookDirection.normalized * ContactLookDistance;
 
             foreach (var follower in Followers)
@@ -308,14 +312,92 @@ namespace friendlySAIN.Components
                 {
                     if (enemy == null || enemy.ProfileId == follower.ProfileId || enemy.ProfileId == realPlayer.ProfileId) continue;
 
-                    BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.addPlayerToBoss)
-                    {
-                        EnemyLastPosition = enemy.Position
-                    };
-
-                    follower.Memory.AddEnemy(enemy, botSettings, false);
+                    RegisterContactEnemyForFollower(follower, enemy);
                 }
             }
+        }
+
+        private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy)
+        {
+            if (follower == null || enemy == null) return;
+
+            try
+            {
+                follower.BotsGroup?.AddEnemy(enemy, EBotEnemyCause.addPlayerToBoss);
+                follower.BotsGroup?.ReportAboutEnemy(enemy, EEnemyPartVisibleType.Visible, follower);
+            }
+            catch
+            {
+                // Keep memory injection path even if group propagation fails.
+            }
+
+            BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.addPlayerToBoss)
+            {
+                EnemyLastPosition = enemy.Position
+            };
+
+            follower.Memory.AddEnemy(enemy, botSettings, false);
+
+            BotOwner enemyBot = enemy.AIData?.BotOwner;
+            if (enemyBot != null)
+            {
+                PrioritizeEnemy(follower, enemyBot);
+            }
+        }
+
+        private List<Player> GetBossVisibleEnemiesForContact(IPlayer requester)
+        {
+            List<Player> result = new List<Player>();
+            if (requester == null || bossGroup?.Enemies == null) return result;
+
+            Vector3 firePos = requester.PlayerBones?.WeaponRoot?.position ?? (requester.Position + Vector3.up * 1.2f);
+            foreach (var kv in bossGroup.Enemies)
+            {
+                IPlayer enemyPlayerRef = kv.Key;
+                BotOwner enemyBot = enemyPlayerRef?.AIData?.BotOwner;
+                if (enemyBot == null || enemyBot.IsDead || enemyBot.BotState != EBotState.Active) continue;
+
+                Player enemy = enemyBot.GetPlayer as Player;
+                if (enemy == null) continue;
+                if (enemy.ProfileId == realPlayer.ProfileId) continue;
+                if (Followers.Any(f => f != null && f.ProfileId == enemy.ProfileId)) continue;
+
+                if (enemy.MainParts == null) continue;
+                if (!enemy.MainParts.TryGetValue(BodyPartType.head, out _) &&
+                    !enemy.MainParts.TryGetValue(BodyPartType.body, out _))
+                {
+                    continue;
+                }
+
+                bool visible = false;
+                if (enemy.MainParts.TryGetValue(BodyPartType.head, out var headPartVisible))
+                {
+                    visible = Utils.Utils.CanShootToTarget(
+                        new ShootPointClass(headPartVisible.Position, 1),
+                        firePos,
+                        LayerMaskClass.HighPolyWithTerrainMask,
+                        false
+                    );
+                }
+
+                if (!visible && enemy.MainParts.TryGetValue(BodyPartType.body, out var bodyPart))
+                {
+                    visible = Utils.Utils.CanShootToTarget(
+                        new ShootPointClass(bodyPart.Position, 1),
+                        firePos,
+                        LayerMaskClass.HighPolyWithTerrainMask,
+                        false
+                    );
+                }
+
+                if (!visible) continue;
+                if (!result.Any(p => p != null && p.ProfileId == enemy.ProfileId))
+                {
+                    result.Add(enemy);
+                }
+            }
+
+            return result;
         }
 
         private bool CanReactToBossGesture(BotOwner follower, IPlayer requester)

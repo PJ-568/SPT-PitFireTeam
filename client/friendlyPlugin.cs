@@ -644,7 +644,11 @@ namespace friendlySAIN
                     if (boss != null)
                     {
                         if (pingKey.Value.IsUp())
-                            boss.realPlayer.Say((EPhraseTrigger)CustomPhrases.TeamStatus, true);
+                            boss.PhraseSaid(new BotEventHandler.GClass692
+                            {
+                                phrase = (EPhraseTrigger)CustomPhrases.TeamStatus,
+                                PlayerRequester = boss.realPlayer
+                            });
                         else
                             boss.realPlayer.Say(EPhraseTrigger.OnRepeatedContact, true);
                     }
