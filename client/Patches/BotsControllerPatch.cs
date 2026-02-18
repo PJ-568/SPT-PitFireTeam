@@ -1109,7 +1109,7 @@ namespace friendlySAIN.Patches
                         WildSpawnType botRole = me.Profile.Info?.Settings?.Role ?? role;
                         BossPlayers.AddFollower(me, player, true, botRole, "Default");
                         me.BotTalk.SetSilence(0f);
-                        Utils.Utils.SetTimeout(() => me.BotTalk.TrySay(EPhraseTrigger.Ready), 800);
+                        Utils.Utils.SetTimeout(() => me.BotTalk.TrySay(EPhraseTrigger.Ready), 1500);
                     }
                     catch (Exception ex)
                     {

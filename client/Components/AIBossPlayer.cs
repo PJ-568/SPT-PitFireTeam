@@ -304,7 +304,10 @@ namespace friendlySAIN.Components
 
                 // Make followers orient toward boss reported direction.
                 follower.Steering.LookToPoint(lookTarget);
-                BossPlayers.Instance?.GetFollower(follower)?.PauseCommandLookRandom(Utils.Utils.Random(2f, 4f));
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                float lookOverrideDuration = Utils.Utils.Random(2f, 4f);
+                followerData?.PauseCommandLookRandom(lookOverrideDuration);
+                followerData?.SetCommandLookOverride(lookTarget, lookOverrideDuration);
 
                 if (seenEnemies == null || seenEnemies.Count == 0) continue;
 

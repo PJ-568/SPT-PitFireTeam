@@ -145,7 +145,6 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (BotOwner.Memory?.HaveEnemy == true && BotOwner.Memory.GoalEnemy?.IsVisible == true)
             {
-                followerData?.ClearCommand();
                 BotOwner.StopMove();
                 return;
             }
@@ -371,7 +370,16 @@ namespace friendlySAIN.BigBrain.Actions
 
             // "There" should always be a walk move.
             BotOwner.GoToSomePointData.UpdateToGo(false);
-            
+
+            if (followerData?.TryGetCommandLookOverride(out Vector3 lookOverridePoint) == true)
+            {
+                BotOwner.Steering.LookToPoint(lookOverridePoint);
+            }
+            else
+            {
+                BotOwner.Steering.LookToPathDestPoint();
+            }
+
             nextHoldLookChangeAt = 0f;
         }
 

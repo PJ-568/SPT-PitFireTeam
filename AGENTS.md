@@ -15,6 +15,7 @@ Scope: runtime behavior currently present in `friendlySAIN/client` (based on act
 - Old plugin codebase: `F:/Projects/SPT-Tarkov/friendlypmc`
 - Old client reference (3.11): `F:/Projects/SPT-Tarkov/Client-Decompiled-3.11`
 - New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
+- SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-master/SAIN`
 - Positioning:
     - `friendlySAIN` is both:
         - a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment,
@@ -238,6 +239,9 @@ SAIN integration:
     - profile generation uses game-side bot profile flow (direct `ISession.LoadBots` path via game profile/session objects), then injects into `BotCreationDataClass.CreateWithoutProfile(...)`.
     - bot spawner `InSpawnProcess` is incremented/decremented with failure rollback to avoid breaking later vanilla bot spawns.
     - fallback safe profile request may be used if requested side/role generation fails.
+    - treat bugs tracks seperate as SAIN and vanilla categories
+    - always spend time checking SAIN and client sources at the begining of the session to get proper context
+    - prefer to check client sources first when some method, class, or property is not clear, rather then making assumptions
 
 ## 8) Known Open Issues
 

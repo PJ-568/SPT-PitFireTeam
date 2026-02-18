@@ -180,7 +180,7 @@ namespace friendlySAIN.Modules
         private BotFollowerPlayer AddBotFollower(BotOwner bot, pitAIBossPlayer player, bool squadMate = false, WildSpawnType role = WildSpawnType.assault, string tactic = "Default")
         {
 
-            BotFollowerPlayer _follower = null;
+            BotFollowerPlayer? _follower = null;
 
             _followers.ForEach(follower =>
             {

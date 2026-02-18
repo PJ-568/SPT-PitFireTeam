@@ -56,6 +56,8 @@ namespace friendlySAIN.Components
         private float _commandUntilTime;
         private bool _resumeHoldAfterComeCloser;
         private float _commandLookPauseUntil;
+        private Vector3 _commandLookOverridePoint;
+        private float _commandLookOverrideUntil;
 
         public bool CanPatrol
         {
@@ -192,6 +194,13 @@ namespace friendlySAIN.Components
             if (_bot.BotLight != null && _bot.BotLight.IsEnable) _bot.BotLight.TurnOff(false, true);
             // make bot follower of player
             _player.AddFollower(_bot);
+
+            // On conversion, immediately face the player to avoid initial upward stare until next steering update.
+            if (_player?.realPlayer != null)
+            {
+                Vector3 lookPoint = _player.realPlayer.Transform.position + Vector3.up * 1.2f;
+                _bot.Steering.LookToPoint(lookPoint);
+            }
             
 
             bool isPickedUp = !_IsSquadMate && (_player.bossGroup == null || _player.bossGroup.Id != _bot.BotsGroup.Id);
@@ -871,7 +880,7 @@ namespace friendlySAIN.Components
             {
                 _resumeHoldAfterComeCloser = true;
             }
-            else
+            else if (_activeCommand != FollowerCommandType.ComeCloser)
             {
                 _resumeHoldAfterComeCloser = false;
             }
@@ -923,6 +932,29 @@ namespace friendlySAIN.Components
             return Time.time < _commandLookPauseUntil;
         }
 
+        public void SetCommandLookOverride(Vector3 point, float duration)
+        {
+            if (duration <= 0f)
+            {
+                return;
+            }
+
+            _commandLookOverridePoint = point;
+            _commandLookOverrideUntil = Time.time + duration;
+        }
+
+        public bool TryGetCommandLookOverride(out Vector3 point)
+        {
+            if (Time.time < _commandLookOverrideUntil)
+            {
+                point = _commandLookOverridePoint;
+                return true;
+            }
+
+            point = Vector3.zero;
+            return false;
+        }
+
         public bool TryGetActiveCommand(out FollowerCommandType command, out Vector3 target)
         {
             if (_bot != null)
@@ -952,6 +984,8 @@ namespace friendlySAIN.Components
             _commandUntilTime = 0f;
             _resumeHoldAfterComeCloser = false;
             _commandLookPauseUntil = 0f;
+            _commandLookOverridePoint = Vector3.zero;
+            _commandLookOverrideUntil = 0f;
         }
 
         private void ResetBrainForFollower(BaseBrain baseBrain)
