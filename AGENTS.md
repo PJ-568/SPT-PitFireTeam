@@ -204,6 +204,9 @@ AI data / command UI:
 SAIN integration:
 
 - `SAINPatch.PatchSAINIfInstalled(harmony)` applies selective SAIN behavior patches when SAIN assembly is present.
+- SAIN layers use their own mover handoff/control path while active (notably in combat):
+    - `SAINLayer.OnLayerChanged(...)` stops built-in mover when entering SAIN layer and handles mover/navmesh handoff on layer switch.
+    - treat SAIN combat movement issues as SAIN-layer/mover behavior first, then plugin command-layer behavior.
 
 ## 5) Safety/Crash Guards Added
 

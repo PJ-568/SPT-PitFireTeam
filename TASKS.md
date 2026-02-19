@@ -42,4 +42,4 @@ Reference behavior from EFT 4.x (PMCBear/PMCUSEC follower combat):
 
 For friendlySAIN:
 
-- Implement equivalent leash behavior on top of SAIN combat (not by replacing all SAIN combat actions), so followers keep SAIN fight quality while respecting boss-distance and boss-centered cover constraints.
+- We can "prefixpatch "getdecision" of sain to give the bot a different decision based on conditions similar to vanilla

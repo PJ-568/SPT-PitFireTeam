@@ -2,9 +2,11 @@
 using EFT;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -56,6 +58,9 @@ namespace friendlySAIN.Components
         private readonly Dictionary<string, Action<EDamageType>> _followerDeathHandlers = new Dictionary<string, Action<EDamageType>>();
         private readonly Dictionary<string, FallenFollowerInfo> _pendingFriendlyDown = new Dictionary<string, FallenFollowerInfo>();
         private GClass641.IBotTimer _friendlyDownTimer;
+        private static Type _sainEnableType;
+        private static MethodInfo _sainGetSainMethod;
+        private static MethodInfo _sainDecisionResetMethod;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -291,23 +296,55 @@ namespace friendlySAIN.Components
 
             InteractableObjects.CheckSeenEnemies(Player());
             List<Player> seenEnemies = InteractableObjects.GetSeenEnemies();
+            int directSeenCount = seenEnemies?.Count ?? 0;
+            if (directSeenCount > 0)
+            {
+                Modules.Logger.LogInfo($"[Contact] Boss direct seen enemies: {directSeenCount}. {FormatEnemyNames(seenEnemies)}");
+            }
             if (seenEnemies == null || seenEnemies.Count == 0)
             {
                 seenEnemies = GetBossVisibleEnemiesForContact(requester);
+                int bossLosCount = seenEnemies?.Count ?? 0;
+                if (bossLosCount > 0)
+                {
+                    Modules.Logger.LogInfo($"[Contact] Boss LOS seen enemies (group scan): {bossLosCount}. {FormatEnemyNames(seenEnemies)}");
+                }
+            }
+            if (friendlySAIN.IsSAINInstalled && (seenEnemies == null || seenEnemies.Count == 0))
+            {
+                seenEnemies = GetSainContactFallbackEnemies(requester);
+                int sainFallbackCount = seenEnemies?.Count ?? 0;
+                if (sainFallbackCount > 0)
+                {
+                    Modules.Logger.LogInfo($"[Contact] Boss seen enemies (SAIN fallback): {sainFallbackCount}. {FormatEnemyNames(seenEnemies)}");
+                }
+            }
+
+            if (seenEnemies == null || seenEnemies.Count == 0)
+            {
+                Modules.Logger.LogInfo("[Contact] Boss saw no enemies for contact command.");
             }
             Vector3 lookTarget = requester.Transform.position + requester.LookDirection.normalized * ContactLookDistance;
+            int followersProcessed = 0;
+            int followersSkippedVisibility = 0;
+            int enemiesInjected = 0;
 
             foreach (var follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
-                if (requireGestureVisibility && !CanReactToBossGesture(follower, requester)) continue;
+                if (requireGestureVisibility && !CanReactToBossGesture(follower, requester))
+                {
+                    followersSkippedVisibility++;
+                    Modules.Logger.LogInfo($"[Contact] Skip follower {follower.Profile?.Nickname}: cannot react to boss gesture visibility.");
+                    continue;
+                }
 
                 // Make followers orient toward boss reported direction.
                 follower.Steering.LookToPoint(lookTarget);
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 float lookOverrideDuration = Utils.Utils.Random(2f, 4f);
-                followerData?.PauseCommandLookRandom(lookOverrideDuration);
                 followerData?.SetCommandLookOverride(lookTarget, lookOverrideDuration);
+                followersProcessed++;
 
                 if (seenEnemies == null || seenEnemies.Count == 0) continue;
 
@@ -316,8 +353,11 @@ namespace friendlySAIN.Components
                     if (enemy == null || enemy.ProfileId == follower.ProfileId || enemy.ProfileId == realPlayer.ProfileId) continue;
 
                     RegisterContactEnemyForFollower(follower, enemy);
+                    enemiesInjected++;
                 }
             }
+
+            Modules.Logger.LogInfo($"[Contact] Applied to followers={followersProcessed}, skippedVisibility={followersSkippedVisibility}, enemiesInjected={enemiesInjected}");
         }
 
         private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy)
@@ -329,9 +369,11 @@ namespace friendlySAIN.Components
                 follower.BotsGroup?.AddEnemy(enemy, EBotEnemyCause.addPlayerToBoss);
                 follower.BotsGroup?.ReportAboutEnemy(enemy, EEnemyPartVisibleType.Visible, follower);
             }
-            catch
+            catch (Exception ex)
             {
                 // Keep memory injection path even if group propagation fails.
+                Modules.Logger.LogInfo($"[Contact] Group enemy propagation failed for follower={follower.Profile?.Nickname}, enemy={enemy.Profile?.Nickname}. Continuing with memory injection.");
+                Modules.Logger.LogError(ex);
             }
 
             BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.addPlayerToBoss)
@@ -339,12 +381,223 @@ namespace friendlySAIN.Components
                 EnemyLastPosition = enemy.Position
             };
 
+            // Contact is an explicit combat cue from boss; force follower out of peaceful state.
+            follower.Memory.IsPeace = false;
             follower.Memory.AddEnemy(enemy, botSettings, false);
+            TrySyncSainEnemyState(follower, enemy);
+            Modules.Logger.LogInfo($"[Contact] Enemy injected for follower={follower.Profile?.Nickname}, enemy={enemy.Profile?.Nickname}");
+
+            // If memory did not auto-select goal enemy, promote the injected enemy manually.
+            if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
+            {
+                PromoteEnemyAsGoal(follower, enemy.ProfileId, enemy.Profile?.Nickname ?? enemy.ProfileId);
+            }
+
+            LogFollowerCombatSnapshot(follower, $"post-inject immediate ({enemy.Profile?.Nickname ?? enemy.ProfileId})");
+            string enemyProfileId = enemy.ProfileId;
+            string enemyName = enemy.Profile?.Nickname ?? enemyProfileId;
+            Utils.Utils.SetTimeout(() =>
+            {
+                ReinforceContactEnemyAssignment(follower, enemyProfileId, enemyName, "0.2s");
+                LogFollowerCombatSnapshot(follower, $"post-inject +0.2s ({enemyName})");
+            }, 200);
+            Utils.Utils.SetTimeout(() =>
+            {
+                ReinforceContactEnemyAssignment(follower, enemyProfileId, enemyName, "0.6s");
+                LogFollowerCombatSnapshot(follower, $"post-inject +0.6s ({enemyName})");
+            }, 600);
+            Utils.Utils.SetTimeout(() =>
+            {
+                ReinforceContactEnemyAssignment(follower, enemyProfileId, enemyName, "1.0s");
+                LogFollowerCombatSnapshot(follower, $"post-inject +1.0s ({enemyName})");
+            }, 1000);
 
             BotOwner enemyBot = enemy.AIData?.BotOwner;
             if (enemyBot != null)
             {
                 PrioritizeEnemy(follower, enemyBot);
+            }
+        }
+
+        private void ReinforceContactEnemyAssignment(BotOwner follower, string enemyProfileId, string enemyName, string stage)
+        {
+            if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) return;
+            if (string.IsNullOrEmpty(enemyProfileId)) return;
+            if (follower.Memory == null) return;
+
+            if (follower.Memory.HaveEnemy && follower.Memory.GoalEnemy?.ProfileId == enemyProfileId)
+            {
+                return;
+            }
+
+            Player enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
+            if (enemy == null || enemy.HealthController?.IsAlive != true)
+            {
+                Modules.Logger.LogInfo($"[Contact] Reinforce {stage}: enemy not alive/available for follower={follower.Profile?.Nickname}, enemy={enemyName}");
+                return;
+            }
+
+            follower.Memory.IsPeace = false;
+            BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.addPlayerToBoss)
+            {
+                EnemyLastPosition = enemy.Position
+            };
+            follower.Memory.AddEnemy(enemy, botSettings, false);
+            TrySyncSainEnemyState(follower, enemy);
+            PromoteEnemyAsGoal(follower, enemyProfileId, enemyName);
+            Modules.Logger.LogInfo($"[Contact] Reinforce {stage}: re-applied enemy for follower={follower.Profile?.Nickname}, enemy={enemyName}");
+        }
+
+        private static void EnsureSainReflection()
+        {
+            if (_sainEnableType == null)
+            {
+                _sainEnableType = Type.GetType("SAIN.SAINEnableClass, SAIN");
+            }
+            if (_sainGetSainMethod == null && _sainEnableType != null)
+            {
+                _sainGetSainMethod = _sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                    .FirstOrDefault(m =>
+                    {
+                        if (m.Name != "GetSAIN") return false;
+                        ParameterInfo[] p = m.GetParameters();
+                        return p.Length == 2
+                            && p[0].ParameterType == typeof(string)
+                            && p[1].IsOut;
+                    });
+            }
+        }
+
+        private static bool TrySyncSainEnemyState(BotOwner follower, Player enemyPlayer)
+        {
+            if (!friendlySAIN.IsSAINInstalled) return false;
+            if (follower == null || enemyPlayer == null) return false;
+
+            try
+            {
+                EnsureSainReflection();
+                if (_sainGetSainMethod == null) return false;
+
+                object[] args = { follower.ProfileId, null };
+                bool hasSain = (bool)_sainGetSainMethod.Invoke(null, args);
+                if (!hasSain || args[1] == null) return false;
+
+                object sainBot = args[1];
+                object enemyController = AccessTools.Property(sainBot.GetType(), "EnemyController")?.GetValue(sainBot);
+                if (enemyController == null) return false;
+
+                MethodInfo checkAddEnemy = AccessTools.Method(enemyController.GetType(), "CheckAddEnemy", new[] { typeof(IPlayer) });
+                object sainEnemy = checkAddEnemy?.Invoke(enemyController, new object[] { enemyPlayer });
+                if (sainEnemy != null)
+                {
+                    MethodInfo updateLastSeen = AccessTools.Method(sainEnemy.GetType(), "UpdateLastSeenPosition", new[] { typeof(Vector3), typeof(float) });
+                    updateLastSeen?.Invoke(sainEnemy, new object[] { enemyPlayer.Position, Time.time });
+                }
+
+                MethodInfo chooseEnemy = AccessTools.Method(enemyController.GetType(), "ChooseEnemy", Type.EmptyTypes);
+                chooseEnemy?.Invoke(enemyController, null);
+                Modules.Logger.LogInfo($"[Contact] Synced SAIN enemy controller for follower={follower.Profile?.Nickname}, enemy={enemyPlayer.Profile?.Nickname}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo($"[Contact] SAIN sync failed for follower={follower.Profile?.Nickname}, enemy={enemyPlayer.Profile?.Nickname}");
+                Modules.Logger.LogError(ex);
+                return false;
+            }
+        }
+
+        private static bool TryResetSainDecisionState(BotOwner follower)
+        {
+            if (!friendlySAIN.IsSAINInstalled) return false;
+            if (follower == null) return false;
+
+            try
+            {
+                EnsureSainReflection();
+                if (_sainGetSainMethod == null) return false;
+
+                object[] args = { follower.ProfileId, null };
+                bool hasSain = (bool)_sainGetSainMethod.Invoke(null, args);
+                if (!hasSain || args[1] == null) return false;
+
+                object sainBot = args[1];
+                object decision = AccessTools.Property(sainBot.GetType(), "Decision")?.GetValue(sainBot);
+                if (decision == null) return false;
+
+                _sainDecisionResetMethod ??= AccessTools.Method(decision.GetType(), "ResetDecisions", new[] { typeof(bool) });
+                if (_sainDecisionResetMethod == null) return false;
+
+                _sainDecisionResetMethod.Invoke(decision, new object[] { false });
+                Modules.Logger.LogInfo($"[Regroup] Reset SAIN decision state before regroup for {follower.Profile?.Nickname}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo($"[Regroup] Failed to reset SAIN decision state for {follower?.Profile?.Nickname}");
+                Modules.Logger.LogError(ex);
+                return false;
+            }
+        }
+
+        private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId, string enemyName)
+        {
+            EnemyInfo promoted = null;
+            foreach (var item in follower.EnemiesController.EnemyInfos)
+            {
+                if (item.Key?.ProfileId == enemyProfileId)
+                {
+                    promoted = item.Value;
+                    break;
+                }
+            }
+
+            if (promoted != null)
+            {
+                promoted.PriorityIndex = 0;
+                follower.Memory.GoalEnemy = promoted;
+                Modules.Logger.LogInfo($"[Contact] Promoted injected enemy to GoalEnemy for follower={follower.Profile?.Nickname}, enemy={enemyName}");
+            }
+            else
+            {
+                Modules.Logger.LogInfo($"[Contact] Unable to promote enemy to GoalEnemy for follower={follower.Profile?.Nickname}, enemy={enemyName} (not present in EnemyInfos yet)");
+            }
+        }
+
+        private void LogFollowerCombatSnapshot(BotOwner follower, string stage)
+        {
+            if (follower == null || follower.Memory == null) return;
+
+            try
+            {
+                string followerName = follower.Profile?.Nickname ?? follower.ProfileId ?? "unknown";
+                bool haveEnemy = follower.Memory.HaveEnemy;
+                string goalEnemyId = follower.Memory.GoalEnemy?.ProfileId ?? "<none>";
+                bool? goalVisible = follower.Memory.GoalEnemy?.IsVisible;
+                bool isPeace = follower.Memory.IsPeace;
+                string currentAction = (follower.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition).ToString();
+                string currentLayer = follower.Brain?.BaseBrain?.CurLayerInfo?.Name() ?? "<none>";
+
+                string activeCommand = "None";
+                bool combatToken = false;
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData != null)
+                {
+                    if (followerData.TryGetActiveCommand(out FollowerCommandType command, out _))
+                    {
+                        activeCommand = command.ToString();
+                    }
+                    combatToken = followerData.IsCombatRegroupActive();
+                }
+
+                Modules.Logger.LogInfo(
+                    $"[Contact] Snapshot {stage}: follower={followerName}, haveEnemy={haveEnemy}, goalEnemy={goalEnemyId}, goalVisible={goalVisible}, peace={isPeace}, action={currentAction}, layer={currentLayer}, command={activeCommand}, combatToken={combatToken}"
+                );
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Contact snapshot logging failed");
+                Modules.Logger.LogError(ex);
             }
         }
 
@@ -401,6 +654,84 @@ namespace friendlySAIN.Components
             }
 
             return result;
+        }
+
+        private static string FormatEnemyNames(List<Player> enemies)
+        {
+            if (enemies == null || enemies.Count == 0) return "[]";
+
+            List<string> names = enemies
+                .Where(p => p != null)
+                .Select(p => p.Profile?.Nickname ?? p.name ?? "unknown")
+                .Distinct()
+                .Take(4)
+                .ToList();
+
+            string suffix = enemies.Count > names.Count ? ", ..." : string.Empty;
+            return $"[{string.Join(", ", names)}{suffix}]";
+        }
+
+        private List<Player> GetSainContactFallbackEnemies(IPlayer requester)
+        {
+            List<Player> result = new List<Player>();
+            if (requester == null) return result;
+
+            IEnumerable<IPlayer> allPlayers = _botsController?.BotSpawner?.AllPlayers;
+            if (allPlayers == null) return result;
+
+            Vector3 firePos = requester.PlayerBones?.WeaponRoot?.position ?? (requester.Position + Vector3.up * 1.2f);
+            foreach (IPlayer candidateRef in allPlayers)
+            {
+                Player enemy = candidateRef as Player;
+                if (enemy == null) continue;
+                if (enemy.HealthController?.IsAlive != true) continue;
+                if (enemy.ProfileId == requester.ProfileId || enemy.ProfileId == realPlayer.ProfileId) continue;
+                if (Followers.Any(f => f != null && f.ProfileId == enemy.ProfileId)) continue;
+
+                BotOwner enemyBot = enemy.AIData?.BotOwner;
+                if (enemyBot == null || enemyBot.IsDead || enemyBot.BotState != EBotState.Active) continue;
+
+                bool hostile = false;
+                if (enemyBot.BotsGroup != null)
+                {
+                    hostile = enemyBot.BotsGroup.IsEnemy(requester) || enemyBot.BotsGroup.IsPlayerEnemy(requester);
+                }
+
+                if (!hostile && enemyBot.Memory?.GoalEnemy?.ProfileId == requester.ProfileId)
+                {
+                    hostile = true;
+                }
+
+                if (!hostile) continue;
+                if (!CanEnemyBeSeenForContact(enemy, firePos)) continue;
+
+                result.Add(enemy);
+            }
+
+            return result;
+        }
+
+        private static bool CanEnemyBeSeenForContact(Player enemy, Vector3 firePos)
+        {
+            if (enemy?.MainParts == null) return false;
+
+            if (enemy.MainParts.TryGetValue(BodyPartType.head, out var headPart))
+            {
+                if (Utils.Utils.CanShootToTarget(new ShootPointClass(headPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false))
+                {
+                    return true;
+                }
+            }
+
+            if (enemy.MainParts.TryGetValue(BodyPartType.body, out var bodyPart))
+            {
+                if (Utils.Utils.CanShootToTarget(new ShootPointClass(bodyPart.Position, 1), firePos, LayerMaskClass.HighPolyWithTerrainMask, false))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool CanReactToBossGesture(BotOwner follower, IPlayer requester)
@@ -543,14 +874,40 @@ namespace friendlySAIN.Components
             if (requester == null) return;
 
             Vector3 bossPos = requester.Position;
+            bool useSainCombatRegroup = friendlySAIN.IsSAINInstalled && IsCombatRegroupContext();
+            Modules.Logger.LogInfo($"[Regroup] Command received. SAIN={friendlySAIN.IsSAINInstalled}, requester={requester.Profile?.Nickname ?? "unknown"}");
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
-                if (ShouldIgnoreRegroup(follower, bossPos)) continue;
+
+                if (useSainCombatRegroup)
+                {
+                    if (ShouldIgnoreCombatRegroup(follower, bossPos))
+                    {
+                        float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
+                        Modules.Logger.LogInfo($"[Regroup] IGNORE combat regroup for {follower.Profile?.Nickname}: heal/close filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
+                        continue;
+                    }
+
+                    TryResetSainDecisionState(follower);
+                    followerData.ClearCommand();
+                    followerData.SetCombatRegroup(20f);
+                    Modules.Logger.LogInfo($"[Regroup] SET combat regroup token for {follower.Profile?.Nickname}. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}");
+                    follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                    continue;
+                }
+
+                if (ShouldIgnoreRegroup(follower, bossPos))
+                {
+                    float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
+                    Modules.Logger.LogInfo($"[Regroup] IGNORE vanilla regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
+                    continue;
+                }
 
                 followerData.SetRegroup(20f);
+                Modules.Logger.LogInfo($"[Regroup] SET vanilla regroup command for {follower.Profile?.Nickname}");
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }
@@ -590,6 +947,26 @@ namespace friendlySAIN.Components
             {
                 return true;
             }
+
+            float verticalDiff = Mathf.Abs(follower.Position.y - bossPos.y);
+            if (verticalDiff > RegroupSameLevelTolerance)
+            {
+                return false;
+            }
+
+            float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
+            return navDistance <= RegroupCloseNavDistance;
+        }
+
+        private static bool ShouldIgnoreCombatRegroup(BotOwner follower, Vector3 bossPos)
+        {
+            if (follower == null) return true;
+
+            BotLogicDecision currentDecision = follower.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            bool healing = follower.Medecine?.FirstAid?.Using == true ||
+                           follower.Medecine?.SurgicalKit?.Using == true ||
+                           currentDecision == BotLogicDecision.heal;
+            if (healing) return true;
 
             float verticalDiff = Mathf.Abs(follower.Position.y - bossPos.y);
             if (verticalDiff > RegroupSameLevelTolerance)
