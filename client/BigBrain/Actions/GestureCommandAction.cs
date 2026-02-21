@@ -3,6 +3,7 @@ using EFT;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -26,9 +27,21 @@ namespace friendlySAIN.BigBrain.Actions
         private Vector3 regroupTarget;
         private float nextRegroupRefreshAt;
         private bool regroupReportedOnPosition;
+        private bool regroupReservationActive;
         private FollowerCommandType lastCommand = FollowerCommandType.None;
-        private const float RegroupArriveNavDistance = 8f;
+        private const float RegroupArriveNavDistance = 6f;
         private const float SameLevelTolerance = 1.75f;
+        private const float RegroupCoverSearchRadius = 15f;
+        private const float RegroupRandomRadius = 6f;
+        private const float RegroupReservationSpacing = 1.5f;
+        private const float RegroupReservationTtl = 2f;
+        private static readonly Dictionary<string, RegroupReservation> ActiveRegroupReservations = new Dictionary<string, RegroupReservation>();
+
+        private struct RegroupReservation
+        {
+            public Vector3 Point;
+            public float ExpiresAt;
+        }
 
         public GestureCommandAction(BotOwner botOwner) : base(botOwner) { }
 
@@ -58,6 +71,7 @@ namespace friendlySAIN.BigBrain.Actions
             followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
             if (followerData == null || !followerData.TryGetActiveCommand(out FollowerCommandType command, out Vector3 target))
             {
+                ReleaseRegroupReservation();
                 lastCommand = FollowerCommandType.None;
                 return;
             }
@@ -66,6 +80,11 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (command != lastCommand)
             {
+                if (lastCommand == FollowerCommandType.RegroupNearBoss)
+                {
+                    ReleaseRegroupReservation();
+                }
+
                 if (command == FollowerCommandType.ComeCloser)
                 {
                     comeTargetInitialized = false;
@@ -139,14 +158,20 @@ namespace friendlySAIN.BigBrain.Actions
         {
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer boss || boss.realPlayer == null)
             {
+                ReleaseRegroupReservation();
                 followerData?.ClearCommand();
                 return;
             }
 
             if (BotOwner.Memory?.HaveEnemy == true && BotOwner.Memory.GoalEnemy?.IsVisible == true)
             {
-                BotOwner.StopMove();
-                return;
+                if (BotOwner.Memory.GoalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
+                {
+                    ReleaseRegroupReservation();
+                    followerData?.ClearCommand();
+                    BotOwner.StopMove();
+                    return;
+                }
             }
 
             // Regroup is an urgent converge order: force move-capable state each tick.
@@ -172,6 +197,7 @@ namespace friendlySAIN.BigBrain.Actions
                     BotOwner.BotTalk.TrySay(EPhraseTrigger.OnPosition, false);
                     regroupReportedOnPosition = true;
                 }
+                ReleaseRegroupReservation();
                 followerData?.ClearCommand();
                 return;
             }
@@ -184,6 +210,7 @@ namespace friendlySAIN.BigBrain.Actions
                 }
                 regroupTargetInitialized = true;
                 nextRegroupRefreshAt = Time.time + 0.8f;
+                UpsertRegroupReservation(regroupTarget);
                 BotOwner.GoToSomePointData.SetPoint(regroupTarget);
             }
 
@@ -193,6 +220,7 @@ namespace friendlySAIN.BigBrain.Actions
                 NavMeshPath path = new NavMeshPath();
                 if (!NavMesh.CalculatePath(BotOwner.Position, regroupTarget, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
                 {
+                    ReleaseRegroupReservation();
                     regroupTargetInitialized = false;
                     return;
                 }
@@ -209,22 +237,49 @@ namespace friendlySAIN.BigBrain.Actions
 
         private bool TryGetRegroupTarget(Vector3 bossPos, out Vector3 target)
         {
+            CleanupRegroupReservations();
             target = Vector3.zero;
             float bestDistance = float.MaxValue;
-            float[] radii = { 2.25f, 3.5f, 5f };
+            List<CustomNavigationPoint> coverPoints = Covers.GetCoverPoints(
+                BotOwner,
+                bossPos,
+                RegroupCoverSearchRadius,
+                point => Mathf.Abs(point.Position.y - bossPos.y) <= SameLevelTolerance && !IsRegroupTargetCrowded(point.Position)
+            );
 
-            for (int r = 0; r < radii.Length; r++)
+            foreach (CustomNavigationPoint point in coverPoints)
             {
-                float radius = radii[r];
-                for (int i = 0; i < 6; i++)
+                if (point == null) continue;
+                NavMeshPath coverPath = new NavMeshPath();
+                if (!NavMesh.CalculatePath(BotOwner.Position, point.Position, NavMesh.AllAreas, coverPath) || coverPath.status != NavMeshPathStatus.PathComplete)
+                {
+                    continue;
+                }
+
+                float pathDistance = coverPath.CalculatePathLength();
+                if (pathDistance < bestDistance)
+                {
+                    bestDistance = pathDistance;
+                    target = point.Position;
+                }
+            }
+
+            if (target == Vector3.zero)
+            {
+                for (int i = 0; i < 12; i++)
                 {
                     float angle = Random.Range(0f, Mathf.PI * 2f);
+                    float radius = Random.Range(1f, RegroupRandomRadius);
                     Vector3 candidate = bossPos + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
                     if (!NavMesh.SamplePosition(candidate, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
                     {
                         continue;
                     }
                     if (Mathf.Abs(navHit.position.y - bossPos.y) > SameLevelTolerance)
+                    {
+                        continue;
+                    }
+                    if (IsRegroupTargetCrowded(navHit.position))
                     {
                         continue;
                     }
@@ -244,15 +299,77 @@ namespace friendlySAIN.BigBrain.Actions
                 }
             }
 
-            if (target == Vector3.zero && NavMesh.SamplePosition(bossPos, out NavMeshHit bossNavHit, 2.5f, NavMesh.AllAreas))
+            return target != Vector3.zero;
+        }
+
+        private bool IsRegroupTargetCrowded(Vector3 candidate)
+        {
+            float spacingSqr = RegroupReservationSpacing * RegroupReservationSpacing;
+            if (BotOwner.BotFollower.BossToFollow is pitAIBossPlayer boss)
             {
-                if (Mathf.Abs(bossNavHit.position.y - bossPos.y) <= SameLevelTolerance)
+                foreach (BotOwner follower in boss.Followers)
                 {
-                    target = bossNavHit.position;
+                    if (follower == null || follower == BotOwner || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                    if ((follower.Position - candidate).sqrMagnitude < spacingSqr)
+                    {
+                        return true;
+                    }
                 }
             }
 
-            return target != Vector3.zero;
+            string myProfileId = BotOwner.ProfileId;
+            foreach (KeyValuePair<string, RegroupReservation> entry in ActiveRegroupReservations)
+            {
+                if (entry.Key == myProfileId) continue;
+                if (entry.Value.ExpiresAt < Time.time) continue;
+                if ((entry.Value.Point - candidate).sqrMagnitude < spacingSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void UpsertRegroupReservation(Vector3 target)
+        {
+            if (string.IsNullOrEmpty(BotOwner.ProfileId)) return;
+            ActiveRegroupReservations[BotOwner.ProfileId] = new RegroupReservation
+            {
+                Point = target,
+                ExpiresAt = Time.time + RegroupReservationTtl
+            };
+            regroupReservationActive = true;
+        }
+
+        private void ReleaseRegroupReservation()
+        {
+            if (!regroupReservationActive || string.IsNullOrEmpty(BotOwner.ProfileId))
+            {
+                regroupReservationActive = false;
+                return;
+            }
+
+            ActiveRegroupReservations.Remove(BotOwner.ProfileId);
+            regroupReservationActive = false;
+        }
+
+        private static void CleanupRegroupReservations()
+        {
+            if (ActiveRegroupReservations.Count == 0) return;
+            List<string> expired = null;
+            foreach (KeyValuePair<string, RegroupReservation> entry in ActiveRegroupReservations)
+            {
+                if (entry.Value.ExpiresAt >= Time.time) continue;
+                expired ??= new List<string>();
+                expired.Add(entry.Key);
+            }
+
+            if (expired == null) return;
+            foreach (string id in expired)
+            {
+                ActiveRegroupReservations.Remove(id);
+            }
         }
 
         private void HandleComeCloser()

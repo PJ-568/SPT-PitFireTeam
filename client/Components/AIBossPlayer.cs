@@ -804,8 +804,7 @@ namespace friendlySAIN.Components
 
                     TryResetSainDecisionState(follower);
                     followerData.ClearCommand();
-                    followerData.SetCombatRegroup(20f);
-                    Modules.Logger.LogInfo($"[Regroup] SET combat regroup token for {follower.Profile?.Nickname}. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}");
+                    Modules.Logger.LogInfo($"[Regroup] SAIN combat regroup route for {follower.Profile?.Nickname}. Core command cleared; combat move expected from SAIN/addon.");
                     follower.Gesture.TryGestus(EInteraction.OkGesture, false);
                     continue;
                 }
@@ -853,11 +852,6 @@ namespace friendlySAIN.Components
                            follower.Medecine?.SurgicalKit?.Using == true ||
                            currentDecision == BotLogicDecision.heal;
             if (healing) return true;
-
-            if (follower.Memory?.HaveEnemy == true && follower.Memory.GoalEnemy?.IsVisible == true)
-            {
-                return true;
-            }
 
             float verticalDiff = Mathf.Abs(follower.Position.y - bossPos.y);
             if (verticalDiff > RegroupSameLevelTolerance)
