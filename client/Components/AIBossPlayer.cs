@@ -296,33 +296,13 @@ namespace friendlySAIN.Components
 
             InteractableObjects.CheckSeenEnemies(Player());
             List<Player> seenEnemies = InteractableObjects.GetSeenEnemies();
-            int directSeenCount = seenEnemies?.Count ?? 0;
-            if (directSeenCount > 0)
-            {
-                Modules.Logger.LogInfo($"[Contact] Boss direct seen enemies: {directSeenCount}. {FormatEnemyNames(seenEnemies)}");
-            }
             if (seenEnemies == null || seenEnemies.Count == 0)
             {
                 seenEnemies = GetBossVisibleEnemiesForContact(requester);
-                int bossLosCount = seenEnemies?.Count ?? 0;
-                if (bossLosCount > 0)
-                {
-                    Modules.Logger.LogInfo($"[Contact] Boss LOS seen enemies (group scan): {bossLosCount}. {FormatEnemyNames(seenEnemies)}");
-                }
             }
             if (friendlySAIN.IsSAINInstalled && (seenEnemies == null || seenEnemies.Count == 0))
             {
                 seenEnemies = GetSainContactFallbackEnemies(requester);
-                int sainFallbackCount = seenEnemies?.Count ?? 0;
-                if (sainFallbackCount > 0)
-                {
-                    Modules.Logger.LogInfo($"[Contact] Boss seen enemies (SAIN fallback): {sainFallbackCount}. {FormatEnemyNames(seenEnemies)}");
-                }
-            }
-
-            if (seenEnemies == null || seenEnemies.Count == 0)
-            {
-                Modules.Logger.LogInfo("[Contact] Boss saw no enemies for contact command.");
             }
             Vector3 lookTarget = requester.Transform.position + requester.LookDirection.normalized * ContactLookDistance;
             int followersProcessed = 0;
@@ -335,7 +315,6 @@ namespace friendlySAIN.Components
                 if (requireGestureVisibility && !CanReactToBossGesture(follower, requester))
                 {
                     followersSkippedVisibility++;
-                    Modules.Logger.LogInfo($"[Contact] Skip follower {follower.Profile?.Nickname}: cannot react to boss gesture visibility.");
                     continue;
                 }
 
@@ -372,7 +351,6 @@ namespace friendlySAIN.Components
             catch (Exception ex)
             {
                 // Keep memory injection path even if group propagation fails.
-                Modules.Logger.LogInfo($"[Contact] Group enemy propagation failed for follower={follower.Profile?.Nickname}, enemy={enemy.Profile?.Nickname}. Continuing with memory injection.");
                 Modules.Logger.LogError(ex);
             }
 
@@ -385,31 +363,25 @@ namespace friendlySAIN.Components
             follower.Memory.IsPeace = false;
             follower.Memory.AddEnemy(enemy, botSettings, false);
             TrySyncSainEnemyState(follower, enemy);
-            Modules.Logger.LogInfo($"[Contact] Enemy injected for follower={follower.Profile?.Nickname}, enemy={enemy.Profile?.Nickname}");
 
             // If memory did not auto-select goal enemy, promote the injected enemy manually.
             if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
             {
-                PromoteEnemyAsGoal(follower, enemy.ProfileId, enemy.Profile?.Nickname ?? enemy.ProfileId);
+                PromoteEnemyAsGoal(follower, enemy.ProfileId);
             }
 
-            LogFollowerCombatSnapshot(follower, $"post-inject immediate ({enemy.Profile?.Nickname ?? enemy.ProfileId})");
             string enemyProfileId = enemy.ProfileId;
-            string enemyName = enemy.Profile?.Nickname ?? enemyProfileId;
             Utils.Utils.SetTimeout(() =>
             {
-                ReinforceContactEnemyAssignment(follower, enemyProfileId, enemyName, "0.2s");
-                LogFollowerCombatSnapshot(follower, $"post-inject +0.2s ({enemyName})");
+                ReinforceContactEnemyAssignment(follower, enemyProfileId);
             }, 200);
             Utils.Utils.SetTimeout(() =>
             {
-                ReinforceContactEnemyAssignment(follower, enemyProfileId, enemyName, "0.6s");
-                LogFollowerCombatSnapshot(follower, $"post-inject +0.6s ({enemyName})");
+                ReinforceContactEnemyAssignment(follower, enemyProfileId);
             }, 600);
             Utils.Utils.SetTimeout(() =>
             {
-                ReinforceContactEnemyAssignment(follower, enemyProfileId, enemyName, "1.0s");
-                LogFollowerCombatSnapshot(follower, $"post-inject +1.0s ({enemyName})");
+                ReinforceContactEnemyAssignment(follower, enemyProfileId);
             }, 1000);
 
             BotOwner enemyBot = enemy.AIData?.BotOwner;
@@ -419,7 +391,7 @@ namespace friendlySAIN.Components
             }
         }
 
-        private void ReinforceContactEnemyAssignment(BotOwner follower, string enemyProfileId, string enemyName, string stage)
+        private void ReinforceContactEnemyAssignment(BotOwner follower, string enemyProfileId)
         {
             if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) return;
             if (string.IsNullOrEmpty(enemyProfileId)) return;
@@ -433,7 +405,6 @@ namespace friendlySAIN.Components
             Player enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
             if (enemy == null || enemy.HealthController?.IsAlive != true)
             {
-                Modules.Logger.LogInfo($"[Contact] Reinforce {stage}: enemy not alive/available for follower={follower.Profile?.Nickname}, enemy={enemyName}");
                 return;
             }
 
@@ -444,8 +415,7 @@ namespace friendlySAIN.Components
             };
             follower.Memory.AddEnemy(enemy, botSettings, false);
             TrySyncSainEnemyState(follower, enemy);
-            PromoteEnemyAsGoal(follower, enemyProfileId, enemyName);
-            Modules.Logger.LogInfo($"[Contact] Reinforce {stage}: re-applied enemy for follower={follower.Profile?.Nickname}, enemy={enemyName}");
+            PromoteEnemyAsGoal(follower, enemyProfileId);
         }
 
         private static void EnsureSainReflection()
@@ -496,12 +466,10 @@ namespace friendlySAIN.Components
 
                 MethodInfo chooseEnemy = AccessTools.Method(enemyController.GetType(), "ChooseEnemy", Type.EmptyTypes);
                 chooseEnemy?.Invoke(enemyController, null);
-                Modules.Logger.LogInfo($"[Contact] Synced SAIN enemy controller for follower={follower.Profile?.Nickname}, enemy={enemyPlayer.Profile?.Nickname}");
                 return true;
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogInfo($"[Contact] SAIN sync failed for follower={follower.Profile?.Nickname}, enemy={enemyPlayer.Profile?.Nickname}");
                 Modules.Logger.LogError(ex);
                 return false;
             }
@@ -540,7 +508,7 @@ namespace friendlySAIN.Components
             }
         }
 
-        private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId, string enemyName)
+        private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId)
         {
             EnemyInfo promoted = null;
             foreach (var item in follower.EnemiesController.EnemyInfos)
@@ -556,48 +524,6 @@ namespace friendlySAIN.Components
             {
                 promoted.PriorityIndex = 0;
                 follower.Memory.GoalEnemy = promoted;
-                Modules.Logger.LogInfo($"[Contact] Promoted injected enemy to GoalEnemy for follower={follower.Profile?.Nickname}, enemy={enemyName}");
-            }
-            else
-            {
-                Modules.Logger.LogInfo($"[Contact] Unable to promote enemy to GoalEnemy for follower={follower.Profile?.Nickname}, enemy={enemyName} (not present in EnemyInfos yet)");
-            }
-        }
-
-        private void LogFollowerCombatSnapshot(BotOwner follower, string stage)
-        {
-            if (follower == null || follower.Memory == null) return;
-
-            try
-            {
-                string followerName = follower.Profile?.Nickname ?? follower.ProfileId ?? "unknown";
-                bool haveEnemy = follower.Memory.HaveEnemy;
-                string goalEnemyId = follower.Memory.GoalEnemy?.ProfileId ?? "<none>";
-                bool? goalVisible = follower.Memory.GoalEnemy?.IsVisible;
-                bool isPeace = follower.Memory.IsPeace;
-                string currentAction = (follower.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition).ToString();
-                string currentLayer = follower.Brain?.BaseBrain?.CurLayerInfo?.Name() ?? "<none>";
-
-                string activeCommand = "None";
-                bool combatToken = false;
-                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                if (followerData != null)
-                {
-                    if (followerData.TryGetActiveCommand(out FollowerCommandType command, out _))
-                    {
-                        activeCommand = command.ToString();
-                    }
-                    combatToken = followerData.IsCombatRegroupActive();
-                }
-
-                Modules.Logger.LogInfo(
-                    $"[Contact] Snapshot {stage}: follower={followerName}, haveEnemy={haveEnemy}, goalEnemy={goalEnemyId}, goalVisible={goalVisible}, peace={isPeace}, action={currentAction}, layer={currentLayer}, command={activeCommand}, combatToken={combatToken}"
-                );
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError("Contact snapshot logging failed");
-                Modules.Logger.LogError(ex);
             }
         }
 
@@ -654,21 +580,6 @@ namespace friendlySAIN.Components
             }
 
             return result;
-        }
-
-        private static string FormatEnemyNames(List<Player> enemies)
-        {
-            if (enemies == null || enemies.Count == 0) return "[]";
-
-            List<string> names = enemies
-                .Where(p => p != null)
-                .Select(p => p.Profile?.Nickname ?? p.name ?? "unknown")
-                .Distinct()
-                .Take(4)
-                .ToList();
-
-            string suffix = enemies.Count > names.Count ? ", ..." : string.Empty;
-            return $"[{string.Join(", ", names)}{suffix}]";
         }
 
         private List<Player> GetSainContactFallbackEnemies(IPlayer requester)
