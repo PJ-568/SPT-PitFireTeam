@@ -16,7 +16,7 @@ namespace friendlySAIN.Modules
     /**
      *  Helper class to manage Boss Players and their followers
      */
-    internal class BossPlayers
+    public class BossPlayers
     {
         public static BossPlayers Instance { get; private set; }
 

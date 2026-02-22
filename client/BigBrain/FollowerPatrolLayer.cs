@@ -3,7 +3,7 @@ using EFT;
 using EFT.InventoryLogic;
 using friendlySAIN.BigBrain.Actions;
 using friendlySAIN.Components;
-using friendlySAIN.Utils;
+using friendlySAIN.Modules;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -71,6 +71,7 @@ namespace friendlySAIN.BigBrain
         private float nextMagazineFillCheckAt = 0f;
         private bool sawEnemyDuringCurrentCycle = false;
         private float combatEndedAt = -1f;
+        private BotFollowerPlayer? followerData;
 
         private Action? selectedAction = null;
         public FollowerPatrolLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
@@ -91,6 +92,15 @@ namespace friendlySAIN.BigBrain
 
             if (!BotOwner.BotFollower.HaveBoss) return false;
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer) return false;
+
+            followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData != null
+                && followerData.TryGetActiveCommand(out FollowerCommandType command, out _)
+                && command == FollowerCommandType.RegroupNearBoss
+                && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
+            {
+                return false;
+            }
 
             if (BotOwner.Memory.HaveEnemy)
             {

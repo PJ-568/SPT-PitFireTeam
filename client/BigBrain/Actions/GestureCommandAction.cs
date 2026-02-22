@@ -28,6 +28,9 @@ namespace friendlySAIN.BigBrain.Actions
         private float nextRegroupRefreshAt;
         private bool regroupReportedOnPosition;
         private bool regroupReservationActive;
+        private bool regroupBossAnchorInitialized;
+        private Vector3 regroupBossAnchorPosition;
+        private float nextRegroupBossAnchorCheckAt;
         private FollowerCommandType lastCommand = FollowerCommandType.None;
         private const float RegroupArriveNavDistance = 6f;
         private const float SameLevelTolerance = 1.75f;
@@ -63,6 +66,9 @@ namespace friendlySAIN.BigBrain.Actions
             regroupTarget = Vector3.zero;
             nextRegroupRefreshAt = 0f;
             regroupReportedOnPosition = false;
+            regroupBossAnchorInitialized = false;
+            regroupBossAnchorPosition = Vector3.zero;
+            nextRegroupBossAnchorCheckAt = 0f;
             lastCommand = FollowerCommandType.None;
         }
 
@@ -95,6 +101,9 @@ namespace friendlySAIN.BigBrain.Actions
                     regroupTarget = Vector3.zero;
                     nextRegroupRefreshAt = 0f;
                     regroupReportedOnPosition = false;
+                    regroupBossAnchorInitialized = false;
+                    regroupBossAnchorPosition = Vector3.zero;
+                    nextRegroupBossAnchorCheckAt = 0f;
                 }
                 else
                 {
@@ -106,6 +115,9 @@ namespace friendlySAIN.BigBrain.Actions
                     regroupTarget = Vector3.zero;
                     nextRegroupRefreshAt = 0f;
                     regroupReportedOnPosition = false;
+                    regroupBossAnchorInitialized = false;
+                    regroupBossAnchorPosition = Vector3.zero;
+                    nextRegroupBossAnchorCheckAt = 0f;
                 }
                 
             }
@@ -163,15 +175,20 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            if (BotOwner.Memory?.HaveEnemy == true && BotOwner.Memory.GoalEnemy?.IsVisible == true)
+            // If SAIN combat regroup should own the command now, release vanilla movement but keep command active.
+            if (friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
             {
-                if (BotOwner.Memory.GoalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
-                {
-                    ReleaseRegroupReservation();
-                    followerData?.ClearCommand();
-                    BotOwner.StopMove();
-                    return;
-                }
+                ReleaseRegroupReservation();
+                BotOwner.StopMove();
+                return;
+            }
+
+            if (ShouldInterruptRegroupForThreatOrState(clearForDanger: true))
+            {
+                ReleaseRegroupReservation();
+                followerData?.ClearCommand();
+                BotOwner.StopMove();
+                return;
             }
 
             // Regroup is an urgent converge order: force move-capable state each tick.
@@ -186,6 +203,24 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             Vector3 bossPos = boss.realPlayer.Position;
+            if (!regroupBossAnchorInitialized)
+            {
+                regroupBossAnchorInitialized = true;
+                regroupBossAnchorPosition = bossPos;
+                nextRegroupBossAnchorCheckAt = Time.time + 0.5f;
+            }
+
+            if (Time.time >= nextRegroupBossAnchorCheckAt)
+            {
+                nextRegroupBossAnchorCheckAt = Time.time + 0.5f;
+                if ((bossPos - regroupBossAnchorPosition).sqrMagnitude > 10f * 10f)
+                {
+                    regroupBossAnchorPosition = bossPos;
+                    ReleaseRegroupReservation();
+                    regroupTargetInitialized = false;
+                }
+            }
+
             float verticalDiff = Mathf.Abs(BotOwner.Position.y - bossPos.y);
             float navDistanceToBoss = Utils.Utils.GetNavDistance(BotOwner.Position, bossPos);
 
@@ -233,6 +268,37 @@ namespace friendlySAIN.BigBrain.Actions
             comeArrivalHoldUntil = 0f;
             nextHoldLookChangeAt = 0f;
             activeMoveTarget = Vector3.zero;
+        }
+
+        private bool ShouldInterruptRegroupForThreatOrState(bool clearForDanger)
+        {
+            if (BotOwner.Memory?.HaveEnemy == true && BotOwner.Memory.GoalEnemy?.IsVisible == true)
+            {
+                if (BotOwner.Memory.GoalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
+                {
+                    return true;
+                }
+            }
+
+            BotLogicDecision currentDecision = BotOwner.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            bool healing = BotOwner.Medecine?.FirstAid?.Using == true ||
+                           BotOwner.Medecine?.SurgicalKit?.Using == true ||
+                           currentDecision == BotLogicDecision.heal;
+            if (healing)
+            {
+                return true;
+            }
+
+            bool dangerNow = currentDecision == BotLogicDecision.runAwayGrenade ||
+                             currentDecision == BotLogicDecision.runAwayBTR ||
+                             BotOwner.BewareGrenade?.ShallRunAway() == true ||
+                             BotOwner.BewareBTR?.ShallRunAway() == true;
+            if (dangerNow && clearForDanger)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryGetRegroupTarget(Vector3 bossPos, out Vector3 target)

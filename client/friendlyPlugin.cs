@@ -9,6 +9,7 @@ using SPT.Common.Http;
 using SPT.Common.Utils;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -122,6 +123,9 @@ namespace friendlySAIN
     [BepInDependency("xyz.drakia.bigbrain")]
     public class friendlySAIN : BaseUnityPlugin
     {
+        public const string SainPluginId = "me.sol.sain";
+        public const string SainAddonPluginId = "xyz.pit.friendlysain.sainaddon";
+
         public static bool awaken;
 
         internal static friendlySAIN Instance { get; private set; }
@@ -168,6 +172,12 @@ namespace friendlySAIN
         public static ManualLogSource Log => Instance.Logger;
 
         public static bool IsSAINInstalled { get; private set; }
+        public static bool IsSAINAddonInstalled { get; private set; }
+        // Temporary test mode: allow SAIN regroup layer to handle regroup even out of combat.
+        // Final behavior should set this to false so SAIN regroup only handles combat regroup.
+        public static bool EnableSainRegroupOutOfCombatTest { get; } = false;
+
+        public static bool HasSainRegroupAddon => IsSAINInstalled && IsSAINAddonInstalled;
 
         private void Awake()
         {
@@ -177,8 +187,9 @@ namespace friendlySAIN
                 awaken = true;
                 Instance = this;
                 new Modules.Logger();
-                IsSAINInstalled = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey("me.sol.sain");
+                RefreshPluginFlags();
             }
+
             // initialize follower brain layers
             FollowerLayerRegistry.Init();
 
@@ -276,7 +287,64 @@ namespace friendlySAIN
             // new OtherPlayerProfileScreenClosePatch().Enable();
 
             // SAIN/Donuts patches
-            SAINPatch.PatchSAINIfInstalled(harmony);
+            if (IsSAINInstalled)
+            {
+                SAINPatch.PatchSAINIfInstalled(harmony);
+            }
+        }
+
+        private void Start()
+        {
+            RefreshPluginFlags();
+            if (IsSAINInstalled && !IsSAINAddonInstalled)
+            {
+                Logger.LogError("[Init] SAIN detected but friendlySAIN SAIN addon is missing.");
+                Logger.LogError($"[Init] Install plugin '{SainAddonPluginId}' or remove SAIN. SAIN combat regroup integration is disabled.");
+            }
+        }
+
+        private static void RefreshPluginFlags()
+        {
+            IsSAINInstalled = HasPlugin(SainPluginId);
+            IsSAINAddonInstalled = HasPlugin(SainAddonPluginId);
+        }
+
+        public static bool ShouldUseSainRegroupRoute(bool isCombatRegroupContext)
+        {
+            if (!HasSainRegroupAddon)
+            {
+                return false;
+            }
+
+            return isCombatRegroupContext || EnableSainRegroupOutOfCombatTest;
+        }
+
+        public static bool ShouldSainRegroupLayerHandle(BotOwner? botOwner)
+        {
+            if (!HasSainRegroupAddon)
+            {
+                return false;
+            }
+
+            if (EnableSainRegroupOutOfCombatTest)
+            {
+                return true;
+            }
+
+            return botOwner?.Memory?.HaveEnemy == true;
+        }
+
+        private static bool HasPlugin(string pluginId)
+        {
+            var pluginInfos = BepInEx.Bootstrap.Chainloader.PluginInfos;
+            if (pluginInfos.ContainsKey(pluginId))
+            {
+                return true;
+            }
+
+            return pluginInfos.Values.Any(p =>
+                p?.Metadata != null &&
+                string.Equals(p.Metadata.GUID, pluginId, StringComparison.OrdinalIgnoreCase));
         }
 
 

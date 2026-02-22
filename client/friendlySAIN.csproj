@@ -153,4 +153,10 @@
         <Compile Remove="Patches\DonutsPatch.cs" />
     </ItemGroup>
 
+    <Target Name="BuildSAINAddon" AfterTargets="Build" Condition="'$(BuildSAINAddon)' != 'false' and '$(IsBuildingSAINAddon)' != 'true'">
+        <MSBuild Projects="..\addon\friendlySAIN.SAINAddon.csproj"
+                 Targets="Build"
+                 Properties="Configuration=$(Configuration);Platform=$(Platform);BuildProjectReferences=false;IsBuildingSAINAddon=true;OutDir=$(OutDir)" />
+    </Target>
+
 </Project>

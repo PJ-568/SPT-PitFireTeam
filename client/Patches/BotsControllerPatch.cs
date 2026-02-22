@@ -990,7 +990,57 @@ namespace friendlySAIN.Patches
                 ShallBeGroup = new ShallBeGroupParams(true, false, Mathf.Max(2, player.Followers.Count + 2))
             };
 
-            async Task<Profile> GenerateOneProfile(IProfileData profileData)
+            int ScoreDebugSpawnProfile(Profile candidate, EPlayerSide expectedSide, WildSpawnType expectedRole)
+            {
+                if (candidate == null) return int.MinValue;
+
+                int score = 0;
+                if (candidate.Info != null)
+                {
+                    if (candidate.Info.Side == expectedSide) score += 1000;
+                    if (candidate.Info.Settings != null)
+                    {
+                        if (candidate.Info.Settings.Role == expectedRole) score += 1000;
+                        if (candidate.Info.Settings.BotDifficulty == BotDifficulty.hard) score += 150;
+                    }
+
+                    score += Mathf.Clamp(candidate.Info.Level, 0, 100);
+                }
+
+                return score;
+            }
+
+            Profile PickBestDebugSpawnProfile(Profile[] loadedProfiles, EPlayerSide expectedSide, WildSpawnType expectedRole)
+            {
+                if (loadedProfiles == null || loadedProfiles.Length == 0)
+                {
+                    return null;
+                }
+
+                Profile best = null;
+                int bestScore = int.MinValue;
+                foreach (Profile p in loadedProfiles)
+                {
+                    if (p == null) continue;
+                    int score = ScoreDebugSpawnProfile(p, expectedSide, expectedRole);
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        best = p;
+                    }
+                }
+
+                if (best != null)
+                {
+                    Modules.Logger.LogInfo(
+                        $"SpawnDebugFollower selected profile: nick={best.Nickname}, side={best.Info?.Side}, " +
+                        $"role={best.Info?.Settings?.Role}, diff={best.Info?.Settings?.BotDifficulty}, lvl={best.Info?.Level}, score={bestScore}");
+                }
+
+                return best;
+            }
+
+            async Task<Profile> GenerateOneProfile(IProfileData profileData, EPlayerSide expectedSide, WildSpawnType expectedRole, bool multiPickPmc)
             {
                 BotCreationDataClass generationData = BotCreationDataClass.CreateWithoutProfile(profileData);
 
@@ -1004,7 +1054,8 @@ namespace friendlySAIN.Patches
 
                 if (session != null)
                 {
-                    List<WaveInfoClass> waves = profileData.PrepareToLoadBackend(1)?.ToList() ?? new List<WaveInfoClass>();
+                    int requestCount = multiPickPmc ? 4 : 1;
+                    List<WaveInfoClass> waves = profileData.PrepareToLoadBackend(requestCount)?.ToList() ?? new List<WaveInfoClass>();
                     if (waves.Count > 0 && presets != null)
                     {
                         List<WaveInfoClass> delayed;
@@ -1012,7 +1063,7 @@ namespace friendlySAIN.Patches
                     }
 
                     Profile[] loadedProfiles = await session.LoadBots(waves);
-                    Profile loadedProfile = loadedProfiles?.FirstOrDefault(p => p != null);
+                    Profile loadedProfile = PickBestDebugSpawnProfile(loadedProfiles, expectedSide, expectedRole);
                     if (loadedProfile != null)
                     {
                         await Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(
@@ -1045,7 +1096,8 @@ namespace friendlySAIN.Patches
 
             try
             {
-                profile = await GenerateOneProfile(data);
+                bool multiPickPmc = spawnSide == EPlayerSide.Bear || spawnSide == EPlayerSide.Usec;
+                profile = await GenerateOneProfile(data, spawnSide, role, multiPickPmc);
             }
             catch (Exception ex)
             {
@@ -1058,7 +1110,7 @@ namespace friendlySAIN.Patches
                 try
                 {
                     IProfileData safeData = new IProfileData(EPlayerSide.Savage, WildSpawnType.assault, BotDifficulty.normal, 0f, spawnParams);
-                    profile = await GenerateOneProfile(safeData);
+                    profile = await GenerateOneProfile(safeData, EPlayerSide.Savage, WildSpawnType.assault, false);
                     if (profile != null)
                     {
                         Modules.Logger.LogInfo("SpawnDebugFollower used safe fallback profile (Savage/assault)");

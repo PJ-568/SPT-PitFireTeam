@@ -64,7 +64,13 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            bool hasCommand = followerData.TryGetActiveCommand(out _, out _);
+            bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
+            if (hasCommand
+                && command == FollowerCommandType.RegroupNearBoss
+                && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
+            {
+                return false;
+            }
 
             return hasCommand;
         }

@@ -199,14 +199,7 @@ namespace friendlySAIN.Components
                 }
                 else if (info.phrase == EPhraseTrigger.Regroup)
                 {
-                    if (IsCombatRegroupContext())
-                    {
-                        ApplyRegroupCommand(info.PlayerRequester);
-                    }
-                    else
-                    {
-                        ClearFollowerCommands();
-                    }
+                    ApplyRegroupCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
@@ -785,26 +778,30 @@ namespace friendlySAIN.Components
             if (requester == null) return;
 
             Vector3 bossPos = requester.Position;
-            bool useSainCombatRegroup = friendlySAIN.IsSAINInstalled && IsCombatRegroupContext();
-            Modules.Logger.LogInfo($"[Regroup] Command received. SAIN={friendlySAIN.IsSAINInstalled}, requester={requester.Profile?.Nickname ?? "unknown"}");
+            bool combatRegroupContext = IsCombatRegroupContext();
+            bool useSainRegroupRoute = friendlySAIN.ShouldUseSainRegroupRoute(combatRegroupContext);
+            Modules.Logger.LogInfo($"[Regroup] Command received. SAIN={friendlySAIN.IsSAINInstalled}, addon={friendlySAIN.IsSAINAddonInstalled}, combat={combatRegroupContext}, routeSAIN={useSainRegroupRoute}, requester={requester.Profile?.Nickname ?? "unknown"}");
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                if (useSainCombatRegroup)
+                if (useSainRegroupRoute)
                 {
-                    if (ShouldIgnoreCombatRegroup(follower, bossPos))
+                    bool ignore = combatRegroupContext
+                        ? ShouldIgnoreCombatRegroup(follower, bossPos)
+                        : ShouldIgnoreRegroup(follower, bossPos);
+                    if (ignore)
                     {
                         float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
-                        Modules.Logger.LogInfo($"[Regroup] IGNORE combat regroup for {follower.Profile?.Nickname}: heal/close filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
+                        Modules.Logger.LogInfo($"[Regroup] IGNORE SAIN regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
                         continue;
                     }
 
                     TryResetSainDecisionState(follower);
-                    followerData.ClearCommand();
-                    Modules.Logger.LogInfo($"[Regroup] SAIN combat regroup route for {follower.Profile?.Nickname}. Core command cleared; combat move expected from SAIN/addon.");
+                    followerData.SetRegroup(20f);
+                    Modules.Logger.LogInfo($"[Regroup] SET SAIN regroup command for {follower.Profile?.Nickname} (combat={combatRegroupContext}).");
                     follower.Gesture.TryGestus(EInteraction.OkGesture, false);
                     continue;
                 }

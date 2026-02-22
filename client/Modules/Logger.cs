@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace friendlySAIN.Modules
 {
-    internal class Logger
+    public class Logger
     {
         public Logger()
         {

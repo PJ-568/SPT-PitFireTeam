@@ -4,7 +4,7 @@ using System;
 
 namespace friendlySAIN.Utils
 {
-    internal static class FollowerRecovery
+    public static class FollowerRecovery
     {
         public static void SoftReset(BotOwner bot)
         {
