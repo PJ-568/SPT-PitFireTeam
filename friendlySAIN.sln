@@ -5,6 +5,8 @@ VisualStudioVersion = 17.9.34902.65
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "friendlySAIN", "client\\friendlySAIN.csproj", "{46B1B50D-BEDD-443B-BD27-2A862A78010B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "friendlySAIN.SAINAddon", "addon\\friendlySAIN.SAINAddon.csproj", "{236FA71E-31E5-44E0-B6D2-B7AF8A5A13F4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{46B1B50D-BEDD-443B-BD27-2A862A78010B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{46B1B50D-BEDD-443B-BD27-2A862A78010B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{46B1B50D-BEDD-443B-BD27-2A862A78010B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{236FA71E-31E5-44E0-B6D2-B7AF8A5A13F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{236FA71E-31E5-44E0-B6D2-B7AF8A5A13F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{236FA71E-31E5-44E0-B6D2-B7AF8A5A13F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{236FA71E-31E5-44E0-B6D2-B7AF8A5A13F4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
