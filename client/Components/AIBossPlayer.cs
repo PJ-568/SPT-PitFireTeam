@@ -357,6 +357,15 @@ namespace friendlySAIN.Components
             follower.Memory.AddEnemy(enemy, botSettings, false);
             TrySyncSainEnemyState(follower, enemy);
 
+            // Entering combat should break hold; keep other commands (e.g. There) to be handled by their own logic.
+            BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+            if (followerData != null &&
+                followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) &&
+                activeCommand == FollowerCommandType.HoldPosition)
+            {
+                followerData.ClearCommand();
+            }
+
             // If memory did not auto-select goal enemy, promote the injected enemy manually.
             if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
             {

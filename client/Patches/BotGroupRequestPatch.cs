@@ -59,6 +59,16 @@ namespace friendlySAIN.Patches
                 // allow player to request a BOT to follow him
                 if (player.Side == posibleExecuter.Side)
                 {
+                    // Do not allow recruiting bots that are already in combat.
+                    // Visibility does not matter; any active enemy memory means deny.
+                    if (posibleExecuter.Memory?.HaveEnemy == true)
+                    {
+                        posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Negative);
+                        posibleExecuter.Gesture.TryGestus(EInteraction.NoGesture, true);
+                        __result = false;
+                        return false;
+                    }
+
                     Utils.SpawnHelper.EnsureRecruitDefaults();
 
                     bool canPickup = false;

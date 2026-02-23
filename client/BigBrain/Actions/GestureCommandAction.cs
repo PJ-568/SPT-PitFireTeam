@@ -586,10 +586,14 @@ namespace friendlySAIN.BigBrain.Actions
                 nextHoldLookChangeAt = 0f;
             }
 
-            if (followerData?.IsCommandLookRandomPaused() == true)
+            if (followerData?.TryGetCommandLookOverride(out Vector3 holdLookOverridePoint) == true)
             {
+
+                BotOwner.Steering.LookToPoint(holdLookOverridePoint);
+                
                 holdLookPoint = Vector3.zero;
                 nextHoldLookChangeAt = 0f;
+
                 return;
             }
 
@@ -617,10 +621,12 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.Mover.Sprint(false, false);
             }
 
-            if (followerData?.IsCommandLookRandomPaused() == true)
+            if (followerData?.TryGetCommandLookOverride(out Vector3 holdLookOverridePoint) == true)
             {
                 holdLookPoint = Vector3.zero;
                 nextHoldLookChangeAt = 0f;
+                BotOwner.Steering.LookToPoint(holdLookOverridePoint);
+
                 moveCommandInitialized = false;
                 moveArrivalLookUntil = 0f;
                 comeArrivalHoldUntil = 0f;
@@ -653,10 +659,14 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.Mover.Sprint(false, false);
             }
 
-            if (followerData?.IsCommandLookRandomPaused() == true)
+            if (followerData?.TryGetCommandLookOverride(out Vector3 holdLookOverridePoint) == true)
             {
+
+                BotOwner.Steering.LookToPoint(holdLookOverridePoint);
+                
                 holdLookPoint = Vector3.zero;
                 nextHoldLookChangeAt = 0f;
+
                 return;
             }
 
