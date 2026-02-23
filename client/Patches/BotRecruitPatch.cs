@@ -55,6 +55,19 @@ namespace friendlySAIN.Patches
             if (requester == null) return true;
             if (!BossPlayers.IsPlayerBoss(requester.ProfileId)) return true;
 
+            // Cooperation should apply only to the currently interacted bot target.
+            // FollowMe is an ambient phrase and can be heard by nearby bots.
+            if (phrase == EPhraseTrigger.Cooperation &&
+                requester is Player requesterPlayer &&
+                requesterPlayer.InteractablePlayer != null)
+            {
+                BotOwner interactedBot = requesterPlayer.InteractablePlayer.AIData?.BotOwner;
+                if (interactedBot != null && interactedBot != botOwner)
+                {
+                    return false;
+                }
+            }
+
             // Keep vanilla behavior at longer range.
             if ((botOwner.Position - requester.Position).sqrMagnitude > RecruitPhraseDistance * RecruitPhraseDistance) return true;
 

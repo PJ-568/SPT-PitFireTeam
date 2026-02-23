@@ -13,6 +13,7 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINDecisionRegroupPatch
     {
+        private const bool EnableDecisionDebugLogs = false;
         private static MethodInfo? _setDecisionsMethod;
         private static float _nextLogAt;
 
@@ -68,7 +69,7 @@ namespace friendlySAIN.SAINAddon
 
                 _setDecisionsMethod.Invoke(__instance, new object[] { ECombatDecision.DebugNoDecision, ESquadDecision.None, ESelfActionType.None, enemy });
 
-                if (Time.time >= _nextLogAt)
+                if (EnableDecisionDebugLogs && Time.time >= _nextLogAt)
                 {
                     _nextLogAt = Time.time + 1f;
                     Modules.Logger.LogInfo($"[SAIN Regroup] Decision override -> DebugNoDecision follower={botOwner.Profile?.Nickname ?? botOwner.name}");

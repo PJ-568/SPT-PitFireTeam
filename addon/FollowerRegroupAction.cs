@@ -12,6 +12,7 @@ namespace friendlySAIN.SAINAddon
 {
     internal sealed class SAINRegroupAction : BotAction
     {
+        private const bool EnableRegroupDebugLogs = false;
         private const float ArriveDistance = 3f;
         private const float CloseTargetLockDistance = 8f;
         private const float RunDistance = 10f;
@@ -66,7 +67,7 @@ namespace friendlySAIN.SAINAddon
                 Bot.Mover.Stop();
             }
 
-            if (BotOwner != null && _loggedStart)
+            if (EnableRegroupDebugLogs && BotOwner != null && _loggedStart)
             {
                 Modules.Logger.LogInfo($"[SAIN Regroup] action stop follower={BotOwner.Profile?.Nickname ?? BotOwner.name}");
             }
@@ -90,7 +91,7 @@ namespace friendlySAIN.SAINAddon
                 && _followerData.TryGetActiveCommand(out FollowerCommandType command, out _)
                 && command == FollowerCommandType.RegroupNearBoss;
 
-            if (isRegroupCommand && !_loggedStart)
+            if (EnableRegroupDebugLogs && isRegroupCommand && !_loggedStart)
             {
                 Modules.Logger.LogInfo(
                     $"[SAIN Regroup] action start follower={BotOwner.Profile?.Nickname ?? BotOwner.name}");
@@ -157,7 +158,7 @@ namespace friendlySAIN.SAINAddon
                 HoldArrivalSettle();
                 if (Time.time >= _arrivalClearAt)
                 {
-                    if (!_loggedArrival)
+                    if (EnableRegroupDebugLogs && !_loggedArrival)
                     {
                         _loggedArrival = true;
                         Modules.Logger.LogInfo($"[SAIN Regroup] arrived follower={BotOwner.Profile?.Nickname ?? BotOwner.name} (settled)");
@@ -217,9 +218,12 @@ namespace friendlySAIN.SAINAddon
                     _hasMoveTarget = true;
                     _stuckRepathCount++;
                     _nextStuckRepathAt = Time.time + 1.5f;
-                    Modules.Logger.LogInfo(
-                        $"[SAIN Regroup] repath follower={BotOwner.Profile?.Nickname ?? BotOwner.name} " +
-                        $"reason=low_progress count={_stuckRepathCount} newTarget={Fmt(_moveTarget)}");
+                    if (EnableRegroupDebugLogs)
+                    {
+                        Modules.Logger.LogInfo(
+                            $"[SAIN Regroup] repath follower={BotOwner.Profile?.Nickname ?? BotOwner.name} " +
+                            $"reason=low_progress count={_stuckRepathCount} newTarget={Fmt(_moveTarget)}");
+                    }
                 }
 
                 string currentActionName = Bot.CurrentAction?.Name ?? "<none>";
@@ -235,12 +239,15 @@ namespace friendlySAIN.SAINAddon
                       $"corners={activePath.PathCorners?.Count ?? 0} dest={Fmt(activePath.Destination)} " +
                       $"last={lastCornerText}";
 
-                Modules.Logger.LogInfo(
-                    $"[SAIN Regroup] move follower={BotOwner.Profile?.Nickname ?? BotOwner.name} dist={dist:F1} " +
-                    $"target={Fmt(_moveTarget)} pos={Fmt(BotOwner.Position)} action={currentActionName} " +
-                    $"bossOff={Vector3.Distance(_moveTarget, bossPos):F1} " +
-                    $"run={(dist > RunDistance)} moved={moved} delta={delta:F2} pause={BotOwner.Mover.Pause} " +
-                    $"sainLayersActive={Bot.SAINLayersActive} activeLayer={Bot.ActiveLayer} {pathInfo}");
+                if (EnableRegroupDebugLogs)
+                {
+                    Modules.Logger.LogInfo(
+                        $"[SAIN Regroup] move follower={BotOwner.Profile?.Nickname ?? BotOwner.name} dist={dist:F1} " +
+                        $"target={Fmt(_moveTarget)} pos={Fmt(BotOwner.Position)} action={currentActionName} " +
+                        $"bossOff={Vector3.Distance(_moveTarget, bossPos):F1} " +
+                        $"run={(dist > RunDistance)} moved={moved} delta={delta:F2} pause={BotOwner.Mover.Pause} " +
+                        $"sainLayersActive={Bot.SAINLayersActive} activeLayer={Bot.ActiveLayer} {pathInfo}");
+                }
             }
         }
 
@@ -309,8 +316,11 @@ namespace friendlySAIN.SAINAddon
             // Stop movement/sprint first, then clear command on the next moments to avoid jumpy handoff.
             HoldArrivalSettle();
 
-            Modules.Logger.LogInfo(
-                $"[SAIN Regroup] arrival settle follower={BotOwner.Profile?.Nickname ?? BotOwner.name} dist={dist:F1} clearIn={ArrivalSettleDuration:F2}s");
+            if (EnableRegroupDebugLogs)
+            {
+                Modules.Logger.LogInfo(
+                    $"[SAIN Regroup] arrival settle follower={BotOwner.Profile?.Nickname ?? BotOwner.name} dist={dist:F1} clearIn={ArrivalSettleDuration:F2}s");
+            }
         }
 
         private void HoldArrivalSettle()

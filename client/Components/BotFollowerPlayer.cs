@@ -235,6 +235,7 @@ namespace friendlySAIN.Components
 
                     _bot.BotsGroup.RemoveAlly(_bot);
                     _bot.BotsGroup = _player.bossGroup;
+                    RefreshSainEnemyListAfterGroupReassign();
 
                     // - ensure the bot is not marked as enemy already by the others
                     _player.bossGroup.RemoveEnemy(_bot.GetPlayer);
@@ -276,6 +277,7 @@ namespace friendlySAIN.Components
                 BotsGroup group = new BotsGroupPlayer(zone, _bot.BotsController.BotGame, _bot, activeEnemies, _bot.BotsController.BotSpawner.DeadBodiesController, _bot.BotsController.BotSpawner.AllPlayers, _player);
 
                 _bot.BotsGroup = group;
+                RefreshSainEnemyListAfterGroupReassign();
 
                 // - go through the enemy filtering process
                 var groupEnemies = _bot.BotsGroup.Enemies;
@@ -1277,6 +1279,110 @@ namespace friendlySAIN.Components
             catch (Exception ex)
             {
                 Modules.Logger.LogError("Failed to log brain state");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private void RefreshSainEnemyListAfterGroupReassign()
+        {
+            if (!friendlySAIN.IsSAINInstalled) return;
+            if (_bot == null) return;
+
+            try
+            {
+                Type sainEnableType =
+                    AccessTools.TypeByName("SAIN.SAINEnableClass") ??
+                    AccessTools.TypeByName("SAIN.Plugin.SAINEnableClass");
+                if (sainEnableType == null)
+                {
+                    Modules.Logger.LogInfo($"[SAIN] EnemyList refresh skipped (SAINEnableClass not found) follower={_bot.Profile?.Nickname}");
+                    return;
+                }
+
+                object sainBot = null;
+
+                MethodInfo getSainByBotOwner = null;
+                MethodInfo getSainByProfile = null;
+                foreach (MethodInfo method in sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                {
+                    if (method.Name != "GetSAIN") continue;
+                    ParameterInfo[] parameters = method.GetParameters();
+                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(BotOwner))
+                    {
+                        getSainByBotOwner = method;
+                    }
+                    else if (parameters.Length == 2 && parameters[0].ParameterType == typeof(string) && parameters[1].IsOut)
+                    {
+                        getSainByProfile = method;
+                    }
+                }
+
+                if (getSainByBotOwner != null)
+                {
+                    sainBot = getSainByBotOwner.Invoke(null, new object[] { _bot });
+                }
+                else
+                {
+                    if (getSainByProfile != null)
+                    {
+                        object[] args = { _bot.ProfileId, null };
+                        bool found = false;
+                        object invokeResult = getSainByProfile.Invoke(null, args);
+                        if (invokeResult is bool boolResult)
+                        {
+                            found = boolResult;
+                        }
+
+                        if (found)
+                        {
+                            sainBot = args[1];
+                        }
+                    }
+                }
+
+                if (sainBot == null)
+                {
+                    Modules.Logger.LogInfo($"[SAIN] EnemyList refresh skipped (SAIN bot null) follower={_bot.Profile?.Nickname}");
+                    return;
+                }
+
+                Type sainBotType = sainBot.GetType();
+                object enemyController =
+                    AccessTools.Property(sainBotType, "EnemyController")?.GetValue(sainBot) ??
+                    AccessTools.Field(sainBotType, "EnemyController")?.GetValue(sainBot);
+                if (enemyController == null)
+                {
+                    Modules.Logger.LogInfo($"[SAIN] EnemyList refresh skipped (EnemyController null) follower={_bot.Profile?.Nickname}");
+                    return;
+                }
+
+                Type enemyControllerType = enemyController.GetType();
+                object listController =
+                    AccessTools.Field(enemyControllerType, "_listController")?.GetValue(enemyController) ??
+                    AccessTools.Field(enemyControllerType, "listController")?.GetValue(enemyController) ??
+                    AccessTools.Property(enemyControllerType, "EnemyListController")?.GetValue(enemyController);
+                if (listController == null)
+                {
+                    Modules.Logger.LogInfo($"[SAIN] EnemyList refresh skipped (EnemyListController null) follower={_bot.Profile?.Nickname}");
+                    return;
+                }
+
+                Type listControllerType = listController.GetType();
+                MethodInfo dispose = AccessTools.Method(listControllerType, "Dispose");
+                MethodInfo init = AccessTools.Method(listControllerType, "Init");
+                if (dispose == null || init == null)
+                {
+                    Modules.Logger.LogInfo($"[SAIN] EnemyList refresh skipped (Dispose/Init missing) follower={_bot.Profile?.Nickname}");
+                    return;
+                }
+
+                dispose.Invoke(listController, Array.Empty<object>());
+                init.Invoke(listController, Array.Empty<object>());
+                Modules.Logger.LogInfo($"[SAIN] EnemyListController Dispose/Init refresh after group assign follower={_bot.Profile?.Nickname} group={_bot.BotsGroup?.Id}");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"[SAIN] EnemyList refresh failed follower={_bot?.Profile?.Nickname}");
                 Modules.Logger.LogError(ex);
             }
         }

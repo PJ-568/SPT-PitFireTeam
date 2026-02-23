@@ -1,6 +1,6 @@
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-02-16  
+Last updated: 2026-02-22  
 Scope: runtime behavior currently present in `friendlySAIN/client` (based on active code paths in `friendlyPlugin.cs` and related components).
 
 ## BE / Server State (Important)
@@ -26,9 +26,13 @@ Scope: runtime behavior currently present in `friendlySAIN/client` (based on act
 - Plugin: `xyz.pit.friendlysain` (`client/friendlyPlugin.cs`)
 - Dependency: BigBrain (`xyz.drakia.bigbrain`)
 - Optional integration: SAIN (`me.sol.sain`) detected at runtime.
+- Optional SAIN addon integration: `xyz.pit.friendlysain.sainaddon` (separate DLL in `addon/`)
 - Follower control model:
     - Combat remains vanilla/SAIN-owned.
     - Friendly follow logic is implemented as a BigBrain custom layer/action (`FollowerPatrolLayer` + `FollowAction`).
+    - Regroup request execution is split by runtime context:
+        - vanilla regroup path for no-SAIN or out-of-combat,
+        - SAIN regroup path (addon SAIN layer/action) for SAIN combat.
 
 ## 2) BigBrain Follower Layer
 
@@ -77,11 +81,14 @@ Request/gesture movement:
     - `ComeCloser`: move to boss until close (about `1m`).
     - `MoveToPoint` (`There`): move to projected/navmesh-validated target point (walk-only), then brief look-around on arrival.
     - `Regroup` (`EPhraseTrigger.Regroup`):
-        - in combat context: followers regroup near boss (run/sprint converge),
-        - out of combat: command is treated as a clear/reset (`ClearFollowerCommands`), matching current follow-me style usage.
+        - vanilla regroup is implemented and active for no-SAIN or out-of-combat cases,
+        - SAIN combat regroup is implemented via addon SAIN layer/action (combat-only route),
+        - regroup converges to boss-near cover/random point (not exact boss position) and supports boss-movement reanchor.
     - Regroup ignore/interruption safeguards:
-        - ignored when follower is healing, has visible enemy, or is already close enough (`~8m` nav-path distance on same level),
-        - interrupted by combat transition, being hit, follower death, attention reset (`EPhraseTrigger.Look`), or replacement by a newer command,
+        - ignored when follower is healing or already close enough (`~8m` nav-path distance on same level),
+        - interrupted/released when follower can see and shoot enemy, needs heal, or must avoid danger (grenade/BTR),
+        - vanilla path releases control when SAIN combat regroup route becomes valid; SAIN path releases control when combat route is no longer valid,
+        - interrupted by being hit, follower death, attention reset (`EPhraseTrigger.Look`), or replacement by a newer command,
         - on successful regroup arrival follower says `EPhraseTrigger.OnPosition`.
 - Gesture visibility requirements:
     - `HoldGesture` and `ThereGesture` require follower to see boss gesture target (`head` or `torso` visibility; either is enough).
@@ -204,6 +211,12 @@ AI data / command UI:
 SAIN integration:
 
 - `SAINPatch.PatchSAINIfInstalled(harmony)` applies selective SAIN behavior patches when SAIN assembly is present.
+- SAIN combat regroup integration is implemented in a separate addon DLL:
+    - addon project: `addon/friendlySAIN.SAINAddon.csproj`
+    - plugin ID: `xyz.pit.friendlysain.sainaddon`
+    - runtime path uses a custom SAIN layer/action (`SAINRegroupLayer` / `SAINRegroupAction`) instead of vanilla mover control.
+- Core plugin validates SAIN/addon presence at runtime:
+    - if SAIN is installed but addon is missing, core plugin logs explicit error and SAIN combat regroup integration is disabled.
 - SAIN layers use their own mover handoff/control path while active (notably in combat):
     - `SAINLayer.OnLayerChanged(...)` stops built-in mover when entering SAIN layer and handles mover/navmesh handoff on layer switch.
     - treat SAIN combat movement issues as SAIN-layer/mover behavior first, then plugin command-layer behavior.
@@ -273,6 +286,10 @@ Examples currently tracked there:
     - `client/Components/BotFollowerPlayer.cs`
 - Boss command/event behavior:
     - `client/Components/AIBossPlayer.cs`
+- SAIN regroup addon (combat regroup):
+    - `addon/FollowerRegroupLayer.cs` (current SAIN regroup layer implementation; rename cleanup pending)
+    - `addon/FollowerRegroupAction.cs` (current SAIN regroup action implementation; rename cleanup pending)
+    - `addon/SAINDecisionRegroupPatch.cs`
 
 ## 10) Command/Gesture IDs (Current)
 

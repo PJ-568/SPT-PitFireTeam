@@ -63,7 +63,7 @@ namespace friendlySAIN.Patches
                     // Visibility does not matter; any active enemy memory means deny.
                     if (posibleExecuter.Memory?.HaveEnemy == true)
                     {
-                        posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Negative);
+                        posibleExecuter.BotTalk.TrySay(EPhraseTrigger.DontKnow);
                         posibleExecuter.Gesture.TryGestus(EInteraction.NoGesture, true);
                         __result = false;
                         return false;
@@ -163,6 +163,38 @@ namespace friendlySAIN.Patches
                                     return;
                                 }
 
+                                // Re-check pickup cap at execution time because this runs deferred and
+                                // multiple recruit requests can be queued in the same window.
+                                Utils.SpawnHelper.EnsureRecruitDefaults();
+                                List<Components.BotFollowerPlayer> deferredFollowers = BossPlayers.GetFollowersByBoss(player.ProfileId);
+                                List<Components.BotFollowerPlayer> deferredActiveFollowers = deferredFollowers.FindAll(f =>
+                                {
+                                    if (f == null) return false;
+                                    BotOwner bot = f.GetBot();
+                                    return bot != null &&
+                                           !bot.IsDead &&
+                                           bot.BotState == EBotState.Active &&
+                                           bot.GetPlayer != null &&
+                                           bot.GetPlayer.HealthController != null &&
+                                           bot.GetPlayer.HealthController.IsAlive;
+                                });
+                                int deferredConfiguredPickups = Math.Max(1, Utils.SpawnHelper.Pickups);
+                                int deferredHardPickupLimit = Math.Min(10, deferredConfiguredPickups);
+                                int deferredCurrentPickups = deferredActiveFollowers.FindAll(f => !f.IsSquadMate).Count;
+                                if (deferredCurrentPickups >= deferredHardPickupLimit)
+                                {
+                                    me.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                                    me.Gesture.TryGestus(EInteraction.NoGesture, true);
+                                    return;
+                                }
+
+                                if (me.Memory?.HaveEnemy == true)
+                                {
+                                    me.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                                    me.Gesture.TryGestus(EInteraction.NoGesture, true);
+                                    return;
+                                }
+
                                 if (BossPlayers.AddFollower(me, playerBoss) != null)
                                 {
                                     Utils.Utils.SetTimeout(() =>
@@ -225,6 +257,16 @@ namespace friendlySAIN.Patches
 
             if (playerBoss != null && posibleExecuter != null)
             {
+                // If player is explicitly targeting a bot, hold should apply only to that bot.
+                // Otherwise keep the vanilla/broadcast behavior (all eligible followers can receive it).
+                if (player is Player requesterPlayer && TryGetLookedAtBot(requesterPlayer, 15f, out BotOwner targetedBot))
+                {
+                    if (targetedBot != posibleExecuter)
+                    {
+                        return false;
+                    }
+                }
+
                 // boss can only send hold requests to it's followers
                 if (BossPlayers.IsFollower(posibleExecuter, playerBoss))
                 {
@@ -240,6 +282,31 @@ namespace friendlySAIN.Patches
             }
             // allow default to take place
             return true;
+        }
+
+        private static bool TryGetLookedAtBot(Player requesterPlayer, float distance, out BotOwner bot)
+        {
+            bot = null;
+            if (requesterPlayer == null) return false;
+
+            const float sphereRadius = 0.4f;
+            RaycastHit[] hits = new RaycastHit[10];
+            Ray ray = requesterPlayer.InteractionRay;
+            int hitCount = Physics.SphereCastNonAlloc(ray, sphereRadius, hits, distance, LayerMaskClass.PlayerMask);
+            if (hitCount <= 0) return false;
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                RaycastHit hit = hits[i];
+                if (hit.collider?.gameObject == null) continue;
+                BotOwner hitBot = hit.collider.gameObject.GetComponentInParent<BotOwner>();
+                if (hitBot == null) continue;
+
+                bot = hitBot;
+                return true;
+            }
+
+            return false;
         }
     }
 

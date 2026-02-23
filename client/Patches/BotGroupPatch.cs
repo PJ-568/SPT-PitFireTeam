@@ -194,6 +194,25 @@ namespace friendlySAIN.Patches
                 }
             }
 
+            try
+            {
+                List<string> memberNames = new List<string>();
+                for (int i = 0; i < __instance.MembersCount; i++)
+                {
+                    BotOwner member = __instance.Member(i);
+                    if (member == null) continue;
+                    memberNames.Add(member.Profile?.Nickname ?? member.name ?? "<null>");
+                }
+
+                Modules.Logger.LogInfo(
+                    $"[EnemySync] BossGroup AddEnemy PASS (return true) cause={cause} enemy={person.Profile?.Nickname ?? person.ProfileId} " +
+                    $"groupId={__instance.Id} members={__instance.MembersCount} [{string.Join(", ", memberNames)}]");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo($"[EnemySync] BossGroup AddEnemy PASS log failed: {ex.Message}");
+            }
+
             return true;
         }
 
@@ -275,8 +294,13 @@ namespace friendlySAIN.Patches
          * Whoever makes the player or his followers an enemy will become the enemy of the player's boss group (BTR is the exception)
          */
         [PatchPostfix]
-        private static void PatchPostfix(BotsGroup __instance, IPlayer person, EBotEnemyCause cause)
+        private static void PatchPostfix(BotsGroup __instance, IPlayer person, EBotEnemyCause cause, bool __result)
         {
+            if (__instance is BotsGroupPlayer bossPlayerGroup && __result)
+            {
+                ClearFollowerRequestsOnBossGroupEnemyAdd(bossPlayerGroup);
+            }
+
             if (
                 person == null ||
                 (person.IsAI && person.AIData?.BotOwner?.GetPlayer == null) ||
@@ -357,6 +381,34 @@ namespace friendlySAIN.Patches
             catch (Exception ex)
             {
                 Modules.Logger.LogError("Failed to make a group an enemy");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static void ClearFollowerRequestsOnBossGroupEnemyAdd(BotsGroupPlayer bossGroup)
+        {
+            if (bossGroup == null) return;
+
+            try
+            {
+                for (int i = 0; i < bossGroup.MembersCount; i++)
+                {
+                    BotOwner member = bossGroup.Member(i);
+                    if (member == null || member.IsDead || member.BotState != EBotState.Active) continue;
+                    if (!BossPlayers.IsFollower(member, bossGroup.Boss)) continue;
+
+                    BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(member);
+                    if (followerData == null) continue;
+
+                    if (followerData.TryGetActiveCommand(out _, out _))
+                    {
+                        followerData.ClearCommand();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to clear follower requests on boss-group enemy add");
                 Modules.Logger.LogError(ex);
             }
         }

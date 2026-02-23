@@ -46,6 +46,7 @@ namespace friendlySAIN.Components
         private const float TeamStatusGestureDistance = 15f;
         private const float ContactLookDistance = 45f;
         private const float GestureCommandDistance = 15f;
+        private const float ComeWithMeMaxDistance = 25f;
         private const float GoThereMaxDistance = 50f;
         private const float LookAtFollowerDistance = 27f;
         private const float RegroupCloseNavDistance = 8f;
@@ -329,7 +330,6 @@ namespace friendlySAIN.Components
                 }
             }
 
-            Modules.Logger.LogInfo($"[Contact] Applied to followers={followersProcessed}, skippedVisibility={followersSkippedVisibility}, enemiesInjected={enemiesInjected}");
         }
 
         private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy)
@@ -692,6 +692,7 @@ namespace friendlySAIN.Components
                 InteractableObjects.RemoveOpener(follower);
 
                 ClearEnemyStateForAttention(follower);
+                ClearSainEnemyStateForAttention(follower);
 
                 FollowerRecovery.SoftReset(follower);
 
@@ -727,6 +728,91 @@ namespace friendlySAIN.Components
 
             follower.Memory.GoalEnemy = null;
             follower.Memory.LastEnemy = null;
+        }
+
+        private static void ClearSainEnemyStateForAttention(BotOwner follower)
+        {
+            if (!friendlySAIN.IsSAINInstalled) return;
+            if (follower == null) return;
+
+            try
+            {
+                Type sainEnableType =
+                    AccessTools.TypeByName("SAIN.SAINEnableClass") ??
+                    AccessTools.TypeByName("SAIN.Plugin.SAINEnableClass");
+                if (sainEnableType == null) return;
+
+                object sainBot = null;
+                MethodInfo getSainByBotOwner = null;
+                MethodInfo getSainByProfile = null;
+                foreach (MethodInfo method in sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                {
+                    if (method.Name != "GetSAIN") continue;
+                    ParameterInfo[] parameters = method.GetParameters();
+                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(BotOwner))
+                    {
+                        getSainByBotOwner = method;
+                    }
+                    else if (parameters.Length == 2 && parameters[0].ParameterType == typeof(string) && parameters[1].IsOut)
+                    {
+                        getSainByProfile = method;
+                    }
+                }
+
+                if (getSainByBotOwner != null)
+                {
+                    sainBot = getSainByBotOwner.Invoke(null, new object[] { follower });
+                }
+                else if (getSainByProfile != null)
+                {
+                    object[] args = { follower.ProfileId, null };
+                    object result = getSainByProfile.Invoke(null, args);
+                    if (result is bool found && found)
+                    {
+                        sainBot = args[1];
+                    }
+                }
+
+                if (sainBot == null) return;
+
+                Type sainBotType = sainBot.GetType();
+                object enemyController =
+                    AccessTools.Property(sainBotType, "EnemyController")?.GetValue(sainBot) ??
+                    AccessTools.Field(sainBotType, "EnemyController")?.GetValue(sainBot);
+                if (enemyController == null) return;
+
+                Type enemyControllerType = enemyController.GetType();
+                MethodInfo removeEnemyMethod = enemyControllerType.GetMethod("RemoveEnemy", new[] { typeof(string) });
+                MethodInfo clearEnemyMethod = enemyControllerType.GetMethod("ClearEnemy", Type.EmptyTypes);
+
+                object enemiesDictionaryObj =
+                    AccessTools.Property(enemyControllerType, "Enemies")?.GetValue(enemyController) ??
+                    AccessTools.Field(enemyControllerType, "Enemies")?.GetValue(enemyController);
+
+                if (removeEnemyMethod != null && enemiesDictionaryObj is System.Collections.IDictionary enemiesDictionary)
+                {
+                    List<string> ids = new List<string>();
+                    foreach (object key in enemiesDictionary.Keys)
+                    {
+                        if (key is string id && !string.IsNullOrEmpty(id))
+                        {
+                            ids.Add(id);
+                        }
+                    }
+
+                    foreach (string id in ids)
+                    {
+                        removeEnemyMethod.Invoke(enemyController, new object[] { id });
+                    }
+                }
+
+                clearEnemyMethod?.Invoke(enemyController, Array.Empty<object>());
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"Failed to clear SAIN enemy state for attention follower={follower?.Profile?.Nickname}");
+                Modules.Logger.LogError(ex);
+            }
         }
 
         public new AIBossPlayerLogic GetBossLogic()
@@ -765,6 +851,29 @@ namespace friendlySAIN.Components
         private void ApplyHoldGesture(IPlayer requester)
         {
             if (requester == null) return;
+
+            if (requester is Player requesterPlayer)
+            {
+                BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, GestureCommandDistance);
+                if (lookedFollower != null)
+                {
+                    if (!lookedFollower.IsDead &&
+                        lookedFollower.BotState == EBotState.Active &&
+                        !lookedFollower.Memory.HaveEnemy &&
+                        CanReactToBossGesture(lookedFollower, requesterPlayer))
+                    {
+                        BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
+                        if (lookedFollowerData != null)
+                        {
+                            lookedFollowerData.SetHoldPosition(20f);
+                            Modules.Logger.LogInfo($"[Req] Hold set for {lookedFollower.Profile.Nickname} (looked target)");
+                            lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                        }
+                    }
+
+                    return;
+                }
+            }
 
             foreach (BotOwner follower in Followers)
             {
@@ -1036,7 +1145,7 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogInfo("[Req] ComeWithMe ignored: no looked-at follower");
                 return;
             }
-            if ((lookedFollower.Position - requesterPlayer.Position).sqrMagnitude > GestureCommandDistance * GestureCommandDistance)
+            if ((lookedFollower.Position - requesterPlayer.Position).sqrMagnitude > ComeWithMeMaxDistance * ComeWithMeMaxDistance)
             {
                 Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower too far ({lookedFollower.Profile.Nickname})");
                 return;

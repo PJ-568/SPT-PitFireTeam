@@ -12,6 +12,9 @@ namespace friendlySAIN.BigBrain
         private const bool EnableRequestLayerDebug = false;
         private BotFollowerPlayer? followerData;
 
+        private int combatState = 0;
+        private int lastCombatState = 0;
+
         public FollowerRequestLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
         {
         }
@@ -69,6 +72,23 @@ namespace friendlySAIN.BigBrain
                 && command == FollowerCommandType.RegroupNearBoss
                 && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
             {
+                return false;
+            }
+
+            combatState = BotOwner.Memory?.HaveEnemy == true ? 1 : 0;
+
+            // always reset on combat change
+            if(combatState != lastCombatState)
+            {
+                if(hasCommand)
+                {
+                    if(followerData != null)
+                    {
+                        followerData.ClearCommand();
+                    }
+                }
+                lastCombatState = combatState;
+
                 return false;
             }
 

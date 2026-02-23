@@ -9,6 +9,7 @@ namespace friendlySAIN.SAINAddon
 {
     internal sealed class SAINRegroupLayer : SAINLayer
     {
+        private const bool EnableRegroupDebugLogs = false;
         public static readonly string Name = BuildLayerName("friendlySAIN Regroup");
 
         private BotFollowerPlayer? _followerData;
@@ -65,10 +66,19 @@ namespace friendlySAIN.SAINAddon
 
         private bool TrackActive(bool active)
         {
-            if (_lastActiveState != active)
+            if (BotOwner?.BotFollower == null || !BotOwner.BotFollower.HaveBoss || BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer)
+            {
+                return active;
+            }
+
+            if (EnableRegroupDebugLogs && _lastActiveState != active)
             {
                 _lastActiveState = active;
                 Modules.Logger.LogInfo($"[SAIN Regroup] layer active={active} follower={BotOwner?.Profile?.Nickname ?? BotOwner?.name ?? "<null>"}");
+            }
+            else if (!EnableRegroupDebugLogs)
+            {
+                _lastActiveState = active;
             }
 
             return active;
