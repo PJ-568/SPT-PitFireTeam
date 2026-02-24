@@ -68,13 +68,6 @@ namespace friendlySAIN.BigBrain
             }
 
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
-            if (hasCommand
-                && command == FollowerCommandType.RegroupNearBoss
-                && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
-            {
-                return false;
-            }
-
             combatState = BotOwner.Memory?.HaveEnemy == true ? 1 : 0;
 
             // always reset on combat change
@@ -91,6 +84,15 @@ namespace friendlySAIN.BigBrain
 
                 return false;
             }
+
+            
+            if (hasCommand
+                && command == FollowerCommandType.RegroupNearBoss
+                && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
+            {
+                return false;
+            }
+
 
             return hasCommand;
         }

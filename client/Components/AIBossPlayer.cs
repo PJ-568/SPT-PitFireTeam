@@ -306,6 +306,13 @@ namespace friendlySAIN.Components
             foreach (var follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                
+                BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
+                if(followerData == null)
+                {
+                    continue;
+                }
+
                 if (requireGestureVisibility && !CanReactToBossGesture(follower, requester))
                 {
                     followersSkippedVisibility++;
@@ -314,7 +321,7 @@ namespace friendlySAIN.Components
 
                 // Make followers orient toward boss reported direction.
                 follower.Steering.LookToPoint(lookTarget);
-                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                
                 float lookOverrideDuration = Utils.Utils.Random(2f, 4f);
                 followerData?.SetCommandLookOverride(lookTarget, lookOverrideDuration);
                 followersProcessed++;
@@ -334,8 +341,7 @@ namespace friendlySAIN.Components
 
         private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy)
         {
-            if (follower == null || enemy == null) return;
-
+ 
             try
             {
                 follower.BotsGroup?.AddEnemy(enemy, EBotEnemyCause.addPlayerToBoss);
@@ -357,22 +363,13 @@ namespace friendlySAIN.Components
             follower.Memory.AddEnemy(enemy, botSettings, false);
             TrySyncSainEnemyState(follower, enemy);
 
-            // Entering combat should break hold; keep other commands (e.g. There) to be handled by their own logic.
-            BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-            if (followerData != null &&
-                followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) &&
-                activeCommand == FollowerCommandType.HoldPosition)
-            {
-                followerData.ClearCommand();
-            }
-
             // If memory did not auto-select goal enemy, promote the injected enemy manually.
             if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
             {
                 PromoteEnemyAsGoal(follower, enemy.ProfileId);
             }
 
-            string enemyProfileId = enemy.ProfileId;
+            /* string enemyProfileId = enemy.ProfileId;
             Utils.Utils.SetTimeout(() =>
             {
                 ReinforceContactEnemyAssignment(follower, enemyProfileId);
@@ -384,12 +381,21 @@ namespace friendlySAIN.Components
             Utils.Utils.SetTimeout(() =>
             {
                 ReinforceContactEnemyAssignment(follower, enemyProfileId);
-            }, 1000);
+            }, 1000); */
 
-            BotOwner enemyBot = enemy.AIData?.BotOwner;
+            BotOwner? enemyBot = enemy.AIData?.BotOwner;
             if (enemyBot != null)
             {
                 PrioritizeEnemy(follower, enemyBot);
+                TrySyncSainEnemyState(follower, enemy);
+            }
+
+            // Entering combat should break request commands
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
+            if (followerData != null &&
+                followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) && follower.Memory.HaveEnemy)
+            {
+                followerData.ClearCommand();
             }
         }
 
@@ -404,7 +410,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            Player enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
+            Player? enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
             if (enemy == null || enemy.HealthController?.IsAlive != true)
             {
                 return;
@@ -455,11 +461,11 @@ namespace friendlySAIN.Components
                 if (!hasSain || args[1] == null) return false;
 
                 object sainBot = args[1];
-                object enemyController = AccessTools.Property(sainBot.GetType(), "EnemyController")?.GetValue(sainBot);
+                object? enemyController = AccessTools.Property(sainBot.GetType(), "EnemyController")?.GetValue(sainBot);
                 if (enemyController == null) return false;
 
                 MethodInfo checkAddEnemy = AccessTools.Method(enemyController.GetType(), "CheckAddEnemy", new[] { typeof(IPlayer) });
-                object sainEnemy = checkAddEnemy?.Invoke(enemyController, new object[] { enemyPlayer });
+                object? sainEnemy = checkAddEnemy?.Invoke(enemyController, new object[] { enemyPlayer });
                 if (sainEnemy != null)
                 {
                     MethodInfo updateLastSeen = AccessTools.Method(sainEnemy.GetType(), "UpdateLastSeenPosition", new[] { typeof(Vector3), typeof(float) });

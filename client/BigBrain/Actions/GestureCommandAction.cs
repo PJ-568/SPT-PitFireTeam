@@ -611,6 +611,13 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void HandleHoldPosition()
         {
+            if (BotOwner.Memory.HaveEnemy)
+            {
+                followerData?.ClearCommand();
+                BotOwner.StopMove();
+                return;
+            }
+            
             BotOwner.StopMove();
             if (BotOwner.Mover.TargetPose > 0.15f || BotOwner.Mover.TargetPose < 0.05f)
             {
