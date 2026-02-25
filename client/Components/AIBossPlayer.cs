@@ -395,7 +395,7 @@ namespace friendlySAIN.Components
             if (followerData != null &&
                 followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) && follower.Memory.HaveEnemy)
             {
-                followerData.ClearCommand();
+                followerData.ClearCommand($"ContactEnemy:RegisterContactEnemyForFollower active={activeCommand}");
             }
         }
 
@@ -505,7 +505,6 @@ namespace friendlySAIN.Components
                 if (_sainDecisionResetMethod == null) return false;
 
                 _sainDecisionResetMethod.Invoke(decision, new object[] { false });
-                Modules.Logger.LogInfo($"[Regroup] Reset SAIN decision state before regroup for {follower.Profile?.Nickname}");
                 return true;
             }
             catch (Exception ex)
@@ -655,11 +654,16 @@ namespace friendlySAIN.Components
 
         private bool CanReactToBossGesture(BotOwner follower, IPlayer requester)
         {
+            return CanReactToBossGesture(follower, requester, TeamStatusGestureDistance);
+        }
+
+        private bool CanReactToBossGesture(BotOwner follower, IPlayer requester, float maxDistance)
+        {
             if (follower == null || requester == null) return false;
             if (follower.IsDead || follower.BotState != EBotState.Active) return false;
 
             float distSqr = (follower.Position - requester.Position).sqrMagnitude;
-            if (distSqr > TeamStatusGestureDistance * TeamStatusGestureDistance) return false;
+            if (distSqr > maxDistance * maxDistance) return false;
 
             if (realPlayer?.MainParts == null) return false;
             bool hasHead = realPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart);
@@ -692,7 +696,7 @@ namespace friendlySAIN.Components
                 if (!BossPlayers.IsFollower(follower)) continue;
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("Attention:Look");
 
                 InteractableObjects.RemoveTaker(follower);
                 InteractableObjects.RemoveOpener(follower);
@@ -863,6 +867,7 @@ namespace friendlySAIN.Components
                 BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, GestureCommandDistance);
                 if (lookedFollower != null)
                 {
+                    bool applied = false;
                     if (!lookedFollower.IsDead &&
                         lookedFollower.BotState == EBotState.Active &&
                         !lookedFollower.Memory.HaveEnemy &&
@@ -874,10 +879,14 @@ namespace friendlySAIN.Components
                             lookedFollowerData.SetHoldPosition(20f);
                             Modules.Logger.LogInfo($"[Req] Hold set for {lookedFollower.Profile.Nickname} (looked target)");
                             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                            applied = true;
                         }
                     }
 
-                    return;
+                    if (applied)
+                    {
+                        return;
+                    }
                 }
             }
 
@@ -904,7 +913,6 @@ namespace friendlySAIN.Components
             Vector3 bossPos = requester.Position;
             bool combatRegroupContext = IsCombatRegroupContext();
             bool useSainRegroupRoute = friendlySAIN.ShouldUseSainRegroupRoute(combatRegroupContext);
-            Modules.Logger.LogInfo($"[Regroup] Command received. SAIN={friendlySAIN.IsSAINInstalled}, addon={friendlySAIN.IsSAINAddonInstalled}, combat={combatRegroupContext}, routeSAIN={useSainRegroupRoute}, requester={requester.Profile?.Nickname ?? "unknown"}");
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -925,7 +933,6 @@ namespace friendlySAIN.Components
 
                     TryResetSainDecisionState(follower);
                     followerData.SetRegroup(20f);
-                    Modules.Logger.LogInfo($"[Regroup] SET SAIN regroup command for {follower.Profile?.Nickname} (combat={combatRegroupContext}).");
                     follower.Gesture.TryGestus(EInteraction.OkGesture, false);
                     continue;
                 }
@@ -938,7 +945,6 @@ namespace friendlySAIN.Components
                 }
 
                 followerData.SetRegroup(20f);
-                Modules.Logger.LogInfo($"[Regroup] SET vanilla regroup command for {follower.Profile?.Nickname}");
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }
@@ -949,7 +955,7 @@ namespace friendlySAIN.Components
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("ClearFollowerCommands");
             }
         }
 
@@ -1156,7 +1162,7 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower too far ({lookedFollower.Profile.Nickname})");
                 return;
             }
-            if (!CanReactToBossGesture(lookedFollower, requesterPlayer))
+            if (!CanReactToBossGesture(lookedFollower, requesterPlayer, ComeWithMeMaxDistance))
             {
                 Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower cannot see boss ({lookedFollower.Profile.Nickname})");
                 return;

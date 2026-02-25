@@ -190,7 +190,7 @@ namespace friendlySAIN.Patches
 
                                 if (me.Memory?.HaveEnemy == true)
                                 {
-                                    me.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                                    me.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
                                     me.Gesture.TryGestus(EInteraction.NoGesture, true);
                                     return;
                                 }

@@ -27,6 +27,7 @@ namespace friendlySAIN.Components
 
     public class BotFollowerPlayer
     {
+        private const bool EnableCommandTrace = false;
         protected BotOwner _bot;
         protected pitAIBossPlayer _player;
 
@@ -51,6 +52,12 @@ namespace friendlySAIN.Components
         protected WildSpawnType _botRole;
         protected bool _canPatrol = false;
         private bool _peaceChangeHooked = false;
+        private bool _manualUpdateHooked = false;
+        private bool _lastHaveEnemyKnown = false;
+        private bool _lastHaveEnemy = false;
+        private bool _pendingHoldRestoreAfterCombatBlip = false;
+        private float _holdClearedForCombatAt;
+        private const float HoldCombatBlipRestoreWindowSeconds = 3f;
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
@@ -119,6 +126,7 @@ namespace friendlySAIN.Components
 
             ForceEndCurrentDecision(_bot);
             HookPeaceChange();
+            HookManualUpdate();
             //LogBrainState("after init");
             
 
@@ -797,7 +805,8 @@ namespace friendlySAIN.Components
                 {
                     _bot.GetPlayer.BeingHitAction -= OnBeingHit;
                 }
-                ClearCommand();
+                ClearCommand("Dismiss:finally");
+                UnhookManualUpdate();
                 UnhookPeaceChange();
             }
             // @TODO : see what else can be reverted
@@ -862,6 +871,7 @@ namespace friendlySAIN.Components
 
         public void SetHoldPosition(float duration)
         {
+            LogCommandSet(FollowerCommandType.HoldPosition, "SetHoldPosition");
             _activeCommand = FollowerCommandType.HoldPosition;
             _commandUntilTime = float.PositiveInfinity;
             _commandTarget = Vector3.zero;
@@ -870,6 +880,7 @@ namespace friendlySAIN.Components
 
         public void SetMoveToPoint(Vector3 target, float duration)
         {
+            LogCommandSet(FollowerCommandType.MoveToPoint, $"SetMoveToPoint target={Fmt(target)} dur={duration:F1}");
             _activeCommand = FollowerCommandType.MoveToPoint;
             _commandTarget = target;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
@@ -878,6 +889,7 @@ namespace friendlySAIN.Components
 
         public void SetComeCloser(float duration)
         {
+            FollowerCommandType previous = _activeCommand;
             if (_activeCommand == FollowerCommandType.HoldPosition)
             {
                 _resumeHoldAfterComeCloser = true;
@@ -887,6 +899,7 @@ namespace friendlySAIN.Components
                 _resumeHoldAfterComeCloser = false;
             }
 
+            LogCommandSet(FollowerCommandType.ComeCloser, $"SetComeCloser dur={duration:F1} prev={previous} resumeHold={_resumeHoldAfterComeCloser}");
             _activeCommand = FollowerCommandType.ComeCloser;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
             _commandTarget = Vector3.zero;
@@ -894,6 +907,12 @@ namespace friendlySAIN.Components
 
         public void SetRegroup(float duration)
         {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.RegroupNearBoss)
+            {
+                ClearCommand($"SetRegroup:replace({_activeCommand})");
+            }
+
+            LogCommandSet(FollowerCommandType.RegroupNearBoss, $"SetRegroup dur={duration:F1}");
             _activeCommand = FollowerCommandType.RegroupNearBoss;
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
@@ -913,10 +932,11 @@ namespace friendlySAIN.Components
                 _commandTarget = Vector3.zero;
                 _commandUntilTime = float.PositiveInfinity;
                 _resumeHoldAfterComeCloser = false;
+                LogCommandSet(FollowerCommandType.HoldPosition, "CompleteComeCloser -> resume hold");
                 return;
             }
 
-            ClearCommand();
+            ClearCommand("CompleteComeCloser");
         }
 
         public bool IsComeCloserFromHold()
@@ -965,13 +985,13 @@ namespace friendlySAIN.Components
                 bool isInHealDecision = _bot.Brain?.Agent?.LastResult().Action == BotLogicDecision.heal;
                 if (isUsingHeal || isInHealDecision)
                 {
-                    ClearCommand();
+                    ClearCommand("TryGetActiveCommand:healing");
                 }
             }
 
             if (_activeCommand != FollowerCommandType.None && Time.time > _commandUntilTime)
             {
-                ClearCommand();
+                ClearCommand("TryGetActiveCommand:timeout");
             }
 
             command = _activeCommand;
@@ -979,8 +999,12 @@ namespace friendlySAIN.Components
             return command != FollowerCommandType.None;
         }
 
-        public void ClearCommand()
+        public void ClearCommand(string reason = "unspecified")
         {
+            if (_activeCommand != FollowerCommandType.None)
+            {
+                LogCommandClear(reason);
+            }
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
@@ -1088,18 +1112,113 @@ namespace friendlySAIN.Components
             _peaceChangeHooked = false;
         }
 
+        private void HookManualUpdate()
+        {
+            if (_manualUpdateHooked) return;
+            if (_bot?.ProfileId == null) return;
+            _lastHaveEnemy = _bot.Memory?.HaveEnemy ?? false;
+            _lastHaveEnemyKnown = true;
+            BotOwnerManualUpdatePatch.BotOwnerUpdate[_bot.ProfileId] = OnBotOwnerManualUpdate;
+            _manualUpdateHooked = true;
+        }
+
+        private void UnhookManualUpdate()
+        {
+            if (!_manualUpdateHooked) return;
+            if (_bot?.ProfileId != null &&
+                BotOwnerManualUpdatePatch.BotOwnerUpdate.TryGetValue(_bot.ProfileId, out var cb) &&
+                cb == OnBotOwnerManualUpdate)
+            {
+                BotOwnerManualUpdatePatch.BotOwnerUpdate.Remove(_bot.ProfileId);
+            }
+            _manualUpdateHooked = false;
+            _lastHaveEnemyKnown = false;
+            _pendingHoldRestoreAfterCombatBlip = false;
+        }
+
         private void OnPeaceChange(bool isPeace)
         {
-            if (!isPeace)
-            {
-                ClearCommand();
-            }
             _bot?.PatrollingData?.Pause();
+        }
+
+        private void OnBotOwnerManualUpdate(BotOwner owner)
+        {
+            try
+            {
+                if (owner == null || owner != _bot) return;
+                bool haveEnemy = owner.Memory?.HaveEnemy ?? false;
+
+                if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)
+                {
+                    if (haveEnemy)
+                    {
+                        if (_activeCommand == FollowerCommandType.HoldPosition)
+                        {
+                            _pendingHoldRestoreAfterCombatBlip = true;
+                            _holdClearedForCombatAt = Time.time;
+                            ClearCommand("UpdateManual:HaveEnemyEnter");
+                        }
+                    }
+                    else
+                    {
+                        if (_pendingHoldRestoreAfterCombatBlip)
+                        {
+                            float combatDuration = Time.time - _holdClearedForCombatAt;
+                            if (combatDuration <= HoldCombatBlipRestoreWindowSeconds &&
+                                _activeCommand == FollowerCommandType.None)
+                            {
+                                SetHoldPosition(float.PositiveInfinity);
+                            }
+                            _pendingHoldRestoreAfterCombatBlip = false;
+                        }
+                    }
+                }
+                else if (haveEnemy && _pendingHoldRestoreAfterCombatBlip)
+                {
+                    if (Time.time - _holdClearedForCombatAt > HoldCombatBlipRestoreWindowSeconds)
+                    {
+                        _pendingHoldRestoreAfterCombatBlip = false;
+                    }
+                }
+
+                if (_pendingHoldRestoreAfterCombatBlip && _activeCommand != FollowerCommandType.None)
+                {
+                    // A new command replaced hold while waiting for a blip restore.
+                    _pendingHoldRestoreAfterCombatBlip = false;
+                }
+
+                _lastHaveEnemy = haveEnemy;
+                _lastHaveEnemyKnown = true;
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Exception in BotFollowerPlayer manual update combat debounce");
+                Modules.Logger.LogError(ex);
+            }
         }
 
         private void OnBeingHit(DamageInfoStruct arg1, EBodyPart arg2, float arg3)
         {
-            ClearCommand();
+            ClearCommand("OnBeingHit");
+        }
+
+        private void LogCommandSet(FollowerCommandType nextCommand, string source)
+        {
+            if (!EnableCommandTrace) return;
+            string name = _bot?.Profile?.Nickname ?? _bot?.name ?? "<null>";
+            Modules.Logger.LogInfo($"[CmdTrace] bot={name} set {nextCommand} from={_activeCommand} source={source}");
+        }
+
+        private void LogCommandClear(string reason)
+        {
+            if (!EnableCommandTrace) return;
+            string name = _bot?.Profile?.Nickname ?? _bot?.name ?? "<null>";
+            Modules.Logger.LogInfo($"[CmdTrace] bot={name} clear {_activeCommand} reason={reason}");
+        }
+
+        private static string Fmt(Vector3 v)
+        {
+            return $"({v.x:F1},{v.y:F1},{v.z:F1})";
         }
 
         private void ForceEndCurrentDecision(BotOwner bot)
@@ -1378,7 +1497,6 @@ namespace friendlySAIN.Components
 
                 dispose.Invoke(listController, Array.Empty<object>());
                 init.Invoke(listController, Array.Empty<object>());
-                Modules.Logger.LogInfo($"[SAIN] EnemyListController Dispose/Init refresh after group assign follower={_bot.Profile?.Nickname} group={_bot.BotsGroup?.Id}");
             }
             catch (Exception ex)
             {

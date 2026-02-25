@@ -171,7 +171,7 @@ namespace friendlySAIN.BigBrain.Actions
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer boss || boss.realPlayer == null)
             {
                 ReleaseRegroupReservation();
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("Regroup:missingBoss");
                 return;
             }
 
@@ -186,7 +186,7 @@ namespace friendlySAIN.BigBrain.Actions
             if (ShouldInterruptRegroupForThreatOrState(clearForDanger: true))
             {
                 ReleaseRegroupReservation();
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("Regroup:interrupt");
                 BotOwner.StopMove();
                 return;
             }
@@ -233,7 +233,7 @@ namespace friendlySAIN.BigBrain.Actions
                     regroupReportedOnPosition = true;
                 }
                 ReleaseRegroupReservation();
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("Regroup:arrived");
                 return;
             }
 
@@ -442,7 +442,7 @@ namespace friendlySAIN.BigBrain.Actions
         {
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer boss || boss.realPlayer == null)
             {
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("ComeCloser:missingBoss");
                 return;
             }
 
@@ -503,7 +503,7 @@ namespace friendlySAIN.BigBrain.Actions
             if(BotOwner.Mover.TargetPose != 1f) BotOwner.Mover.SetPose(1f);
             if (BotOwner.Memory.HaveEnemy)
             {
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("MoveToPoint:enemySeen");
                 BotOwner.StopMove();
                 return;
             }
@@ -525,7 +525,7 @@ namespace friendlySAIN.BigBrain.Actions
                 holdLookPoint = Vector3.zero;
                 nextHoldLookChangeAt = 0f;
                 moveCommandInitialized = false;
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("MoveToPoint:arrived");
                 return;
             }
 
@@ -545,7 +545,7 @@ namespace friendlySAIN.BigBrain.Actions
                 NavMeshPath path = new NavMeshPath();
                 if (!NavMesh.CalculatePath(BotOwner.Position, target, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
                 {
-                    followerData?.ClearCommand();
+                    followerData?.ClearCommand("MoveToPoint:pathInvalid");
                     BotOwner.StopMove();
                     return;
                 }
@@ -613,7 +613,7 @@ namespace friendlySAIN.BigBrain.Actions
         {
             if (BotOwner.Memory.HaveEnemy)
             {
-                followerData?.ClearCommand();
+                followerData?.ClearCommand("HoldPosition:enemySeen");
                 BotOwner.StopMove();
                 return;
             }

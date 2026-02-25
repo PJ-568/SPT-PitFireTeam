@@ -71,23 +71,7 @@ namespace friendlySAIN.Patches
             // Keep vanilla behavior at longer range.
             if ((botOwner.Position - requester.Position).sqrMagnitude > RecruitPhraseDistance * RecruitPhraseDistance) return true;
 
-            bool accepted = botOwner.BotsGroup?.RequestsController?.TryAskFollowMeRequest(requester, botOwner) == true;
-            if (!accepted)
-            {
-                botOwner.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
-                botOwner.Gesture.TryGestus(EInteraction.NoGesture, true);
-            }
-            else
-            {
-                int responseDelayMs = Random.Range(300, 700);
-                Utils.Utils.SetTimeout(() =>
-                {
-                    if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return;
-                    botOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
-                }, responseDelayMs);
-
-                botOwner.Gesture.TryGestus(EInteraction.OkGesture, true);
-            }
+            botOwner.BotsGroup?.RequestsController?.TryAskFollowMeRequest(requester, botOwner);
 
             // Request was handled by the mod flow, suppress vanilla duplicate processing.
             return false;
