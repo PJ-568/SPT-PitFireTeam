@@ -6,7 +6,6 @@ namespace friendlySAIN.Utils
 {
     internal static class FollowerAwareness
     {
-        private const bool EnableReactionTrace = false;
         private sealed class State
         {
             public float GotShotUntil;
@@ -32,7 +31,6 @@ namespace friendlySAIN.Utils
             if (bot == null || bot.IsDead || bot.BotState != EBotState.Active) return;
             if (bot.Memory.HaveEnemy && bot.Memory.GoalEnemy != null && bot.Memory.GoalEnemy.IsVisible)
             {
-                Trace(bot, $"FakeShot skip visibleGoal goal={bot.Memory.GoalEnemy.ProfileId}");
                 return;
             }
 
@@ -48,7 +46,6 @@ namespace friendlySAIN.Utils
                 lookPoint = botPos + targetDirection.normalized * 5f;
             }
 
-            Trace(bot, $"FakeShot turn target={Fmt(lookPoint)} recentHitUntil={state.GotShotUntil:F2}");
             bot.Steering.LookToPoint(lookPoint, CalcTurnSpeed(bot.LookDirection, targetDirection));
         }
 
@@ -57,12 +54,9 @@ namespace friendlySAIN.Utils
             if (bot == null || enemy == null || bot.IsDead || bot.BotState != EBotState.Active) return;
             var state = GetState(bot);
             if (state == null) return;
-            Trace(bot, $"SoundHeard type={type} enemy={enemy.Profile?.Nickname ?? enemy.ProfileId} dist={distance:F1} pos={Fmt(position)} haveEnemy={bot.Memory?.HaveEnemy}");
-
             bool gunSound = type == AISoundType.silencedGun || type == AISoundType.gun;
             if (gunSound && Time.time < state.LastGunshotTime + 3f)
             {
-                Trace(bot, $"SoundHeard skip gun cooldown until={state.LastGunshotTime + 3f:F2}");
                 return;
             }
 
@@ -72,14 +66,11 @@ namespace friendlySAIN.Utils
 
                 if (distance <= 35f)
                 {
-                    Trace(bot, $"SoundHeard gun close -> FakeShot + maybe autoAcquire navToSound={Utils.GetNavDistance(bot.Position, position):F1}");
                     FakeShot(bot, lookPoint2);
-                    bool autoAcquired = false;
                     if (Utils.GetNavDistance(bot.Position, position) <= 15f)
                     {
-                        autoAcquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "gunClose");
+                        TryAutoAcquireCloseThreat(bot, enemy, distance, "gunClose");
                     }
-                    Trace(bot, $"SoundHeard result=gunClose {(autoAcquired ? "autoAcquire" : "turnOnly")}");
                 }
                 else if (Utils.CanShootToTarget(
                     new ShootPointClass(bot.GetPlayer.MainParts[BodyPartType.head].Position, 1f),
@@ -87,27 +78,14 @@ namespace friendlySAIN.Utils
                     bot.LookSensor.Mask
                 ))
                 {
-                    Trace(bot, "SoundHeard gun distant LOS -> FakeShot");
                     FakeShot(bot, lookPoint2);
                     state.LastGunshotTime = Time.time;
-                    Trace(bot, "SoundHeard result=gunDistantLOS turnOnly");
-                }
-                else
-                {
-                    Trace(bot, "SoundHeard gun distant no LOS");
-                    Trace(bot, "SoundHeard result=gunDistantNoLOS ignore");
                 }
                 return;
-            }
-            else if (gunSound)
-            {
-                Trace(bot, "SoundHeard gun ignored because WasRecentlyHit");
-                Trace(bot, "SoundHeard result=gun ignoreRecentlyHit");
             }
 
             if (type != AISoundType.step)
             {
-                Trace(bot, $"SoundHeard ignore unsupported type={type}");
                 return;
             }
 
@@ -120,7 +98,6 @@ namespace friendlySAIN.Utils
             bool wasProcessed = state.ProcessedSoundZones.Contains(positionZone);
             if (wasProcessed && Time.time - state.LastSoundTime < 5f)
             {
-                Trace(bot, $"SoundHeard step skip zoneCooldown dt={Time.time - state.LastSoundTime:F1}");
                 return;
             }
 
@@ -134,17 +111,13 @@ namespace friendlySAIN.Utils
 
             if (distance <= 8f)
             {
-                Trace(bot, "SoundHeard step close -> FakeShot + autoAcquire");
                 FakeShot(bot, lookPoint);
-                bool autoAcquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "stepClose");
-                Trace(bot, $"SoundHeard result=stepClose {(autoAcquired ? "autoAcquire" : "turnOnly")}");
+                TryAutoAcquireCloseThreat(bot, enemy, distance, "stepClose");
             }
             else
             {
                 state.LastSoundTime = Time.time;
-                Trace(bot, "SoundHeard step far -> FakeShot only");
                 FakeShot(bot, lookPoint);
-                Trace(bot, "SoundHeard result=stepFar turnOnly");
             }
         }
 
@@ -153,7 +126,6 @@ namespace friendlySAIN.Utils
             if (bot == null || bullet == null || bot.IsDead || bot.BotState != EBotState.Active) return;
             if (bot.Memory.HaveEnemy)
             {
-                Trace(bot, "BulletFelt skip alreadyHaveEnemy");
                 return;
             }
 
@@ -161,14 +133,12 @@ namespace friendlySAIN.Utils
             if (state == null) return;
             if (Time.time < state.NextBulletReactionAt)
             {
-                Trace(bot, $"BulletFelt skip cooldown until={state.NextBulletReactionAt:F2}");
                 return;
             }
 
             Player shooter = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(bullet.PlayerProfileID);
             if (shooter == null)
             {
-                Trace(bot, "BulletFelt skip shooterNotFound");
                 return;
             }
 
@@ -176,7 +146,6 @@ namespace friendlySAIN.Utils
                 (bullet.Player?.iPlayer != null && bot.BotsGroup.IsEnemy(bullet.Player.iPlayer));
             if (!isEnemy)
             {
-                Trace(bot, $"BulletFelt skip nonEnemy shooter={shooter.Profile?.Nickname ?? shooter.ProfileId}");
                 return;
             }
 
@@ -190,7 +159,6 @@ namespace friendlySAIN.Utils
             float distanceSqr = (impact - bot.Position).sqrMagnitude;
             if (distanceSqr > BulletHearDistanceSqr)
             {
-                Trace(bot, $"BulletFelt skip tooFar dist={Mathf.Sqrt(distanceSqr):F1}");
                 return;
             }
 
@@ -200,20 +168,11 @@ namespace friendlySAIN.Utils
             random = random.normalized * dispersion;
             Vector3 estimatedShooterPos = shooter.Transform.position + random;
 
-            Trace(bot, $"BulletFelt react shooter={shooter.Profile?.Nickname ?? shooter.ProfileId} impact={Fmt(impact)} est={Fmt(estimatedShooterPos)}");
             if (TryAutoAcquireCloseThreat(bot, shooter, Mathf.Sqrt(distanceSqr), "bulletClose"))
             {
-                Trace(bot, "BulletFelt result=autoAcquire");
                 return;
             }
             FakeShot(bot, estimatedShooterPos);
-            Trace(bot, "BulletFelt result=turnOnly");
-        }
-
-        private static void Trace(BotOwner bot, string msg)
-        {
-            if (!EnableReactionTrace || bot == null) return;
-            Modules.Logger.LogInfo($"[ReactTrace] bot={bot.Profile?.Nickname ?? bot.name} {msg}");
         }
 
         private static string Fmt(Vector3 v)
@@ -237,15 +196,12 @@ namespace friendlySAIN.Utils
             if (bot == null || enemy == null) return false;
             if (distance > CloseThreatAutoAcquireDistance)
             {
-                Trace(bot, $"AutoAcquire source={source} skip tooFar dist={distance:F1}");
                 return false;
             }
 
             EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
             enemyInfo?.SetVisible(true);
-            bool success = enemyInfo != null;
-            Trace(bot, $"AutoAcquire source={source} success={success} enemy={enemy.ProfileId} dist={distance:F1}");
-            return success;
+            return enemyInfo != null;
         }
 
         private static State GetState(BotOwner bot)

@@ -27,7 +27,6 @@ namespace friendlySAIN.Components
 
     public class BotFollowerPlayer
     {
-        private const bool EnableCommandTrace = false;
         protected BotOwner _bot;
         protected pitAIBossPlayer _player;
 
@@ -871,7 +870,6 @@ namespace friendlySAIN.Components
 
         public void SetHoldPosition(float duration)
         {
-            LogCommandSet(FollowerCommandType.HoldPosition, "SetHoldPosition");
             _activeCommand = FollowerCommandType.HoldPosition;
             _commandUntilTime = float.PositiveInfinity;
             _commandTarget = Vector3.zero;
@@ -880,7 +878,6 @@ namespace friendlySAIN.Components
 
         public void SetMoveToPoint(Vector3 target, float duration)
         {
-            LogCommandSet(FollowerCommandType.MoveToPoint, $"SetMoveToPoint target={Fmt(target)} dur={duration:F1}");
             _activeCommand = FollowerCommandType.MoveToPoint;
             _commandTarget = target;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
@@ -899,7 +896,6 @@ namespace friendlySAIN.Components
                 _resumeHoldAfterComeCloser = false;
             }
 
-            LogCommandSet(FollowerCommandType.ComeCloser, $"SetComeCloser dur={duration:F1} prev={previous} resumeHold={_resumeHoldAfterComeCloser}");
             _activeCommand = FollowerCommandType.ComeCloser;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
             _commandTarget = Vector3.zero;
@@ -912,7 +908,6 @@ namespace friendlySAIN.Components
                 ClearCommand($"SetRegroup:replace({_activeCommand})");
             }
 
-            LogCommandSet(FollowerCommandType.RegroupNearBoss, $"SetRegroup dur={duration:F1}");
             _activeCommand = FollowerCommandType.RegroupNearBoss;
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
@@ -932,7 +927,6 @@ namespace friendlySAIN.Components
                 _commandTarget = Vector3.zero;
                 _commandUntilTime = float.PositiveInfinity;
                 _resumeHoldAfterComeCloser = false;
-                LogCommandSet(FollowerCommandType.HoldPosition, "CompleteComeCloser -> resume hold");
                 return;
             }
 
@@ -1001,10 +995,6 @@ namespace friendlySAIN.Components
 
         public void ClearCommand(string reason = "unspecified")
         {
-            if (_activeCommand != FollowerCommandType.None)
-            {
-                LogCommandClear(reason);
-            }
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
@@ -1200,20 +1190,6 @@ namespace friendlySAIN.Components
         private void OnBeingHit(DamageInfoStruct arg1, EBodyPart arg2, float arg3)
         {
             ClearCommand("OnBeingHit");
-        }
-
-        private void LogCommandSet(FollowerCommandType nextCommand, string source)
-        {
-            if (!EnableCommandTrace) return;
-            string name = _bot?.Profile?.Nickname ?? _bot?.name ?? "<null>";
-            Modules.Logger.LogInfo($"[CmdTrace] bot={name} set {nextCommand} from={_activeCommand} source={source}");
-        }
-
-        private void LogCommandClear(string reason)
-        {
-            if (!EnableCommandTrace) return;
-            string name = _bot?.Profile?.Nickname ?? _bot?.name ?? "<null>";
-            Modules.Logger.LogInfo($"[CmdTrace] bot={name} clear {_activeCommand} reason={reason}");
         }
 
         private static string Fmt(Vector3 v)
