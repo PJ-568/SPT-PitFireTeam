@@ -57,6 +57,10 @@ namespace friendlySAIN.Components
         private bool _pendingHoldRestoreAfterCombatBlip = false;
         private float _holdClearedForCombatAt;
         private const float HoldCombatBlipRestoreWindowSeconds = 3f;
+        private Vector3 _teleportGraceTarget;
+        private float _teleportGraceUntil;
+        private const float TeleportGraceSeconds = 0.45f;
+        private const float TeleportReteleportDistance = 1.5f;
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
@@ -714,6 +718,12 @@ namespace friendlySAIN.Components
             return _player;
         }
 
+        public void BeginTeleportGrace(Vector3 target)
+        {
+            _teleportGraceTarget = target;
+            _teleportGraceUntil = Time.time + TeleportGraceSeconds;
+        }
+
         public virtual void Dismiss(bool warnPlayer = false)
         {
             if (_bot == null) return;
@@ -1136,6 +1146,20 @@ namespace friendlySAIN.Components
             try
             {
                 if (owner == null || owner != _bot) return;
+
+                if (_teleportGraceUntil > Time.time)
+                {
+                    owner.Mover?.Stop();
+                    owner.StopMove();
+                    owner.GoToSomePointData?.SetPoint(_teleportGraceTarget);
+                    owner.PatrollingData?.Pause();
+
+                    if ((owner.Position - _teleportGraceTarget).sqrMagnitude > TeleportReteleportDistance * TeleportReteleportDistance)
+                    {
+                        owner.GetPlayer?.Teleport(_teleportGraceTarget);
+                    }
+                }
+
                 bool haveEnemy = owner.Memory?.HaveEnemy ?? false;
 
                 if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)

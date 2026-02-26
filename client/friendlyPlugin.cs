@@ -198,6 +198,7 @@ namespace friendlySAIN
             // bot patches to help with various scenarios while being a follower of the player
             // Temporarily disabled for 4.x stability; revisit once BotsGroup method signatures are remapped.
             new BotGroupAddEnemyPatch().Enable();
+            new BotGroupReportEnemyPatch().Enable();
             new BotGroupUsecEnemyPatch().Enable();
             new BotControllerEnemyPropagationSafetyPatch().Enable();
 
@@ -433,6 +434,7 @@ namespace friendlySAIN
                         Vector3 target = FindTeleportSpot(position, reservedSpots, followerIndex);
                         followerIndex++;
 
+                        follower.BeginTeleportGrace(target);
                         bot.Mover.Stop();
                         bot.GetPlayer.Teleport(target);
                         reservedSpots.Add(target);

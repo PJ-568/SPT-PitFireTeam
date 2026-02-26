@@ -1,4 +1,5 @@
-﻿using EFT;
+﻿using Comfort.Common;
+using EFT;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using HarmonyLib;
@@ -361,6 +362,55 @@ namespace friendlySAIN.Patches
             }
         }
 
+    }
+
+    internal class BotGroupReportEnemyPatch : ModulePatch
+    {
+        private static readonly Dictionary<string, float> _syncDedupeUntil = new();
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotsGroup), "ReportAboutEnemy");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(BotsGroup __instance, IPlayer enemy, EEnemyPartVisibleType isVisibleOnlyBySence, BotOwner reporter)
+        {
+            if (!friendlySAIN.IsSAINInstalled) return;
+            if (__instance is not BotsGroupPlayer) return;
+            if (enemy == null || reporter == null) return;
+            if (enemy.IsAI && enemy.AIData?.BotOwner?.GetPlayer == null) return;
+
+            Player enemyPlayer = enemy as Player ?? Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemy.ProfileId);
+            if (enemyPlayer == null || !enemyPlayer.HealthController.IsAlive) return;
+
+            for (int i = 0; i < __instance.MembersCount; i++)
+            {
+                BotOwner member = __instance.Member(i);
+                if (member == null || member.IsDead || member.BotState != EBotState.Active) continue;
+                if (member == reporter) continue;
+                if (!BossPlayers.IsFollower(member)) continue;
+
+                // Requested behavior: only force awareness for followers that are currently out of combat.
+                if (member.Memory == null || member.Memory.HaveEnemy) continue;
+                if (member.EnemiesController == null || member.BotsGroup == null) continue;
+
+                string dedupeKey = $"{__instance.Id}:{enemy.ProfileId}:{member.ProfileId}";
+                if (_syncDedupeUntil.TryGetValue(dedupeKey, out float until) && Time.time < until)
+                {
+                    continue;
+                }
+                _syncDedupeUntil[dedupeKey] = Time.time + 0.75f;
+
+                EnemyInfo info = Utils.Enemy.MakeEnemy(member, enemyPlayer);
+                if (info == null) continue;
+
+                if (isVisibleOnlyBySence == EEnemyPartVisibleType.Visible)
+                {
+                    info.SetVisible(true);
+                }
+            }
+        }
     }
 
     /**

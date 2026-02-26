@@ -21,6 +21,9 @@ namespace friendlySAIN.Patches
 
         private static Type? enemyTalk = null;
         private static Type? GroupClass = null;
+        private static Type? sainPlayerTalkPatch = null;
+        private static Type? sainBotTalkPatch = null;
+        private static Type? sainBotTalkManualUpdatePatch = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
             if (!IsSAINInstalled()) return;
@@ -47,6 +50,21 @@ namespace friendlySAIN.Patches
                 GroupClass = Type.GetType("SAIN.SAINComponent.Classes.Talk.GroupTalk, SAIN");
             }
 
+            if (sainPlayerTalkPatch == null)
+            {
+                sainPlayerTalkPatch = Type.GetType("SAIN.Patches.Talk.PlayerTalkPatch, SAIN");
+            }
+
+            if (sainBotTalkPatch == null)
+            {
+                sainBotTalkPatch = Type.GetType("SAIN.Patches.Talk.BotTalkPatch, SAIN");
+            }
+
+            if (sainBotTalkManualUpdatePatch == null)
+            {
+                sainBotTalkManualUpdatePatch = Type.GetType("SAIN.Patches.Talk.BotTalkManualUpdatePatch, SAIN");
+            }
+
             if (enemyTalk != null)
             {
                 harmony.Patch(AccessTools.Method(enemyTalk, "playerTalked"), new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchPlayerTalked), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
@@ -57,6 +75,8 @@ namespace friendlySAIN.Patches
                 harmony.Patch(AccessTools.Method(GroupClass, "EnemyConversation"), new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchEnemyConvesation), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
             }
 
+            PatchSainTalkPrefixesForFollowers(harmony);
+
 
             if (squadType != null && SAINEnableClass != null)
             {
@@ -66,6 +86,72 @@ namespace friendlySAIN.Patches
                     harmony.Patch(assignLeader, new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchAssignSquadLeader), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
                 }
                 Logger.LogInfo("SAIN Patched");
+            }
+        }
+
+        private static void PatchSainTalkPrefixesForFollowers(Harmony harmony)
+        {
+            var bypassPrefix = new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(BypassSainTalkPatchForFollower), BindingFlags.NonPublic | BindingFlags.Static));
+
+            if (sainPlayerTalkPatch != null)
+            {
+                MethodInfo? patchPrefix = AccessTools.Method(sainPlayerTalkPatch, "PatchPrefix");
+                if (patchPrefix != null)
+                {
+                    harmony.Patch(patchPrefix, prefix: bypassPrefix);
+                }
+            }
+
+            if (sainBotTalkPatch != null)
+            {
+                MethodInfo? patchPrefix = AccessTools.Method(sainBotTalkPatch, "PatchPrefix");
+                if (patchPrefix != null)
+                {
+                    harmony.Patch(patchPrefix, prefix: bypassPrefix);
+                }
+            }
+
+            if (sainBotTalkManualUpdatePatch != null)
+            {
+                MethodInfo? patchPrefix = AccessTools.Method(sainBotTalkManualUpdatePatch, "PatchPrefix");
+                if (patchPrefix != null)
+                {
+                    harmony.Patch(patchPrefix, prefix: bypassPrefix);
+                }
+            }
+        }
+
+        [HarmonyPrefix]
+        private static bool BypassSainTalkPatchForFollower(object[] __args, ref bool __result)
+        {
+            try
+            {
+                if (__args == null || __args.Length == 0) return true;
+
+                BotOwner? botOwner = null;
+
+                if (__args[0] is Player player)
+                {
+                    if (!player.IsAI) return true;
+                    botOwner = player.AIData?.BotOwner;
+                }
+                else if (__args[0] is BotTalk botTalk)
+                {
+                    botOwner = botTalk.BotOwner_0;
+                }
+
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return true;
+                }
+
+                // Skip SAIN talk-patch logic for followers so EFT/plugin talk behavior can run.
+                __result = true;
+                return false;
+            }
+            catch
+            {
+                return true;
             }
         }
 

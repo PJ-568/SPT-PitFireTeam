@@ -507,6 +507,12 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.StopMove();
                 return;
             }
+            if (HasVisibleKnownEnemy())
+            {
+                followerData?.ClearCommand("MoveToPoint:enemyVisibleNoGoal");
+                BotOwner.StopMove();
+                return;
+            }
 
             float distance = (target - BotOwner.Position).magnitude;
             if (distance > 1.5f && moveArrivalLookUntil > 0f)
@@ -564,6 +570,27 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             nextHoldLookChangeAt = 0f;
+        }
+
+        private bool HasVisibleKnownEnemy()
+        {
+            try
+            {
+                var infos = BotOwner?.EnemiesController?.EnemyInfos;
+                if (infos == null || infos.Count == 0) return false;
+
+                foreach (var kv in infos)
+                {
+                    var info = kv.Value;
+                    if (info == null) continue;
+                    if (info.IsVisible) return true;
+                }
+            }
+            catch
+            {
+                // Ignore and preserve command behavior on rare enemy-info enumeration issues.
+            }
+            return false;
         }
 
         private void HandleMovePointArrivalLookAround()
