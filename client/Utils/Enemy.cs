@@ -1,4 +1,5 @@
 ﻿using EFT;
+using friendlySAIN.Modules;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -181,6 +182,30 @@ namespace friendlySAIN.Utils
 
         public static EnemyInfo MakeEnemy(BotOwner bot, Player enemy, EBotEnemyCause cause = EBotEnemyCause.addPlayerToBoss)
         {
+            if (bot == null || enemy == null) return null;
+
+            if (BossPlayers.IsFollower(bot))
+            {
+                if (BossPlayers.IsPlayerBoss(enemy.ProfileId))
+                {
+                    return null;
+                }
+
+                if (enemy.IsAI && enemy.AIData?.BotOwner != null && BossPlayers.IsFollower(enemy.AIData.BotOwner))
+                {
+                    return null;
+                }
+
+                if (enemy.IsAI)
+                {
+                    WildSpawnType? role = enemy.Profile?.Info?.Settings?.Role;
+                    if (role.HasValue && Props.friendlyBotTypes.Contains(role.Value))
+                    {
+                        return null;
+                    }
+                }
+            }
+
             BotSettingsClass groupInfo;
             bot.BotsGroup.Enemies.TryGetValue(enemy, out groupInfo);
 
@@ -213,6 +238,31 @@ namespace friendlySAIN.Utils
 
             return info;
 
+        }
+
+        public static void ForceIgnoreUntilAggressionOff(BotOwner bot)
+        {
+            if (bot?.EnemiesController?.EnemyInfos == null) return;
+
+            foreach (var kv in bot.EnemiesController.EnemyInfos)
+            {
+                EnemyInfo info = kv.Value;
+                if (info != null)
+                {
+                    info.IgnoreUntilAggression = false;
+                }
+            }
+        }
+
+        public static void ForceIgnoreUntilAggressionOff(BotsGroup group)
+        {
+            if (group == null) return;
+
+            for (int i = 0; i < group.MembersCount; i++)
+            {
+                BotOwner member = group.Member(i);
+                ForceIgnoreUntilAggressionOff(member);
+            }
         }
 
         public static void ClearEnemyLocations(string enemyId)

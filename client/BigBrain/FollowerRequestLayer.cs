@@ -65,6 +65,11 @@ namespace friendlySAIN.BigBrain
             }
 
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
+            if (hasCommand && command != FollowerCommandType.RegroupNearBoss && BotOwner.Memory.HaveEnemy)
+            {
+                return false;
+            }
+
             if (hasCommand
                 && command == FollowerCommandType.RegroupNearBoss
                 && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))

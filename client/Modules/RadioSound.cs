@@ -1,10 +1,12 @@
 using Comfort.Common;
+using EFT;
 using EFT.UI;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
+using System;
 
 namespace friendlySAIN.Modules
 {
@@ -26,14 +28,8 @@ namespace friendlySAIN.Modules
         private async Task<List<AudioClip>> GetSound()
         {
             List<AudioClip> audioClips = new List<AudioClip>();
-            string dllPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-
-            string soundFilePath = Path.Combine(dllPath, "radiochat.ogg");
-
-            audioClips.Add(await LoadAudioClip("file://" + soundFilePath));
-
-            soundFilePath = Path.Combine(dllPath, "locationping.ogg");
-            audioClips.Add(await LoadAudioClip("file://" + soundFilePath));
+            audioClips.Add(await LoadAudioClip("file://" + ResolveSoundPath("radiochat.ogg")));
+            audioClips.Add(await LoadAudioClip("file://" + ResolveSoundPath("locationping.ogg")));
 
             return audioClips;
         }
@@ -68,17 +64,14 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                if (radioClip == null) return;
-
                 float level = (friendlySAIN.statusSound.Value / 100f) * 0.5f;
-                // try to fetch the sound again if it's not loaded
-                if (radioClip.length == 0)
+                // Lazy load when async Enable() has not completed yet.
+                if (radioClip == null || radioClip.length == 0)
                 {
-                    string dllPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-                    string soundFilePath = Path.Combine(dllPath, "radiochat.ogg");
-                    radioClip = await LoadAudioClip("file://" + soundFilePath);
+                    radioClip = await LoadAudioClip("file://" + ResolveSoundPath("radiochat.ogg"));
                 }
 
+                if (radioClip == null) return;
                 Singleton<GUISounds>.Instance.PlaySound(radioClip, false, true, level);
             }
             catch (System.Exception e)
@@ -87,26 +80,121 @@ namespace friendlySAIN.Modules
             }
         }
 
-        public async void PlayLocationSound(float pan)
+        public async void PlayRadioSound(Vector3 worldPosition)
         {
-            if (locationClip == null) return;
             try
             {
-                float level = (friendlySAIN.statusSound.Value / 100f) * 0.6f;
-                // try to fetch the sound again if it's not loaded
-                if (locationClip.length == 0)
+                float level = (friendlySAIN.statusSound.Value / 100f) * 0.5f;
+                if (radioClip == null || radioClip.length == 0)
                 {
-                    string dllPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-                    string soundFilePath = Path.Combine(dllPath, "locationping.ogg");
-                    locationClip = await LoadAudioClip("file://" + soundFilePath);
+                    radioClip = await LoadAudioClip("file://" + ResolveSoundPath("radiochat.ogg"));
                 }
 
-                Singleton<BetterAudio>.Instance.PlayNonspatial(locationClip, BetterAudio.AudioSourceGroupType.Nonspatial, pan, level);
+                if (radioClip == null) return;
+
+                try
+                {
+                    BetterAudio audio = Singleton<BetterAudio>.Instance;
+                    if (audio == null)
+                    {
+                        Singleton<GUISounds>.Instance.PlaySound(radioClip, false, true, level);
+                        return;
+                    }
+
+                    BetterSource source = audio.PlayAtPoint(
+                        worldPosition,
+                        radioClip,
+                        0f,
+                        BetterAudio.AudioSourceGroupType.Speech,
+                        90,
+                        level,
+                        EOcclusionTest.None,
+                        null,
+                        false);
+
+                    if (source == null)
+                    {
+                        Singleton<GUISounds>.Instance.PlaySound(radioClip, false, true, level);
+                    }
+                }
+                catch
+                {
+                    Singleton<GUISounds>.Instance.PlaySound(radioClip, false, true, level);
+                }
             }
             catch (System.Exception e)
             {
                 Logger.LogError(e);
             }
+        }
+
+        public async void PlayLocationSound(Vector3 worldPosition)
+        {
+            try
+            {
+                float level = (friendlySAIN.statusSound.Value / 100f) * 0.6f;
+                // Lazy load when async Enable() has not completed yet.
+                if (locationClip == null || locationClip.length == 0)
+                {
+                    locationClip = await LoadAudioClip("file://" + ResolveSoundPath("locationping.ogg"));
+                }
+
+                if (locationClip == null) return;
+
+                try
+                {
+                    BetterAudio audio = Singleton<BetterAudio>.Instance;
+                    if (audio == null)
+                    {
+                        Singleton<GUISounds>.Instance.PlaySound(locationClip, false, true, level);
+                        return;
+                    }
+
+                    BetterSource source = audio.PlayAtPoint(
+                        worldPosition,
+                        locationClip,
+                        0f,
+                        BetterAudio.AudioSourceGroupType.Speech,
+                        90,
+                        level,
+                        EOcclusionTest.None,
+                        null,
+                        false);
+
+                    // BetterAudio can fail silently (null source) if distance/rolloff checks fail.
+                    if (source == null)
+                    {
+                        Singleton<GUISounds>.Instance.PlaySound(locationClip, false, true, level);
+                    }
+                }
+                catch
+                {
+                    // Fall back to a guaranteed UI playback path if 3D source creation fails.
+                    Singleton<GUISounds>.Instance.PlaySound(locationClip, false, true, level);
+                }
+            }
+            catch (System.Exception e)
+            {
+                Logger.LogError(e);
+            }
+        }
+
+        private static string ResolveSoundPath(string fileName)
+        {
+            string dllDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            if (string.IsNullOrEmpty(dllDir))
+            {
+                throw new Exception("Cannot resolve plugin directory for sound loading.");
+            }
+
+            // Prefer root next to DLL, then resources subfolder.
+            string direct = Path.Combine(dllDir, fileName);
+            if (File.Exists(direct)) return direct;
+
+            string resources = Path.Combine(dllDir, "resources", fileName);
+            if (File.Exists(resources)) return resources;
+
+            throw new FileNotFoundException($"Sound file not found: {fileName}. Checked: {direct} and {resources}");
         }
     }
 

@@ -1,11 +1,13 @@
 using Comfort.Common;
 using EFT;
 using UnityEngine;
+using friendlySAIN.Modules;
 
 namespace friendlySAIN.Utils
 {
     internal static class FollowerAwareness
     {
+        private const bool EnableReactionTrace = true;
         private sealed class State
         {
             public float GotShotUntil;
@@ -26,16 +28,17 @@ namespace friendlySAIN.Utils
             return state != null && state.GotShotUntil > Time.time;
         }
 
-        public static void FakeShot(BotOwner bot, Vector3 lookPoint)
+        public static bool FakeShot(BotOwner bot, Vector3 lookPoint)
         {
-            if (bot == null || bot.IsDead || bot.BotState != EBotState.Active) return;
+            if (bot == null || bot.IsDead || bot.BotState != EBotState.Active) return false;
             if (bot.Memory.HaveEnemy && bot.Memory.GoalEnemy != null && bot.Memory.GoalEnemy.IsVisible)
             {
-                return;
+                Trace(bot, $"FakeShot ignore visibleGoal={bot.Memory.GoalEnemy.ProfileId}");
+                return false;
             }
 
             var state = GetState(bot);
-            if (state == null) return;
+            if (state == null) return false;
 
             state.GotShotUntil = Time.time + 3f;
             Vector3 botPos = bot.GetPlayer?.Transform?.position ?? bot.Position;
@@ -46,7 +49,9 @@ namespace friendlySAIN.Utils
                 lookPoint = botPos + targetDirection.normalized * 5f;
             }
 
+            Trace(bot, $"FakeShot turn target={Fmt(lookPoint)}");
             bot.Steering.LookToPoint(lookPoint, CalcTurnSpeed(bot.LookDirection, targetDirection));
+            return true;
         }
 
         public static void SoundHeard(BotOwner bot, Player enemy, Vector3 position, float distance, AISoundType type)
@@ -54,23 +59,34 @@ namespace friendlySAIN.Utils
             if (bot == null || enemy == null || bot.IsDead || bot.BotState != EBotState.Active) return;
             var state = GetState(bot);
             if (state == null) return;
+            Trace(bot, $"SoundHeard type={type} src={enemy.Profile?.Nickname ?? enemy.ProfileId} dist={distance:F1} haveEnemy={bot.Memory?.HaveEnemy}");
             bool gunSound = type == AISoundType.silencedGun || type == AISoundType.gun;
             if (gunSound && Time.time < state.LastGunshotTime + 3f)
             {
+                Trace(bot, $"SoundHeard ignore gunCooldown");
                 return;
             }
 
             if (gunSound && !WasRecentlyHit(bot))
             {
                 Vector3 lookPoint2 = BuildLookPoint(bot, position, 20f);
+                bool hostileToBossGroup = IsHostileToBossGroup(bot, enemy);
+                bool localIsEnemy = bot.EnemiesController.IsEnemy(enemy) || bot.BotsGroup.IsEnemy(enemy);
+                Trace(bot, $"SoundHeard gun precheck src={enemy.Profile?.Nickname ?? enemy.ProfileId} dist={distance:F1} localIsEnemy={localIsEnemy} hostileToBossGroup={hostileToBossGroup} haveEnemy={bot.Memory?.HaveEnemy}");
 
                 if (distance <= 35f)
                 {
-                    FakeShot(bot, lookPoint2);
+                    bool turned = FakeShot(bot, lookPoint2);
+                    bool acquired = false;
                     if (Utils.GetNavDistance(bot.Position, position) <= 15f)
                     {
-                        TryAutoAcquireCloseThreat(bot, enemy, distance, "gunClose");
+                        acquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "gunClose");
+                        if (!acquired && hostileToBossGroup && CanBotShootEnemy(bot, enemy))
+                        {
+                            acquired = TryAcquireVisibleHostileOfBossGroup(bot, enemy, "gunCloseVisibleHostile");
+                        }
                     }
+                    Trace(bot, $"SoundHeard gunClose result turned={turned} autoAcquire={acquired}");
                 }
                 else if (Utils.CanShootToTarget(
                     new ShootPointClass(bot.GetPlayer.MainParts[BodyPartType.head].Position, 1f),
@@ -78,14 +94,28 @@ namespace friendlySAIN.Utils
                     bot.LookSensor.Mask
                 ))
                 {
-                    FakeShot(bot, lookPoint2);
+                    bool turned = FakeShot(bot, lookPoint2);
+                    if (hostileToBossGroup)
+                    {
+                        TryAcquireVisibleHostileOfBossGroup(bot, enemy, "gunFarVisibleHostile");
+                    }
                     state.LastGunshotTime = Time.time;
+                    Trace(bot, $"SoundHeard gunFarLOS result turned={turned}");
+                }
+                else
+                {
+                    Trace(bot, "SoundHeard gunFar ignore noLOS");
                 }
                 return;
+            }
+            else if (gunSound)
+            {
+                Trace(bot, "SoundHeard gun ignore recentlyHit");
             }
 
             if (type != AISoundType.step)
             {
+                Trace(bot, $"SoundHeard ignore unsupportedType={type}");
                 return;
             }
 
@@ -98,6 +128,7 @@ namespace friendlySAIN.Utils
             bool wasProcessed = state.ProcessedSoundZones.Contains(positionZone);
             if (wasProcessed && Time.time - state.LastSoundTime < 5f)
             {
+                Trace(bot, "SoundHeard step ignore zoneCooldown");
                 return;
             }
 
@@ -111,13 +142,15 @@ namespace friendlySAIN.Utils
 
             if (distance <= 8f)
             {
-                FakeShot(bot, lookPoint);
-                TryAutoAcquireCloseThreat(bot, enemy, distance, "stepClose");
+                bool turned = FakeShot(bot, lookPoint);
+                bool acquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "stepClose");
+                Trace(bot, $"SoundHeard stepClose result turned={turned} autoAcquire={acquired}");
             }
             else
             {
                 state.LastSoundTime = Time.time;
-                FakeShot(bot, lookPoint);
+                bool turned = FakeShot(bot, lookPoint);
+                Trace(bot, $"SoundHeard stepFar result turned={turned}");
             }
         }
 
@@ -126,6 +159,7 @@ namespace friendlySAIN.Utils
             if (bot == null || bullet == null || bot.IsDead || bot.BotState != EBotState.Active) return;
             if (bot.Memory.HaveEnemy)
             {
+                Trace(bot, "BulletFelt ignore alreadyHaveEnemy");
                 return;
             }
 
@@ -133,12 +167,14 @@ namespace friendlySAIN.Utils
             if (state == null) return;
             if (Time.time < state.NextBulletReactionAt)
             {
+                Trace(bot, "BulletFelt ignore cooldown");
                 return;
             }
 
             Player shooter = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(bullet.PlayerProfileID);
             if (shooter == null)
             {
+                Trace(bot, "BulletFelt ignore shooterNotFound");
                 return;
             }
 
@@ -146,7 +182,12 @@ namespace friendlySAIN.Utils
                 (bullet.Player?.iPlayer != null && bot.BotsGroup.IsEnemy(bullet.Player.iPlayer));
             if (!isEnemy)
             {
-                return;
+                bool hostileToBossGroup = IsHostileToBossGroup(bot, shooter);
+                if (!hostileToBossGroup)
+                {
+                    Trace(bot, $"BulletFelt ignore nonEnemy shooter={shooter.Profile?.Nickname ?? shooter.ProfileId}");
+                    return;
+                }
             }
 
             state.NextBulletReactionAt = Time.time + 1f;
@@ -159,6 +200,7 @@ namespace friendlySAIN.Utils
             float distanceSqr = (impact - bot.Position).sqrMagnitude;
             if (distanceSqr > BulletHearDistanceSqr)
             {
+                Trace(bot, $"BulletFelt ignore tooFar dist={Mathf.Sqrt(distanceSqr):F1}");
                 return;
             }
 
@@ -168,11 +210,25 @@ namespace friendlySAIN.Utils
             random = random.normalized * dispersion;
             Vector3 estimatedShooterPos = shooter.Transform.position + random;
 
-            if (TryAutoAcquireCloseThreat(bot, shooter, Mathf.Sqrt(distanceSqr), "bulletClose"))
+            bool acquired = TryAutoAcquireCloseThreat(bot, shooter, Mathf.Sqrt(distanceSqr), "bulletClose");
+            if (acquired)
             {
+                Trace(bot, "BulletFelt felt=true turned=false autoAcquire=true");
                 return;
             }
-            FakeShot(bot, estimatedShooterPos);
+            if (CanBotShootEnemy(bot, shooter) && TryAcquireVisibleHostileOfBossGroup(bot, shooter, "bulletVisibleHostile"))
+            {
+                Trace(bot, "BulletFelt felt=true turned=false autoAcquire=true(hostileVisible)");
+                return;
+            }
+            bool turned = FakeShot(bot, estimatedShooterPos);
+            Trace(bot, $"BulletFelt felt=true turned={turned} autoAcquire=false");
+        }
+
+        private static void Trace(BotOwner bot, string msg)
+        {
+            if (!EnableReactionTrace || bot == null) return;
+            Modules.Logger.LogInfo($"[ReactTrace] bot={bot.Profile?.Nickname ?? bot.name} {msg}");
         }
 
         private static string Fmt(Vector3 v)
@@ -196,12 +252,74 @@ namespace friendlySAIN.Utils
             if (bot == null || enemy == null) return false;
             if (distance > CloseThreatAutoAcquireDistance)
             {
+                Trace(bot, $"AutoAcquire ignore source={source} tooFar dist={distance:F1}");
                 return false;
             }
 
             EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
             enemyInfo?.SetVisible(true);
-            return enemyInfo != null;
+            bool success = enemyInfo != null;
+            Trace(bot, $"AutoAcquire source={source} success={success} enemy={enemy.Profile?.Nickname ?? enemy.ProfileId} dist={distance:F1}");
+            return success;
+        }
+
+        private static bool TryAcquireVisibleHostileOfBossGroup(BotOwner bot, Player enemy, string source)
+        {
+            if (bot == null || enemy == null) return false;
+            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
+            enemyInfo?.SetVisible(true);
+            bool success = enemyInfo != null;
+            Trace(bot, $"AutoAcquire source={source} success={success} enemy={enemy.Profile?.Nickname ?? enemy.ProfileId}");
+            return success;
+        }
+
+        public static bool IsHostileToBossGroupForReaction(BotOwner followerBot, Player enemyPlayer)
+        {
+            return IsHostileToBossGroup(followerBot, enemyPlayer);
+        }
+
+        private static bool IsHostileToBossGroup(BotOwner followerBot, Player enemyPlayer)
+        {
+            if (followerBot == null || enemyPlayer == null || !enemyPlayer.IsAI) return false;
+            BotOwner enemyBot = enemyPlayer.AIData?.BotOwner;
+            if (enemyBot == null) return false;
+
+            var followerData = BossPlayers.Instance?.GetFollower(followerBot);
+            var boss = followerData?.GetBoss();
+            if (boss?.realPlayer == null) return false;
+
+            if (boss.Followers != null)
+            {
+                foreach (BotOwner member in boss.Followers)
+                {
+                    if (member == null || member.IsDead) continue;
+                    if (member.ProfileId == enemyBot.ProfileId) continue;
+                    if (enemyBot.BotsGroup?.IsEnemy(member.GetPlayer) == true)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool CanBotShootEnemy(BotOwner bot, Player enemy)
+        {
+            try
+            {
+                if (bot?.GetPlayer?.MainParts == null || enemy?.PlayerBones?.WeaponRoot == null) return false;
+                if (!bot.GetPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart)) return false;
+                return Utils.CanShootToTarget(
+                    new ShootPointClass(headPart.Position, 1f),
+                    enemy.PlayerBones.WeaponRoot.position,
+                    bot.LookSensor.Mask
+                );
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static State GetState(BotOwner bot)

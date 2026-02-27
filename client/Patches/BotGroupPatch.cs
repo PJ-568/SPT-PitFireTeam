@@ -278,6 +278,11 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(BotsGroup __instance, IPlayer person, EBotEnemyCause cause, bool __result)
         {
+            if (__result && __instance is BotsGroupPlayer)
+            {
+                Utils.Enemy.ForceIgnoreUntilAggressionOff(__instance);
+            }
+
             if (
                 person == null ||
                 (person.IsAI && person.AIData?.BotOwner?.GetPlayer == null) ||
@@ -373,12 +378,28 @@ namespace friendlySAIN.Patches
             return AccessTools.Method(typeof(BotsGroup), "ReportAboutEnemy");
         }
 
+        [PatchPrefix]
+        private static bool PatchPrefix(BotsGroup __instance, IPlayer enemy, EEnemyPartVisibleType isVisibleOnlyBySence, BotOwner reporter)
+        {
+            if (__instance is not BotsGroupPlayer) return true;
+            if (enemy == null || reporter == null) return true;
+            if (!BossPlayers.IsFollower(reporter)) return true;
+
+            // Followers must never report the player boss or another follower as enemy.
+            if (BossPlayers.IsPlayerBoss(enemy.ProfileId)) return false;
+            if (enemy.IsAI && enemy.AIData?.BotOwner != null && BossPlayers.IsFollower(enemy.AIData.BotOwner)) return false;
+
+            return true;
+        }
+
         [PatchPostfix]
         private static void PatchPostfix(BotsGroup __instance, IPlayer enemy, EEnemyPartVisibleType isVisibleOnlyBySence, BotOwner reporter)
         {
             if (!friendlySAIN.IsSAINInstalled) return;
             if (__instance is not BotsGroupPlayer) return;
             if (enemy == null || reporter == null) return;
+            if (BossPlayers.IsPlayerBoss(enemy.ProfileId)) return;
+            if (enemy.IsAI && enemy.AIData?.BotOwner != null && BossPlayers.IsFollower(enemy.AIData.BotOwner)) return;
             if (enemy.IsAI && enemy.AIData?.BotOwner?.GetPlayer == null) return;
 
             Player enemyPlayer = enemy as Player ?? Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemy.ProfileId);

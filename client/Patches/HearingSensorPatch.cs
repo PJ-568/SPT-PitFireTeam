@@ -13,6 +13,7 @@ namespace friendlySAIN.Patches
 {
     internal class HearingSensorPatch : ModulePatch
     {
+        private const bool EnableReactionTrace = true;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(BotHearingSensor), "method_0");
@@ -28,26 +29,41 @@ namespace friendlySAIN.Patches
                 if (BossPlayers.IsFollower(botOwner_0) && player != null && !BossPlayers.IsPlayerBoss(player.ProfileId))
                 {
                     if (player.IsAI && BossPlayers.IsFollower(player.AIData.BotOwner)) return;
-                    if (!(botOwner_0.EnemiesController.IsEnemy(player) || botOwner_0.BotsGroup.IsEnemy(player))) return;
-                    if (!botOwner_0.Memory.HaveEnemy)
+
+                    Player person = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(player.ProfileId);
+                    if (person == null) return;
+
+                    bool knownEnemy = botOwner_0.EnemiesController.IsEnemy(player) || botOwner_0.BotsGroup.IsEnemy(player);
+                    bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(botOwner_0, person);
+                    if (!knownEnemy && !hostileToBossGroup)
                     {
-                        return;
-                    }
-                    if (botOwner_0.Memory.GoalEnemy.IsVisible && botOwner_0.Memory.GoalEnemy.CanShoot)
-                    {
+                        Trace(botOwner_0, $"Hearing.step ignore notEnemy src={player.ProfileId}");
                         return;
                     }
 
-                    if (botOwner_0.Memory.GoalEnemy.PersonalLastSeenTime + 2f < Time.time)
+                    if (botOwner_0.Memory.HaveEnemy && botOwner_0.Memory.GoalEnemy != null &&
+                        botOwner_0.Memory.GoalEnemy.IsVisible && botOwner_0.Memory.GoalEnemy.CanShoot)
                     {
+                        Trace(botOwner_0, $"Hearing.step ignore visibleShootable goal={botOwner_0.Memory.GoalEnemy.ProfileId}");
+                        return;
+                    }
+
+                    if (botOwner_0.Memory.HaveEnemy && botOwner_0.Memory.GoalEnemy != null &&
+                        botOwner_0.Memory.GoalEnemy.PersonalLastSeenTime + 2f < Time.time)
+                    {
+                        Trace(botOwner_0, "Hearing.step ignore lastSeenTooOld");
                         return;
                     }
 
                     bool shouldReact = __instance.method_6(position, power, out var distance);
+                    if (!shouldReact)
+                    {
+                        Trace(botOwner_0, $"Hearing.step ignore method6False dist={distance:F1} power={power:F1}");
+                    }
 
-                    Player person = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(player.ProfileId);
                     if (person != null && shouldReact)
                     {
+                        Trace(botOwner_0, $"Hearing.step pass dist={distance:F1} power={power:F1}");
                         FollowerAwareness.SoundHeard(botOwner_0, person, position, distance, type);
                     }
                 }
@@ -57,11 +73,19 @@ namespace friendlySAIN.Patches
             else if (BossPlayers.IsFollower(botOwner_0) && player != null && !BossPlayers.IsPlayerBoss(player.ProfileId))
             {
                 if (player.IsAI && BossPlayers.IsFollower(player.AIData.BotOwner)) return;
+                Player person = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(player.ProfileId);
+                if (person == null) return;
 
-                if (botOwner_0.EnemiesController.IsEnemy(player) || botOwner_0.BotsGroup.IsEnemy(player))
+                bool knownEnemy = botOwner_0.EnemiesController.IsEnemy(player) || botOwner_0.BotsGroup.IsEnemy(player);
+                bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(botOwner_0, person);
+                if (knownEnemy || hostileToBossGroup)
                 {
                     bool shouldReact = __instance.method_6(position, power, out var distance);
                     Vector3 botPosition = botOwner_0.GetPlayer.Transform.position;
+                    if (!shouldReact)
+                    {
+                        Trace(botOwner_0, $"Hearing.{type} ignore method6False dist={distance:F1} power={power:F1}");
+                    }
                     if (
                         botOwner_0.Memory.HaveEnemy && (
                             botOwner_0.Memory.GoalEnemy.PersonalLastSeenTime + 2f < Time.time ||
@@ -69,24 +93,29 @@ namespace friendlySAIN.Patches
                         )
                     )
                     {
+                        Trace(botOwner_0, $"Hearing.{type} ignore olderOrWorseSound");
                         shouldReact = false;
                     }
 
                     if (shouldReact)
                     {
-                        Player person = Singleton<GameWorld>.Instance.GetAlivePlayerByProfileID(player.ProfileId);
-                        if (person != null)
-                        {
-                            FollowerAwareness.SoundHeard(botOwner_0, person, position, distance, type);
-                        }
+                        Trace(botOwner_0, $"Hearing.{type} pass dist={distance:F1} power={power:F1}");
+                        FollowerAwareness.SoundHeard(botOwner_0, person, position, distance, type);
                     }
                 }
             }
+        }
+
+        private static void Trace(BotOwner bot, string msg)
+        {
+            if (!EnableReactionTrace || bot == null) return;
+            Modules.Logger.LogInfo($"[ReactTrace] bot={bot.Profile?.Nickname ?? bot.name} {msg}");
         }
     }
 
     internal class FootstepSoundPatch : ModulePatch
     {
+        private const bool EnableReactionTrace = true;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(Player), "PlayStepSound");
@@ -104,7 +133,9 @@ namespace friendlySAIN.Patches
             {
                 BotOwner bot = follower.GetBot();
                 if (bot.ProfileId == __instance.ProfileId || bot.Memory.HaveEnemy) continue;
-                if (!bot.EnemiesController.IsEnemy(__instance) && !bot.BotsGroup.IsEnemy(__instance)) continue;
+                bool knownEnemy = bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance);
+                bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(bot, __instance);
+                if (!knownEnemy && !hostileToBossGroup) continue;
 
                 Vector3 position = __instance.Transform.position;
 
@@ -115,18 +146,29 @@ namespace friendlySAIN.Patches
                 float distance = Vector3.Distance(bot.GetPlayer.Transform.position, position);
 
                 bool shouldReact = distance <= power;
+                if (!shouldReact)
+                {
+                    Trace(bot, $"FootstepPatch ignore tooFar src={__instance.ProfileId} dist={distance:F1} power={power:F1}");
+                    continue;
+                }
 
-                if (!shouldReact) continue;
-
+                Trace(bot, $"FootstepPatch pass src={__instance.ProfileId} dist={distance:F1} power={power:F1}");
                 FollowerAwareness.SoundHeard(bot, __instance, position, distance, AISoundType.step);
 
             }
+        }
+
+        private static void Trace(BotOwner bot, string msg)
+        {
+            if (!EnableReactionTrace || bot == null) return;
+            Modules.Logger.LogInfo($"[ReactTrace] bot={bot.Profile?.Nickname ?? bot.name} {msg}");
         }
 
     }
 
     internal class PlayerSayPatch : ModulePatch
     {
+        private const bool EnableReactionTrace = true;
         private const float VoiceReactDistance = 40f;
         private static float reported = 0f;
         private static float freq = 0;
@@ -165,12 +207,32 @@ namespace friendlySAIN.Patches
                 BotOwner bot = follower.GetBot();
                 if (bot == null || bot.IsDead || bot.GetPlayer == null || bot.HearingSensor == null) return;
                 if (bot.EnemiesController == null || bot.Memory == null || bot.BotsGroup == null) return;
-                if (FollowerAwareness.WasRecentlyHit(bot) || bot.Memory.HaveEnemy) return;
-                if (!(bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance))) return;
+                if (FollowerAwareness.WasRecentlyHit(bot))
+                {
+                    Trace(bot, $"Voice ignore recentlyHit src={__instance.ProfileId}");
+                    return;
+                }
+                if (bot.Memory.HaveEnemy)
+                {
+                    Trace(bot, $"Voice ignore alreadyHaveEnemy src={__instance.ProfileId}");
+                    return;
+                }
+                bool knownEnemy = bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance);
+                bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(bot, __instance);
+                if (!knownEnemy && !hostileToBossGroup)
+                {
+                    Trace(bot, $"Voice ignore notEnemy src={__instance.ProfileId}");
+                    return;
+                }
 
                 bool heardVoice = bot.HearingSensor.method_6(__instance.Transform.position, VoiceReactDistance, out var distance);
                 bool speakerHasLosToFollower = EnemySpeakerHasLineOfSightToFollower(__instance, bot, out float losDistance);
                 bool shouldReact = heardVoice || (speakerHasLosToFollower && losDistance <= VoiceReactDistance);
+                Trace(bot, $"Voice precheck src={__instance.ProfileId} heard={heardVoice} dist={distance:F1} los={speakerHasLosToFollower} losDist={losDistance:F1} shouldReact={shouldReact}");
+                if (!shouldReact)
+                {
+                    Trace(bot, $"Voice ignore heard={heardVoice} dist={distance:F1} los={speakerHasLosToFollower} losDist={losDistance:F1}");
+                }
 
                 if (shouldReact)
                 {
@@ -184,6 +246,7 @@ namespace friendlySAIN.Patches
                         reportEnemy = true;
 
                         info?.SetVisible(true);
+                        Trace(bot, $"Voice react close result turn=false autoAcquire={info != null} dist={effectiveDistance:F1}");
                     }
                     else if (effectiveDistance <= VoiceReactDistance)
                     {
@@ -193,16 +256,23 @@ namespace friendlySAIN.Patches
                         {
                             sourcePos = mainBodyPart.Position;
                         }
-                        FollowerAwareness.FakeShot(bot, sourcePos);
+                        bool turned = FollowerAwareness.FakeShot(bot, sourcePos);
                         if (!reportEnemy)
                         {
                             bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible,bot);
                             bot.BotTalk.TrySay(EPhraseTrigger.NoisePhrase);
                         }
                         reportEnemy = true;
+                        Trace(bot, $"Voice react far result turned={turned} dist={effectiveDistance:F1} heard={heardVoice} los={speakerHasLosToFollower}");
                     }
                 }
             });
+        }
+
+        private static void Trace(BotOwner bot, string msg)
+        {
+            if (!EnableReactionTrace || bot == null) return;
+            Modules.Logger.LogInfo($"[ReactTrace] bot={bot.Profile?.Nickname ?? bot.name} {msg}");
         }
 
         private static bool EnemySpeakerHasLineOfSightToFollower(Player speaker, BotOwner follower, out float distance)

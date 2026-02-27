@@ -109,6 +109,13 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (HasVisibleKnownEnemy())
+            {
+                sawEnemyDuringCurrentCycle = true;
+                combatEndedAt = -1f;
+                return false;
+            }
+
             if (sawEnemyDuringCurrentCycle)
             {
                 if (combatEndedAt < 0f)
@@ -127,6 +134,27 @@ namespace friendlySAIN.BigBrain
             }
 
             return true;
+        }
+
+        private bool HasVisibleKnownEnemy()
+        {
+            try
+            {
+                var infos = BotOwner?.EnemiesController?.EnemyInfos;
+                if (infos == null || infos.Count == 0) return false;
+
+                foreach (var kv in infos)
+                {
+                    var info = kv.Value;
+                    if (info == null) continue;
+                    if (info.IsVisible) return true;
+                }
+            }
+            catch
+            {
+                // Ignore transient enemy-info enumeration issues and keep vanilla behavior.
+            }
+            return false;
         }
 
         public override void Stop()

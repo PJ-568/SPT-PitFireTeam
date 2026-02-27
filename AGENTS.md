@@ -269,6 +269,10 @@ Examples currently tracked there:
 
 - SAIN post-combat idle/freeze behavior for followers.
 - Enemy propagation consistency across all followers.
+- Reaction-system regression (SAIN/vanilla reaction work):
+    - after changes made to work around `EnemyController.IsEnemy` timing gaps for early follower reaction, a regression was observed where followers could incorrectly mark the player as enemy.
+    - hard guards were added in `client/Utils/Enemy.cs` (`Enemy.MakeEnemy`) and `client/Patches/BotGroupPatch.cs` (`BotGroupReportEnemyPatch`) to prevent followers from adding the boss player or other followers as enemies.
+    - more testing is still needed; treat this as an active risk area when changing reaction logic (`FollowerAwareness`, hearing/voice/bullet paths).
 - Follow-up behavior when player is hit out of combat.
 - Follower death reaction:
     - when a follower dies, nearest follower with visibility says `EPhraseTrigger.OnFriendlyDown`;

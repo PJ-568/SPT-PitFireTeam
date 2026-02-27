@@ -88,15 +88,18 @@ namespace friendlySAIN.Utils
                     if (!locationPing)
                     {
                         locationPing = true;
-                        Vector3 position = GetLimitedPosition(player.Position, bt.Data.Memory.GoalEnemy.CurrPosition, 50f);
-                        float pan = CalculateStereoPane(position);
-                        radioSound.PlayLocationSound(pan);
+                        Vector3 position = GetLimitedHorizontalPosition(player.Position, bt.Data.Memory.GoalEnemy.CurrPosition, 40f);
+                        radioSound.PlayLocationSound(position);
                     }
                     break;
                 }
             }
 
-            if (radioSound != null && !locationPing) radioSound.PlayRadioSound();
+            if (radioSound != null && !locationPing)
+            {
+                Vector3 closestFollowerPos = GetClosestFollowerPosition(player.Position);
+                radioSound.PlayRadioSound(closestFollowerPos);
+            }
 
         }
 
@@ -460,25 +463,39 @@ namespace friendlySAIN.Utils
                 radioSound.Enable();
             }
         }
-        private float CalculateStereoPane(Vector3 markerPosition)
+        private Vector3 GetLimitedHorizontalPosition(Vector3 origin, Vector3 target, float maxHorizontalDistance)
         {
-            Vector3 cameraRight = Camera.main.transform.right;
-            Vector3 directionToMarker = (Camera.main.transform.position - markerPosition).normalized;
+            Vector3 planarDelta = new Vector3(target.x - origin.x, 0f, target.z - origin.z);
+            float planarDistance = planarDelta.magnitude;
+            if (planarDistance > maxHorizontalDistance && planarDistance > 0.001f)
+            {
+                Vector3 planarDir = planarDelta / planarDistance;
+                Vector3 clamped = origin + planarDir * maxHorizontalDistance;
+                clamped.y = target.y;
+                return clamped;
+            }
 
-            float dotProduct = Vector3.Dot(cameraRight, directionToMarker);
-            return -dotProduct;
+            return target;
         }
 
-        private Vector3 GetLimitedPosition(Vector3 A, Vector3 B, float maxDistance)
+        private Vector3 GetClosestFollowerPosition(Vector3 playerPosition)
         {
-            Vector3 direction = (B - A).normalized;  // Get unit direction from A to B
-            float distance = Vector3.Distance(A, B); // Get the actual distance
+            float best = float.MaxValue;
+            Vector3 bestPos = playerPosition;
 
-            if (distance > maxDistance)
+            foreach (BotData bt in botMap)
             {
-                return A + direction * maxDistance; // Clamp B within maxDistance
+                if (bt?.Data == null || bt.Data.IsDead) continue;
+
+                float sqr = (bt.Data.Position - playerPosition).sqrMagnitude;
+                if (sqr < best)
+                {
+                    best = sqr;
+                    bestPos = bt.Data.Position;
+                }
             }
-            return B; // B is within range, use it as is
+
+            return bestPos;
         }
 
         public static void Disable()

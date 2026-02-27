@@ -10,6 +10,7 @@ using System.Linq;
 using System.Reflection;
 
 using friendlySAIN.Components;
+using friendlySAIN.Utils;
 
 namespace friendlySAIN.Modules
 {
@@ -509,6 +510,7 @@ namespace friendlySAIN.Modules
                         player.bossGroup.AddAlly(pl.AIData.Player);
                     }
                 }
+                Enemy.ForceIgnoreUntilAggressionOff(player.bossGroup);
             };
             if (!Instance._botsGroup.Contains(group.Id)) Instance._botsGroup.Add(group.Id);
 
@@ -518,6 +520,8 @@ namespace friendlySAIN.Modules
             {
                 player.bossGroup.AddEnemy(enemy, EBotEnemyCause.addPlayerToBoss);
             }
+
+            Enemy.ForceIgnoreUntilAggressionOff(player.bossGroup);
         }
 
         public static bool IsBossGroup(int id)

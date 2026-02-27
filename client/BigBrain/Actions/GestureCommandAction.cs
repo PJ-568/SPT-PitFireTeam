@@ -33,6 +33,7 @@ namespace friendlySAIN.BigBrain.Actions
         private float nextRegroupBossAnchorCheckAt;
         private FollowerCommandType lastCommand = FollowerCommandType.None;
         private const float RegroupArriveNavDistance = 6f;
+        private const float RegroupRunDistance = 10f;
         private const float SameLevelTolerance = 1.75f;
         private const float RegroupCoverSearchRadius = 15f;
         private const float RegroupRandomRadius = 6f;
@@ -83,6 +84,16 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             EnsureCommandControl();
+
+            // Any non-regroup gesture command should immediately release to combat once the bot has a goal enemy.
+            // (Regroup has its own dedicated interruption/handoff logic.)
+            if (command != FollowerCommandType.RegroupNearBoss && BotOwner.Memory.HaveEnemy)
+            {
+                followerData.ClearCommand($"{command}:enemySeen");
+                BotOwner.StopMove();
+                lastCommand = FollowerCommandType.None;
+                return;
+            }
 
             if (command != lastCommand)
             {
@@ -262,7 +273,20 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             // Regroup should be an urgent converge command: run/sprint while closing.
-            BotOwner.GoToSomePointData.UpdateToGo(true, 1, 1f);
+            float regroupDistance = (regroupTarget - BotOwner.Position).magnitude;
+            bool shouldRun = regroupDistance > RegroupRunDistance;
+            BotOwner.GoToSomePointData.UpdateToGo(shouldRun, 1, 1f);
+            if (shouldRun)
+            {
+                if (!BotOwner.Mover.Sprinting)
+                {
+                    BotOwner.Mover.Sprint(true, false);
+                }
+            }
+            else if (BotOwner.Mover.Sprinting)
+            {
+                BotOwner.Mover.Sprint(false, false);
+            }
             moveCommandInitialized = false;
             moveArrivalLookUntil = 0f;
             comeArrivalHoldUntil = 0f;
@@ -641,6 +665,12 @@ namespace friendlySAIN.BigBrain.Actions
             if (BotOwner.Memory.HaveEnemy)
             {
                 followerData?.ClearCommand("HoldPosition:enemySeen");
+                BotOwner.StopMove();
+                return;
+            }
+            if (HasVisibleKnownEnemy())
+            {
+                followerData?.ClearCommand("HoldPosition:enemyVisibleNoGoal");
                 BotOwner.StopMove();
                 return;
             }

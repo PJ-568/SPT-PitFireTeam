@@ -331,6 +331,14 @@ namespace friendlySAIN.Components
                 foreach (Player enemy in seenEnemies)
                 {
                     if (enemy == null || enemy.ProfileId == follower.ProfileId || enemy.ProfileId == realPlayer.ProfileId) continue;
+                    if (enemy.IsAI)
+                    {
+                        WildSpawnType? role = enemy.Profile?.Info?.Settings?.Role;
+                        if (role.HasValue && Props.friendlyBotTypes.Contains(role.Value))
+                        {
+                            continue;
+                        }
+                    }
 
                     RegisterContactEnemyForFollower(follower, enemy);
                     enemiesInjected++;
@@ -697,6 +705,7 @@ namespace friendlySAIN.Components
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 followerData?.ClearCommand("Attention:Look");
+                followerData?.ResetCombatCommitState();
 
                 InteractableObjects.RemoveTaker(follower);
                 InteractableObjects.RemoveOpener(follower);
@@ -926,6 +935,7 @@ namespace friendlySAIN.Components
                         : ShouldIgnoreRegroup(follower, bossPos);
                     if (ignore)
                     {
+                        followerData.ClearCommand("Regroup:ignoredCloseOrHealing");
                         float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
                         Modules.Logger.LogInfo($"[Regroup] IGNORE SAIN regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
                         continue;
@@ -939,6 +949,7 @@ namespace friendlySAIN.Components
 
                 if (ShouldIgnoreRegroup(follower, bossPos))
                 {
+                    followerData.ClearCommand("Regroup:ignoredCloseOrHealing");
                     float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
                     Modules.Logger.LogInfo($"[Regroup] IGNORE vanilla regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
                     continue;

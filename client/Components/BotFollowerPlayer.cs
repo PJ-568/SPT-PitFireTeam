@@ -57,6 +57,9 @@ namespace friendlySAIN.Components
         private bool _pendingHoldRestoreAfterCombatBlip = false;
         private float _holdClearedForCombatAt;
         private const float HoldCombatBlipRestoreWindowSeconds = 3f;
+        private string _lastCommittedEnemyId;
+        private float _lastCommittedAt;
+        private const float EnemyStickWindowSeconds = 3f;
         private Vector3 _teleportGraceTarget;
         private float _teleportGraceUntil;
         private const float TeleportGraceSeconds = 0.45f;
@@ -260,10 +263,12 @@ namespace friendlySAIN.Components
                     isPickedUp = true;
 
                     _player.bossGroup.AddMember(_bot, false);
+                    Utils.Enemy.ForceIgnoreUntilAggressionOff(_player.bossGroup);
                     foreach (var en in _player.bossGroup.Enemies)
                     {
                         _bot.Memory.AddEnemy(en.Key, en.Value, false);
                     }
+                    Utils.Enemy.ForceIgnoreUntilAggressionOff(_bot);
                 }
             }
             // if there is no group yet, make one and group the player with the bot (PickUp case here without spawn)
@@ -300,6 +305,8 @@ namespace friendlySAIN.Components
 
                 group.AddMember(_bot, false);
                 BossPlayers.AddGroupToBoss(_player, group);
+                Utils.Enemy.ForceIgnoreUntilAggressionOff(group);
+                Utils.Enemy.ForceIgnoreUntilAggressionOff(_bot);
 
                 _bot.Memory.GoalEnemy = null;
             }
@@ -768,6 +775,8 @@ namespace friendlySAIN.Components
                 _bot.GetPlayer.Profile.Info.TeamId = _teamId;
 
                 _bot.BotsGroup.AddMember(_bot, false);
+                Utils.Enemy.ForceIgnoreUntilAggressionOff(_bot.BotsGroup);
+                Utils.Enemy.ForceIgnoreUntilAggressionOff(_bot);
 
                 _bot.Memory.IsPeace = !warnPlayer;
 
@@ -1003,6 +1012,13 @@ namespace friendlySAIN.Components
             return command != FollowerCommandType.None;
         }
 
+        public void ResetCombatCommitState()
+        {
+            _pendingHoldRestoreAfterCombatBlip = false;
+            _lastCommittedEnemyId = null;
+            _lastCommittedAt = 0f;
+        }
+
         public void ClearCommand(string reason = "unspecified")
         {
             _activeCommand = FollowerCommandType.None;
@@ -1134,6 +1150,8 @@ namespace friendlySAIN.Components
             _manualUpdateHooked = false;
             _lastHaveEnemyKnown = false;
             _pendingHoldRestoreAfterCombatBlip = false;
+            _lastCommittedEnemyId = null;
+            _lastCommittedAt = 0f;
         }
 
         private void OnPeaceChange(bool isPeace)
@@ -1162,21 +1180,53 @@ namespace friendlySAIN.Components
 
                 bool haveEnemy = owner.Memory?.HaveEnemy ?? false;
 
-                if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)
+                // Safety guard: if combat has committed, non-regroup gesture commands must not persist.
+                // This catches timing gaps where a command layer does not release on the same tick.
+                if (haveEnemy && _activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.RegroupNearBoss)
                 {
-                    if (haveEnemy)
+                    if (_activeCommand == FollowerCommandType.HoldPosition)
                     {
-                        if (_activeCommand == FollowerCommandType.HoldPosition)
+                        if (!_pendingHoldRestoreAfterCombatBlip)
                         {
                             _pendingHoldRestoreAfterCombatBlip = true;
                             _holdClearedForCombatAt = Time.time;
-                            ClearCommand("UpdateManual:HaveEnemyEnter");
                         }
+                    }
+
+                    ClearCommand($"UpdateManual:HaveEnemyGuard active={_activeCommand}");
+                }
+
+                if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)
+                {
+                    var goal = owner.Memory?.GoalEnemy;
+                    Modules.Logger.LogInfo(
+                        $"[ReactTrace] bot={owner.Profile?.Nickname ?? owner.name} HaveEnemyEdge enter={haveEnemy} " +
+                        $"goal={(goal?.ProfileId ?? "<none>")} goalVisible={(goal != null ? goal.IsVisible.ToString() : "")} " +
+                        $"cmd={_activeCommand}");
+                    if (haveEnemy)
+                    {
+                        if (!string.IsNullOrEmpty(goal?.ProfileId))
+                        {
+                            _lastCommittedEnemyId = goal.ProfileId;
+                            _lastCommittedAt = Time.time;
+                            TrySyncEnemyToOtherFollowers(owner, goal);
+                        }
+                        // Hold is already handled by the guard above (with blip-restore bookkeeping).
                     }
                     else
                     {
                         if (_pendingHoldRestoreAfterCombatBlip)
                         {
+                            bool stickyReapplied = TryReapplyStickyEnemy(owner, out string stickyEnemyId, out float stickyAge);
+                            Modules.Logger.LogInfo(
+                                $"[ReactTrace] bot={owner.Profile?.Nickname ?? owner.name} EnemyStick reapply={stickyReapplied} enemy={(stickyEnemyId ?? "<none>")} age={stickyAge:F2}");
+
+                            if (stickyReapplied || HasStickyEnemyCandidate(out _, out _))
+                            {
+                                _pendingHoldRestoreAfterCombatBlip = false;
+                                return;
+                            }
+
                             float combatDuration = Time.time - _holdClearedForCombatAt;
                             if (combatDuration <= HoldCombatBlipRestoreWindowSeconds &&
                                 _activeCommand == FollowerCommandType.None)
@@ -1208,6 +1258,118 @@ namespace friendlySAIN.Components
             {
                 Modules.Logger.LogError("Exception in BotFollowerPlayer manual update combat debounce");
                 Modules.Logger.LogError(ex);
+            }
+        }
+
+        private bool HasStickyEnemyCandidate(out string enemyId, out float age)
+        {
+            enemyId = _lastCommittedEnemyId;
+            age = string.IsNullOrEmpty(_lastCommittedEnemyId) ? float.MaxValue : Time.time - _lastCommittedAt;
+            if (string.IsNullOrEmpty(_lastCommittedEnemyId)) return false;
+            if (age > EnemyStickWindowSeconds) return false;
+
+            Player enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(_lastCommittedEnemyId);
+            if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) return false;
+            return true;
+        }
+
+        private bool TryReapplyStickyEnemy(BotOwner owner, out string enemyId, out float age)
+        {
+            if (owner == null)
+            {
+                enemyId = null;
+                age = float.MaxValue;
+                return false;
+            }
+
+            if (!HasStickyEnemyCandidate(out enemyId, out age))
+            {
+                return false;
+            }
+
+            try
+            {
+                Player enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyId);
+                if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) return false;
+
+                EnemyInfo info = Utils.Enemy.MakeEnemy(owner, enemyPlayer);
+                if (info == null)
+                {
+                    BotSettingsClass botSettings = new BotSettingsClass(enemyPlayer, owner.BotsGroup, EBotEnemyCause.addPlayerToBoss)
+                    {
+                        EnemyLastPosition = enemyPlayer.Position
+                    };
+                    owner.Memory.IsPeace = false;
+                    owner.Memory.AddEnemy(enemyPlayer, botSettings, false);
+                    PromoteEnemyAsGoal(owner, enemyId);
+                    info = owner.Memory?.GoalEnemy;
+                }
+
+                if (info != null)
+                {
+                    owner.Memory.IsPeace = false;
+                    PromoteEnemyAsGoal(owner, enemyId);
+                    return owner.Memory?.HaveEnemy == true;
+                }
+            }
+            catch
+            {
+                // Keep update loop resilient; this is a best-effort stabilization path.
+            }
+
+            return false;
+        }
+
+        private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId)
+        {
+            if (follower?.EnemiesController?.EnemyInfos == null || string.IsNullOrEmpty(enemyProfileId)) return;
+
+            EnemyInfo promoted = null;
+            foreach (var item in follower.EnemiesController.EnemyInfos)
+            {
+                if (item.Key?.ProfileId == enemyProfileId)
+                {
+                    promoted = item.Value;
+                    break;
+                }
+            }
+
+            if (promoted != null)
+            {
+                promoted.PriorityIndex = 0;
+                follower.Memory.GoalEnemy = promoted;
+            }
+        }
+
+        private void TrySyncEnemyToOtherFollowers(BotOwner source, EnemyInfo goal)
+        {
+            if (!friendlySAIN.IsSAINInstalled) return;
+            if (source == null || goal == null) return;
+            if (_player?.realPlayer == null) return;
+
+            Player enemyPlayer = goal.Person as Player ?? Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goal.ProfileId);
+            if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) return;
+            if (BossPlayers.IsPlayerBoss(enemyPlayer.ProfileId)) return;
+            if (enemyPlayer.IsAI && enemyPlayer.AIData?.BotOwner != null && BossPlayers.IsFollower(enemyPlayer.AIData.BotOwner)) return;
+
+            List<BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(_player.realPlayer.ProfileId);
+            if (followers == null || followers.Count < 2) return;
+
+            for (int i = 0; i < followers.Count; i++)
+            {
+                BotFollowerPlayer followerData = followers[i];
+                BotOwner member = followerData?.GetBot();
+                if (member == null || member == source || member.IsDead || member.BotState != EBotState.Active) continue;
+                if (member.Memory == null || member.Memory.HaveEnemy) continue;
+
+                EnemyInfo info = Utils.Enemy.MakeEnemy(member, enemyPlayer);
+                if (info == null) continue;
+
+                member.Memory.IsPeace = false;
+                if (goal.IsVisible)
+                {
+                    info.SetVisible(true);
+                }
             }
         }
 
