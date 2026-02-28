@@ -52,6 +52,7 @@ namespace friendlySAIN.BigBrain.Actions
         public override void Start()
         {
             followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            ReleaseRegroupReservation();
             nextPathCheckAt = 0f;
             moveCommandInitialized = false;
             nextHoldLookChangeAt = 0f;
@@ -67,6 +68,7 @@ namespace friendlySAIN.BigBrain.Actions
             regroupTarget = Vector3.zero;
             nextRegroupRefreshAt = 0f;
             regroupReportedOnPosition = false;
+            regroupReservationActive = false;
             regroupBossAnchorInitialized = false;
             regroupBossAnchorPosition = Vector3.zero;
             nextRegroupBossAnchorCheckAt = 0f;
@@ -85,16 +87,6 @@ namespace friendlySAIN.BigBrain.Actions
 
             EnsureCommandControl();
 
-            // Any non-regroup gesture command should immediately release to combat once the bot has a goal enemy.
-            // (Regroup has its own dedicated interruption/handoff logic.)
-            if (command != FollowerCommandType.RegroupNearBoss && BotOwner.Memory.HaveEnemy)
-            {
-                followerData.ClearCommand($"{command}:enemySeen");
-                BotOwner.StopMove();
-                lastCommand = FollowerCommandType.None;
-                return;
-            }
-
             if (command != lastCommand)
             {
                 if (lastCommand == FollowerCommandType.RegroupNearBoss)
@@ -102,34 +94,17 @@ namespace friendlySAIN.BigBrain.Actions
                     ReleaseRegroupReservation();
                 }
 
-                if (command == FollowerCommandType.ComeCloser)
-                {
-                    comeTargetInitialized = false;
-                    comeTarget = Vector3.zero;
-                    comePoseInitialized = false;
-                    comeMovePose = 1f;
-                    regroupTargetInitialized = false;
-                    regroupTarget = Vector3.zero;
-                    nextRegroupRefreshAt = 0f;
-                    regroupReportedOnPosition = false;
-                    regroupBossAnchorInitialized = false;
-                    regroupBossAnchorPosition = Vector3.zero;
-                    nextRegroupBossAnchorCheckAt = 0f;
-                }
-                else
-                {
-                    comeTargetInitialized = false;
-                    comeTarget = Vector3.zero;
-                    comePoseInitialized = false;
-                    comeMovePose = 1f;
-                    regroupTargetInitialized = false;
-                    regroupTarget = Vector3.zero;
-                    nextRegroupRefreshAt = 0f;
-                    regroupReportedOnPosition = false;
-                    regroupBossAnchorInitialized = false;
-                    regroupBossAnchorPosition = Vector3.zero;
-                    nextRegroupBossAnchorCheckAt = 0f;
-                }
+                comeTargetInitialized = false;
+                comeTarget = Vector3.zero;
+                comePoseInitialized = false;
+                comeMovePose = 1f;
+                regroupTargetInitialized = false;
+                regroupTarget = Vector3.zero;
+                nextRegroupRefreshAt = 0f;
+                regroupReportedOnPosition = false;
+                regroupBossAnchorInitialized = false;
+                regroupBossAnchorPosition = Vector3.zero;
+                nextRegroupBossAnchorCheckAt = 0f;
                 
             }
 
@@ -155,8 +130,13 @@ namespace friendlySAIN.BigBrain.Actions
             if(command != lastCommand)
             {
                 lastCommand = command;
-                if(command == FollowerCommandType.MoveToPoint || command == FollowerCommandType.ComeCloser)
+                if(
+                    command == FollowerCommandType.MoveToPoint || 
+                    command == FollowerCommandType.ComeCloser
+                )
+                {
                     BotOwner.Steering.LookToMovingDirection();
+                }
             }
         }
 
@@ -185,15 +165,7 @@ namespace friendlySAIN.BigBrain.Actions
                 followerData?.ClearCommand("Regroup:missingBoss");
                 return;
             }
-
-            // If SAIN combat regroup should own the command now, release vanilla movement but keep command active.
-            if (friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
-            {
-                ReleaseRegroupReservation();
-                BotOwner.StopMove();
-                return;
-            }
-
+            // intrerupt on enemy enagage
             if (ShouldInterruptRegroupForThreatOrState(clearForDanger: true))
             {
                 ReleaseRegroupReservation();
@@ -296,12 +268,9 @@ namespace friendlySAIN.BigBrain.Actions
 
         private bool ShouldInterruptRegroupForThreatOrState(bool clearForDanger)
         {
-            if (BotOwner.Memory?.HaveEnemy == true && BotOwner.Memory.GoalEnemy?.IsVisible == true)
+            if (BotOwner.Memory?.HaveEnemy == true && BotOwner.Memory.GoalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
             {
-                if (BotOwner.Memory.GoalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
-                {
-                    return true;
-                }
+                return true;
             }
 
             BotLogicDecision currentDecision = BotOwner.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
@@ -317,6 +286,7 @@ namespace friendlySAIN.BigBrain.Actions
                              currentDecision == BotLogicDecision.runAwayBTR ||
                              BotOwner.BewareGrenade?.ShallRunAway() == true ||
                              BotOwner.BewareBTR?.ShallRunAway() == true;
+                             
             if (dangerNow && clearForDanger)
             {
                 return true;
@@ -434,7 +404,7 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void ReleaseRegroupReservation()
         {
-            if (!regroupReservationActive || string.IsNullOrEmpty(BotOwner.ProfileId))
+            if (string.IsNullOrEmpty(BotOwner.ProfileId))
             {
                 regroupReservationActive = false;
                 return;
@@ -490,12 +460,6 @@ namespace friendlySAIN.BigBrain.Actions
             }
             if (distance <= 1.5f)
             {
-                if (followerData?.IsComeCloserFromHold() == true)
-                {
-                    followerData.CompleteComeCloser();
-                    BotOwner.StopMove();
-                    return;
-                }
 
                 HandleComeArrivalPause();
                 if (Time.time < comeArrivalHoldUntil)

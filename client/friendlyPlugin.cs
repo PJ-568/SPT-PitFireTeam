@@ -91,6 +91,7 @@ namespace friendlySAIN
         public Dictionary<string, string> englishBear { get; set; }
 
         public Dictionary<string, string> pingSquad { get; set; }
+        public Dictionary<string, string> pingRadioVolume { get; set; }
         public Dictionary<string, string> pingTime { get; set; }
         public Dictionary<string, string> enemyContact { get; set; }
 
@@ -159,6 +160,7 @@ namespace friendlySAIN
         public static ConfigEntry<bool> spawnPoint;
 
         public static ConfigEntry<KeyboardShortcut> pingKey;
+        public static ConfigEntry<int> pingRadioVolume;
         public static ConfigEntry<int> pingTime;
 
         public static ConfigEntry<KeyboardShortcut> contactKey;
@@ -393,18 +395,20 @@ namespace friendlySAIN
 
             pingKey = Config.Bind("", "13 " + optionsLang.pingSquad["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, new ConfigurationManagerAttributes { Order = -1003 }));
 
-            pingTime = Config.Bind("", "14 " + optionsLang.pingTime["Name"], 5, new ConfigDescription(optionsLang.pingTime["Description"], new AcceptableValueRange<int>(5, 30), new ConfigurationManagerAttributes { Order = -1004 }));
+            pingRadioVolume = Config.Bind("", "14 " + optionsLang.pingRadioVolume["Name"], 50, new ConfigDescription(optionsLang.pingRadioVolume["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1004 }));
 
-            contactKey = Config.Bind("", "15 " + optionsLang.enemyContact["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, new ConfigurationManagerAttributes { Order = -1005 }));
+            pingTime = Config.Bind("", "15 " + optionsLang.pingTime["Name"], 5, new ConfigDescription(optionsLang.pingTime["Description"], new AcceptableValueRange<int>(5, 30), new ConfigurationManagerAttributes { Order = -1005 }));
 
-            teleportKey = Config.Bind("", "16 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1006 }));
-            healKey = Config.Bind("", "17 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1007 }));
+            contactKey = Config.Bind("", "16 " + optionsLang.enemyContact["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, new ConfigurationManagerAttributes { Order = -1006 }));
 
-            botPrefetch = Config.Bind("", "18 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1008 }));
+            teleportKey = Config.Bind("", "17 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1007 }));
+            healKey = Config.Bind("", "18 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1008 }));
 
-            botTalk = Config.Bind("", "19 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1009 }));
+            botPrefetch = Config.Bind("", "19 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1009 }));
 
-            spawnPoint = Config.Bind("", "20 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1010 }));
+            botTalk = Config.Bind("", "20 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1010 }));
+
+            spawnPoint = Config.Bind("", "21 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1011 }));
 
             Config.SaveOnConfigSet = true;
             Config.Save();

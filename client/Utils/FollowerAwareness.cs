@@ -7,7 +7,7 @@ namespace friendlySAIN.Utils
 {
     internal static class FollowerAwareness
     {
-        private const bool EnableReactionTrace = true;
+        private const bool EnableReactionTrace = false;
         private sealed class State
         {
             public float GotShotUntil;
@@ -78,9 +78,9 @@ namespace friendlySAIN.Utils
                 {
                     bool turned = FakeShot(bot, lookPoint2);
                     bool acquired = false;
-                    if (Utils.GetNavDistance(bot.Position, position) <= 15f)
+                    if (CanBotShootEnemy(bot, enemy))
                     {
-                        acquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "gunClose");
+                        acquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "gunCloseLos");
                         if (!acquired && hostileToBossGroup && CanBotShootEnemy(bot, enemy))
                         {
                             acquired = TryAcquireVisibleHostileOfBossGroup(bot, enemy, "gunCloseVisibleHostile");
@@ -143,7 +143,11 @@ namespace friendlySAIN.Utils
             if (distance <= 8f)
             {
                 bool turned = FakeShot(bot, lookPoint);
-                bool acquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "stepClose");
+                bool acquired = false;
+                if (CanBotShootEnemy(bot, enemy))
+                {
+                    acquired = TryAutoAcquireCloseThreat(bot, enemy, distance, "stepCloseLos");
+                }
                 Trace(bot, $"SoundHeard stepClose result turned={turned} autoAcquire={acquired}");
             }
             else

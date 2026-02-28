@@ -60,6 +60,9 @@ namespace friendlySAIN.Localization
                 pingSquad = Entry(
                     "Ping Squad",
                     "Shortcut key for triggering the Report call"),
+                pingRadioVolume = Entry(
+                    "Ping Squad Radio Volume",
+                    "Volume for the radio ping sound (when no enemy location ping is played)"),
                 pingTime = Entry(
                     "Ping Squad Display Time",
                     "Time in seconds to display the followers status"),

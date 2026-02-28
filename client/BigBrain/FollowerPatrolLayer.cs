@@ -43,7 +43,7 @@ namespace friendlySAIN.BigBrain
 
             try
             {
-                BrainManager.RemoveLayers(vanillaLayersToDisable,brains);
+                BrainManager.RemoveLayers(vanillaLayersToDisable, brains);
                 BrainManager.AddCustomLayer(typeof(FollowerRequestLayer), brains, FollowerRequestLayerPriority);
                 BrainManager.AddCustomLayer(typeof(FollowerPatrolLayer), brains, FollowerLayerPriority);
             }
@@ -59,6 +59,7 @@ namespace friendlySAIN.BigBrain
     internal sealed class FollowerPatrolLayer : CustomLayer
     {
         private const float PostCombatFollowDelaySeconds = 3f;
+        private float _nextErrorLogAt;
 
         private float healSoftTimeoutAt = 0f;
         private float healStartAt = 0f;
@@ -90,17 +91,17 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            bool isHealAction = selectedAction?.Type == typeof(HealAction);
+            bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
+
+            // let bot finish healing
+            if (isHealAction || isHealDecision)
+            {
+                return true;
+            }
+
             if (!BotOwner.BotFollower.HaveBoss) return false;
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer) return false;
-
-            followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
-            if (followerData != null
-                && followerData.TryGetActiveCommand(out FollowerCommandType command, out _)
-                && command == FollowerCommandType.RegroupNearBoss
-                && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
-            {
-                return false;
-            }
 
             if (BotOwner.Memory.HaveEnemy)
             {
@@ -171,7 +172,7 @@ namespace friendlySAIN.BigBrain
             isHealing = false;
             ResetReloadState();
             BotOwner.Mover.Pause = false;
-            
+
             BotOwner.PatrollingData?.Pause();
 
             if (BotOwner.BotRequestController?.CurRequest != null)
@@ -191,44 +192,69 @@ namespace friendlySAIN.BigBrain
 
         public override Action GetNextAction()
         {
-            bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
-            bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
-
-            if (isUsingHeal || hasPendingHealWork)
+            try
             {
-                if (!isHealing)
+                bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
+                bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
+
+                if (isUsingHeal || hasPendingHealWork)
                 {
-                    healStartAt = Time.time;
+                    if (!isHealing)
+                    {
+                        healStartAt = Time.time;
+                    }
+
+                    isHealing = true;
+                    healSoftTimeoutAt = Time.time + 10f;
+                    selectedAction = new Action(typeof(HealAction), "Heal");
+                    return selectedAction;
                 }
 
-                isHealing = true;
-                healSoftTimeoutAt = Time.time + 10f;
-                selectedAction = new Action(typeof(HealAction), "Heal");
+                isHealing = false;
+
+
+                // put the weapon reload here
+                TryHandleOutOfCombatReload();
+
+                selectedAction = new Action(typeof(FollowAction), "FollowerPatrol");
+
                 return selectedAction;
             }
-
-            isHealing = false;
-
-
-            // put the weapon reload here
-            TryHandleOutOfCombatReload();
-
-            selectedAction = new Action(typeof(FollowAction), "FollowerPatrol");
-
-            return selectedAction;
+            catch (Exception ex)
+            {
+                LogLayerException("GetNextAction", ex);
+                selectedAction = new Action(typeof(FollowAction), "FollowerPatrol");
+                return selectedAction;
+            }
         }
 
         public override bool IsCurrentActionEnding()
         {
-            bool isHealAction = selectedAction?.Type == typeof(HealAction);
-            bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
-
-            if (!isHealAction && !isHealDecision)
+            try
             {
-                return !IsActive();
-            }
+                bool isHealAction = selectedAction?.Type == typeof(HealAction);
+                bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
 
-            return EndHealing();
+                if (!isHealAction && !isHealDecision)
+                {
+                    return !IsActive();
+                }
+
+                return EndHealing();
+            }
+            catch (Exception ex)
+            {
+                LogLayerException("IsCurrentActionEnding", ex);
+                return true;
+            }
+        }
+
+        private void LogLayerException(string where, Exception ex)
+        {
+            if (Time.time < _nextErrorLogAt) return;
+            _nextErrorLogAt = Time.time + 1f;
+            Modules.Logger.LogError($"FollowerPatrolLayer.{where} failed for bot={BotOwner?.Profile?.Nickname ?? BotOwner?.name ?? "<null>"}");
+            Modules.Logger.LogError(ex);
         }
 
         private bool EndHealing()
@@ -276,7 +302,7 @@ namespace friendlySAIN.BigBrain
 
         private void HealBot()
         {
-            if(BotOwner == null || BotOwner.GetPlayer == null || !BotOwner.HealthController.IsAlive) return;
+            if (BotOwner == null || BotOwner.GetPlayer == null || !BotOwner.HealthController.IsAlive) return;
             var player = BotOwner.GetPlayer;
 
             foreach (var part in GClass3058.RealBodyParts)

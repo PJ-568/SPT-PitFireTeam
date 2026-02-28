@@ -37,6 +37,7 @@ namespace friendlySAIN.SAINAddon
             try
             {
                 SAINDecisionRegroupPatch.Apply(harmony);
+                SAINFollowerPersonalityPatch.Apply(harmony);
                 BrainManager.AddCustomLayer(typeof(SAINRegroupLayer), brains, RegroupLayerPriority);
                 logger.LogInfo($"[Init] SAIN regroup layer registered at priority {RegroupLayerPriority}.");
             }

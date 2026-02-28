@@ -58,22 +58,29 @@ namespace friendlySAIN.BigBrain
             if (!BotOwner.BotFollower.HaveBoss) return false;
             if (BotOwner.BotFollower.BossToFollow is not pitAIBossPlayer) return false;
 
-            followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData == null) followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
+
             if (followerData == null)
             {
                 return false;
             }
 
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
-            if (hasCommand && command != FollowerCommandType.RegroupNearBoss && BotOwner.Memory.HaveEnemy)
-            {
-                return false;
-            }
 
-            if (hasCommand
-                && command == FollowerCommandType.RegroupNearBoss
-                && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
+            if(BotOwner.Memory.HaveEnemy && hasCommand)
             {
+                if(command == FollowerCommandType.RegroupNearBoss)
+                {
+                    // let sain continue the regroup on entering combat
+                    if(friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
+                    {
+                        BotOwner.StopMove();
+                        return false;
+                    } else
+                        return true;
+                }
+
+                followerData.ClearCommand("EnteringCombat");
                 return false;
             }
 
@@ -88,10 +95,7 @@ namespace friendlySAIN.BigBrain
 
         public override bool IsCurrentActionEnding()
         {
-            if (!IsActive()) return true;
-
-            followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
-            return followerData == null || !followerData.TryGetActiveCommand(out _, out _);
+            return !IsActive();
         }
 
     }

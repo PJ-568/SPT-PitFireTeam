@@ -13,7 +13,7 @@ namespace friendlySAIN.Patches
 {
     internal class HearingSensorPatch : ModulePatch
     {
-        private const bool EnableReactionTrace = true;
+        private const bool EnableReactionTrace = false;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(BotHearingSensor), "method_0");
@@ -115,7 +115,7 @@ namespace friendlySAIN.Patches
 
     internal class FootstepSoundPatch : ModulePatch
     {
-        private const bool EnableReactionTrace = true;
+        private const bool EnableReactionTrace = false;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(Player), "PlayStepSound");
@@ -168,7 +168,7 @@ namespace friendlySAIN.Patches
 
     internal class PlayerSayPatch : ModulePatch
     {
-        private const bool EnableReactionTrace = true;
+        private const bool EnableReactionTrace = false;
         private const float VoiceReactDistance = 40f;
         private static float reported = 0f;
         private static float freq = 0;
@@ -228,6 +228,7 @@ namespace friendlySAIN.Patches
                 bool heardVoice = bot.HearingSensor.method_6(__instance.Transform.position, VoiceReactDistance, out var distance);
                 bool speakerHasLosToFollower = EnemySpeakerHasLineOfSightToFollower(__instance, bot, out float losDistance);
                 bool shouldReact = heardVoice || (speakerHasLosToFollower && losDistance <= VoiceReactDistance);
+                bool followerHasLosToSpeaker = FollowerHasLineOfSightToSpeaker(bot, __instance);
                 Trace(bot, $"Voice precheck src={__instance.ProfileId} heard={heardVoice} dist={distance:F1} los={speakerHasLosToFollower} losDist={losDistance:F1} shouldReact={shouldReact}");
                 if (!shouldReact)
                 {
@@ -239,14 +240,32 @@ namespace friendlySAIN.Patches
                     float effectiveDistance = heardVoice ? distance : losDistance;
                     if (effectiveDistance < 16f)
                     {
-                        if (!reportEnemy) bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.Visible,bot);
-                        EnemyInfo info = Utils.Enemy.MakeEnemy(bot, __instance);
-
                         reported = Time.time + 3f;
-                        reportEnemy = true;
-
-                        info?.SetVisible(true);
-                        Trace(bot, $"Voice react close result turn=false autoAcquire={info != null} dist={effectiveDistance:F1}");
+                        bool canAcquire = followerHasLosToSpeaker;
+                        if (canAcquire)
+                        {
+                            if (!reportEnemy) bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.Visible, bot);
+                            EnemyInfo info = Utils.Enemy.MakeEnemy(bot, __instance);
+                            info?.SetVisible(true);
+                            reportEnemy = true;
+                            Trace(bot, $"Voice react close result turn=false autoAcquire={info != null} dist={effectiveDistance:F1} followerLos={followerHasLosToSpeaker}");
+                        }
+                        else
+                        {
+                            Vector3 sourcePos = __instance.Transform.position;
+                            if (__instance.MainParts != null && __instance.MainParts.TryGetValue(BodyPartType.body, out var mainBodyPart) && mainBodyPart != null)
+                            {
+                                sourcePos = mainBodyPart.Position;
+                            }
+                            bool turned = FollowerAwareness.FakeShot(bot, sourcePos);
+                            if (!reportEnemy)
+                            {
+                                bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible, bot);
+                                bot.BotTalk.TrySay(EPhraseTrigger.NoisePhrase);
+                            }
+                            reportEnemy = true;
+                            Trace(bot, $"Voice react close result turn={turned} autoAcquire=false dist={effectiveDistance:F1} followerLos={followerHasLosToSpeaker}");
+                        }
                     }
                     else if (effectiveDistance <= VoiceReactDistance)
                     {
@@ -300,6 +319,20 @@ namespace friendlySAIN.Patches
 
             bool canSeeBody = Utils.Utils.CanShootToTarget(new ShootPointClass(followerBody, 1f), speakerPos, mask, false);
             return canSeeBody;
+        }
+
+        private static bool FollowerHasLineOfSightToSpeaker(BotOwner follower, Player speaker)
+        {
+            if (speaker == null || follower == null || follower.GetPlayer == null) return false;
+
+            var followerPlayer = follower.GetPlayer;
+            Vector3 followerPos = followerPlayer.MainParts?[BodyPartType.head]?.Position ?? (followerPlayer.Transform.position + Vector3.up * 1.4f);
+            Vector3 speakerHead = speaker.MainParts?[BodyPartType.head]?.Position ?? (speaker.Transform.position + Vector3.up * 1.4f);
+            Vector3 speakerBody = speaker.MainParts?[BodyPartType.body]?.Position ?? (speaker.Transform.position + Vector3.up * 1.0f);
+
+            LayerMask mask = follower.LookSensor != null ? follower.LookSensor.Mask : LayerMaskClass.HighPolyWithTerrainMask;
+            if (Utils.Utils.CanShootToTarget(new ShootPointClass(speakerHead, 1f), followerPos, mask, false)) return true;
+            return Utils.Utils.CanShootToTarget(new ShootPointClass(speakerBody, 1f), followerPos, mask, false);
         }
     }
 

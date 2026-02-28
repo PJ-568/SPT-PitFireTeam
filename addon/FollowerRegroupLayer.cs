@@ -40,10 +40,9 @@ namespace friendlySAIN.SAINAddon
                 return FinishActive(false);
             }
 
-            active = GetBotComponent()
-                && _followerData.TryGetActiveCommand(out FollowerCommandType command, out _)
-                && command == FollowerCommandType.RegroupNearBoss
-                && friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner);
+            active = friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner) &&
+                _followerData.TryGetActiveCommand(out FollowerCommandType command, out _)
+                && command == FollowerCommandType.RegroupNearBoss;
 
             return FinishActive(active);
         }
@@ -74,7 +73,6 @@ namespace friendlySAIN.SAINAddon
             if (EnableRegroupDebugLogs && _lastActiveState != active)
             {
                 _lastActiveState = active;
-                Modules.Logger.LogInfo($"[SAIN Regroup] layer active={active} follower={BotOwner?.Profile?.Nickname ?? BotOwner?.name ?? "<null>"}");
             }
             else if (!EnableRegroupDebugLogs)
             {

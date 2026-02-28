@@ -64,7 +64,7 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                float level = (friendlySAIN.statusSound.Value / 100f) * 0.5f;
+                float level = (friendlySAIN.pingRadioVolume.Value / 100f) * 0.5f;
                 // Lazy load when async Enable() has not completed yet.
                 if (radioClip == null || radioClip.length == 0)
                 {
@@ -84,7 +84,7 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                float level = (friendlySAIN.statusSound.Value / 100f) * 0.5f;
+                float level = (friendlySAIN.pingRadioVolume.Value / 100f) * 0.5f;
                 if (radioClip == null || radioClip.length == 0)
                 {
                     radioClip = await LoadAudioClip("file://" + ResolveSoundPath("radiochat.ogg"));

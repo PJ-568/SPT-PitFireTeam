@@ -37,6 +37,80 @@ namespace friendlySAIN.Patches
     {
         private const float FollowerGroupEnemyAcquireMaxDistanceSqr = 90f * 90f;
 
+        private static bool RequiresAwarenessGate(EBotEnemyCause cause)
+        {
+            switch (cause)
+            {
+                // Direct/aggressive causes: let these pass immediately.
+                case EBotEnemyCause.byKill:
+                case EBotEnemyCause.followGetHit:
+                case EBotEnemyCause.addPlayer:
+                case EBotEnemyCause.callBot:
+                case EBotEnemyCause.gifterKill:
+                case EBotEnemyCause.bossKillArena:
+                case EBotEnemyCause.KillaSyncTagilla:
+                case EBotEnemyCause.tagillaFindENemy:
+                case EBotEnemyCause.fuckGestus:
+                case EBotEnemyCause.pmcBossKill:
+                case EBotEnemyCause.christmas:
+                case EBotEnemyCause.synWithKilla:
+                case EBotEnemyCause.ravangeZryachiy:
+                case EBotEnemyCause.partisanBadKarma:
+                case EBotEnemyCause.attackBTR:
+                case EBotEnemyCause.tagillaAlarm:
+                case EBotEnemyCause.MarkOfUnknowsDist:
+                case EBotEnemyCause.zryachiyLogic:
+                case EBotEnemyCause.pairLogic:
+                    return false;
+            }
+
+            // Soft/ambient/group propagation causes must pass awareness check.
+            return true;
+        }
+
+        private static bool HasGroupEnemyContact(BotsGroup group, IPlayer enemy)
+        {
+            if (group == null || enemy == null) return false;
+
+            for (int i = 0; i < group.MembersCount; i++)
+            {
+                BotOwner member = group.Member(i);
+                if (member == null) continue;
+
+                if (member.EnemiesController != null &&
+                    member.EnemiesController.EnemyInfos != null &&
+                    member.EnemiesController.EnemyInfos.TryGetValue(enemy, out EnemyInfo info) &&
+                    info != null)
+                {
+                    if (info.IsVisible || info.HaveSeen || Time.time - info.PersonalLastSeenTime < 3f)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsEnemyNearGroup(BotsGroup group, IPlayer enemy)
+        {
+            if (group == null || enemy == null) return false;
+
+            Vector3 enemyPos = enemy.Position;
+            for (int i = 0; i < group.MembersCount; i++)
+            {
+                BotOwner member = group.Member(i);
+                if (member == null) continue;
+
+                if ((member.Position - enemyPos).sqrMagnitude <= FollowerGroupEnemyAcquireMaxDistanceSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(BotsGroup), "AddEnemy");
@@ -196,80 +270,6 @@ namespace friendlySAIN.Patches
             }
 
             return true;
-        }
-
-        private static bool RequiresAwarenessGate(EBotEnemyCause cause)
-        {
-            switch (cause)
-            {
-                // Direct/aggressive causes: let these pass immediately.
-                case EBotEnemyCause.byKill:
-                case EBotEnemyCause.followGetHit:
-                case EBotEnemyCause.addPlayer:
-                case EBotEnemyCause.callBot:
-                case EBotEnemyCause.gifterKill:
-                case EBotEnemyCause.bossKillArena:
-                case EBotEnemyCause.KillaSyncTagilla:
-                case EBotEnemyCause.tagillaFindENemy:
-                case EBotEnemyCause.fuckGestus:
-                case EBotEnemyCause.pmcBossKill:
-                case EBotEnemyCause.christmas:
-                case EBotEnemyCause.synWithKilla:
-                case EBotEnemyCause.ravangeZryachiy:
-                case EBotEnemyCause.partisanBadKarma:
-                case EBotEnemyCause.attackBTR:
-                case EBotEnemyCause.tagillaAlarm:
-                case EBotEnemyCause.MarkOfUnknowsDist:
-                case EBotEnemyCause.zryachiyLogic:
-                case EBotEnemyCause.pairLogic:
-                    return false;
-            }
-
-            // Soft/ambient/group propagation causes must pass awareness check.
-            return true;
-        }
-
-        private static bool HasGroupEnemyContact(BotsGroup group, IPlayer enemy)
-        {
-            if (group == null || enemy == null) return false;
-
-            for (int i = 0; i < group.MembersCount; i++)
-            {
-                BotOwner member = group.Member(i);
-                if (member == null) continue;
-
-                if (member.EnemiesController != null &&
-                    member.EnemiesController.EnemyInfos != null &&
-                    member.EnemiesController.EnemyInfos.TryGetValue(enemy, out EnemyInfo info) &&
-                    info != null)
-                {
-                    if (info.IsVisible || info.HaveSeen || Time.time - info.PersonalLastSeenTime < 3f)
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        private static bool IsEnemyNearGroup(BotsGroup group, IPlayer enemy)
-        {
-            if (group == null || enemy == null) return false;
-
-            Vector3 enemyPos = enemy.Position;
-            for (int i = 0; i < group.MembersCount; i++)
-            {
-                BotOwner member = group.Member(i);
-                if (member == null) continue;
-
-                if ((member.Position - enemyPos).sqrMagnitude <= FollowerGroupEnemyAcquireMaxDistanceSqr)
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         /**

@@ -12,7 +12,7 @@ namespace friendlySAIN.Patches
     // patch to detect nearby bullet impacts
     public class BulletImpactPatch : ModulePatch
     {
-        private const bool EnableReactionTrace = true;
+        private const bool EnableReactionTrace = false;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(EffectsCommutator), "PlayHitEffect");

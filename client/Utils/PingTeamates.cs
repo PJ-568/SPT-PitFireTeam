@@ -97,8 +97,15 @@ namespace friendlySAIN.Utils
 
             if (radioSound != null && !locationPing)
             {
-                Vector3 closestFollowerPos = GetClosestFollowerPosition(player.Position);
-                radioSound.PlayRadioSound(closestFollowerPos);
+                if (HasAnyAliveFollower())
+                {
+                    Vector3 closestFollowerPos = GetClosestFollowerPosition(player.Position);
+                    radioSound.PlayRadioSound(closestFollowerPos);
+                }
+                else
+                {
+                    radioSound.PlayRadioSound();
+                }
             }
 
         }
@@ -496,6 +503,19 @@ namespace friendlySAIN.Utils
             }
 
             return bestPos;
+        }
+
+        private bool HasAnyAliveFollower()
+        {
+            foreach (BotData bt in botMap)
+            {
+                if (bt?.Data != null && !bt.Data.IsDead)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static void Disable()

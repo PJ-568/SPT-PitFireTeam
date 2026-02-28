@@ -7,6 +7,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
+using Comfort.Common;
 
 
 namespace friendlySAIN.Patches
@@ -71,28 +73,122 @@ namespace friendlySAIN.Patches
     }
     internal class BotOwnerActivatePatch : ModulePatch
     {
+        private static List<(MongoID id, string name, string prefab)> _bearEnglishVoiceCache;
+        private static List<(MongoID id, string name, string prefab)> _bearVoiceFallbackCache;
+
+        private static bool IsEnglishBearVoice(GClass3681 voice)
+        {
+            if (voice == null) return false;
+
+            string name = voice.Name?.ToLowerInvariant() ?? string.Empty;
+            string prefab = voice.Prefab?.ToLowerInvariant() ?? string.Empty;
+
+            // BEAR voice data uses tags in name/prefab for language variants.
+            // Keep this conservative: only explicit English markers.
+            return name.Contains("eng") ||
+                   name.Contains("english") ||
+                   prefab.Contains("eng") ||
+                   prefab.Contains("english");
+        }
+
+        private static bool TryGetEnglishVoiceSeeded(string seedSource, out MongoID voiceId, out string voiceName)
+        {
+            voiceId = default;
+            voiceName = null;
+
+            try
+            {
+                CustomizationSolverClass solver = Singleton<CustomizationSolverClass>.Instance;
+                if (solver == null) return false;
+
+                if (_bearVoiceFallbackCache == null || _bearVoiceFallbackCache.Count == 0)
+                {
+                    _bearVoiceFallbackCache = solver
+                        .GetAvailableVoices(EPlayerSide.Bear)
+                        .Where(v => v != null && !string.IsNullOrEmpty(v.Name))
+                        .OrderBy(v => v.Name)
+                        .Select(v => (v.Id, v.Name, v.Prefab))
+                        .ToList();
+                }
+
+                if (_bearEnglishVoiceCache == null)
+                {
+                    _bearEnglishVoiceCache = solver
+                        .GetAvailableVoices(EPlayerSide.Bear)
+                        .Where(v => v != null && !string.IsNullOrEmpty(v.Name) && IsEnglishBearVoice(v))
+                        .OrderBy(v => v.Name)
+                        .Select(v => (v.Id, v.Name, v.Prefab))
+                        .ToList();
+                }
+
+                List<(MongoID id, string name, string prefab)> pool =
+                    (_bearEnglishVoiceCache != null && _bearEnglishVoiceCache.Count > 0)
+                    ? _bearEnglishVoiceCache
+                    : _bearVoiceFallbackCache;
+
+                if (pool == null || pool.Count == 0) return false;
+
+                int seed = seedSource?.GetHashCode() ?? 0;
+                if (seed == int.MinValue) seed = 0;
+                int index = Math.Abs(seed) % pool.Count;
+
+                voiceId = pool[index].id;
+                voiceName = pool[index].name;
+                return !string.IsNullOrEmpty(voiceName);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        internal static void ApplyEnglishVoiceForProfile(Profile profile)
+        {
+            if (!friendlySAIN.englishBear.Value) return;
+            if (profile == null || profile.Info == null) return;
+            WildSpawnType role = profile.Info.Settings?.Role ?? WildSpawnType.assault;
+            bool isBearSide = profile.Info.Side == EPlayerSide.Bear;
+            bool isBearRole = role == WildSpawnType.pmcBEAR;
+            if (!isBearSide && !isBearRole) return;
+            if (profile.Customization == null) return;
+
+            string seed = profile.ProfileId ?? profile.Id ?? profile.Nickname ?? string.Empty;
+            if (!TryGetEnglishVoiceSeeded(seed, out MongoID englishVoiceId, out _)) return;
+
+            try
+            {
+                profile.Customization[EBodyModelPart.Voice] = englishVoiceId;
+            }
+            catch
+            {
+                // Keep profile generation resilient if customization map cannot be written.
+            }
+
+        }
+
         private static List<Action<BotOwner>> onActivate = new List<Action<BotOwner>>
         {
            new Action<BotOwner>((BotOwner bot) =>
            {
+
                bool isRogue = Utils.Props.BossFollowersType.ToList().AddItem(WildSpawnType.exUsec).Contains(bot.Profile.Info.Settings.Role);
 
-               if(Utils.Utils.FlagGet("friendlySAIN") && (bot.Side == EPlayerSide.Bear || bot.Side == EPlayerSide.Usec))
-               {
+                if(Utils.Utils.FlagGet("friendlySAIN") && (bot.Side == EPlayerSide.Bear || bot.Side == EPlayerSide.Usec))
+                {
                     bot.Settings.FileSettings.Boss.SHALL_WARN = false;
                     bot.Settings.FileSettings.Patrol.MAX_YDIST_TO_START_WARN_REQUEST_TO_REQUESTER = 0f;
                     bot.Settings.FileSettings.Patrol.MAX_YDIST_TO_START_WARN_REQUEST_TO_REQUESTER_ALLY = 0f;
-               }
+                }
 
                // force bosses to always be hostile to PMCs
-               if(Utils.Props.BossFollowersType.Contains(bot.Profile.Info.Settings.Role))
-               {
+                if(Utils.Props.BossFollowersType.Contains(bot.Profile.Info.Settings.Role))
+                {
                    bot.Settings.FileSettings.Mind.DEFAULT_USEC_BEHAVIOUR = EWarnBehaviour.AlwaysEnemies;
                    bot.Settings.FileSettings.Mind.DEFAULT_BEAR_BEHAVIOUR = EWarnBehaviour.AlwaysEnemies;
-               }
+                }
 
 
-               BossPlayers.GetFollowers().ForEach(follower=>{
+                BossPlayers.GetFollowers().ForEach(follower=>{
                     var fl = follower.GetBot();
                     WildSpawnType role = bot.Profile.Info.Settings.Role;
                     pitAIBossPlayer bossPlayer = follower.GetBoss();
@@ -153,8 +249,8 @@ namespace friendlySAIN.Patches
                             fl.BotsGroup.AddEnemy(bot, EBotEnemyCause.addPlayerToBoss);
                         }
                     }
-               });
-           })
+                });
+            })
         };
         protected override MethodBase GetTargetMethod()
         {
@@ -165,10 +261,9 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(BotOwner __instance)
         {
-            if (BossPlayers.IsFollower(__instance)) return;
-
             try
             {
+                if (BossPlayers.IsFollower(__instance)) return;
                 onActivate.ForEach(action => action(__instance));
             }
             catch (Exception e)
@@ -185,6 +280,34 @@ namespace friendlySAIN.Patches
         public static void RemoveOnActivate(Action<BotOwner> action)
         {
             if (onActivate.Contains(action)) onActivate.Remove(action);
+        }
+    }
+
+    internal class SessionLoadBotsEnglishVoicePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ProfileEndpointFactoryAbstractClass), "LoadBots");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(ref Task<Profile[]> __result)
+        {
+            if (!friendlySAIN.englishBear.Value || __result == null) return;
+            __result = ApplyEnglishVoiceAsync(__result);
+        }
+
+        private static async Task<Profile[]> ApplyEnglishVoiceAsync(Task<Profile[]> originalTask)
+        {
+            Profile[] profiles = await originalTask;
+            if (profiles == null || profiles.Length == 0) return profiles;
+
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                BotOwnerActivatePatch.ApplyEnglishVoiceForProfile(profiles[i]);
+            }
+
+            return profiles;
         }
     }
 }

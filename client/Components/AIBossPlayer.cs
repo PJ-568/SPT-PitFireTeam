@@ -886,7 +886,6 @@ namespace friendlySAIN.Components
                         if (lookedFollowerData != null)
                         {
                             lookedFollowerData.SetHoldPosition(20f);
-                            Modules.Logger.LogInfo($"[Req] Hold set for {lookedFollower.Profile.Nickname} (looked target)");
                             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
                             applied = true;
                         }
@@ -910,7 +909,6 @@ namespace friendlySAIN.Components
                 if (followerData == null) continue;
 
                 followerData.SetHoldPosition(20f);
-                Modules.Logger.LogInfo($"[Req] Hold set for {follower.Profile.Nickname}");
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }
@@ -1165,29 +1163,24 @@ namespace friendlySAIN.Components
             BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, LookAtFollowerDistance);
             if (lookedFollower == null)
             {
-                Modules.Logger.LogInfo("[Req] ComeWithMe ignored: no looked-at follower");
                 return;
             }
             if ((lookedFollower.Position - requesterPlayer.Position).sqrMagnitude > ComeWithMeMaxDistance * ComeWithMeMaxDistance)
             {
-                Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower too far ({lookedFollower.Profile.Nickname})");
                 return;
             }
             if (!CanReactToBossGesture(lookedFollower, requesterPlayer, ComeWithMeMaxDistance))
             {
-                Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower cannot see boss ({lookedFollower.Profile.Nickname})");
                 return;
             }
 
             BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(lookedFollower);
             if (followerData == null)
             {
-                Modules.Logger.LogInfo($"[Req] ComeWithMe ignored: follower data missing ({lookedFollower.Profile.Nickname})");
                 return;
             }
 
             followerData.SetComeCloser(10f);
-            Modules.Logger.LogInfo($"[Req] ComeWithMe set for {lookedFollower.Profile.Nickname}");
             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
         }
 
@@ -1216,7 +1209,6 @@ namespace friendlySAIN.Components
 
             if (closestFollower == null)
             {
-                Modules.Logger.LogInfo("[Req] There ignored: no eligible follower");
                 return;
             }
 
@@ -1232,19 +1224,16 @@ namespace friendlySAIN.Components
 
             if (!NavMesh.SamplePosition(rawTarget, out NavMeshHit navHit, 12f, NavMesh.AllAreas))
             {
-                Modules.Logger.LogInfo($"[Req] There ignored: no navmesh near target {rawTarget}");
                 return;
             }
 
             BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(closestFollower);
             if (followerData == null)
             {
-                Modules.Logger.LogInfo($"[Req] There ignored: follower data missing ({closestFollower.Profile.Nickname})");
                 return;
             }
 
             followerData.SetMoveToPoint(navHit.position, 14f);
-            Modules.Logger.LogInfo($"[Req] There set for {closestFollower.Profile.Nickname} -> {navHit.position}");
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
         }
 
