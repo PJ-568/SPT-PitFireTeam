@@ -210,8 +210,10 @@ namespace friendlySAIN
             new BotOwnerIsFolowerPatch().Enable();
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
+            new SessionLoadBotsEnglishVoicePatch().Enable();
             new LootPatrolActiveLayerListPatch().Enable();
             new LootPatrolDecisionBypassPatch().Enable();
+            new AdvAssaultTargetFollowerGuardPatch().Enable();
             
             if(!IsSAINInstalled)
                 new FollowerSprintPatch().Enable();

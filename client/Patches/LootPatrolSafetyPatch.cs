@@ -265,4 +265,45 @@ namespace friendlySAIN.Patches
             return BossPlayers.Instance?.GetFollower(botOwner) != null;
         }
     }
+
+    // Prevent followers from being trapped in vanilla AdvAssaultTarget due to stale GoalTarget/ZeroGoalTarget.
+    internal class AdvAssaultTargetFollowerGuardPatch : ModulePatch
+    {
+        private static Func<object, BotOwner> _botOwnerGetter;
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(Class99), "ShallUseNow");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(Class99 __instance, ref bool __result)
+        {
+            if (__instance == null) return true;
+
+            _botOwnerGetter ??= LootPatrolActiveLayerListPatch.BuildBotOwnerGetter(__instance.GetType());
+            BotOwner botOwner = _botOwnerGetter?.Invoke(__instance);
+            if (!IsConfirmedFollower(botOwner))
+            {
+                return true;
+            }
+
+            if (botOwner.Memory?.HaveEnemy != true && botOwner.Memory?.GoalTarget?.HaveMainTarget() == true)
+            {
+                botOwner.Memory.GoalTarget.Clear();
+            }
+
+            __result = false;
+            return false;
+        }
+
+        private static bool IsConfirmedFollower(BotOwner botOwner)
+        {
+            if (botOwner == null) return false;
+            if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return false;
+            if (botOwner.BotFollower == null || !botOwner.BotFollower.HaveBoss) return false;
+            if (botOwner.BotFollower.BossToFollow is not Components.pitAIBossPlayer) return false;
+            return BossPlayers.Instance?.GetFollower(botOwner) != null;
+        }
+    }
 }

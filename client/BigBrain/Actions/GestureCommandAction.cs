@@ -268,11 +268,6 @@ namespace friendlySAIN.BigBrain.Actions
 
         private bool ShouldInterruptRegroupForThreatOrState(bool clearForDanger)
         {
-            if (BotOwner.Memory?.HaveEnemy == true && BotOwner.Memory.GoalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
-            {
-                return true;
-            }
-
             BotLogicDecision currentDecision = BotOwner.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
             bool healing = BotOwner.Medecine?.FirstAid?.Using == true ||
                            BotOwner.Medecine?.SurgicalKit?.Using == true ||
@@ -489,18 +484,6 @@ namespace friendlySAIN.BigBrain.Actions
         private void HandleMoveToPoint(Vector3 target)
         {
             if(BotOwner.Mover.TargetPose != 1f) BotOwner.Mover.SetPose(1f);
-            if (BotOwner.Memory.HaveEnemy)
-            {
-                followerData?.ClearCommand("MoveToPoint:enemySeen");
-                BotOwner.StopMove();
-                return;
-            }
-            if (HasVisibleKnownEnemy())
-            {
-                followerData?.ClearCommand("MoveToPoint:enemyVisibleNoGoal");
-                BotOwner.StopMove();
-                return;
-            }
 
             float distance = (target - BotOwner.Position).magnitude;
             if (distance > 1.5f && moveArrivalLookUntil > 0f)
@@ -560,27 +543,6 @@ namespace friendlySAIN.BigBrain.Actions
             nextHoldLookChangeAt = 0f;
         }
 
-        private bool HasVisibleKnownEnemy()
-        {
-            try
-            {
-                var infos = BotOwner?.EnemiesController?.EnemyInfos;
-                if (infos == null || infos.Count == 0) return false;
-
-                foreach (var kv in infos)
-                {
-                    var info = kv.Value;
-                    if (info == null) continue;
-                    if (info.IsVisible) return true;
-                }
-            }
-            catch
-            {
-                // Ignore and preserve command behavior on rare enemy-info enumeration issues.
-            }
-            return false;
-        }
-
         private void HandleMovePointArrivalLookAround()
         {
             BotOwner.StopMove();
@@ -626,19 +588,6 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void HandleHoldPosition()
         {
-            if (BotOwner.Memory.HaveEnemy)
-            {
-                followerData?.ClearCommand("HoldPosition:enemySeen");
-                BotOwner.StopMove();
-                return;
-            }
-            if (HasVisibleKnownEnemy())
-            {
-                followerData?.ClearCommand("HoldPosition:enemyVisibleNoGoal");
-                BotOwner.StopMove();
-                return;
-            }
-            
             BotOwner.StopMove();
             if (BotOwner.Mover.TargetPose > 0.15f || BotOwner.Mover.TargetPose < 0.05f)
             {

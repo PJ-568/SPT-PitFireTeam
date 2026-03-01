@@ -70,6 +70,7 @@ namespace friendlySAIN.BigBrain
         private bool triedReloadSecondaryWeapon = false;
         private float nextReloadCheckAt = 0f;
         private float nextMagazineFillCheckAt = 0f;
+        private bool stoppedForHealDecision = false;
         private bool sawEnemyDuringCurrentCycle = false;
         private float combatEndedAt = -1f;
         private BotFollowerPlayer? followerData;
@@ -161,6 +162,7 @@ namespace friendlySAIN.BigBrain
         public override void Stop()
         {
             isHealing = false;
+            stoppedForHealDecision = false;
             selectedAction = null;
             ResetReloadState();
             base.Stop();
@@ -170,6 +172,7 @@ namespace friendlySAIN.BigBrain
         {
             base.Start();
             isHealing = false;
+            stoppedForHealDecision = false;
             ResetReloadState();
             BotOwner.Mover.Pause = false;
 
@@ -202,6 +205,7 @@ namespace friendlySAIN.BigBrain
                     if (!isHealing)
                     {
                         healStartAt = Time.time;
+                        StopMovementForHealDecision();
                     }
 
                     isHealing = true;
@@ -211,6 +215,7 @@ namespace friendlySAIN.BigBrain
                 }
 
                 isHealing = false;
+                stoppedForHealDecision = false;
 
 
                 // put the weapon reload here
@@ -331,6 +336,19 @@ namespace friendlySAIN.BigBrain
             {
                 BotOwner.Medecine.SurgicalKit.CancelCurrent();
             }
+        }
+
+        private void StopMovementForHealDecision()
+        {
+            if (stoppedForHealDecision || BotOwner == null) return;
+
+            BotOwner.Mover?.Stop();
+            if (BotOwner.Mover?.Sprinting == true)
+            {
+                BotOwner.Mover.Sprint(false, false);
+            }
+            BotOwner.StopMove();
+            stoppedForHealDecision = true;
         }
 
         private void ResetReloadState()

@@ -71,6 +71,10 @@ namespace friendlySAIN.Components
         private float _commandLookPauseUntil;
         private Vector3 _commandLookOverridePoint;
         private float _commandLookOverrideUntil;
+        private string _knownEnemyProfileId;
+        private float _knownEnemySince;
+        private bool _knownEnemyLatched;
+        private const float KnownEnemyAcquireHoldSeconds = 0.5f;
 
         public bool CanPatrol
         {
@@ -98,7 +102,7 @@ namespace friendlySAIN.Components
         {
             _canPatrol = false;
             BaseBrain baseBrain = _bot.Brain.BaseBrain;
-            if(baseBrain == null)
+            if (baseBrain == null)
             {
                 Modules.Logger.LogError("BaseBrain is null for " + _bot.Profile.Nickname);
                 return;
@@ -109,13 +113,13 @@ namespace friendlySAIN.Components
             {
                 ResetBrainForFollower(baseBrain);
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Modules.Logger.LogError("Error while trying to deactivate vanilla layers");
                 Modules.Logger.LogError(ex);
             }
 
-           
+
             if (baseBrain != null)
             {
                 // deactive current layer to prevent conflicts with our layers, if any
@@ -134,7 +138,7 @@ namespace friendlySAIN.Components
             HookPeaceChange();
             HookManualUpdate();
             //LogBrainState("after init");
-            
+
 
 
             // bot might be following someone, reset that
@@ -175,21 +179,21 @@ namespace friendlySAIN.Components
             }*/
 
             // followers should not be questing, so stop it (if questing mod is present)
-           /* Type questingBrain = Type.GetType("SPTQuestingBots.Components.BotObjectiveManager, SPTQuestingBots");
-            if (questingBrain != null && _bot.GetPlayer.gameObject.TryGetComponent(questingBrain, out var questingComponent))
-            {
-                try
-                {
-                    MethodInfo stopMethod = questingBrain.GetMethod("StopQuesting", BindingFlags.Public | BindingFlags.Instance);
-                    stopMethod?.Invoke(questingComponent, null);
-                    Modules.Logger.LogInfo("Questing stopped for " + _bot.Profile.Nickname);
-                }
-                catch (Exception ex)
-                {
-                    Modules.Logger.LogError("Failed to stop questing");
-                    Modules.Logger.LogError(ex);
-                }
-            }*/
+            /* Type questingBrain = Type.GetType("SPTQuestingBots.Components.BotObjectiveManager, SPTQuestingBots");
+             if (questingBrain != null && _bot.GetPlayer.gameObject.TryGetComponent(questingBrain, out var questingComponent))
+             {
+                 try
+                 {
+                     MethodInfo stopMethod = questingBrain.GetMethod("StopQuesting", BindingFlags.Public | BindingFlags.Instance);
+                     stopMethod?.Invoke(questingComponent, null);
+                     Modules.Logger.LogInfo("Questing stopped for " + _bot.Profile.Nickname);
+                 }
+                 catch (Exception ex)
+                 {
+                     Modules.Logger.LogError("Failed to stop questing");
+                     Modules.Logger.LogError(ex);
+                 }
+             }*/
 
             /// reset bot animation stances
             _bot.GetPlayer.MovementContext.SetPatrol(false);
@@ -215,7 +219,7 @@ namespace friendlySAIN.Components
                 Vector3 lookPoint = _player.realPlayer.Transform.position + Vector3.up * 1.2f;
                 _bot.Steering.LookToPoint(lookPoint);
             }
-            
+
 
             bool isPickedUp = !_IsSquadMate && (_player.bossGroup == null || _player.bossGroup.Id != _bot.BotsGroup.Id);
 
@@ -648,8 +652,8 @@ namespace friendlySAIN.Components
         protected void AddExtraAmmo()
         {
             InventoryController? inventory = GetInventoryController();
-            
-            if(inventory == null)
+
+            if (inventory == null)
             {
                 Modules.Logger.LogError("Cannot access inventory of bot, extra ammo will not be added");
                 return;
@@ -1012,6 +1016,56 @@ namespace friendlySAIN.Components
             return command != FollowerCommandType.None;
         }
 
+        public bool HasKnownEnemy()
+        {
+            BotOwner owner = _bot;
+            if (owner?.Memory == null || owner.Memory.HaveEnemy != true)
+            {
+                _knownEnemyProfileId = null;
+                _knownEnemySince = 0f;
+                _knownEnemyLatched = false;
+                return false;
+            }
+
+            EnemyInfo goalEnemy = owner.Memory.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                _knownEnemyProfileId = null;
+                _knownEnemySince = 0f;
+                _knownEnemyLatched = false;
+                return false;
+            }
+
+            string goalProfileId = goalEnemy.ProfileId;
+            if (string.IsNullOrEmpty(goalProfileId))
+            {
+                _knownEnemyProfileId = null;
+                _knownEnemySince = 0f;
+                _knownEnemyLatched = false;
+                return false;
+            }
+
+            if (!string.Equals(_knownEnemyProfileId, goalProfileId, StringComparison.Ordinal))
+            {
+                _knownEnemyProfileId = goalProfileId;
+                _knownEnemySince = Time.time;
+                _knownEnemyLatched = false;
+            }
+
+            if (_knownEnemyLatched)
+            {
+                return true;
+            }
+
+            if (HasLineOfSightToGoalEnemy(owner, goalEnemy))
+            {
+                _knownEnemyLatched = true;
+                return true;
+            }
+
+            return Time.time - _knownEnemySince >= KnownEnemyAcquireHoldSeconds;
+        }
+
         public void ResetCombatCommitState()
         {
             _pendingHoldRestoreAfterCombatBlip = false;
@@ -1179,30 +1233,14 @@ namespace friendlySAIN.Components
                 }
 
                 bool haveEnemy = owner.Memory?.HaveEnemy ?? false;
-
-                // Safety guard: if combat has committed, non-regroup gesture commands must not persist.
-                // This catches timing gaps where a command layer does not release on the same tick.
-                if (haveEnemy && _activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.RegroupNearBoss)
+                if (!haveEnemy && owner.Memory?.GoalTarget?.HaveMainTarget() == true)
                 {
-                    if (_activeCommand == FollowerCommandType.HoldPosition)
-                    {
-                        if (!_pendingHoldRestoreAfterCombatBlip)
-                        {
-                            _pendingHoldRestoreAfterCombatBlip = true;
-                            _holdClearedForCombatAt = Time.time;
-                        }
-                    }
-
-                    ClearCommand($"UpdateManual:HaveEnemyGuard active={_activeCommand}");
+                    owner.Memory.GoalTarget.Clear();
                 }
 
                 if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)
                 {
                     var goal = owner.Memory?.GoalEnemy;
-                    Modules.Logger.LogInfo(
-                        $"[ReactTrace] bot={owner.Profile?.Nickname ?? owner.name} HaveEnemyEdge enter={haveEnemy} " +
-                        $"goal={(goal?.ProfileId ?? "<none>")} goalVisible={(goal != null ? goal.IsVisible.ToString() : "")} " +
-                        $"cmd={_activeCommand}");
                     if (haveEnemy)
                     {
                         if (!string.IsNullOrEmpty(goal?.ProfileId))
@@ -1211,44 +1249,7 @@ namespace friendlySAIN.Components
                             _lastCommittedAt = Time.time;
                             TrySyncEnemyToOtherFollowers(owner, goal);
                         }
-                        // Hold is already handled by the guard above (with blip-restore bookkeeping).
                     }
-                    else
-                    {
-                        if (_pendingHoldRestoreAfterCombatBlip)
-                        {
-                            bool stickyReapplied = TryReapplyStickyEnemy(owner, out string stickyEnemyId, out float stickyAge);
-                            Modules.Logger.LogInfo(
-                                $"[ReactTrace] bot={owner.Profile?.Nickname ?? owner.name} EnemyStick reapply={stickyReapplied} enemy={(stickyEnemyId ?? "<none>")} age={stickyAge:F2}");
-
-                            if (stickyReapplied || HasStickyEnemyCandidate(out _, out _))
-                            {
-                                _pendingHoldRestoreAfterCombatBlip = false;
-                                return;
-                            }
-
-                            float combatDuration = Time.time - _holdClearedForCombatAt;
-                            if (combatDuration <= HoldCombatBlipRestoreWindowSeconds &&
-                                _activeCommand == FollowerCommandType.None)
-                            {
-                                SetHoldPosition(float.PositiveInfinity);
-                            }
-                            _pendingHoldRestoreAfterCombatBlip = false;
-                        }
-                    }
-                }
-                else if (haveEnemy && _pendingHoldRestoreAfterCombatBlip)
-                {
-                    if (Time.time - _holdClearedForCombatAt > HoldCombatBlipRestoreWindowSeconds)
-                    {
-                        _pendingHoldRestoreAfterCombatBlip = false;
-                    }
-                }
-
-                if (_pendingHoldRestoreAfterCombatBlip && _activeCommand != FollowerCommandType.None)
-                {
-                    // A new command replaced hold while waiting for a blip restore.
-                    _pendingHoldRestoreAfterCombatBlip = false;
                 }
 
                 _lastHaveEnemy = haveEnemy;
@@ -1341,6 +1342,56 @@ namespace friendlySAIN.Components
             }
         }
 
+        private static bool HasLineOfSightToGoalEnemy(BotOwner owner, EnemyInfo goalEnemy)
+        {
+            try
+            {
+                if (owner?.GetPlayer?.PlayerBones?.WeaponRoot == null)
+                {
+                    return false;
+                }
+
+                Player enemyPlayer = goalEnemy.Person as Player;
+                if ((enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) && !string.IsNullOrEmpty(goalEnemy.ProfileId))
+                {
+                    enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+                }
+
+                if (enemyPlayer?.MainParts == null || enemyPlayer.HealthController?.IsAlive != true)
+                {
+                    return false;
+                }
+
+                bool hasHead = enemyPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart);
+                bool hasBody = enemyPlayer.MainParts.TryGetValue(BodyPartType.body, out var bodyPart);
+                if (!hasHead && !hasBody)
+                {
+                    return false;
+                }
+
+                Vector3 firePos = owner.GetPlayer.PlayerBones.WeaponRoot.position;
+                LayerMask mask = owner.LookSensor?.Mask ?? LayerMaskClass.HighPolyWithTerrainMask;
+
+                if (headPart != null &&
+                    Utils.Utils.CanShootToTarget(new ShootPointClass(headPart.Position, 1f), firePos, mask, false))
+                {
+                    return true;
+                }
+
+                if (bodyPart != null &&
+                    Utils.Utils.CanShootToTarget(new ShootPointClass(bodyPart.Position, 1f), firePos, mask, false))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Keep command/state checks resilient on any transient actor/memory nulls.
+            }
+
+            return false;
+        }
+
         private void TrySyncEnemyToOtherFollowers(BotOwner source, EnemyInfo goal)
         {
             if (!friendlySAIN.IsSAINInstalled) return;
@@ -1385,8 +1436,8 @@ namespace friendlySAIN.Components
 
         private void ForceEndCurrentDecision(BotOwner bot)
         {
-            if(bot == null) return;
-            
+            if (bot == null) return;
+
             var brain = bot?.Brain?.BaseBrain;
             var agent = bot?.Brain?.Agent;
             if (brain == null || agent == null) return;

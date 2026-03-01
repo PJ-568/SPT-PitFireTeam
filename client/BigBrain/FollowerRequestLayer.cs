@@ -67,20 +67,19 @@ namespace friendlySAIN.BigBrain
 
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
 
-            if(BotOwner.Memory.HaveEnemy && hasCommand)
+            if (hasCommand && followerData.HasKnownEnemy())
             {
-                if(command == FollowerCommandType.RegroupNearBoss)
+                if (command == FollowerCommandType.RegroupNearBoss)
                 {
                     // let sain continue the regroup on entering combat
-                    if(friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
+                    if (friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
                     {
                         BotOwner.StopMove();
                         return false;
-                    } else
-                        return true;
+                    }
                 }
 
-                followerData.ClearCommand("EnteringCombat");
+                followerData.ClearCommand("KnownEnemyAcquired");
                 return false;
             }
 

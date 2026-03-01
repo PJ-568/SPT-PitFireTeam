@@ -1,6 +1,6 @@
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-02-22  
+Last updated: 2026-03-01  
 Scope: runtime behavior currently present in `friendlySAIN/client` (based on active code paths in `friendlyPlugin.cs` and related components).
 
 ## BE / Server State (Important)
@@ -156,6 +156,7 @@ Bot/group/follower stability:
 - `BotOwnerIsFolowerPatch`
 - `BotOwnerManualUpdatePatch`
 - `BotOwnerActivatePatch`
+- `SessionLoadBotsEnglishVoicePatch`
 - `LootPatrolFollowerGuardPatch`
 - `AICoreAgentUpdatePatch` (logs/rethrows update exceptions)
 
@@ -249,6 +250,7 @@ SAIN integration:
 - `PingTeamates` enemy marker/status timing corrected:
     - uses `Time.time - PersonalLastSeenTime` for recency.
 - Several debug/trace patches were iterated during movement work; current runtime path is focused on minimal active tracing.
+- Request command logs were reduced/removed from `AIBossPlayer` (`[Req] Hold/There/ComeWithMe ...`) to keep runtime logs cleaner.
 - Debug console command:
     - `fs_spawnfollower`
     - available in-raid, spawns one follower for the player side.
@@ -258,6 +260,10 @@ SAIN integration:
     - treat bugs tracks seperate as SAIN and vanilla categories
     - always spend time checking SAIN and client sources at the begining of the session to get proper context
     - prefer to check client sources first when some method, class, or property is not clear, rather then making assumptions
+- English BEAR voice assignment is applied at profile-load time:
+    - `SessionLoadBotsEnglishVoicePatch` patches `ProfileEndpointFactoryAbstractClass.LoadBots`
+    - each returned `Profile` is processed by `BotOwnerActivatePatch.ApplyEnglishVoiceForProfile(...)`
+    - this is the active runtime path for voice replacement (instead of late activation-only mutation)
 
 ## 8) Known Open Issues
 
@@ -306,3 +312,12 @@ Examples currently tracked there:
     - `Rock/Scissor/Paper/AllRight = 200..203`
 - UI visibility note:
     - gesture buttons are created from `CustomizationSolverClass.GetAvailableGestures(side)`, so visibility is side/template-data dependent (e.g., can differ for PMC vs Savage).
+
+## 11) SAIN Vision/Enemy Notes (2026-03-01)
+
+- Detailed investigation note is recorded in:
+    - `docs/sain-vision-enemy-pipeline-2026-03-01.md`
+- Key result:
+    - SAIN enemy retention depends on internal `EnemyKnown` + `LastKnownPosition` + active checks.
+    - SAIN can clear current goal enemy quickly if any of those conditions drop, even after short visual contact.
+    - SAIN also patches vanilla `EnemyInfo.HaveSeen/ShallKnowEnemy*` and `LookSensor` flow, so behavior can diverge sharply from vanilla pickup logic.
