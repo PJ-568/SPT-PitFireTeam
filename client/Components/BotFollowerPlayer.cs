@@ -920,7 +920,9 @@ namespace friendlySAIN.Components
             }
 
             _activeCommand = FollowerCommandType.ComeCloser;
-            _commandUntilTime = Time.time + Mathf.Max(2f, duration);
+            _commandUntilTime = _resumeHoldAfterComeCloser
+                ? float.PositiveInfinity
+                : Time.time + Mathf.Max(2f, duration);
             _commandTarget = Vector3.zero;
         }
 

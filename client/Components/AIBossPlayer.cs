@@ -48,6 +48,7 @@ namespace friendlySAIN.Components
         private const float GestureCommandDistance = 15f;
         private const float ComeWithMeMaxDistance = 25f;
         private const float GoThereMaxDistance = 50f;
+        private const float GoThereCrouchMaxDistance = 25f;
         private const float LookAtFollowerDistance = 27f;
         private const float RegroupCloseNavDistance = 8f;
         private const float RegroupSameLevelTolerance = 1.75f;
@@ -885,7 +886,7 @@ namespace friendlySAIN.Components
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
-                            lookedFollowerData.SetHoldPosition(20f);
+                            lookedFollowerData.SetHoldPosition(float.PositiveInfinity);
                             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
                             applied = true;
                         }
@@ -908,7 +909,7 @@ namespace friendlySAIN.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                followerData.SetHoldPosition(20f);
+                followerData.SetHoldPosition(float.PositiveInfinity);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }
@@ -1212,12 +1213,18 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            float maxThereDistance = GoThereMaxDistance;
+            if (requester is Player requesterPlayer && (requesterPlayer.MovementContext?.PoseLevel ?? 1f) < 0.75f)
+            {
+                maxThereDistance = GoThereCrouchMaxDistance;
+            }
+
             Vector3 lookDir = requester.LookDirection.sqrMagnitude > 0.001f
                 ? requester.LookDirection.normalized
                 : requester.Transform.forward;
 
-            Vector3 rawTarget = requesterPos + lookDir * GoThereMaxDistance;
-            if (Physics.Raycast(requesterPos + Vector3.up * 1.5f, lookDir, out RaycastHit lookHit, GoThereMaxDistance, LayerMaskClass.HighPolyWithTerrainMask))
+            Vector3 rawTarget = requesterPos + lookDir * maxThereDistance;
+            if (Physics.Raycast(requesterPos + Vector3.up * 1.5f, lookDir, out RaycastHit lookHit, maxThereDistance, LayerMaskClass.HighPolyWithTerrainMask))
             {
                 rawTarget = lookHit.point;
             }
