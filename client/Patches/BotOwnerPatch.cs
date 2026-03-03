@@ -61,6 +61,7 @@ namespace friendlySAIN.Patches
                     Action<BotOwner> OnUpdate;
                     BotOwnerUpdate.TryGetValue(__instance.ProfileId, out OnUpdate);
                     if (OnUpdate != null) OnUpdate(__instance);
+                    BotOwnerUpdateHub.Invoke(__instance);
 
                 }
             }

@@ -699,6 +699,7 @@ namespace friendlySAIN.Components
 
         private void HandleAttentionCommand()
         {
+            const float enforceBlockSeconds = 2f;
             foreach (var follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -707,6 +708,7 @@ namespace friendlySAIN.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ResetCombatCommitState();
+                FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
                 InteractableObjects.RemoveTaker(follower);
                 InteractableObjects.RemoveOpener(follower);

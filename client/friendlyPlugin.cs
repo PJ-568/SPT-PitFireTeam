@@ -225,6 +225,7 @@ namespace friendlySAIN
             new BotReceiverFollowMeRecruitPatch().Enable();
             new FollowRequestPatch().Enable();
             new HoldRequestPatch().Enable();
+            new OpenDoorRequestPatch().Enable();
 
 
             // spawn patches

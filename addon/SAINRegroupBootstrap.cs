@@ -37,7 +37,18 @@ namespace friendlySAIN.SAINAddon
             try
             {
                 SAINDecisionRegroupPatch.Apply(harmony);
+                if (SAINAddonToggles.EnableForcedEnemyRetention)
+                {
+                    SAINEnemyAcquireGatePatch.Apply(harmony);
+                    SAINFollowerEnemyRetentionService.Initialize();
+                }
+                else
+                {
+                    logger.LogInfo("[Init] SAIN forced enemy retention disabled by toggle.");
+                }
                 SAINFollowerPersonalityPatch.Apply(harmony);
+                SAINFollowerHitAccuracyPatch.Apply(harmony);
+                SAINFollowerLowLightVisionPatch.Apply(harmony);
                 BrainManager.AddCustomLayer(typeof(SAINRegroupLayer), brains, RegroupLayerPriority);
                 logger.LogInfo($"[Init] SAIN regroup layer registered at priority {RegroupLayerPriority}.");
             }

@@ -24,8 +24,14 @@
         <Reference Include="Assembly-CSharp">
             <HintPath>..\client\libs\Assembly-CSharp.dll</HintPath>
         </Reference>
+        <Reference Include="Comfort">
+            <HintPath>..\client\libs\Comfort.dll</HintPath>
+        </Reference>
         <Reference Include="DrakiaXYZ-BigBrain">
             <HintPath>..\client\libs\DrakiaXYZ-BigBrain.dll</HintPath>
+        </Reference>
+        <Reference Include="DissonanceVoip">
+            <HintPath>..\client\libs\DissonanceVoip.dll</HintPath>
         </Reference>
         <Reference Include="SAIN">
             <HintPath>..\client\libs\SAIN.dll</HintPath>

@@ -1,4 +1,5 @@
 ﻿using EFT;
+using EFT.Interactive;
 using friendlySAIN.BigBrain;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
@@ -307,6 +308,31 @@ namespace friendlySAIN.Patches
             }
 
             return false;
+        }
+    }
+
+    internal class OpenDoorRequestPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(
+                typeof(BotGroupRequestController),
+                "TryActivateOpenDoorRequest",
+                new[] { typeof(IPlayer), typeof(Door), typeof(Action) });
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(ref bool __result, IPlayer requester, Door door, Action completeCallback)
+        {
+            // Keep player-issued command behavior; block only autonomous AI follower door requests.
+            BotOwner requesterBot = requester?.AIData?.BotOwner;
+            if (requesterBot != null && BossPlayers.IsFollower(requesterBot))
+            {
+                __result = false;
+                return false;
+            }
+
+            return true;
         }
     }
 

@@ -1,7 +1,7 @@
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-01  
-Scope: runtime behavior currently present in `friendlySAIN/client` (based on active code paths in `friendlyPlugin.cs` and related components).
+Last updated: 2026-03-03  
+Scope: runtime behavior currently present in `friendlySAIN/client` and `friendlySAIN/addon` (based on active code paths in `friendlyPlugin.cs` and addon bootstrap/patches).
 
 ## BE / Server State (Important)
 
@@ -221,6 +221,11 @@ SAIN integration:
 - SAIN layers use their own mover handoff/control path while active (notably in combat):
     - `SAINLayer.OnLayerChanged(...)` stops built-in mover when entering SAIN layer and handles mover/navmesh handoff on layer switch.
     - treat SAIN combat movement issues as SAIN-layer/mover behavior first, then plugin command-layer behavior.
+- SAIN addon currently applies follower-focused combat/retention patches from `addon/SAINRegroupBootstrap.cs`:
+    - `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
+    - `SAINFollowerPersonalityPatch`,
+    - `SAINFollowerHitAccuracyPatch`,
+    - `SAINFollowerLowLightVisionPatch`.
 
 ## 5) Safety/Crash Guards Added
 
@@ -321,3 +326,15 @@ Examples currently tracked there:
     - SAIN enemy retention depends on internal `EnemyKnown` + `LastKnownPosition` + active checks.
     - SAIN can clear current goal enemy quickly if any of those conditions drop, even after short visual contact.
     - SAIN also patches vanilla `EnemyInfo.HaveSeen/ShallKnowEnemy*` and `LookSensor` flow, so behavior can diverge sharply from vanilla pickup logic.
+
+Update (2026-03-03):
+
+- Enemy-contact reliability in SAIN is now enforced with a follower-only retention bridge:
+    - `addon/SAINEnemyAcquireGatePatch.cs` gates `SAINEnemyController.CheckAddEnemy` for followers.
+    - `addon/SAINFollowerEnemyRetentionService.cs` keeps a short sticky enemy commit (`1.0s` base, `2.5s` at `<=50m`), reapplies recent enemy while valid, syncs committed enemy to SAIN enemy controller, and resets bridge state on grace expiry.
+    - Attention/Look suppression is honored through `client/Modules/FollowerEnemyEnforceSuppression.cs` and the retention service (`blocked_attention_suppression` path).
+    - Forced retention remains toggle-controlled via `addon/SAINAddonToggles.cs` (`EnableForcedEnemyRetention`).
+- Follower proficiency was increased (hard+ oriented) through SAIN addon patches:
+    - `addon/SAINFollowerPersonalityPatch.cs` raises follower detection/reaction and tightens aim behavior (higher `GainSightCoef`, higher hearing/visible multipliers, faster precision, lower accuracy/scatter multipliers).
+    - `addon/SAINFollowerHitAccuracyPatch.cs` bypasses SAIN `AimHitEffectClass.GetHit` aim-affection for followers so incoming hits do not degrade follower aim.
+    - `addon/SAINFollowerLowLightVisionPatch.cs` reduces low-light time-to-spot penalty for followers by post-processing SAIN time vision modifier in `EnemyGainSightClass.CalcTimeModifier`.
