@@ -88,11 +88,7 @@ namespace friendlySAIN.Utils
                     }
                     Trace(bot, $"SoundHeard gunClose result turned={turned} autoAcquire={acquired}");
                 }
-                else if (Utils.CanShootToTarget(
-                    new ShootPointClass(bot.GetPlayer.MainParts[BodyPartType.head].Position, 1f),
-                    enemy.PlayerBones.WeaponRoot.position,
-                    bot.LookSensor.Mask
-                ))
+                else if (CanBotShootEnemy(bot, enemy))
                 {
                     bool turned = FakeShot(bot, lookPoint2);
                     if (hostileToBossGroup)
@@ -312,13 +308,33 @@ namespace friendlySAIN.Utils
         {
             try
             {
-                if (bot?.GetPlayer?.MainParts == null || enemy?.PlayerBones?.WeaponRoot == null) return false;
-                if (!bot.GetPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart)) return false;
-                return Utils.CanShootToTarget(
-                    new ShootPointClass(headPart.Position, 1f),
-                    enemy.PlayerBones.WeaponRoot.position,
-                    bot.LookSensor.Mask
-                );
+                if (bot == null || enemy == null || bot.LookSensor == null) return false;
+                if (enemy.MainParts == null) return false;
+
+                Vector3 firePos = bot.PlayerBones?.WeaponRoot?.position ?? (bot.Position + Vector3.up * 1.2f);
+
+                if (enemy.MainParts.TryGetValue(BodyPartType.head, out var enemyHead) && enemyHead != null)
+                {
+                    if (Utils.CanShootToTarget(
+                        new ShootPointClass(enemyHead.Position, 1f),
+                        firePos,
+                        bot.LookSensor.Mask
+                    ))
+                    {
+                        return true;
+                    }
+                }
+
+                if (enemy.MainParts.TryGetValue(BodyPartType.body, out var enemyBody) && enemyBody != null)
+                {
+                    return Utils.CanShootToTarget(
+                        new ShootPointClass(enemyBody.Position, 1f),
+                        firePos,
+                        bot.LookSensor.Mask
+                    );
+                }
+
+                return false;
             }
             catch
             {

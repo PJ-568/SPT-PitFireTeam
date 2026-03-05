@@ -180,7 +180,7 @@ namespace friendlySAIN.Utils
         }
 
 
-        public static EnemyInfo MakeEnemy(BotOwner bot, Player enemy, EBotEnemyCause cause = EBotEnemyCause.addPlayerToBoss)
+        public static EnemyInfo? MakeEnemy(BotOwner bot, Player enemy, EBotEnemyCause cause = EBotEnemyCause.addPlayerToBoss)
         {
             if (bot == null || enemy == null) return null;
 

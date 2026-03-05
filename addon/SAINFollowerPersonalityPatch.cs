@@ -12,9 +12,16 @@ namespace friendlySAIN.SAINAddon
         private const float HardPlusVisionGainSightCoef = 1.75f;
         private const float HardPlusHearingDistanceCoef = 1.40f;
         private const float HardPlusVisibleDistCoef = 1.40f;
+        private const float HardPlusAggressionCoef = 1.50f;
         private const float HardPlusPrecisionSpeedCoef = 2.10f;
         private const float HardPlusAccuracySpeedCoefMax = 0.24f;
         private const float HardPlusScatteringCoefMax = 0.28f;
+        private const float HardPlusFasterCQBReactionsDistance = 50f;
+        private const float HardPlusFasterCQBReactionsMinimumMax = 0.20f;
+        private const float HardPlusMaxAimingUpgradeByTimeMax = 0.20f;
+        private const float HardPlusMaxAimTimeMax = 1.15f;
+        private const float HardPlusBaseHitAffectionDelayMax = 0.35f;
+        private const float HardPlusVisibleDistanceMin = 250f;
         private const float HardPlusCoreGainSightCoef = 1.00f;
         private static Type? _sainEnableType;
         private static Type? _sainPluginType;
@@ -83,7 +90,7 @@ namespace friendlySAIN.SAINAddon
 
             if (sainBot == null) return false;
 
-            object? info = AccessTools.Property(sainBot.GetType(), "Info")?.GetValue(sainBot);
+            object? info = GetInstanceMemberValue(sainBot, "Info");
             if (info == null) return false;
 
             _ePersonalityType ??= AccessTools.TypeByName("SAIN.Models.Preset.Personalities.EPersonality");
@@ -146,14 +153,15 @@ namespace friendlySAIN.SAINAddon
 
             if (sainBot == null) return;
 
-            object? info = AccessTools.Property(sainBot.GetType(), "Info")?.GetValue(sainBot);
+            object? info = GetInstanceMemberValue(sainBot, "Info");
             if (info == null) return;
 
-            object? fileSettings = AccessTools.Property(info.GetType(), "FileSettings")?.GetValue(info);
+            object? fileSettings = GetInstanceMemberValue(info, "FileSettings");
             if (fileSettings == null) return;
 
-            object? difficultySettings = AccessTools.Property(fileSettings.GetType(), "Difficulty")?.GetValue(fileSettings);
-            object? coreSettings = AccessTools.Property(fileSettings.GetType(), "Core")?.GetValue(fileSettings);
+            object? difficultySettings = GetInstanceMemberValue(fileSettings, "Difficulty");
+            object? coreSettings = GetInstanceMemberValue(fileSettings, "Core");
+            object? aimingSettings = GetInstanceMemberValue(fileSettings, "Aiming");
 
             bool changed = false;
             if (difficultySettings != null)
@@ -161,6 +169,7 @@ namespace friendlySAIN.SAINAddon
                 changed |= SetMinFloat(difficultySettings, "GainSightCoef", HardPlusVisionGainSightCoef);
                 changed |= SetMinFloat(difficultySettings, "HearingDistanceCoef", HardPlusHearingDistanceCoef);
                 changed |= SetMinFloat(difficultySettings, "VisibleDistCoef", HardPlusVisibleDistCoef);
+                changed |= SetMinFloat(difficultySettings, "AggressionCoef", HardPlusAggressionCoef);
                 changed |= SetMinFloat(difficultySettings, "PRECISION_SPEED_COEF", HardPlusPrecisionSpeedCoef);
                 changed |= SetMaxFloat(difficultySettings, "ACCURACY_SPEED_COEF", HardPlusAccuracySpeedCoefMax);
                 changed |= SetMaxFloat(difficultySettings, "ScatteringCoef", HardPlusScatteringCoefMax);
@@ -169,6 +178,15 @@ namespace friendlySAIN.SAINAddon
             {
                 changed |= SetMinFloat(coreSettings, "HearingDistanceMulti", HardPlusHearingDistanceCoef);
                 changed |= SetMinFloat(coreSettings, "GainSightCoef", HardPlusCoreGainSightCoef);
+                changed |= SetMinFloat(coreSettings, "VisibleDistance", HardPlusVisibleDistanceMin);
+            }
+            if (aimingSettings != null)
+            {
+                changed |= SetMinFloat(aimingSettings, "FasterCQBReactionsDistance", HardPlusFasterCQBReactionsDistance);
+                changed |= SetMaxFloat(aimingSettings, "FasterCQBReactionsMinimum", HardPlusFasterCQBReactionsMinimumMax);
+                changed |= SetMaxFloat(aimingSettings, "MAX_AIMING_UPGRADE_BY_TIME", HardPlusMaxAimingUpgradeByTimeMax);
+                changed |= SetMaxFloat(aimingSettings, "MAX_AIM_TIME", HardPlusMaxAimTimeMax);
+                changed |= SetMaxFloat(aimingSettings, "BASE_HIT_AFFECTION_DELAY_SEC", HardPlusBaseHitAffectionDelayMax);
             }
 
             if (!changed) return;
@@ -184,7 +202,7 @@ namespace friendlySAIN.SAINAddon
                 }
 
                 // Rebuild SAIN difficulty modifiers from updated settings.
-                object? difficulty = AccessTools.Property(info.GetType(), "Difficulty")?.GetValue(info);
+                object? difficulty = GetInstanceMemberValue(info, "Difficulty");
                 MethodInfo? updateSettings = difficulty != null ? AccessTools.Method(difficulty.GetType(), "UpdateSettings") : null;
                 object? loadedPreset = GetSainLoadedPreset();
                 if (difficulty != null && updateSettings != null && loadedPreset != null)
@@ -195,16 +213,25 @@ namespace friendlySAIN.SAINAddon
                 float gainSight = GetFloat(difficultySettings, "GainSightCoef");
                 float hearingDiff = GetFloat(difficultySettings, "HearingDistanceCoef");
                 float visibleDist = GetFloat(difficultySettings, "VisibleDistCoef");
+                float aggression = GetFloat(difficultySettings, "AggressionCoef");
                 float precisionSpeed = GetFloat(difficultySettings, "PRECISION_SPEED_COEF");
                 float accuracySpeed = GetFloat(difficultySettings, "ACCURACY_SPEED_COEF");
                 float scattering = GetFloat(difficultySettings, "ScatteringCoef");
                 float hearingCore = GetFloat(coreSettings, "HearingDistanceMulti");
                 float gainSightCore = GetFloat(coreSettings, "GainSightCoef");
+                float visibleDistanceCore = GetFloat(coreSettings, "VisibleDistance");
+                float cqbDistance = GetFloat(aimingSettings, "FasterCQBReactionsDistance");
+                float cqbMinimum = GetFloat(aimingSettings, "FasterCQBReactionsMinimum");
+                float maxAimingUpgrade = GetFloat(aimingSettings, "MAX_AIMING_UPGRADE_BY_TIME");
+                float maxAimTime = GetFloat(aimingSettings, "MAX_AIM_TIME");
+                float baseHitAffection = GetFloat(aimingSettings, "BASE_HIT_AFFECTION_DELAY_SEC");
                 Modules.Logger.LogInfo(
                     $"[SAIN] follower hard+ tuning applied bot={bot.Profile?.Nickname ?? bot.name} " +
-                    $"gainSight={gainSight:F2} hearingDiff={hearingDiff:F2} visibleDist={visibleDist:F2} " +
+                    $"gainSight={gainSight:F2} hearingDiff={hearingDiff:F2} visibleDist={visibleDist:F2} aggression={aggression:F2} " +
                     $"precisionSpeed={precisionSpeed:F2} accuracySpeed={accuracySpeed:F2} scattering={scattering:F2} " +
-                    $"hearingCore={hearingCore:F2} gainSightCore={gainSightCore:F2}");
+                    $"hearingCore={hearingCore:F2} gainSightCore={gainSightCore:F2} visibleDistance={visibleDistanceCore:F1} " +
+                    $"cqbDist={cqbDistance:F1} cqbMin={cqbMinimum:F2} maxAimUpgrade={maxAimingUpgrade:F2} " +
+                    $"maxAimTime={maxAimTime:F2} hitAffectDelay={baseHitAffection:F2}");
             }
             catch (Exception ex)
             {
@@ -217,14 +244,17 @@ namespace friendlySAIN.SAINAddon
         {
             _sainPluginType ??= AccessTools.TypeByName("SAIN.SAINPlugin");
             if (_sainPluginType == null) return null;
-            return AccessTools.Property(_sainPluginType, "LoadedPreset")?.GetValue(null);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            PropertyInfo? prop = _sainPluginType.GetProperty("LoadedPreset", flags);
+            return prop?.CanRead == true ? prop.GetValue(null, null) : null;
         }
 
         private static bool SetMinFloat(object target, string memberName, float minValue)
         {
             if (target == null || string.IsNullOrEmpty(memberName)) return false;
 
-            PropertyInfo? prop = AccessTools.Property(target.GetType(), memberName);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
             if (prop != null && prop.PropertyType == typeof(float) && prop.CanRead && prop.CanWrite)
             {
                 float current = (float)prop.GetValue(target);
@@ -236,7 +266,7 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
-            FieldInfo? field = AccessTools.Field(target.GetType(), memberName);
+            FieldInfo? field = target.GetType().GetField(memberName, flags);
             if (field != null && field.FieldType == typeof(float))
             {
                 float current = (float)field.GetValue(target);
@@ -254,13 +284,14 @@ namespace friendlySAIN.SAINAddon
         {
             if (target == null || string.IsNullOrEmpty(memberName)) return -1f;
 
-            PropertyInfo? prop = AccessTools.Property(target.GetType(), memberName);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
             if (prop != null && prop.PropertyType == typeof(float) && prop.CanRead)
             {
                 return (float)prop.GetValue(target);
             }
 
-            FieldInfo? field = AccessTools.Field(target.GetType(), memberName);
+            FieldInfo? field = target.GetType().GetField(memberName, flags);
             if (field != null && field.FieldType == typeof(float))
             {
                 return (float)field.GetValue(target);
@@ -273,7 +304,8 @@ namespace friendlySAIN.SAINAddon
         {
             if (target == null || string.IsNullOrEmpty(memberName)) return false;
 
-            PropertyInfo? prop = AccessTools.Property(target.GetType(), memberName);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
             if (prop != null && prop.PropertyType == typeof(float) && prop.CanRead && prop.CanWrite)
             {
                 float current = (float)prop.GetValue(target);
@@ -285,7 +317,7 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
-            FieldInfo? field = AccessTools.Field(target.GetType(), memberName);
+            FieldInfo? field = target.GetType().GetField(memberName, flags);
             if (field != null && field.FieldType == typeof(float))
             {
                 float current = (float)field.GetValue(target);
@@ -297,6 +329,31 @@ namespace friendlySAIN.SAINAddon
             }
 
             return false;
+        }
+
+        private static object? GetInstanceMemberValue(object target, string memberName)
+        {
+            if (target == null || string.IsNullOrEmpty(memberName))
+            {
+                return null;
+            }
+
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            Type type = target.GetType();
+
+            PropertyInfo? prop = type.GetProperty(memberName, flags);
+            if (prop != null && prop.CanRead)
+            {
+                return prop.GetValue(target, null);
+            }
+
+            FieldInfo? field = type.GetField(memberName, flags);
+            if (field != null)
+            {
+                return field.GetValue(target);
+            }
+
+            return null;
         }
     }
 }

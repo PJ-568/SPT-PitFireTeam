@@ -2,7 +2,6 @@ using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
-using friendlySAIN.Utils;
 using SAIN.Layers;
 
 using UnityEngine;
@@ -226,21 +225,23 @@ namespace friendlySAIN.SAINAddon
                     }
                 }
 
-                string currentActionName = Bot.CurrentAction?.Name ?? "<none>";
-                var activePath = Bot.Mover.ActivePath;
-                string lastCornerText = "<none>";
-                if (activePath?.PathCorners != null && activePath.PathCorners.Count > 0)
-                {
-                    lastCornerText = Fmt(activePath.GetLastCorner().Position);
-                }
-                string pathInfo = activePath == null
-                    ? "path=<null>"
-                    : $"pathStatus={activePath.PathStatus} moveStatus={activePath.Status} " +
-                      $"corners={activePath.PathCorners?.Count ?? 0} dest={Fmt(activePath.Destination)} " +
-                      $"last={lastCornerText}";
+
 
                 if (EnableRegroupDebugLogs)
                 {
+                    string currentActionName = Bot.CurrentAction?.Name ?? "<none>";
+                    var activePath = Bot.Mover.ActivePath;
+                    string lastCornerText = "<none>";
+                    if (activePath?.PathCorners != null && activePath.PathCorners.Count > 0)
+                    {
+                        lastCornerText = Fmt(activePath.GetLastCorner().Position);
+                    }
+                    string pathInfo = activePath == null
+                        ? "path=<null>"
+                        : $"pathStatus={activePath.PathStatus} moveStatus={activePath.Status} " +
+                        $"corners={activePath.PathCorners?.Count ?? 0} dest={Fmt(activePath.Destination)} " +
+                        $"last={lastCornerText}";
+
                     Modules.Logger.LogInfo(
                         $"[SAIN Regroup] move follower={BotOwner.Profile?.Nickname ?? BotOwner.name} dist={dist:F1} " +
                         $"target={Fmt(_moveTarget)} pos={Fmt(BotOwner.Position)} action={currentActionName} " +
@@ -332,7 +333,7 @@ namespace friendlySAIN.SAINAddon
             Bot.Mover.SetTargetPose(1f);
             Bot.Mover.SetTargetMoveSpeed(0f);
             Bot.Mover.Stop();
-            
+
         }
 
         private Vector3 SelectBossOffsetTarget(Vector3 bossPos)

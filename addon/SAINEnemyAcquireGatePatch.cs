@@ -11,7 +11,7 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINEnemyAcquireGatePatch
     {
-        private const bool EnableAcquireGateDebugLogs = true;
+        private const bool EnableAcquireGateDebugLogs = false;
         private static readonly Dictionary<string, float> NextLogAtByBot = new Dictionary<string, float>();
 
         public static void Apply(Harmony harmony)
@@ -42,7 +42,7 @@ namespace friendlySAIN.SAINAddon
 
             // Out of combat we rely on vanilla EFT memory/acquisition paths.
             // SAIN acquisition is allowed once vanilla has committed to an enemy.
-            if (!SAINFollowerEnemyRetentionService.ShouldAllowAcquire(owner, out string reason))
+            if (!SAINFollowerEnemyRetentionService.ShouldAllowAcquire(owner, IPlayer, out string reason))
             {
                 TryLogGate(owner, IPlayer, blocked: true, reason: reason);
                 __result = null;
