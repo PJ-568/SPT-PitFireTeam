@@ -54,6 +54,7 @@ namespace friendlySAIN.Utils
         public static PingTeamates Instance = null;
 
         private static RadioSound radioSound;
+        private const float MaxSpatialPingDistance = 50f;
 
         private bool locationPing = false;
 
@@ -88,7 +89,7 @@ namespace friendlySAIN.Utils
                     if (!locationPing)
                     {
                         locationPing = true;
-                        Vector3 position = GetLimitedHorizontalPosition(player.Position, bt.Data.Memory.GoalEnemy.CurrPosition, 40f);
+                        Vector3 position = GetLimitedHorizontalPosition(player.Position, bt.Data.Memory.GoalEnemy.CurrPosition, MaxSpatialPingDistance);
                         radioSound.PlayLocationSound(position);
                     }
                     break;
@@ -100,7 +101,8 @@ namespace friendlySAIN.Utils
                 if (HasAnyAliveFollower())
                 {
                     Vector3 closestFollowerPos = GetClosestFollowerPosition(player.Position);
-                    radioSound.PlayRadioSound(closestFollowerPos);
+                    Vector3 clampedRadioPos = GetLimitedHorizontalPosition(player.Position, closestFollowerPos, MaxSpatialPingDistance);
+                    radioSound.PlayRadioSound(clampedRadioPos);
                 }
                 else
                 {

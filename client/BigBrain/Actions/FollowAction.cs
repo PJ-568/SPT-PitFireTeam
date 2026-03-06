@@ -2,6 +2,7 @@ using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
+using friendlySAIN.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -16,6 +17,11 @@ namespace friendlySAIN.BigBrain.Actions
         private const float MaxBossSpeedForSettle = 0.35f;
         private const float SettleSpacing = 2.5f;
         private const float SettleSpacingSqr = SettleSpacing * SettleSpacing;
+        private const float StuckCheckInterval = 0.8f;
+        private const float StuckMovementEpsilonSqr = 0.04f;
+        private const float StuckDurationToRecover = 3.2f;
+        private const float UnstuckCooldownSeconds = 2.5f;
+        private const int EscalationTeleportStep = 2;
 
         private Player? bossPlayer;
         private pitAIBossPlayer? bossData;
@@ -48,6 +54,12 @@ namespace friendlySAIN.BigBrain.Actions
 
         private bool poseCorrected;
 
+        private Vector3 lastStuckSamplePos;
+        private float nextStuckCheckAt;
+        private float stuckAccumulated;
+        private int stuckRecoverAttempts;
+        private float unstuckCooldownUntil;
+
         public FollowAction(BotOwner botOwner) : base(botOwner)
         {
             patrolPerimeterRadius = friendlySAIN.patrolRadius.Value;
@@ -76,6 +88,12 @@ namespace friendlySAIN.BigBrain.Actions
             noCoverFound = false;
 
             ResetPeaceActions();
+
+            lastStuckSamplePos = BotOwner.Position;
+            nextStuckCheckAt = Time.time + StuckCheckInterval;
+            stuckAccumulated = 0f;
+            stuckRecoverAttempts = 0;
+            unstuckCooldownUntil = 0f;
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -95,6 +113,7 @@ namespace friendlySAIN.BigBrain.Actions
             try
             {
                 Follow();
+                UpdateStuckWatchdog();
             }
             catch (Exception ex)
             {
@@ -208,7 +227,7 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.Mover.SetPose(1f);
             }
             BotOwner.Mover.Sprint(shouldSprint, false);
-            
+
         }
 
         private CustomNavigationPoint? TryGetSettleCoverPoint(Vector3 leaderPosition, int settleDistance)
@@ -490,6 +509,139 @@ namespace friendlySAIN.BigBrain.Actions
             playPeaceLook = false;
             playPeaceHardAim = false;
             playSecondWeaponWatch = false;
+        }
+
+        private void UpdateStuckWatchdog()
+        {
+            if (bossPlayer == null || BotOwner == null)
+            {
+                return;
+            }
+
+            if (Time.time < nextStuckCheckAt)
+            {
+                return;
+            }
+
+            nextStuckCheckAt = Time.time + StuckCheckInterval;
+
+            if (!ShouldExpectMovement())
+            {
+                ResetStuckWatchdog(BotOwner.Position, resetAttempts: true);
+                return;
+            }
+
+            if (BotOwner.BotState != EBotState.Active || BotOwner.IsDead || BotOwner.DoorOpener.Interacting)
+            {
+                return;
+            }
+
+            if (BotOwner.Memory?.HaveEnemy == true)
+            {
+                ResetStuckWatchdog(BotOwner.Position, resetAttempts: true);
+                return;
+            }
+
+            bool healing = BotOwner.Medecine?.FirstAid?.Using == true || BotOwner.Medecine?.SurgicalKit?.Using == true;
+            if (healing)
+            {
+                ResetStuckWatchdog(BotOwner.Position, resetAttempts: false);
+                return;
+            }
+
+            Vector3 currentPos = BotOwner.Position;
+            bool moved = (currentPos - lastStuckSamplePos).sqrMagnitude > StuckMovementEpsilonSqr;
+            bool moverAdvancing = BotOwner.Mover.IsMoving || BotOwner.Mover.Sprinting;
+
+            if (moved || moverAdvancing)
+            {
+                if (moved)
+                {
+                    stuckRecoverAttempts = 0;
+                }
+
+                ResetStuckWatchdog(currentPos, resetAttempts: false);
+                return;
+            }
+
+            stuckAccumulated += StuckCheckInterval;
+            lastStuckSamplePos = currentPos;
+
+            if (stuckAccumulated < StuckDurationToRecover || Time.time < unstuckCooldownUntil)
+            {
+                return;
+            }
+
+            unstuckCooldownUntil = Time.time + UnstuckCooldownSeconds;
+            stuckRecoverAttempts++;
+
+            Vector3 leaderPos = GetLeaderTargetPosition();
+            FollowerRecovery.SoftReset(BotOwner);
+            BotOwner.StopMove();
+
+            if (stuckRecoverAttempts >= EscalationTeleportStep)
+            {
+                TryTeleportUnstickNearLeader(leaderPos);
+                stuckRecoverAttempts = 0;
+            }
+            else
+            {
+                UpdateFollowPath(leaderPos);
+                nextFollowUpdateAt = 0f;
+            }
+
+            stuckAccumulated = 0f;
+            lastStuckSamplePos = BotOwner.Position;
+        }
+
+        private bool ShouldExpectMovement()
+        {
+            if (movingToSettlePoint || movingToPatrolPoint)
+            {
+                return true;
+            }
+
+            if (bossPlayer == null)
+            {
+                return false;
+            }
+
+            float distToLeader = (GetLeaderTargetPosition() - BotOwner.Position).magnitude;
+            return distToLeader > DefaultFollowDistance + 1f;
+        }
+
+        private void ResetStuckWatchdog(Vector3 samplePos, bool resetAttempts)
+        {
+            stuckAccumulated = 0f;
+            lastStuckSamplePos = samplePos;
+            if (resetAttempts)
+            {
+                stuckRecoverAttempts = 0;
+            }
+        }
+
+        private void TryTeleportUnstickNearLeader(Vector3 leaderPos)
+        {
+            if (BotOwner.GetPlayer == null)
+            {
+                return;
+            }
+
+            if ((BotOwner.Position - leaderPos).sqrMagnitude < 25f)
+            {
+                return;
+            }
+
+            Vector3 target = leaderPos;
+            if (NavMesh.SamplePosition(leaderPos + UnityEngine.Random.insideUnitSphere * 2.2f, out NavMeshHit navHit, 3f, NavMesh.AllAreas))
+            {
+                target = navHit.position;
+            }
+
+            followerData?.BeginTeleportGrace(target);
+            BotOwner.Mover.Stop();
+            BotOwner.GetPlayer.Teleport(target);
+            nextFollowUpdateAt = 0f;
         }
 
     }

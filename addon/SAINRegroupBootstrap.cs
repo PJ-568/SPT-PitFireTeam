@@ -9,7 +9,6 @@ namespace friendlySAIN.SAINAddon
     internal static class SAINRegroupBootstrap
     {
         private static bool _initialized;
-        private const int RegroupLayerPriority = 73;
         private const int FollowerCombatLayerPriority = 71;
 
         public static void Initialize(Harmony harmony, ManualLogSource logger)
@@ -37,7 +36,6 @@ namespace friendlySAIN.SAINAddon
 
             try
             {
-                SAINDecisionRegroupPatch.Apply(harmony);
                 SAINFollowerCombatLayerGatePatch.Apply(harmony);
                 SAINFollowerFriendlyFirePatch.Apply(harmony);
                 if (SAINAddonToggles.EnableForcedEnemyRetention)
@@ -53,14 +51,13 @@ namespace friendlySAIN.SAINAddon
                 SAINFollowerPersonalityPatch.Apply(harmony);
                 SAINFollowerHitAccuracyPatch.Apply(harmony);
                 SAINFollowerLowLightVisionPatch.Apply(harmony);
-                BrainManager.AddCustomLayer(typeof(SAINRegroupLayer), brains, RegroupLayerPriority);
                 BrainManager.AddCustomLayer(typeof(SAINFollowerCombatLayer), brains, FollowerCombatLayerPriority);
-                logger.LogInfo($"[Init] SAIN regroup layer registered at priority {RegroupLayerPriority}.");
+                logger.LogInfo("[Init] SAIN regroup command handling routed through follower combat layer.");
                 logger.LogInfo($"[Init] SAIN follower combat layer registered at priority {FollowerCombatLayerPriority}.");
             }
             catch (Exception ex)
             {
-                logger.LogError("[Init] Failed to register SAIN regroup layer.");
+                logger.LogError("[Init] Failed to register SAIN follower combat layer.");
                 logger.LogError(ex);
             }
         }

@@ -1432,9 +1432,33 @@ namespace friendlySAIN.Components
                 if (info == null) continue;
 
                 member.Memory.IsPeace = false;
+                if (!member.Memory.HaveEnemy || member.Memory.GoalEnemy == null)
+                {
+                    BotSettingsClass groupInfo = null;
+                    member.BotsGroup?.Enemies?.TryGetValue(enemyPlayer, out groupInfo);
+                    if (groupInfo == null)
+                    {
+                        groupInfo = new BotSettingsClass(enemyPlayer, member.BotsGroup, EBotEnemyCause.addPlayerToBoss)
+                        {
+                            EnemyLastPosition = enemyPlayer.Position
+                        };
+                    }
+
+                    member.Memory.AddEnemy(enemyPlayer, groupInfo, false);
+                }
+
+                PromoteEnemyAsGoal(member, enemyPlayer.ProfileId);
+
                 if (goal.IsVisible)
                 {
                     info.SetVisible(true);
+                }
+
+                TrySyncGoalEnemyToSain(member, member.Memory.GoalEnemy ?? info);
+
+                if (followerData.TryGetActiveCommand(out _, out _))
+                {
+                    followerData.ClearCommand("EnemySyncedFromFollower");
                 }
             }
         }

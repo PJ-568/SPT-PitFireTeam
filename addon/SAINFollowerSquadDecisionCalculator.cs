@@ -155,6 +155,11 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
+            if (bot.BotOwner != null && SAINFollowerSuppressionSafety.IsFriendlyInSuppressionLane(bot.BotOwner, bot.GoalEnemy.EnemyPosition))
+            {
+                return false;
+            }
+
             if (member.Decision.CurrentCombatDecision != SAIN.ECombatDecision.Retreat)
             {
                 return false;

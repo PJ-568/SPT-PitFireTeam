@@ -1,4 +1,5 @@
 using EFT;
+using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using HarmonyLib;
 using SAIN;
@@ -8,6 +9,7 @@ using SAIN.Layers;
 using SAIN.Models.Enums;
 using SAIN.SAINComponent.Classes.Decision;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace friendlySAIN.SAINAddon
 {
@@ -17,6 +19,8 @@ namespace friendlySAIN.SAINAddon
         private static readonly HashSet<string> ActiveFollowerCombatBots = new HashSet<string>(System.StringComparer.Ordinal);
         private static System.Type? _searchActionType;
         private static System.Type? _rushEnemyActionType;
+        private static readonly Dictionary<string, float> RegroupCommandLatchUntilByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
+        private const float RegroupCommandLatchSeconds = 8f;
         private ESquadDecision _currentDecision = ESquadDecision.None;
         private ESquadDecision _lastActionDecision = ESquadDecision.None;
 
@@ -115,6 +119,11 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
+            if (TryHandleRegroupCommand(out decision))
+            {
+                return true;
+            }
+
             if (SAINFollowerSquadDecisionCalculator.TryGetDecision(BotOwner, bot, out decision) && decision != ESquadDecision.None)
             {
                 return true;
@@ -134,6 +143,39 @@ namespace friendlySAIN.SAINAddon
             }
 
             return false;
+        }
+
+        private bool TryHandleRegroupCommand(out ESquadDecision decision)
+        {
+            decision = ESquadDecision.None;
+
+            BotFollowerPlayer? follower = BossPlayers.Instance?.GetFollower(BotOwner);
+            bool hasRegroupCommand = follower != null
+                && follower.TryGetActiveCommand(out FollowerCommandType command, out _)
+                && command == FollowerCommandType.RegroupNearBoss;
+
+            string? botId = BotOwner?.ProfileId;
+            if (!hasRegroupCommand || string.IsNullOrEmpty(botId))
+            {
+                if (!string.IsNullOrEmpty(botId))
+                {
+                    RegroupCommandLatchUntilByBot.Remove(botId);
+                }
+                return false;
+            }
+
+            bool haveEnemy = BotOwner.Memory?.HaveEnemy == true;
+            if (haveEnemy)
+            {
+                RegroupCommandLatchUntilByBot[botId] = Time.time + RegroupCommandLatchSeconds;
+            }
+            else if (!RegroupCommandLatchUntilByBot.TryGetValue(botId, out float until) || Time.time > until)
+            {
+                return false;
+            }
+
+            decision = ESquadDecision.Regroup;
+            return true;
         }
 
         private void MarkActive(bool active)

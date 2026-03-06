@@ -20,6 +20,12 @@ namespace friendlySAIN.SAINAddon
                 return;
             }
 
+            if (SAINFollowerSuppressionSafety.IsFriendlyInSuppressionLane(BotOwner, enemy.EnemyPosition))
+            {
+                Bot.Suppression.ResetSuppressing();
+                return;
+            }
+
             Vector3? lastKnown = enemy.LastKnownPosition;
             if (lastKnown != null)
             {
@@ -30,6 +36,16 @@ namespace friendlySAIN.SAINAddon
         public override void OnSteeringTicked()
         {
             var enemy = Bot.GoalEnemy;
+            if (enemy != null && SAINFollowerSuppressionSafety.IsFriendlyInSuppressionLane(BotOwner, enemy.EnemyPosition))
+            {
+                Bot.Suppression.ResetSuppressing();
+                if (!Bot.Steering.SteerByPriority(enemy, false))
+                {
+                    Bot.Steering.LookToLastKnownEnemyPosition(enemy);
+                }
+                return;
+            }
+
             if (Shoot.ShootAnyVisibleEnemies(enemy))
             {
                 Bot.Steering.SteerByPriority(enemy, false);

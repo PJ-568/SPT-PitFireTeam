@@ -25,7 +25,7 @@ Very similar to old flow, but with some adjustments:
 
 # (IN PROGRESS) - Implement follower fight behavior for combat
 
-Phase 1 plan:
+Phase 1 plan (in testing):
 
 - Build a new SAIN layer: `CombatFollowerLayer`, functionally similar to `CombatSquadLayer`.
 - Keep SAIN baseline behavior where possible by reusing squad decisions that do not depend on SAIN squad leader/member context.
@@ -36,7 +36,7 @@ Phase 1 plan:
 - Ensure this layer becomes active for recruited followers and SAIN default combat layers do not run for those followers while `CombatFollowerLayer` is active.
 - Keep current SAIN `CombatSoloLayer`/`CombatSquadLayer` priorities in mind (`20` solo, `22` squad) and integrate follower layer with explicit activation/gating rules rather than ad-hoc decision overrides.
 
-Phase 2 plan:
+Phase 2 plan (on hold):
 
 - Iterate and tune `CombatFollowerLayer` decisions from gameplay tests.
 - Adjust/override specific decisions as needed for follower combat feel and reliability.
@@ -54,3 +54,15 @@ Behavior target:
 - When close enough, follower should settle back into normal local follow/idle behavior.
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
+
+# (NOT STARTED) - IMPROVE PingTeams directional enemy callout
+
+Improvement target:
+
+- On ping command, if any follower has enemy info, the closest follower to the boss should say the enemy direction phrase.
+- Direction phrase must be computed relative to the boss look direction, not the speaking follower look direction.
+
+Sub-task:
+
+- SAIN also has direction-speaking paths for bots; investigate SAIN code first to identify those call sites.
+- Current SAIN direction phrases are based on bot look direction; patch/override them so follower direction callouts are relative to boss player look direction.

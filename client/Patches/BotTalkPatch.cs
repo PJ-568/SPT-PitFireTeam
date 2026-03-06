@@ -1,11 +1,57 @@
 ﻿using friendlySAIN.Modules;
 using HarmonyLib;
+using EFT;
 using SPT.Reflection.Patching;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 
 namespace friendlySAIN.Patches
 {
+    internal static class FollowerContactPhraseGate
+    {
+        private sealed class ContactState
+        {
+            public string LastEnemyProfileId;
+        }
+
+        private static readonly Dictionary<string, ContactState> StateByFollower = new Dictionary<string, ContactState>(StringComparer.Ordinal);
+
+        public static bool ShouldAllow(BotOwner owner)
+        {
+            if (owner == null || string.IsNullOrEmpty(owner.ProfileId))
+            {
+                return false;
+            }
+
+            if (owner.Memory?.HaveEnemy != true || owner.Memory.GoalEnemy == null)
+            {
+                StateByFollower.Remove(owner.ProfileId);
+                return false;
+            }
+
+            string enemyId = owner.Memory.GoalEnemy.ProfileId;
+            if (string.IsNullOrEmpty(enemyId))
+            {
+                enemyId = "<unknown>";
+            }
+
+            if (!StateByFollower.TryGetValue(owner.ProfileId, out ContactState state))
+            {
+                StateByFollower[owner.ProfileId] = new ContactState { LastEnemyProfileId = enemyId };
+                return true;
+            }
+
+            if (string.Equals(state.LastEnemyProfileId, enemyId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            state.LastEnemyProfileId = enemyId;
+            return true;
+        }
+    }
+
     // patch for preventing bots from talking if silenced command is active
     internal class BotTalkTrySayPatch : ModulePatch
     {
@@ -19,6 +65,14 @@ namespace friendlySAIN.Patches
         private static bool PatchPrefix(BotTalk __instance, EPhraseTrigger type, ETagStatus? additionaMask, bool withGroupDelay)
         {
             if (__instance.IsSilenced) return false;
+
+            if (type == EPhraseTrigger.OnRepeatedContact && BossPlayers.IsFollower(__instance.BotOwner_0))
+            {
+                if (!FollowerContactPhraseGate.ShouldAllow(__instance.BotOwner_0))
+                {
+                    return false;
+                }
+            }
 
             if (
                 (
@@ -56,6 +110,14 @@ namespace friendlySAIN.Patches
         private static bool PatchPrefix(BotTalk __instance, EPhraseTrigger type, bool sayImmediately = false, ETagStatus? additionalMask = null)
         {
             if (__instance.IsSilenced) return false;
+
+            if (type == EPhraseTrigger.OnRepeatedContact && BossPlayers.IsFollower(__instance.BotOwner_0))
+            {
+                if (!FollowerContactPhraseGate.ShouldAllow(__instance.BotOwner_0))
+                {
+                    return false;
+                }
+            }
 
             return true;
         }
