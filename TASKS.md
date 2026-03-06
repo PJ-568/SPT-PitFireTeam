@@ -36,7 +36,7 @@ Phase 1 plan (in testing):
 - Ensure this layer becomes active for recruited followers and SAIN default combat layers do not run for those followers while `CombatFollowerLayer` is active.
 - Keep current SAIN `CombatSoloLayer`/`CombatSquadLayer` priorities in mind (`20` solo, `22` squad) and integrate follower layer with explicit activation/gating rules rather than ad-hoc decision overrides.
 
-Phase 2 plan (on hold):
+Phase 2 plan (in progress):
 
 - Iterate and tune `CombatFollowerLayer` decisions from gameplay tests.
 - Adjust/override specific decisions as needed for follower combat feel and reliability.
@@ -55,7 +55,7 @@ Behavior target:
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
 
-# (NOT STARTED) - IMPROVE PingTeams directional enemy callout
+# (IN TESTING) - IMPROVE PingTeams directional enemy callout
 
 Improvement target:
 
@@ -66,3 +66,8 @@ Sub-task:
 
 - SAIN also has direction-speaking paths for bots; investigate SAIN code first to identify those call sites.
 - Current SAIN direction phrases are based on bot look direction; patch/override them so follower direction callouts are relative to boss player look direction.
+
+Implementation (current):
+
+- Ping command directional caller selection + boss-relative phrase mapping is implemented in `client/Utils/PingTeamates.cs`.
+- SAIN direction check override for followers is implemented in `addon/SAINFollowerGroupTalkDirectionPatch.cs` and wired in `addon/SAINRegroupBootstrap.cs`.

@@ -213,6 +213,14 @@ namespace friendlySAIN.Utils
             {
                 bot.BotsGroup.AddEnemy(enemy, cause);
                 bot.BotsGroup.Enemies.TryGetValue(enemy, out groupInfo);
+
+                // Some group validation paths can reject specific causes for same-side hostile AI.
+                // Retry with checkAddTODO so BotsGroup can still mark enemy/neutrals/allies correctly.
+                if (groupInfo == null && cause != EBotEnemyCause.checkAddTODO)
+                {
+                    bot.BotsGroup.AddEnemy(enemy, EBotEnemyCause.checkAddTODO);
+                    bot.BotsGroup.Enemies.TryGetValue(enemy, out groupInfo);
+                }
             }
 
             if (groupInfo == null)

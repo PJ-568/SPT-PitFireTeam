@@ -38,6 +38,7 @@ namespace friendlySAIN.SAINAddon
             {
                 SAINFollowerCombatLayerGatePatch.Apply(harmony);
                 SAINFollowerFriendlyFirePatch.Apply(harmony);
+                SAINFollowerGroupTalkDirectionPatch.Apply(harmony);
                 if (SAINAddonToggles.EnableForcedEnemyRetention)
                 {
                     SAINCalcGoalPatch.Apply(harmony);

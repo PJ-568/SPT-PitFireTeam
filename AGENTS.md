@@ -1,6 +1,6 @@
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-03  
+Last updated: 2026-03-06  
 Scope: runtime behavior currently present in `friendlySAIN/client` and `friendlySAIN/addon` (based on active code paths in `friendlyPlugin.cs` and addon bootstrap/patches).
 
 ## BE / Server State (Important)
@@ -15,7 +15,7 @@ Scope: runtime behavior currently present in `friendlySAIN/client` and `friendly
 - Old plugin codebase: `F:/Projects/SPT-Tarkov/friendlypmc`
 - Old client reference (3.11): `F:/Projects/SPT-Tarkov/Client-Decompiled-3.11`
 - New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
-- SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-master/SAIN`
+- SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`
 - Positioning:
     - `friendlySAIN` is both:
         - a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment,
@@ -32,7 +32,7 @@ Scope: runtime behavior currently present in `friendlySAIN/client` and `friendly
     - Friendly follow logic is implemented as a BigBrain custom layer/action (`FollowerPatrolLayer` + `FollowAction`).
     - Regroup request execution is split by runtime context:
         - vanilla regroup path for no-SAIN or out-of-combat,
-        - SAIN regroup path (addon SAIN layer/action) for SAIN combat.
+        - SAIN combat path is handled by addon `SAINFollowerCombatLayer` (custom SAIN squad-layer replacement for followers).
 
 ## 2) BigBrain Follower Layer
 
@@ -52,6 +52,9 @@ Behavior currently implemented:
     - bot is alive/active,
     - bot follows `pitAIBossPlayer`,
     - bot has no current enemy.
+- Post-combat handoff to patrol is state-driven (no fixed timeout):
+    - waits for `BotFollowerPlayer.IsReadyForPatrolAfterCombat()` instead of forcing patrol after a fixed delay,
+    - readiness now checks SAIN combat-layer active state, SAIN enemy/search/combat flags, SAIN decision idle state, and active-layer name.
 - Layer `Start()` performs recovery/reset:
     - pauses patrol data,
     - clears active request,
@@ -74,7 +77,7 @@ Follow movement:
 
 Request/gesture movement:
 
-- Registers `friendlySAIN.FollowerRequest` custom layer (priority `77`) above patrol (`75`).
+- Registers `friendlySAIN.FollowerRequest` custom layer (priority `73`) above patrol (`72`).
 - `FollowerRequestLayer` activates when follower has an active command in `BotFollowerPlayer`.
 - `GestureCommandAction` handles:
     - `HoldPosition`: stop, crouch pose, periodic random look-around, no command timeout (persists until replaced/cleared).
@@ -82,7 +85,7 @@ Request/gesture movement:
     - `MoveToPoint` (`There`): move to projected/navmesh-validated target point (walk-only), then brief look-around on arrival.
     - `Regroup` (`EPhraseTrigger.Regroup`):
         - vanilla regroup is implemented and active for no-SAIN or out-of-combat cases,
-        - SAIN combat regroup is implemented via addon SAIN layer/action (combat-only route),
+        - SAIN combat regroup is executed through addon `SAINFollowerCombatLayer` -> `SAINFollowerCombatRegroupAction`,
         - regroup converges to boss-near cover/random point (not exact boss position) and supports boss-movement reanchor.
     - Regroup ignore/interruption safeguards:
         - ignored when follower is healing or already close enough (`~8m` nav-path distance on same level),
@@ -149,6 +152,7 @@ Implemented:
 Bot/group/follower stability:
 
 - `BotGroupAddEnemyPatch`
+- `BotGroupReportEnemyPatch`
 - `BotGroupUsecEnemyPatch`
 - `BotControllerEnemyPropagationSafetyPatch`
 - `BotMemoryDamagePatch`
@@ -157,7 +161,9 @@ Bot/group/follower stability:
 - `BotOwnerManualUpdatePatch`
 - `BotOwnerActivatePatch`
 - `SessionLoadBotsEnglishVoicePatch`
-- `LootPatrolFollowerGuardPatch`
+- `LootPatrolActiveLayerListPatch`
+- `LootPatrolDecisionBypassPatch`
+- `AdvAssaultTargetFollowerGuardPatch`
 - `AICoreAgentUpdatePatch` (logs/rethrows update exceptions)
 
 Movement:
@@ -170,6 +176,7 @@ Recruit/request:
 - `BotReceiverFollowMeRecruitPatch`
 - `FollowRequestPatch`
 - `HoldRequestPatch`
+- `OpenDoorRequestPatch`
 - `BotReceiverGestureOverridePatch`
 
 Spawn/raid:
@@ -177,6 +184,7 @@ Spawn/raid:
 - `BotsControllerPatch`
 - `BotsControllerStopPatch`
 - `LocalGameCleanupPatch`
+- `LocalGameCtorPatch` (patched via `harmony.CreateClassProcessor(...).Patch()`)
 - `BotsEventsControllerSpawnPatch`
 - `BossSpawnWaveManagerClassPatch`
 - `RaidStartPatch`
@@ -212,26 +220,37 @@ AI data / command UI:
 SAIN integration:
 
 - `SAINPatch.PatchSAINIfInstalled(harmony)` applies selective SAIN behavior patches when SAIN assembly is present.
-- SAIN combat regroup integration is implemented in a separate addon DLL:
+- SAIN combat follower integration is implemented in a separate addon DLL:
     - addon project: `addon/friendlySAIN.SAINAddon.csproj`
     - plugin ID: `xyz.pit.friendlysain.sainaddon`
-    - runtime path uses a custom SAIN layer/action (`SAINRegroupLayer` / `SAINRegroupAction`) instead of vanilla mover control.
+    - runtime path registers custom `SAINFollowerCombatLayer` at priority `71`.
+    - this layer replicates SAIN squad-combat decision routing for followers, but re-centers behavior around player boss leadership (instead of vanilla SAIN squad leader ownership).
+    - follower action mapping currently routes to:
+        - `SAINFollowerCombatRegroupAction`,
+        - `SAINFollowerCombatSuppressAction`,
+        - `SAINFollowerCombatFollowBossSearchAction`,
+        - SAIN solo search/rush action types when available (`SearchAction` / `RushEnemyAction`) with safe fallback.
 - Core plugin validates SAIN/addon presence at runtime:
-    - if SAIN is installed but addon is missing, core plugin logs explicit error and SAIN combat regroup integration is disabled.
+    - if SAIN is installed but addon is missing, core plugin logs explicit error and SAIN follower combat-layer integration is disabled.
 - SAIN layers use their own mover handoff/control path while active (notably in combat):
     - `SAINLayer.OnLayerChanged(...)` stops built-in mover when entering SAIN layer and handles mover/navmesh handoff on layer switch.
     - treat SAIN combat movement issues as SAIN-layer/mover behavior first, then plugin command-layer behavior.
 - SAIN addon currently applies follower-focused combat/retention patches from `addon/SAINRegroupBootstrap.cs`:
-    - `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
+    - `SAINFollowerCombatLayerGatePatch` (gates SAIN `CombatSoloLayer`/`CombatSquadLayer` while follower combat layer is active),
+    - `SAINFollowerFriendlyFirePatch` (blocks boss/follower fireline),
+    - `SAINFollowerGroupTalkDirectionPatch` (uses boss look direction for directional enemy talk checks),
+    - `SAINCalcGoalPatch` + `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
     - `SAINFollowerPersonalityPatch`,
     - `SAINFollowerHitAccuracyPatch`,
     - `SAINFollowerLowLightVisionPatch`.
+- Legacy `SAINDecisionRegroupPatch.cs` remains in addon source but is currently not wired by bootstrap.
 
 ## 5) Safety/Crash Guards Added
 
 - LootPatrol active-layer guard:
     - `client/Patches/LootPatrolSafetyPatch.cs`
-    - strips vanilla LootPatrol (`GClass117`) from BigBrain active layer list for followers before layer update, preventing `GClass117.GetDecision` null refs.
+    - `LootPatrolActiveLayerListPatch` strips vanilla LootPatrol (`GClass117`) from BigBrain active layer list for followers before layer update.
+    - `LootPatrolDecisionBypassPatch` prevents LootPatrol decision execution when follower state is active.
 - Grenade throw safety:
     - `client/Patches/GrenadeThrowPatch.cs` includes null-safe guard for `GClass274.UpdateTryThrow`.
 - Player say/hearing null guards:
@@ -301,10 +320,13 @@ Examples currently tracked there:
     - `client/Components/BotFollowerPlayer.cs`
 - Boss command/event behavior:
     - `client/Components/AIBossPlayer.cs`
-- SAIN regroup addon (combat regroup):
-    - `addon/FollowerRegroupLayer.cs` (current SAIN regroup layer implementation; rename cleanup pending)
-    - `addon/FollowerRegroupAction.cs` (current SAIN regroup action implementation; rename cleanup pending)
-    - `addon/SAINDecisionRegroupPatch.cs`
+- SAIN combat addon (follower combat layer):
+    - `addon/SAINFollowerCombatLayer.cs`
+    - `addon/SAINFollowerSquadDecisionCalculator.cs`
+    - `addon/SAINFollowerCombatRegroupAction.cs`
+    - `addon/SAINFollowerCombatSuppressAction.cs`
+    - `addon/SAINFollowerCombatFollowBossSearchAction.cs`
+    - `addon/SAINFollowerCombatLayerGatePatch.cs`
 
 ## 10) Command/Gesture IDs (Current)
 
@@ -327,11 +349,14 @@ Examples currently tracked there:
     - SAIN can clear current goal enemy quickly if any of those conditions drop, even after short visual contact.
     - SAIN also patches vanilla `EnemyInfo.HaveSeen/ShallKnowEnemy*` and `LookSensor` flow, so behavior can diverge sharply from vanilla pickup logic.
 
-Update (2026-03-03):
+Update (2026-03-06):
 
 - Enemy-contact reliability in SAIN is now enforced with a follower-only retention bridge:
     - `addon/SAINEnemyAcquireGatePatch.cs` gates `SAINEnemyController.CheckAddEnemy` for followers.
-    - `addon/SAINFollowerEnemyRetentionService.cs` keeps a short sticky enemy commit (`1.0s` base, `2.5s` at `<=50m`), reapplies recent enemy while valid, syncs committed enemy to SAIN enemy controller, and resets bridge state on grace expiry.
+    - `addon/SAINFollowerEnemyRetentionService.cs` now hooks `BotsGroup.CalcGoalForBot` (via `SAINCalcGoalPatch`) and performs guarded forward-scan enemy acquisition when followers have no current enemy.
+    - calc-goal scans are rate-limited per follower and scaled by active follower count.
+    - enemy candidates are filtered to avoid boss/followers/friendly bot types and side-safe cases unless hostile intent is detected.
+    - when a follower commits an enemy through this path, the service propagates that enemy to sibling followers.
     - Attention/Look suppression is honored through `client/Modules/FollowerEnemyEnforceSuppression.cs` and the retention service (`blocked_attention_suppression` path).
     - Forced retention remains toggle-controlled via `addon/SAINAddonToggles.cs` (`EnableForcedEnemyRetention`).
 - Follower proficiency was increased (hard+ oriented) through SAIN addon patches:

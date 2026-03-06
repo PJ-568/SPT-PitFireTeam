@@ -72,6 +72,10 @@ namespace friendlySAIN.Utils
 
             botMap.Clear();
 
+            BotOwner closestEnemySpeaker = null;
+            Vector3 closestEnemyPosition = Vector3.zero;
+            float closestEnemySpeakerSqr = float.MaxValue;
+
             foreach (Components.BotFollowerPlayer fl in followers)
             {
                 if (!fl.GetBot().IsDead)
@@ -86,14 +90,33 @@ namespace friendlySAIN.Utils
             {
                 if (bt.Data.Memory.HaveEnemy)
                 {
+                    float enemySpeakerSqr = (bt.Data.Position - player.Position).sqrMagnitude;
+                    if (enemySpeakerSqr < closestEnemySpeakerSqr)
+                    {
+                        try
+                        {
+                            closestEnemySpeaker = bt.Data;
+                            closestEnemyPosition = bt.Data.Memory.GoalEnemy.CurrPosition;
+                            closestEnemySpeakerSqr = enemySpeakerSqr;
+                        }
+                        catch
+                        {
+                            // Ignore malformed/invalid enemy position and continue selecting candidates.
+                        }
+                    }
+
                     if (!locationPing)
                     {
                         locationPing = true;
                         Vector3 position = GetLimitedHorizontalPosition(player.Position, bt.Data.Memory.GoalEnemy.CurrPosition, MaxSpatialPingDistance);
                         radioSound.PlayLocationSound(position);
                     }
-                    break;
                 }
+            }
+
+            if (closestEnemySpeaker != null)
+            {
+                TrySpeakBossRelativeEnemyDirection(closestEnemySpeaker, player.realPlayer, closestEnemyPosition);
             }
 
             if (radioSound != null && !locationPing)
@@ -110,6 +133,60 @@ namespace friendlySAIN.Utils
                 }
             }
 
+        }
+
+        private void TrySpeakBossRelativeEnemyDirection(BotOwner speaker, Player bossPlayer, Vector3 enemyPosition)
+        {
+            if (speaker == null || bossPlayer == null)
+            {
+                return;
+            }
+
+            EPhraseTrigger trigger = GetBossRelativeDirectionTrigger(bossPlayer, enemyPosition);
+            if (trigger == EPhraseTrigger.PhraseNone)
+            {
+                return;
+            }
+
+            speaker.BotTalk.TrySay(trigger, true);
+        }
+
+        private EPhraseTrigger GetBossRelativeDirectionTrigger(Player bossPlayer, Vector3 enemyPosition)
+        {
+            Vector3 toEnemy = enemyPosition - bossPlayer.Transform.position;
+            toEnemy.y = 0f;
+            if (toEnemy.sqrMagnitude <= 0.0001f)
+            {
+                return EPhraseTrigger.OnRepeatedContact;
+            }
+
+            Vector3 bossLookDirection = bossPlayer.MovementContext?.PlayerRealForward ?? bossPlayer.LookDirection;
+            bossLookDirection.y = 0f;
+            if (bossLookDirection.sqrMagnitude <= 0.0001f)
+            {
+                bossLookDirection = bossPlayer.Transform.forward;
+                bossLookDirection.y = 0f;
+            }
+
+            if (bossLookDirection.sqrMagnitude <= 0.0001f)
+            {
+                return EPhraseTrigger.OnRepeatedContact;
+            }
+
+            float signedAngle = Vector3.SignedAngle(bossLookDirection.normalized, toEnemy.normalized, Vector3.up);
+            float absoluteAngle = Mathf.Abs(signedAngle);
+
+            if (absoluteAngle <= 35f)
+            {
+                return EPhraseTrigger.InTheFront;
+            }
+
+            if (absoluteAngle >= 145f)
+            {
+                return EPhraseTrigger.OnSix;
+            }
+
+            return signedAngle < 0f ? EPhraseTrigger.LeftFlank : EPhraseTrigger.RightFlank;
         }
 
         public void Dispose()

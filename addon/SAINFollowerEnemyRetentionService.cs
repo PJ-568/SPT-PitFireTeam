@@ -326,7 +326,11 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
-            bool hasBossOrFollowerAsEnemy = CandidateHasBossOrFollowerAsEnemy(owner, candidate);
+            // Same-side bots can still be valid threats if they currently target boss/followers
+            // even when their group-level enemy relation has not propagated yet.
+            bool hasBossOrFollowerAsEnemy =
+                CandidateHasBossOrFollowerAsEnemy(owner, candidate) ||
+                CandidateHasGoalEnemyBossOrFollower(owner, candidate);
             bool isPmcSide = owner.Side == EPlayerSide.Bear || owner.Side == EPlayerSide.Usec;
             if (!isPmcSide)
             {

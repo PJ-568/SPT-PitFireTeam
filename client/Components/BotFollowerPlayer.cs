@@ -1076,6 +1076,119 @@ namespace friendlySAIN.Components
             return Time.time - _knownEnemySince >= KnownEnemyAcquireHoldSeconds;
         }
 
+        public bool IsReadyForPatrolAfterCombat()
+        {
+            BotOwner owner = _bot;
+            if (owner == null || owner.IsDead || owner.BotState != EBotState.Active)
+            {
+                return false;
+            }
+
+            if (owner.Memory?.HaveEnemy == true)
+            {
+                return false;
+            }
+
+            if (!friendlySAIN.IsSAINInstalled)
+            {
+                return true;
+            }
+
+            try
+            {
+                if (IsFriendlySainCombatLayerActive(owner))
+                {
+                    return false;
+                }
+
+                object sainBot = GetSainBot(owner);
+                if (sainBot == null)
+                {
+                    return true;
+                }
+
+                object enemyController = GetMemberValue(sainBot, "EnemyController");
+                bool? haveEnemy = GetBoolMemberValue(enemyController, "HaveEnemy");
+                if (haveEnemy == true)
+                {
+                    return false;
+                }
+                bool? atPeace = GetBoolMemberValue(enemyController, "AtPeace");
+
+                object botActivation = GetMemberValue(sainBot, "BotActivation");
+                bool? botInCombat = GetBoolMemberValue(botActivation, "BotInCombat");
+                if (botInCombat == true)
+                {
+                    return false;
+                }
+
+                object search = GetMemberValue(sainBot, "Search");
+                bool? searchActive = GetBoolMemberValue(search, "SearchActive");
+                if (searchActive == true)
+                {
+                    return false;
+                }
+
+                object sainGoalEnemy = GetMemberValue(enemyController, "GoalEnemy");
+                if (sainGoalEnemy != null)
+                {
+                    return false;
+                }
+
+                object decision = GetMemberValue(sainBot, "Decision");
+                if (!IsDecisionIdle(decision, "CurrentSelfDecision")) return false;
+                if (!IsDecisionIdle(decision, "CurrentCombatDecision")) return false;
+                if (!IsDecisionIdle(decision, "CurrentSquadDecision")) return false;
+
+                object activeLayer = GetMemberValue(sainBot, "ActiveLayer");
+                string activeLayerName = GetStringMemberValue(activeLayer, "Name")
+                    ?? activeLayer?.ToString();
+                if (ContainsIgnoreCase(activeLayerName, "Combat"))
+                {
+                    return false;
+                }
+
+                // If SAIN exposes a peace state and it is explicitly false, stay in combat handling.
+                if (atPeace == false)
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                // Fail open on reflection/transient SAIN state issues so followers do not deadlock.
+            }
+
+            return true;
+        }
+
+        private static bool IsFriendlySainCombatLayerActive(BotOwner owner)
+        {
+            if (owner == null || !friendlySAIN.HasSainRegroupAddon)
+            {
+                return false;
+            }
+
+            try
+            {
+                Type? layerType = AccessTools.TypeByName("friendlySAIN.SAINAddon.SAINFollowerCombatLayer");
+                MethodInfo? isActiveMethod = layerType != null
+                    ? AccessTools.Method(layerType, "IsFollowerCombatLayerActive", new[] { typeof(BotOwner) })
+                    : null;
+                if (isActiveMethod == null)
+                {
+                    return false;
+                }
+
+                object? result = isActiveMethod.Invoke(null, new object[] { owner });
+                return result is bool active && active;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public void ResetCombatCommitState()
         {
             _pendingHoldRestoreAfterCombatBlip = false;
@@ -1405,6 +1518,70 @@ namespace friendlySAIN.Components
             }
 
             return false;
+        }
+
+        private static object GetMemberValue(object instance, string memberName)
+        {
+            if (instance == null || string.IsNullOrEmpty(memberName))
+            {
+                return null;
+            }
+
+            Type type = instance.GetType();
+            PropertyInfo property = AccessTools.Property(type, memberName);
+            if (property != null)
+            {
+                return property.GetValue(instance);
+            }
+
+            FieldInfo field = AccessTools.Field(type, memberName);
+            if (field != null)
+            {
+                return field.GetValue(instance);
+            }
+
+            return null;
+        }
+
+        private static bool? GetBoolMemberValue(object instance, string memberName)
+        {
+            object value = GetMemberValue(instance, memberName);
+            if (value is bool boolean)
+            {
+                return boolean;
+            }
+
+            return null;
+        }
+
+        private static string? GetStringMemberValue(object instance, string memberName)
+        {
+            object value = GetMemberValue(instance, memberName);
+            return value as string;
+        }
+
+        private static bool IsDecisionIdle(object instance, string memberName)
+        {
+            object value = GetMemberValue(instance, memberName);
+            if (value == null)
+            {
+                return true;
+            }
+
+            string state = value.ToString();
+            if (string.IsNullOrEmpty(state))
+            {
+                return true;
+            }
+
+            return string.Equals(state, "None", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(state, "DebugNoDecision", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ContainsIgnoreCase(string? text, string value)
+        {
+            return !string.IsNullOrEmpty(text)
+                && text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void TrySyncEnemyToOtherFollowers(BotOwner source, EnemyInfo goal)
