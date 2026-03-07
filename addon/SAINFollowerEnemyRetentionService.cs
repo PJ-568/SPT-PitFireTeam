@@ -12,9 +12,10 @@ namespace friendlySAIN.SAINAddon
     {
         private const float CalcGoalGuardBaseSeconds = 0.2f;
         private const float CalcGoalGuardPerFollowerSeconds = 0.1f;
-        private const float CalcGoalGuardMaxSeconds = 1.5f;
+        private const float CalcGoalGuardMaxSeconds = 2f;
         private const float CalcGoalForwardScanDistance = 80f;
         private const float CalcGoalForwardScanMinDot = 0.45f;
+        private const int CalcGoalMaxVisionChecksPerScan = 6;
         private static bool _initialized;
         private static bool _subscribedCalcGoal;
         private static readonly System.Collections.Generic.List<Player> CalcGoalForwardCandidates = new System.Collections.Generic.List<Player>(16);
@@ -73,6 +74,7 @@ namespace friendlySAIN.SAINAddon
         {
             if (!SAINAddonToggles.EnableForcedEnemyRetention) return;
             if (owner == null || !BossPlayers.IsFollower(owner)) return;
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(owner)) return;
             if (!CanRunCalcGoalScanNow(owner)) return;
 
             if (owner.Memory.HaveEnemy) return;
@@ -90,6 +92,7 @@ namespace friendlySAIN.SAINAddon
 
             Player? firstVisible = null;
             Player botPlayer = owner.GetPlayer;
+            int visionChecks = 0;
             for (int i = 0; i < candidates.Count; i++)
             {
                 Player candidate = candidates[i];
@@ -110,6 +113,7 @@ namespace friendlySAIN.SAINAddon
                     }
                 }
 
+                visionChecks++;
                 if (HasSimpleVision(botPlayer, candidate))
                 {
                     if (ShouldSkipSameSideCandidate(owner, candidate))
@@ -119,6 +123,11 @@ namespace friendlySAIN.SAINAddon
                     }
 
                     firstVisible = candidate;
+                    break;
+                }
+
+                if (visionChecks >= CalcGoalMaxVisionChecksPerScan)
+                {
                     break;
                 }
             }

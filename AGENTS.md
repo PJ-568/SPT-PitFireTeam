@@ -9,6 +9,7 @@ Scope: runtime behavior currently present in `friendlySAIN/client` and `friendly
 - Do **not** add new runtime paths that depend on **plugin-owned/custom** BE profile generation/fetch endpoints for debug/runtime bot spawn flows.
 - Using existing **game-side** profile loading flow (`ISession.LoadBots`) is allowed.
 - If a spawn flow requires BE profile data and no local/prefetched profile exists, it should fail fast with a clear reason instead of attempting BE fallback.
+- `InteractableObjects` BE return-items endpoint call is currently disabled in client runtime (`/singleplayer/returnitems` is not posted).
 
 ## 0) Project Context
 
@@ -83,6 +84,16 @@ Request/gesture movement:
     - `HoldPosition`: stop, crouch pose, periodic random look-around, no command timeout (persists until replaced/cleared).
     - `ComeCloser`: move to boss until close (about `1m`).
     - `MoveToPoint` (`There`): move to projected/navmesh-validated target point (walk-only), then brief look-around on arrival.
+    - `LootGeneric` / `LootWeapon` command route:
+        - boss phrase selects closest eligible follower to the targeted loot object,
+        - follower is assigned as taker through `InteractableObjects.SetTaker(...)`,
+        - follower runs `FollowerCommandType.TakeLootItem` in `GestureCommandAction` (move to loot point + inventory transfer attempt),
+        - BE item-return post is disabled; loot tracking remains local-only for now.
+    - `OpenDoor` command route:
+        - boss phrase selects closest eligible follower to the targeted door,
+        - follower is assigned as opener through `InteractableObjects.SetOpener(...)`,
+        - follower runs `FollowerCommandType.OpenDoor` in `GestureCommandAction` (move to door + `DoorOpener.Interact(..., Open)`),
+        - opener/taker state is cleared when command clears, including combat-entry handoff.
     - `Regroup` (`EPhraseTrigger.Regroup`):
         - vanilla regroup is implemented and active for no-SAIN or out-of-combat cases,
         - SAIN combat regroup is executed through addon `SAINFollowerCombatLayer` -> `SAINFollowerCombatRegroupAction`,
@@ -139,6 +150,8 @@ Implemented:
     - TeamStatus,
     - OverThere,
     - OnRepeatedContact,
+    - `OpenDoor`,
+    - `LootGeneric` / `LootWeapon`,
     - Look (Attention),
     - `ComeWithMeGesture`,
     - `HoldGesture`,

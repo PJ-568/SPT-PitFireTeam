@@ -1,9 +1,14 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using EFT.Interactive;
+using EFT.InventoryLogic;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
+using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -31,6 +36,13 @@ namespace friendlySAIN.BigBrain.Actions
         private bool regroupBossAnchorInitialized;
         private Vector3 regroupBossAnchorPosition;
         private float nextRegroupBossAnchorCheckAt;
+        private bool lootMoveIssued;
+        private bool lootPickupInProgress;
+        private LootItem? activeLootItem;
+        private Door? activeDoor;
+        private bool doorMoveIssued;
+        private bool doorInteractIssued;
+        private float doorTimeoutAt;
         private FollowerCommandType lastCommand = FollowerCommandType.None;
         private const float RegroupArriveNavDistance = 6f;
         private const float RegroupRunDistance = 10f;
@@ -72,6 +84,13 @@ namespace friendlySAIN.BigBrain.Actions
             regroupBossAnchorInitialized = false;
             regroupBossAnchorPosition = Vector3.zero;
             nextRegroupBossAnchorCheckAt = 0f;
+            lootMoveIssued = false;
+            lootPickupInProgress = false;
+            activeLootItem = null;
+            activeDoor = null;
+            doorMoveIssued = false;
+            doorInteractIssued = false;
+            doorTimeoutAt = 0f;
             lastCommand = FollowerCommandType.None;
         }
 
@@ -105,7 +124,10 @@ namespace friendlySAIN.BigBrain.Actions
                 regroupBossAnchorInitialized = false;
                 regroupBossAnchorPosition = Vector3.zero;
                 nextRegroupBossAnchorCheckAt = 0f;
-                
+                lootMoveIssued = false;
+                lootPickupInProgress = false;
+                activeLootItem = null;
+                CleanupDoorInteraction();
             }
 
             switch (command)
@@ -125,13 +147,21 @@ namespace friendlySAIN.BigBrain.Actions
                 case FollowerCommandType.RegroupNearBoss:
                     HandleRegroupNearBoss();
                     break;
+
+                case FollowerCommandType.TakeLootItem:
+                    HandleTakeLootItem();
+                    break;
+
+                case FollowerCommandType.OpenDoor:
+                    HandleOpenDoor();
+                    break;
             }
 
-            if(command != lastCommand)
+            if (command != lastCommand)
             {
                 lastCommand = command;
-                if(
-                    command == FollowerCommandType.MoveToPoint || 
+                if (
+                    command == FollowerCommandType.MoveToPoint ||
                     command == FollowerCommandType.ComeCloser
                 )
                 {
@@ -281,7 +311,7 @@ namespace friendlySAIN.BigBrain.Actions
                              currentDecision == BotLogicDecision.runAwayBTR ||
                              BotOwner.BewareGrenade?.ShallRunAway() == true ||
                              BotOwner.BewareBTR?.ShallRunAway() == true;
-                             
+
             if (dangerNow && clearForDanger)
             {
                 return true;
@@ -323,8 +353,8 @@ namespace friendlySAIN.BigBrain.Actions
             {
                 for (int i = 0; i < 12; i++)
                 {
-                    float angle = Random.Range(0f, Mathf.PI * 2f);
-                    float radius = Random.Range(1f, RegroupRandomRadius);
+                    float angle = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                    float radius = UnityEngine.Random.Range(1f, RegroupRandomRadius);
                     Vector3 candidate = bossPos + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
                     if (!NavMesh.SamplePosition(candidate, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
                     {
@@ -472,7 +502,7 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             BotOwner.GoToSomePointData.SetPoint(comeTarget);
-            BotOwner.GoToSomePointData.UpdateToGo(distance > 16f,1,comeMovePose);
+            BotOwner.GoToSomePointData.UpdateToGo(distance > 16f, 1, comeMovePose);
             BotOwner.Steering.LookToPathDestPoint();
             moveCommandInitialized = false;
             nextHoldLookChangeAt = 0f;
@@ -483,7 +513,7 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void HandleMoveToPoint(Vector3 target)
         {
-            if(BotOwner.Mover.TargetPose != 1f) BotOwner.Mover.SetPose(1f);
+            if (BotOwner.Mover.TargetPose != 1f) BotOwner.Mover.SetPose(1f);
 
             float distance = (target - BotOwner.Position).magnitude;
             if (distance > 1.5f && moveArrivalLookUntil > 0f)
@@ -567,7 +597,7 @@ namespace friendlySAIN.BigBrain.Actions
             {
 
                 BotOwner.Steering.LookToPoint(holdLookOverridePoint);
-                
+
                 holdLookPoint = Vector3.zero;
                 nextHoldLookChangeAt = 0f;
 
@@ -588,6 +618,11 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void HandleHoldPosition()
         {
+            if (lootPickupInProgress)
+            {
+                return;
+            }
+
             BotOwner.StopMove();
             if (BotOwner.Mover.TargetPose > 0.15f || BotOwner.Mover.TargetPose < 0.05f)
             {
@@ -614,7 +649,7 @@ namespace friendlySAIN.BigBrain.Actions
             if (Time.time >= nextHoldLookChangeAt)
             {
                 holdLookPoint = PickNextHoldLookPoint();
-                nextHoldLookChangeAt = Time.time  + Utils.Utils.Random(2f, 6f);
+                nextHoldLookChangeAt = Time.time + Utils.Utils.Random(2f, 6f);
             }
 
             if (holdLookPoint != Vector3.zero)
@@ -640,7 +675,7 @@ namespace friendlySAIN.BigBrain.Actions
             {
 
                 BotOwner.Steering.LookToPoint(holdLookOverridePoint);
-                
+
                 holdLookPoint = Vector3.zero;
                 nextHoldLookChangeAt = 0f;
 
@@ -686,6 +721,305 @@ namespace friendlySAIN.BigBrain.Actions
             Vector3 lookPoint = BotOwner.Position + lookDir * lookDistance;
             lookPoint.y = BotOwner.Position.y + 1.1f;
             return lookPoint;
+        }
+
+        public override void Stop()
+        {
+            CleanupDoorInteraction();
+            base.Stop();
+        }
+
+        private void HandleTakeLootItem()
+        {
+            if (followerData == null)
+            {
+                return;
+            }
+
+            if (!InteractableObjects.IsTaker(BotOwner))
+            {
+                ClearTakeLootState("TakeLoot:notTaker");
+                return;
+            }
+
+            activeLootItem ??= BotOwner.ItemTaker?.ItemToTake ?? InteractableObjects.GetCurLootItem();
+            if (activeLootItem == null)
+            {
+                ClearTakeLootState("TakeLoot:itemMissing");
+                return;
+            }
+
+            Vector3 lootPosition;
+            try
+            {
+                lootPosition = InteractableObjects.GetLootPosition();
+            }
+            catch
+            {
+                ClearTakeLootState("TakeLoot:missingLootPosition");
+                return;
+            }
+
+            float distance = Vector3.Distance(BotOwner.Position, lootPosition);
+            if (distance > 1.75f)
+            {
+                BotOwner.GoToSomePointData.SetPoint(lootPosition);
+                BotOwner.GoToSomePointData.UpdateToGo(false);
+                BotOwner.Steering.LookToMovingDirection();
+                lootMoveIssued = true;
+                return;
+            }
+
+            BotOwner.StopMove();
+            if (BotOwner.Mover.Sprinting)
+            {
+                BotOwner.Mover.Sprint(false, false);
+            }
+            BotOwner.Steering.LookToPoint(activeLootItem.transform.position);
+
+            if (!lootPickupInProgress)
+            {
+                lootPickupInProgress = true;
+                PickupLootAsync(activeLootItem).HandleExceptions();
+            }
+        }
+
+        private async Task PickupLootAsync(LootItem lootItem)
+        {
+            try
+            {
+                Item item = lootItem?.Item;
+                if (item == null)
+                {
+                    ClearTakeLootState("TakeLoot:itemNull");
+                    return;
+                }
+
+                await Task.Delay(600);
+
+                if (BotOwner.IsDead || !InteractableObjects.IsTaker(BotOwner))
+                {
+                    ClearTakeLootState("TakeLoot:takerLost");
+                    return;
+                }
+
+                InventoryController inventory = BotOwner.GetPlayer?.InventoryController;
+                if (inventory == null)
+                {
+                    ClearTakeLootState("TakeLoot:noInventory");
+                    return;
+                }
+
+                InventoryEquipment equipment = inventory.Inventory.Equipment;
+                bool wasTransferred = false;
+
+                List<Type> equipTypes = new List<Type>
+                {
+                    typeof(ThrowWeapItemClass),
+                    typeof(MedicalItemClass),
+                    typeof(MagazineItemClass)
+                };
+
+                if (equipTypes.Any(t => item.GetType() == t))
+                {
+                    var quickPlace = InteractionsHandlerClass.QuickFindAppropriatePlace(
+                        lootItem.Item,
+                        inventory,
+                        equipment.ToEnumerable<InventoryEquipment>(),
+                        InteractionsHandlerClass.EMoveItemOrder.PrioritizeTargetsOrder,
+                        true);
+                    if (quickPlace.Succeeded)
+                    {
+                        BotOwner.ItemTaker.method_1(BotOwner.GetPlayer, quickPlace.Value, lootItem.ItemOwner.RootItem, lootItem.LastOwner);
+                        wasTransferred = true;
+                        if (item is MagazineItemClass mag)
+                        {
+                            inventory.StrictCheckMagazine(mag, false, 0, false, true);
+                        }
+                    }
+                }
+
+                bool isEquipmentItem =
+                    item is BackpackItemClass ||
+                    item is ArmorItemClass ||
+                    item is VestItemClass ||
+                    item is HeadwearItemClass;
+                if (!wasTransferred && isEquipmentItem)
+                {
+                    ItemAddress slotLocation = inventory.FindSlotToPickUp(item);
+                    if (slotLocation != null)
+                    {
+                        var moveResult = InteractionsHandlerClass.Move(item, slotLocation, inventory, true);
+                        if (moveResult.Succeeded)
+                        {
+                            wasTransferred = true;
+                            await inventory.TryRunNetworkTransaction(moveResult, null);
+                        }
+                    }
+                }
+
+                if (!wasTransferred && item is Weapon weapon && item.GetItemComponent<KnifeComponent>() == null)
+                {
+                    ItemAddress location = null;
+                    if (
+                        (item is PistolItemClass && equipment.GetSlot(EquipmentSlot.Holster).ContainedItem == null) ||
+                        (item is not PistolItemClass && equipment.GetSlot(EquipmentSlot.SecondPrimaryWeapon).ContainedItem == null))
+                    {
+                        location = inventory.FindSlotToPickUp(weapon);
+                    }
+
+                    if (location != null)
+                    {
+                        var moveResult = InteractionsHandlerClass.Move(weapon, location, inventory, true);
+                        if (moveResult.Succeeded)
+                        {
+                            wasTransferred = true;
+                            await inventory.TryRunNetworkTransaction(moveResult, null);
+                            BotOwner.WeaponManager.UpdateWeaponsList();
+                        }
+                    }
+                }
+
+                if (!wasTransferred)
+                {
+                    List<EquipmentSlot> possibleSlots = new List<EquipmentSlot>
+                    {
+                        EquipmentSlot.Backpack,
+                        EquipmentSlot.TacticalVest,
+                        EquipmentSlot.ArmorVest,
+                        EquipmentSlot.Pockets
+                    };
+
+                    foreach (EquipmentSlot slot in possibleSlots)
+                    {
+                        if (BotOwner.ItemTaker.method_10(slot, lootItem))
+                        {
+                            wasTransferred = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!wasTransferred)
+                {
+                    BotOwner.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                    ClearTakeLootState("TakeLoot:noSpace");
+                    return;
+                }
+
+                if (followerData?.IsSquadMate == true)
+                {
+                    InteractableObjects.StoreItem(BotOwner, item);
+                }
+
+                BotOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                ClearTakeLootState("TakeLoot:done");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("TakeLoot command failed");
+                Modules.Logger.LogError(ex);
+                ClearTakeLootState("TakeLoot:exception");
+            }
+        }
+
+        private void ClearTakeLootState(string reason)
+        {
+            lootPickupInProgress = false;
+            lootMoveIssued = false;
+            activeLootItem = null;
+            InteractableObjects.RemoveTaker(BotOwner);
+            InteractableObjects.ClearCurLootItem();
+            followerData?.ClearCommand(reason);
+        }
+
+        private void HandleOpenDoor()
+        {
+            activeDoor ??= InteractableObjects.GetDoorToOpen(BotOwner);
+            if (activeDoor == null)
+            {
+                ClearOpenDoorState("OpenDoor:missingDoor");
+                return;
+            }
+
+            if (activeDoor.DoorState == EDoorState.Open)
+            {
+                ClearOpenDoorState("OpenDoor:alreadyOpen");
+                return;
+            }
+
+            BotOwner.DoorOpener.UpdateDoorInteractionStatus();
+
+            if (!doorMoveIssued)
+            {
+                Vector3 position = activeDoor.transform.position;
+                if (!NavMesh.SamplePosition(position, out NavMeshHit navMeshHit, 2f, NavMesh.AllAreas))
+                {
+                    ClearOpenDoorState("OpenDoor:noNavMesh");
+                    return;
+                }
+
+                if (BotOwner.GoToPoint(navMeshHit.position, false, -1f, false, false) != NavMeshPathStatus.PathComplete)
+                {
+                    ClearOpenDoorState("OpenDoor:pathInvalid");
+                    return;
+                }
+
+                BotOwner.GoToSomePointData.SetPoint(navMeshHit.position);
+                BotOwner.Steering.LookToMovingDirection();
+                doorMoveIssued = true;
+                doorTimeoutAt = Time.time + 7f;
+                return;
+            }
+
+            if (doorTimeoutAt > 0f && Time.time > doorTimeoutAt)
+            {
+                ClearOpenDoorState("OpenDoor:timeout");
+                return;
+            }
+
+            if (!doorInteractIssued)
+            {
+                BotOwner.GoToSomePointData.UpdateToGo(false);
+            }
+
+            if (!BotOwner.GoToSomePointData.IsCome())
+            {
+                return;
+            }
+
+            if (doorInteractIssued)
+            {
+                return;
+            }
+
+            BotOwner.StopMove();
+            BotOwner.DoorOpener.OnEndInteract -= OnDoorInteractEnded;
+            BotOwner.DoorOpener.OnEndInteract += OnDoorInteractEnded;
+            BotOwner.DoorOpener.Interact(activeDoor, EInteractionType.Open);
+            doorInteractIssued = true;
+        }
+
+        private void OnDoorInteractEnded()
+        {
+            ClearOpenDoorState("OpenDoor:done");
+        }
+
+        private void CleanupDoorInteraction()
+        {
+            BotOwner?.DoorOpener.OnEndInteract -= OnDoorInteractEnded;
+            activeDoor = null;
+            doorMoveIssued = false;
+            doorInteractIssued = false;
+            doorTimeoutAt = 0f;
+        }
+
+        private void ClearOpenDoorState(string reason)
+        {
+            CleanupDoorInteraction();
+            InteractableObjects.RemoveOpener(BotOwner);
+            InteractableObjects.SetCurDoor(null);
+            followerData?.ClearCommand(reason);
         }
     }
 }

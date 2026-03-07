@@ -20,12 +20,13 @@ namespace friendlySAIN.Modules
     {
         public static InteractableObjects Instance;
 
-        private Door _currDoor;
+        private Door? _currDoor;
         private Dictionary<string, Door> _doorsToOpen;
 
         private LootItem _lootItem;
         private Vector3? _lootPosition;
         private Components.BotFollowerPlayer _botToLoot;
+        private string _botToLootProfileId;
 
         private bool IsDisposed = false;
 
@@ -36,6 +37,7 @@ namespace friendlySAIN.Modules
         private Dictionary<string, List<string>> _followersEquipment;
 
         private bool _isBossDead = false;
+        private const bool EnableBackendItemReturn = false;
 
         List<Player> _enemiesSeen;
         Player _closestEnemySeen;
@@ -62,6 +64,15 @@ namespace friendlySAIN.Modules
         private bool SendStoreItems()
         {
             GatherItems();
+
+            if (!EnableBackendItemReturn)
+            {
+                if (_toSendItems.Count > 0)
+                {
+                    Logger.LogInfo($"[Loot] BE return disabled. Kept {_toSendItems.Count} tracked follower items local-only.");
+                }
+                return false;
+            }
 
             var flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(_toSendItems);
 
@@ -269,13 +280,13 @@ namespace friendlySAIN.Modules
             }
         }
         /** Set what door the boss wants to open */
-        public static void SetCurDoor(Door door)
+        public static void SetCurDoor(Door? door)
         {
 
             if (Instance != null)
                 Instance._currDoor = door;
         }
-        public static Door GetCurDoor()
+        public static Door? GetCurDoor()
         {
             if (Instance == null) return null;
             return Instance._currDoor;
@@ -330,6 +341,7 @@ namespace friendlySAIN.Modules
                     Instance._lootPosition = navMeshHit.position;
 
                     Instance._botToLoot = _follower;
+                    Instance._botToLootProfileId = bot.ProfileId;
 
                     return true;
 
@@ -346,26 +358,41 @@ namespace friendlySAIN.Modules
 
         public static bool IsTaker(BotOwner bot)
         {
-            var _follower = BossPlayers.Instance.GetFollower(bot);
+            if (Instance == null || bot == null) return false;
+            if (!string.IsNullOrEmpty(Instance._botToLootProfileId) &&
+                !string.IsNullOrEmpty(bot.ProfileId) &&
+                string.Equals(Instance._botToLootProfileId, bot.ProfileId, StringComparison.Ordinal))
+            {
+                return true;
+            }
 
+            var _follower = BossPlayers.Instance.GetFollower(bot);
             return _follower != null && _follower == Instance._botToLoot;
         }
 
         public static void RemoveTaker(BotOwner bot)
         {
-            if (Instance == null) return;
+            if (Instance == null || bot == null || string.IsNullOrEmpty(bot.ProfileId)) return;
 
+            if (!string.IsNullOrEmpty(Instance._botToLootProfileId) &&
+                string.Equals(Instance._botToLootProfileId, bot.ProfileId, StringComparison.Ordinal))
+            {
+                Instance._botToLoot = null;
+                Instance._botToLootProfileId = null;
+                return;
+            }
 
             Components.BotFollowerPlayer follower = BossPlayers.Instance.GetFollower(bot);
-
             if (follower != null && Instance._botToLoot == follower)
             {
                 Instance._botToLoot = null;
+                Instance._botToLootProfileId = null;
             }
         }
         /** Set what bot is going to open the door */
         public static bool SetOpener(BotOwner bot, Door door = null)
         {
+            if (Instance == null || bot == null) return false;
             if (Instance._currDoor != null)
             {
                 if (!Instance._doorsToOpen.ContainsKey(bot.ProfileId))
@@ -383,12 +410,13 @@ namespace friendlySAIN.Modules
 
         public static bool IsOpener(BotOwner bot)
         {
+            if (Instance == null || bot == null) return false;
             return Instance._doorsToOpen.ContainsKey(bot.ProfileId);
         }
 
         public static void RemoveOpener(BotOwner bot)
         {
-            if (Instance == null) return;
+            if (Instance == null || bot == null || string.IsNullOrEmpty(bot.ProfileId)) return;
             if (Instance._doorsToOpen.ContainsKey(bot.ProfileId)) Instance._doorsToOpen.Remove(bot.ProfileId);
         }
 
@@ -405,6 +433,8 @@ namespace friendlySAIN.Modules
             {
                 Instance._lootItem = null;
                 Instance._lootPosition = null;
+                Instance._botToLoot = null;
+                Instance._botToLootProfileId = null;
             }
         }
         /** Store the item that was given to a follower */
@@ -635,9 +665,9 @@ namespace friendlySAIN.Modules
                 items.Add(slot.ContainedItem.Id);
 
                 if (slot.ContainedItem is Mod) foreach (Slot modSlot in (slot.ContainedItem as Mod).Slots)
-                    {
-                        if (modSlot.ContainedItem != null) ModEquipmentStore(modSlot, items);
-                    }
+                {
+                    if (modSlot.ContainedItem != null) ModEquipmentStore(modSlot, items);
+                }
             }
         }
         public static void StoreEquipment(Profile profile)

@@ -1,5 +1,6 @@
 ﻿using Comfort.Common;
 using EFT;
+using EFT.Interactive;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using HarmonyLib;
@@ -204,6 +205,16 @@ namespace friendlySAIN.Components
                     ApplyRegroupCommand(info.PlayerRequester);
                     return;
                 }
+                else if (info.phrase == EPhraseTrigger.OpenDoor)
+                {
+                    ApplyOpenDoorCommand(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.LootGeneric || info.phrase == EPhraseTrigger.LootWeapon)
+                {
+                    ApplyTakeLootCommand(info.PlayerRequester);
+                    return;
+                }
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
                 {
                     ClearFollowerCommands();
@@ -307,9 +318,9 @@ namespace friendlySAIN.Components
             foreach (var follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
-                
+
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
-                if(followerData == null)
+                if (followerData == null)
                 {
                     continue;
                 }
@@ -322,7 +333,7 @@ namespace friendlySAIN.Components
 
                 // Make followers orient toward boss reported direction.
                 follower.Steering.LookToPoint(lookTarget);
-                
+
                 float lookOverrideDuration = Utils.Utils.Random(2f, 4f);
                 followerData?.SetCommandLookOverride(lookTarget, lookOverrideDuration);
                 followersProcessed++;
@@ -350,7 +361,7 @@ namespace friendlySAIN.Components
 
         private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy)
         {
- 
+
             try
             {
                 follower.BotsGroup?.AddEnemy(enemy, EBotEnemyCause.addPlayerToBoss);
@@ -710,15 +721,12 @@ namespace friendlySAIN.Components
                 followerData?.ResetCombatCommitState();
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
-                InteractableObjects.RemoveTaker(follower);
-                InteractableObjects.RemoveOpener(follower);
-
                 ClearEnemyStateForAttention(follower);
                 ClearSainEnemyStateForAttention(follower);
 
                 FollowerRecovery.SoftReset(follower);
 
-                follower.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
+                follower.BotTalk.TrySay(EPhraseTrigger.Roger, true);
             }
         }
 
@@ -959,6 +967,163 @@ namespace friendlySAIN.Components
                 followerData.SetRegroup(20f);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
+        }
+
+        private void ApplyTakeLootCommand(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return;
+            }
+
+            LootItem lootItem = InteractableObjects.GetCurLootItem();
+            if (lootItem == null)
+            {
+                return;
+            }
+
+            BotOwner closestFollower = null;
+            float bestSqrDistance = float.MaxValue;
+            Vector3 lootPos = lootItem.transform.position;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active)
+                {
+                    continue;
+                }
+
+                if (follower.Memory?.HaveEnemy == true)
+                {
+                    continue;
+                }
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null)
+                {
+                    continue;
+                }
+
+                float sqrDistance = (follower.Position - lootPos).sqrMagnitude;
+                if (sqrDistance >= bestSqrDistance)
+                {
+                    continue;
+                }
+
+                closestFollower = follower;
+                bestSqrDistance = sqrDistance;
+            }
+
+            if (closestFollower == null)
+            {
+                return;
+            }
+
+            if (!InteractableObjects.SetTaker(closestFollower))
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                return;
+            }
+
+            BotFollowerPlayer closestFollowerData = BossPlayers.Instance?.GetFollower(closestFollower);
+            if (closestFollowerData == null)
+            {
+                InteractableObjects.RemoveTaker(closestFollower);
+                return;
+            }
+
+            closestFollowerData.SetTakeLootItem(20f);
+            closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+            closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private void ApplyOpenDoorCommand(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return;
+            }
+
+            Door door = InteractableObjects.GetCurDoor();
+            if (door == null)
+            {
+                return;
+            }
+
+            if (door.DoorState == EDoorState.Locked)
+            {
+                foreach (BotOwner follower in Followers)
+                {
+                    if (follower == null || follower.IsDead || follower.BotState != EBotState.Active)
+                    {
+                        continue;
+                    }
+
+                    if ((follower.Position - requester.Position).sqrMagnitude > 15f * 15f)
+                    {
+                        continue;
+                    }
+
+                    follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                    follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                    break;
+                }
+                return;
+            }
+
+            BotOwner closestFollower = null;
+            float bestDistance = float.MaxValue;
+            Vector3 doorPos = door.transform.position;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active)
+                {
+                    continue;
+                }
+
+                if (follower.Memory?.HaveEnemy == true)
+                {
+                    continue;
+                }
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null)
+                {
+                    continue;
+                }
+
+                float distance = (follower.Position - doorPos).magnitude;
+                if (distance >= bestDistance)
+                {
+                    continue;
+                }
+
+                closestFollower = follower;
+                bestDistance = distance;
+            }
+
+            if (closestFollower == null)
+            {
+                return;
+            }
+
+            if (!InteractableObjects.SetOpener(closestFollower, door))
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                return;
+            }
+
+            BotFollowerPlayer closestFollowerData = BossPlayers.Instance?.GetFollower(closestFollower);
+            if (closestFollowerData == null)
+            {
+                InteractableObjects.RemoveOpener(closestFollower);
+                return;
+            }
+
+            closestFollowerData.SetOpenDoor(12f);
+            closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+            closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
         }
 
         private void ClearFollowerCommands()
@@ -1427,7 +1592,7 @@ namespace friendlySAIN.Components
             // dispose of the original patrol mode
             bot.BotFollower.PatrolDataFollower.InitPlayer(realPlayer);
 
-            bot.BotFollower.SetToFollow(this,Followers.Count - 1);
+            bot.BotFollower.SetToFollow(this, Followers.Count - 1);
             bot.PatrollingData.Pause();
             bot.PatrollingData.Disable();
         }
@@ -1469,8 +1634,8 @@ namespace friendlySAIN.Components
                     {
                         BotOwner followerBotOwner = _aiplayer.Followers.FirstOrDefault();
                         _aiplayer.bossGroup.AddEnemy(enemyBot, EBotEnemyCause.addPlayerToBoss);
-                        if(followerBotOwner != null)
-                        _aiplayer.bossGroup.ReportAboutEnemy(enemyBot, EEnemyPartVisibleType.Sence, followerBotOwner);
+                        if (followerBotOwner != null)
+                            _aiplayer.bossGroup.ReportAboutEnemy(enemyBot, EEnemyPartVisibleType.Sence, followerBotOwner);
                     }
                 }
                 catch (Exception e)

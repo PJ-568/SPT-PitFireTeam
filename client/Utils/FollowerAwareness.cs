@@ -288,6 +288,17 @@ namespace friendlySAIN.Utils
             var boss = followerData?.GetBoss();
             if (boss?.realPlayer == null) return false;
 
+            if (enemyBot.BotsGroup?.IsEnemy(boss.realPlayer) == true)
+            {
+                return true;
+            }
+
+            string goalEnemyId = enemyBot.Memory?.GoalEnemy?.ProfileId;
+            if (!string.IsNullOrEmpty(goalEnemyId) && string.Equals(goalEnemyId, boss.realPlayer.ProfileId, System.StringComparison.Ordinal))
+            {
+                return true;
+            }
+
             if (boss.Followers != null)
             {
                 foreach (BotOwner member in boss.Followers)
@@ -295,6 +306,13 @@ namespace friendlySAIN.Utils
                     if (member == null || member.IsDead) continue;
                     if (member.ProfileId == enemyBot.ProfileId) continue;
                     if (enemyBot.BotsGroup?.IsEnemy(member.GetPlayer) == true)
+                    {
+                        return true;
+                    }
+
+                    if (!string.IsNullOrEmpty(goalEnemyId) &&
+                        !string.IsNullOrEmpty(member.ProfileId) &&
+                        string.Equals(goalEnemyId, member.ProfileId, System.StringComparison.Ordinal))
                     {
                         return true;
                     }

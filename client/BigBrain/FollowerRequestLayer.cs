@@ -79,6 +79,8 @@ namespace friendlySAIN.BigBrain
                     }
                 }
 
+                InteractableObjects.RemoveTaker(BotOwner);
+                InteractableObjects.RemoveOpener(BotOwner);
                 followerData.ClearCommand("KnownEnemyAcquired");
                 return false;
             }

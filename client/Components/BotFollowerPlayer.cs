@@ -22,7 +22,9 @@ namespace friendlySAIN.Components
         HoldPosition = 1,
         MoveToPoint = 2,
         ComeCloser = 3,
-        RegroupNearBoss = 4
+        RegroupNearBoss = 4,
+        TakeLootItem = 5,
+        OpenDoor = 6
     }
 
     public class BotFollowerPlayer
@@ -947,6 +949,32 @@ namespace friendlySAIN.Components
             _resumeHoldAfterComeCloser = false;
         }
 
+        public void SetTakeLootItem(float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.TakeLootItem)
+            {
+                ClearCommand($"SetTakeLootItem:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.TakeLootItem;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(6f, duration);
+            _resumeHoldAfterComeCloser = false;
+        }
+
+        public void SetOpenDoor(float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.OpenDoor)
+            {
+                ClearCommand($"SetOpenDoor:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.OpenDoor;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(6f, duration);
+            _resumeHoldAfterComeCloser = false;
+        }
+
         public void CompleteComeCloser()
         {
             if (_activeCommand != FollowerCommandType.ComeCloser)
@@ -1198,6 +1226,11 @@ namespace friendlySAIN.Components
 
         public void ClearCommand(string reason = "unspecified")
         {
+            if (_bot != null)
+            {
+                InteractableObjects.RemoveTaker(_bot);
+                InteractableObjects.RemoveOpener(_bot);
+            }
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
