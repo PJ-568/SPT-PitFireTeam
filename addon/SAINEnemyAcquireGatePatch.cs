@@ -11,7 +11,7 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINEnemyAcquireGatePatch
     {
-        private const bool EnableAcquireGateDebugLogs = false;
+        private static readonly bool EnableAcquireGateDebugLogs = false;
         private static readonly Dictionary<string, float> NextLogAtByBot = new Dictionary<string, float>();
 
         public static void Apply(Harmony harmony)

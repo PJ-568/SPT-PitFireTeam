@@ -19,6 +19,9 @@ namespace friendlySAIN.Utils
         {
             LastUpdate = Time.time;
             Data = botData;
+            // Cached BotData instances are reused across pings; reset marker state so stale zones don't suppress triangles.
+            EnemyPos = null;
+            EnemyZone = null;
         }
 
         public float LastUpdate;
@@ -36,6 +39,7 @@ namespace friendlySAIN.Utils
     {
 
         public List<BotData> botMap = new List<BotData>();
+        private readonly Dictionary<string, BotData> botDataCache = new Dictionary<string, BotData>(StringComparer.Ordinal);
 
         private float lasttime = 0f;
 
@@ -46,6 +50,17 @@ namespace friendlySAIN.Utils
 
         private float screenScale = 1.0f;
         private float fovFactor = 1f;
+        private readonly StringBuilder _guiTextBuilder = new StringBuilder(256);
+        private static readonly EBodyPart[] TrackedBodyParts =
+        {
+            EBodyPart.Head,
+            EBodyPart.Chest,
+            EBodyPart.Stomach,
+            EBodyPart.RightArm,
+            EBodyPart.LeftArm,
+            EBodyPart.RightLeg,
+            EBodyPart.LeftLeg
+        };
 
         Player myPlayer;
 
@@ -55,8 +70,10 @@ namespace friendlySAIN.Utils
 
         private static RadioSound radioSound;
         private const float MaxSpatialPingDistance = 50f;
+        private const float DirectionCalloutCooldownSeconds = 15f;
 
         private bool locationPing = false;
+        private float _nextDirectionCalloutTime = 0f;
 
         public void Ping(pitAIBossPlayer player)
         {
@@ -78,45 +95,57 @@ namespace friendlySAIN.Utils
 
             foreach (Components.BotFollowerPlayer fl in followers)
             {
-                if (!fl.GetBot().IsDead)
+                BotOwner bot = fl?.GetBot();
+                if (bot == null || bot.IsDead)
                 {
-                    BotData botData = new BotData();
-                    botData.SetData(fl.GetBot());
-                    botMap.Add(botData);
+                    continue;
+                }
+
+                string profileId = bot.ProfileId;
+                if (string.IsNullOrEmpty(profileId))
+                {
+                    continue;
+                }
+
+                if (!botDataCache.TryGetValue(profileId, out BotData botData))
+                {
+                    botData = new BotData();
+                    botDataCache[profileId] = botData;
+                }
+
+                botData.SetData(bot);
+                botMap.Add(botData);
+
+                if (!bot.Memory.HaveEnemy)
+                {
+                    continue;
+                }
+
+                if (!TryGetGoalEnemyPosition(bot, out Vector3 enemyPosition))
+                {
+                    continue;
+                }
+
+                float enemySpeakerSqr = (bot.Position - player.Position).sqrMagnitude;
+                if (enemySpeakerSqr < closestEnemySpeakerSqr)
+                {
+                    closestEnemySpeaker = bot;
+                    closestEnemyPosition = enemyPosition;
+                    closestEnemySpeakerSqr = enemySpeakerSqr;
+                }
+
+                if (!locationPing)
+                {
+                    locationPing = true;
+                    Vector3 position = GetLimitedHorizontalPosition(player.Position, enemyPosition, MaxSpatialPingDistance);
+                    radioSound.PlayLocationSound(position);
                 }
             }
 
-            foreach (BotData bt in botMap)
-            {
-                if (bt.Data.Memory.HaveEnemy)
-                {
-                    float enemySpeakerSqr = (bt.Data.Position - player.Position).sqrMagnitude;
-                    if (enemySpeakerSqr < closestEnemySpeakerSqr)
-                    {
-                        try
-                        {
-                            closestEnemySpeaker = bt.Data;
-                            closestEnemyPosition = bt.Data.Memory.GoalEnemy.CurrPosition;
-                            closestEnemySpeakerSqr = enemySpeakerSqr;
-                        }
-                        catch
-                        {
-                            // Ignore malformed/invalid enemy position and continue selecting candidates.
-                        }
-                    }
-
-                    if (!locationPing)
-                    {
-                        locationPing = true;
-                        Vector3 position = GetLimitedHorizontalPosition(player.Position, bt.Data.Memory.GoalEnemy.CurrPosition, MaxSpatialPingDistance);
-                        radioSound.PlayLocationSound(position);
-                    }
-                }
-            }
-
-            if (closestEnemySpeaker != null)
+            if (closestEnemySpeaker != null && Time.time >= _nextDirectionCalloutTime)
             {
                 TrySpeakBossRelativeEnemyDirection(closestEnemySpeaker, player.realPlayer, closestEnemyPosition);
+                _nextDirectionCalloutTime = Time.time + DirectionCalloutCooldownSeconds;
             }
 
             if (radioSound != null && !locationPing)
@@ -192,6 +221,7 @@ namespace friendlySAIN.Utils
         public void Dispose()
         {
             botMap.Clear();
+            botDataCache.Clear();
             Destroy(this);
             Destroy(radioSound);
             radioSound = null;
@@ -242,10 +272,18 @@ namespace friendlySAIN.Utils
 
             if (botMap != null)
             {
-                float currentFOV = Camera.main.fieldOfView;
-                fovFactor = Camera.main.fieldOfView / currentFOV;
-                botMap.ForEach(DrawBotGUI);
-                if (friendlySAIN.enemyMarker.Value) botMap.ForEach(DrawEnemyMarkerGUI);
+                for (int i = 0; i < botMap.Count; i++)
+                {
+                    DrawBotGUI(botMap[i]);
+                }
+
+                if (friendlySAIN.enemyMarker.Value)
+                {
+                    for (int i = 0; i < botMap.Count; i++)
+                    {
+                        DrawEnemyMarkerGUI(botMap[i]);
+                    }
+                }
             }
         }
 
@@ -275,8 +313,12 @@ namespace friendlySAIN.Utils
 
                     string botName = bt.Data.Profile.Nickname;
 
-                    StringBuilder stringBuilder = new StringBuilder();
-                    stringBuilder.Append(botName + " - " + dist + "m");
+                    StringBuilder stringBuilder = _guiTextBuilder;
+                    stringBuilder.Clear();
+                    stringBuilder.Append(botName);
+                    stringBuilder.Append(" - ");
+                    stringBuilder.Append(dist);
+                    stringBuilder.Append("m");
 
                     if (!bt.Data.HealthController.IsAlive)
                     {
@@ -300,32 +342,19 @@ namespace friendlySAIN.Utils
 
                     string blackout = "";
 
-                    foreach (EBodyPart part in Enum.GetValues(typeof(EBodyPart)))
+                    for (int i = 0; i < TrackedBodyParts.Length; i++)
                     {
+                        EBodyPart part = TrackedBodyParts[i];
                         bt.Data.Profile.Health.BodyParts.TryGetValue(part, out var bodyPart);
                         if (bodyPart != null)
                         {
-                            switch (part)
+                            ValueStruct value = bt.Data.HealthController.GetBodyPartHealth(part, true);
+                            hp += value.Current;
+                            hpmax += value.Maximum;
+                            if (value.Current == 0)
                             {
-                                case EBodyPart.Head:
-                                case EBodyPart.Chest:
-                                case EBodyPart.Stomach:
-                                case EBodyPart.RightArm:
-                                case EBodyPart.LeftArm:
-                                case EBodyPart.RightLeg:
-                                case EBodyPart.LeftLeg:
-                                    ValueStruct value = bt.Data.HealthController.GetBodyPartHealth(part, true);
-                                    hp += value.Current;
-                                    hpmax += value.Maximum;
-                                    if (value.Current == 0)
-                                    {
-                                        if (blackout.Length > 0) blackout += ", ";
-                                        blackout += part.ToString().Localized();
-                                    }
-                                    break;
-
-                                default:
-                                    break;
+                                if (blackout.Length > 0) blackout += ", ";
+                                blackout += part.ToString().Localized();
                             }
                         }
 
@@ -536,6 +565,31 @@ namespace friendlySAIN.Utils
             bt.MarkRect.size = new Vector2(size, size);
 
             GUI.Box(bt.MarkRect, CreateTriangleTexture(cl), makerGuiStyle);
+        }
+
+        private static bool TryGetGoalEnemyPosition(BotOwner bot, out Vector3 enemyPosition)
+        {
+            enemyPosition = Vector3.zero;
+            if (bot?.Memory == null || !bot.Memory.HaveEnemy)
+            {
+                return false;
+            }
+
+            try
+            {
+                EnemyInfo goalEnemy = bot.Memory.GoalEnemy;
+                if (goalEnemy == null)
+                {
+                    return false;
+                }
+
+                enemyPosition = goalEnemy.CurrPosition;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public static void Enable()

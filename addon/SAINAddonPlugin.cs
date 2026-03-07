@@ -1,4 +1,5 @@
 using BepInEx;
+using friendlySAIN.Modules;
 using HarmonyLib;
 
 namespace friendlySAIN.SAINAddon
@@ -17,9 +18,20 @@ namespace friendlySAIN.SAINAddon
             var harmony = new Harmony("xyz.pit.friendlysain.sainaddon");
             Logger.LogInfo("[Init] friendlySAIN SAIN addon loaded.");
 
+            // Register direct core->addon runtime bridge callbacks.
+            SainAddonBridge.IsReadyForPatrolAfterCombat = SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat;
+
             // Placeholder bootstrap for future SAIN regroup layer/action registration.
             // Keep this as the dedicated integration point so core plugin can remain vanilla-safe.
             SAINRegroupBootstrap.Initialize(harmony, Logger);
+        }
+
+        private void OnDestroy()
+        {
+            if (ReferenceEquals(SainAddonBridge.IsReadyForPatrolAfterCombat, SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat))
+            {
+                SainAddonBridge.IsReadyForPatrolAfterCombat = null;
+            }
         }
     }
 }

@@ -135,24 +135,6 @@
         <None Include=".editorconfig" />
     </ItemGroup>
 
-    <!-- 4.x migration: keep SAIN/BigBrain follower-layer path and stop compiling legacy custom brain/receiver/action stack -->
-    <ItemGroup>
-        <Compile Remove="Actions\**\*.cs" />
-        <Compile Remove="Brains\**\*.cs" />
-        <Compile Remove="Layers\**\*.cs" />
-        <Compile Remove="Requests\**\*.cs" />
-
-        <Compile Remove="Components\FollowerAIAgent.cs" />
-        <Compile Remove="Components\FollowerReceiver.cs" />
-        <Compile Remove="Components\FollowerCreateNode.cs" />
-        <Compile Remove="FollowerPatrol.cs" />
-        <Compile Remove="Modules\Receivers.cs" />
-        <Compile Remove="Utils\BotHelpers.cs" />
-
-        <Compile Remove="Patches\BotReceiverPatch.cs" />
-        <Compile Remove="Patches\DonutsPatch.cs" />
-    </ItemGroup>
-
     <Target Name="BuildSAINAddon" AfterTargets="Build" Condition="'$(BuildSAINAddon)' != 'false' and '$(IsBuildingSAINAddon)' != 'true'">
         <MSBuild Projects="..\addon\friendlySAIN.SAINAddon.csproj"
                  Targets="Build"

@@ -23,6 +23,7 @@ namespace friendlySAIN.Modules
 
         private Dictionary<string, pitAIBossPlayer> _bosses;
         private List<BotFollowerPlayer> _followers;
+        private Dictionary<string, BotFollowerPlayer> _followersByProfileId;
         private List<string> _shallBeFollower;
         private List<int> _botsGroup;
 
@@ -39,6 +40,7 @@ namespace friendlySAIN.Modules
             }
             _bosses = new Dictionary<string, pitAIBossPlayer>();
             _followers = new List<BotFollowerPlayer> { };
+            _followersByProfileId = new Dictionary<string, BotFollowerPlayer>(StringComparer.Ordinal);
             _shallBeFollower = new List<string> { };
             _removedBosses = new List<string> { };
             _botsGroup = new List<int> { };
@@ -138,6 +140,11 @@ namespace friendlySAIN.Modules
                 followersToRemove.ForEach(_follower =>
                 {
                     _followers.Remove(_follower);
+                    BotOwner followerBot = _follower.GetBot();
+                    if (followerBot?.ProfileId != null)
+                    {
+                        _followersByProfileId.Remove(followerBot.ProfileId);
+                    }
                     _follower.Dismiss();
                 });
 
@@ -172,6 +179,7 @@ namespace friendlySAIN.Modules
             _bosses.Clear();
             _removedBosses.Clear();
             _followers.Clear();
+            _followersByProfileId.Clear();
             _shallBeFollower.Clear();
 
             IsDisposed = true;
@@ -231,6 +239,10 @@ namespace friendlySAIN.Modules
             }
 
             _followers.Add(_follower);
+            if (bot?.ProfileId != null)
+            {
+                _followersByProfileId[bot.ProfileId] = _follower;
+            }
 
             return _follower;
         }
@@ -342,6 +354,18 @@ namespace friendlySAIN.Modules
         {
             if (bot == null || bot.BotFollower == null || !bot.BotFollower.HaveBoss) return false;
 
+            if (!string.IsNullOrEmpty(bot.ProfileId) && _followersByProfileId.TryGetValue(bot.ProfileId, out BotFollowerPlayer cachedFollower))
+            {
+                if (boss != null)
+                {
+                    return bot.BotFollower.HaveBoss &&
+                           bot.BotFollower.BossToFollow != null &&
+                           bot.BotFollower.BossToFollow.Player().ProfileId == boss.Player().ProfileId;
+                }
+
+                return cachedFollower != null;
+            }
+
             BotFollowerPlayer _follower = null;
 
             foreach (var item in _followers)
@@ -377,6 +401,10 @@ namespace friendlySAIN.Modules
             if (_follower != null)
             {
                 _followers.Remove(_follower);
+                if (bot?.ProfileId != null)
+                {
+                    _followersByProfileId.Remove(bot.ProfileId);
+                }
                 if (player.bossGroup != null)
                 {
                     player.bossGroup.RemoveAlly(bot);
@@ -391,6 +419,11 @@ namespace friendlySAIN.Modules
         public BotFollowerPlayer GetFollower(BotOwner bot)
         {
             if (bot == null) return null;
+
+            if (!string.IsNullOrEmpty(bot.ProfileId) && _followersByProfileId.TryGetValue(bot.ProfileId, out BotFollowerPlayer cachedFollower))
+            {
+                return cachedFollower;
+            }
 
             BotFollowerPlayer _follower = null;
 
@@ -482,6 +515,19 @@ namespace friendlySAIN.Modules
         {
             if (Instance == null) return new List<BotFollowerPlayer>();
             return Instance._followers;
+        }
+
+        public static bool IsFollowerProfileId(string profileId)
+        {
+            if (Instance == null || string.IsNullOrEmpty(profileId)) return false;
+            return Instance._followersByProfileId.ContainsKey(profileId);
+        }
+
+        public static BotFollowerPlayer GetFollowerByProfileId(string profileId)
+        {
+            if (Instance == null || string.IsNullOrEmpty(profileId)) return null;
+            Instance._followersByProfileId.TryGetValue(profileId, out BotFollowerPlayer follower);
+            return follower;
         }
 
         public static bool IsFollower(BotOwner bot, AIBossPlayer boss = null)

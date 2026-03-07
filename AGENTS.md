@@ -1,6 +1,6 @@
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-06  
+Last updated: 2026-03-07  
 Scope: runtime behavior currently present in `friendlySAIN/client` and `friendlySAIN/addon` (based on active code paths in `friendlyPlugin.cs` and addon bootstrap/patches).
 
 ## BE / Server State (Important)
@@ -55,7 +55,8 @@ Behavior currently implemented:
     - bot has no current enemy.
 - Post-combat handoff to patrol is state-driven (no fixed timeout):
     - waits for `BotFollowerPlayer.IsReadyForPatrolAfterCombat()` instead of forcing patrol after a fixed delay,
-    - readiness now checks SAIN combat-layer active state, SAIN enemy/search/combat flags, SAIN decision idle state, and active-layer name.
+    - for SAIN-installed runtime, readiness is now resolved through addon-registered bridge callback (`SainAddonBridge.IsReadyForPatrolAfterCombat`),
+    - when SAIN is installed and patrol bridge callback is unavailable, logic fails closed and logs explicit addon-missing bridge error once.
 - Layer `Start()` performs recovery/reset:
     - pauses patrol data,
     - clears active request,
@@ -245,6 +246,13 @@ SAIN integration:
         - SAIN solo search/rush action types when available (`SearchAction` / `RushEnemyAction`) with safe fallback.
 - Core plugin validates SAIN/addon presence at runtime:
     - if SAIN is installed but addon is missing, core plugin logs explicit error and SAIN follower combat-layer integration is disabled.
+- Shared bridge contract is active for core->addon SAIN readiness handoff:
+    - `client/Modules/SainAddonBridge.cs` exposes delegate contract.
+    - `addon/SAINAddonPlugin.cs` registers/unregisters bridge callback during addon lifecycle.
+    - `addon/SAINFollowerRuntimeBridge.cs` owns SAIN-typed patrol readiness implementation.
+- Integration rule for new work:
+    - for SAIN-dependent follower behavior, prefer core->addon bridge calls over new core reflection probes.
+    - keep strict fail-fast/fail-closed behavior when SAIN is installed but required addon bridge callback is unavailable.
 - SAIN layers use their own mover handoff/control path while active (notably in combat):
     - `SAINLayer.OnLayerChanged(...)` stops built-in mover when entering SAIN layer and handles mover/navmesh handoff on layer switch.
     - treat SAIN combat movement issues as SAIN-layer/mover behavior first, then plugin command-layer behavior.
@@ -286,6 +294,13 @@ SAIN integration:
 
 - `PingTeamates` enemy marker/status timing corrected:
     - uses `Time.time - PersonalLastSeenTime` for recency.
+- `PingTeamates` callout throttling:
+    - directional voice callouts are now throttled to once every `15s` across pings,
+    - ping radio/location sound and triangle marker still update every valid ping.
+- TeamStatus/Look command burst handling:
+    - command handling was debounced to reduce repeated heavy work during rapid player phrase spam.
+- SAIN-friendly-fire path:
+    - per-shot follower/boss lane check was converted from allocation-heavy physics query path to lightweight geometric checks.
 - Several debug/trace patches were iterated during movement work; current runtime path is focused on minimal active tracing.
 - Request command logs were reduced/removed from `AIBossPlayer` (`[Req] Hold/There/ComeWithMe ...`) to keep runtime logs cleaner.
 - Debug console command:

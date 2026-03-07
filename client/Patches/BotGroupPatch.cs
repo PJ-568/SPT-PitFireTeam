@@ -6,7 +6,6 @@ using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
@@ -36,6 +35,19 @@ namespace friendlySAIN.Patches
     internal class BotGroupAddEnemyPatch : ModulePatch
     {
         private const float FollowerGroupEnemyAcquireMaxDistanceSqr = 90f * 90f;
+
+        private static bool IsInitialCause(EBotEnemyCause cause)
+        {
+            return cause == EBotEnemyCause.initial ||
+                   cause == EBotEnemyCause.AddNewMember ||
+                   cause == EBotEnemyCause.warn ||
+                   cause == EBotEnemyCause.addBotNoGroup;
+        }
+
+        private static bool IsRogueFriendlyType(WildSpawnType role)
+        {
+            return role == WildSpawnType.exUsec || Utils.Props.BossFollowersType.Contains(role);
+        }
 
         private static bool RequiresAwarenessGate(EBotEnemyCause cause)
         {
@@ -129,31 +141,28 @@ namespace friendlySAIN.Patches
 
             BotsGroup? bossGroup = plBoss != null ? plBoss.bossGroup : null;
 
-            bool isInitialCause = new EBotEnemyCause[] { EBotEnemyCause.initial, EBotEnemyCause.AddNewMember, EBotEnemyCause.warn, EBotEnemyCause.addBotNoGroup }.Contains(cause);
+            bool isInitialCause = IsInitialCause(cause);
 
             bool badGuy = Utils.Utils.FlagGet("isBadGuy");
 
-            bool isPMCGroup = new EPlayerSide[] { EPlayerSide.Bear, EPlayerSide.Usec }.Contains(__instance.Side);
+            bool isPMCGroup = __instance.Side == EPlayerSide.Bear || __instance.Side == EPlayerSide.Usec;
 
             bool isFriendlyPMC = isPMCGroup && Utils.Utils.FlagGet("friendlySAIN");
 
             // prevent Rogues from adding the player and his followers as enemies if they are friends with the Goons
             WildSpawnType groupRole = __instance.InitialBotType;
 
-            List<WildSpawnType> _rougeTypes = Utils.Props.BossFollowersType.ToList();
-            _rougeTypes.Add(WildSpawnType.exUsec);
-
             if (!isBossPlayerGroup && isInitialCause && __instance.MembersCount > 0)
             {
                 if (plBoss == null)
                 {
-                    var followerOfBoss = BossPlayers.GetFollowers().Find(x => x.GetBot().ProfileId == person.ProfileId);
+                    var followerOfBoss = BossPlayers.GetFollowerByProfileId(person.ProfileId);
                     if (followerOfBoss != null) plBoss = followerOfBoss.GetBoss();
                 }
 
                 if (plBoss != null && Utils.Utils.PlayerHasKnightQuest(plBoss.realPlayer.Profile))
                 {
-                    bool isRogue = _rougeTypes.Contains(groupRole);
+                    bool isRogue = IsRogueFriendlyType(groupRole);
                     if (isRogue)
                     {
                         __result = false;
@@ -170,7 +179,7 @@ namespace friendlySAIN.Patches
                 isPMCGroup &&
                 (
                     plBoss != null ||
-                    BossPlayers.GetFollowers().Any(x => x.GetBot().ProfileId == person.ProfileId)
+                    BossPlayers.IsFollowerProfileId(person.ProfileId)
                 )
             )
             {
@@ -190,7 +199,7 @@ namespace friendlySAIN.Patches
             // prevent BTR from adding the player's followers as enemies (bug in 0.16 it seems)
             if (
                 __instance.InitialBotType == WildSpawnType.shooterBTR &&
-                BossPlayers.GetFollowers().Any(x => x.GetBot().ProfileId == person.ProfileId)
+                BossPlayers.IsFollowerProfileId(person.ProfileId)
             )
             {
                 __result = false;
@@ -224,7 +233,18 @@ namespace friendlySAIN.Patches
             }
 
             // prevent followers from adding teammates
-            if (__instance.Members.Any(x => x.ProfileId == person.ProfileId))
+            bool isGroupMember = false;
+            for (int i = 0; i < __instance.MembersCount; i++)
+            {
+                BotOwner member = __instance.Member(i);
+                if (member != null && member.ProfileId == person.ProfileId)
+                {
+                    isGroupMember = true;
+                    break;
+                }
+            }
+
+            if (isGroupMember)
             {
                 __result = false;
                 return false;
@@ -255,13 +275,9 @@ namespace friendlySAIN.Patches
             if (isInitialCause && personRole != null && bossOfGroup != null)
             {
                 Player bossPlayer = bossOfGroup.realPlayer;
-                var friendly = Utils.Props.BossFollowersType.ToList();
-                friendly.Add(WildSpawnType.exUsec);
                 if (Utils.Utils.PlayerHasKnightQuest(bossPlayer.Profile))
                 {
-                    if (
-                        friendly.Contains(personRole.Value)
-                    )
+                    if (IsRogueFriendlyType(personRole.Value))
                     {
                         __result = false;
                         return false;
@@ -286,7 +302,7 @@ namespace friendlySAIN.Patches
             if (
                 person == null ||
                 (person.IsAI && person.AIData?.BotOwner?.GetPlayer == null) ||
-                new EBotEnemyCause[] { EBotEnemyCause.warn }.Contains(cause) ||
+                cause == EBotEnemyCause.warn ||
                 __instance is BotsGroupPlayer
             )
             {
@@ -323,15 +339,12 @@ namespace friendlySAIN.Patches
             // - skip if the group is of the Rouges and they are just spawning
             if (cause == EBotEnemyCause.AddNewMember)
             {
-                var friendly = Utils.Props.BossFollowersType.ToList();
-                friendly.Add(WildSpawnType.exUsec);
-
                 bool isFriendly = false;
 
                 for (int i = 0; i < __instance.MembersCount; i++)
                 {
                     var mem = __instance.Member(i);
-                    if (friendly.Contains(mem.Profile.Info.Settings.Role))
+                    if (mem != null && IsRogueFriendlyType(mem.Profile.Info.Settings.Role))
                     {
                         isFriendly = true;
                         break;

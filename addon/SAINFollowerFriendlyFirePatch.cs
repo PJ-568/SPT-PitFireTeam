@@ -12,6 +12,8 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINFollowerFriendlyFirePatch
     {
+        private const float FriendlyBodyRadius = 0.35f;
+
         public static void Apply(Harmony harmony)
         {
             MethodInfo? target = AccessTools.Method(
@@ -35,6 +37,11 @@ namespace friendlySAIN.SAINAddon
             BotComponent bot,
             ref FriendlyFireStatus __result)
         {
+            if (__result == FriendlyFireStatus.FriendlyBlock)
+            {
+                return;
+            }
+
             if (bot?.BotOwner == null || !BossPlayers.IsFollower(bot.BotOwner))
             {
                 return;
@@ -58,62 +65,55 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
-            RaycastHit[] hits = Physics.SphereCastAll(firePort, 0.2f, fireDir, distance, LayerMaskClass.PlayerMask);
-            if (hits == null || hits.Length == 0)
+            // Fast no-allocation segment checks are significantly cheaper than per-shot SphereCastAll + collider lookup.
+            Vector3 bossCenter = boss.realPlayer.Transform.position + Vector3.up * 1.2f;
+            if (IsPointNearFireSegment(firePort, fireDir, distance, bossCenter, FriendlyBodyRadius))
+            {
+                return true;
+            }
+
+            string shooterId = shooter.ProfileId;
+            var followers = boss.Followers;
+            if (followers == null || followers.Count == 0)
             {
                 return false;
             }
 
-            string shooterId = shooter.ProfileId;
-            string bossId = boss.realPlayer.ProfileId;
-
-            for (int i = 0; i < hits.Length; i++)
+            for (int i = 0; i < followers.Count; i++)
             {
-                Collider? collider = hits[i].collider;
-                if (collider == null)
+                BotOwner follower = followers[i];
+                if (follower == null || follower.IsDead)
                 {
                     continue;
                 }
 
-                Player? player = GameWorldComponent.Instance?.GameWorld?.GetPlayerByCollider(collider);
-                if (player == null || string.IsNullOrEmpty(player.ProfileId))
+                if (string.IsNullOrEmpty(follower.ProfileId) || string.Equals(follower.ProfileId, shooterId, System.StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                string targetId = player.ProfileId;
-                if (string.Equals(targetId, shooterId, System.StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (string.Equals(targetId, bossId, System.StringComparison.Ordinal))
+                Vector3 followerCenter = follower.Position + Vector3.up * 1.2f;
+                if (IsPointNearFireSegment(firePort, fireDir, distance, followerCenter, FriendlyBodyRadius))
                 {
                     return true;
-                }
-
-                var followers = boss.Followers;
-                if (followers == null || followers.Count == 0)
-                {
-                    continue;
-                }
-
-                for (int j = 0; j < followers.Count; j++)
-                {
-                    BotOwner follower = followers[j];
-                    if (follower == null || string.IsNullOrEmpty(follower.ProfileId))
-                    {
-                        continue;
-                    }
-
-                    if (string.Equals(targetId, follower.ProfileId, System.StringComparison.Ordinal))
-                    {
-                        return true;
-                    }
                 }
             }
 
             return false;
+        }
+
+        private static bool IsPointNearFireSegment(Vector3 origin, Vector3 directionNormalized, float maxDistance, Vector3 point, float radius)
+        {
+            Vector3 toPoint = point - origin;
+            float along = Vector3.Dot(toPoint, directionNormalized);
+            if (along <= 0f || along >= maxDistance)
+            {
+                return false;
+            }
+
+            Vector3 closest = origin + directionNormalized * along;
+            float radiusSq = radius * radius;
+            return (point - closest).sqrMagnitude <= radiusSq;
         }
     }
 }

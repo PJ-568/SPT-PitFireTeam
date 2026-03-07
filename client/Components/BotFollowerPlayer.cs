@@ -56,9 +56,6 @@ namespace friendlySAIN.Components
         private bool _manualUpdateHooked = false;
         private bool _lastHaveEnemyKnown = false;
         private bool _lastHaveEnemy = false;
-        private bool _pendingHoldRestoreAfterCombatBlip = false;
-        private float _holdClearedForCombatAt;
-        private const float HoldCombatBlipRestoreWindowSeconds = 3f;
         private string _lastCommittedEnemyId;
         private float _lastCommittedAt;
         private const float EnemyStickWindowSeconds = 3f;
@@ -82,7 +79,8 @@ namespace friendlySAIN.Components
         private static Type _sainEnableType;
         private static MethodInfo _getSainByBotOwnerMethod;
         private static MethodInfo _getSainByProfileMethod;
-        private const bool EnableSainEnemyBridgeDebugLogs = true;
+        private static bool _sainAddonPatrolBridgeErrorLogged;
+        private const bool EnableSainEnemyBridgeDebugLogs = false;
 
         public bool CanPatrol
         {
@@ -1124,70 +1122,25 @@ namespace friendlySAIN.Components
 
             try
             {
-                if (IsFriendlySainCombatLayerActive(owner))
+                Func<BotOwner, bool>? bridge = SainAddonBridge.IsReadyForPatrolAfterCombat;
+                if (bridge != null)
                 {
-                    return false;
-                }
-
-                object sainBot = GetSainBot(owner);
-                if (sainBot == null)
-                {
-                    return true;
-                }
-
-                object enemyController = GetMemberValue(sainBot, "EnemyController");
-                bool? haveEnemy = GetBoolMemberValue(enemyController, "HaveEnemy");
-                if (haveEnemy == true)
-                {
-                    return false;
-                }
-                bool? atPeace = GetBoolMemberValue(enemyController, "AtPeace");
-
-                object botActivation = GetMemberValue(sainBot, "BotActivation");
-                bool? botInCombat = GetBoolMemberValue(botActivation, "BotInCombat");
-                if (botInCombat == true)
-                {
-                    return false;
-                }
-
-                object search = GetMemberValue(sainBot, "Search");
-                bool? searchActive = GetBoolMemberValue(search, "SearchActive");
-                if (searchActive == true)
-                {
-                    return false;
-                }
-
-                object sainGoalEnemy = GetMemberValue(enemyController, "GoalEnemy");
-                if (sainGoalEnemy != null)
-                {
-                    return false;
-                }
-
-                object decision = GetMemberValue(sainBot, "Decision");
-                if (!IsDecisionIdle(decision, "CurrentSelfDecision")) return false;
-                if (!IsDecisionIdle(decision, "CurrentCombatDecision")) return false;
-                if (!IsDecisionIdle(decision, "CurrentSquadDecision")) return false;
-
-                object activeLayer = GetMemberValue(sainBot, "ActiveLayer");
-                string activeLayerName = GetStringMemberValue(activeLayer, "Name")
-                    ?? activeLayer?.ToString();
-                if (ContainsIgnoreCase(activeLayerName, "Combat"))
-                {
-                    return false;
-                }
-
-                // If SAIN exposes a peace state and it is explicitly false, stay in combat handling.
-                if (atPeace == false)
-                {
-                    return false;
+                    return bridge(owner);
                 }
             }
             catch
             {
-                // Fail open on reflection/transient SAIN state issues so followers do not deadlock.
+                // Bridge errors are handled below with explicit logging and strict fallback behavior.
             }
 
-            return true;
+            if (!_sainAddonPatrolBridgeErrorLogged)
+            {
+                _sainAddonPatrolBridgeErrorLogged = true;
+                Modules.Logger.LogError("[SAIN] Patrol readiness bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
+            }
+
+            // With fixed SAIN/addon target, fail closed if bridge is unavailable.
+            return false;
         }
 
         private static bool IsFriendlySainCombatLayerActive(BotOwner owner)
@@ -1219,7 +1172,6 @@ namespace friendlySAIN.Components
 
         public void ResetCombatCommitState()
         {
-            _pendingHoldRestoreAfterCombatBlip = false;
             _lastCommittedEnemyId = null;
             _lastCommittedAt = 0f;
         }
@@ -1228,8 +1180,8 @@ namespace friendlySAIN.Components
         {
             if (_bot != null)
             {
-                InteractableObjects.RemoveTaker(_bot);
-                InteractableObjects.RemoveOpener(_bot);
+                //InteractableObjects.RemoveTaker(_bot);
+                //InteractableObjects.RemoveOpener(_bot);
             }
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
@@ -1359,7 +1311,6 @@ namespace friendlySAIN.Components
             }
             _manualUpdateHooked = false;
             _lastHaveEnemyKnown = false;
-            _pendingHoldRestoreAfterCombatBlip = false;
             _lastCommittedEnemyId = null;
             _lastCommittedAt = 0f;
             _lastSainSyncedEnemyId = null;
@@ -1551,70 +1502,6 @@ namespace friendlySAIN.Components
             }
 
             return false;
-        }
-
-        private static object GetMemberValue(object instance, string memberName)
-        {
-            if (instance == null || string.IsNullOrEmpty(memberName))
-            {
-                return null;
-            }
-
-            Type type = instance.GetType();
-            PropertyInfo property = AccessTools.Property(type, memberName);
-            if (property != null)
-            {
-                return property.GetValue(instance);
-            }
-
-            FieldInfo field = AccessTools.Field(type, memberName);
-            if (field != null)
-            {
-                return field.GetValue(instance);
-            }
-
-            return null;
-        }
-
-        private static bool? GetBoolMemberValue(object instance, string memberName)
-        {
-            object value = GetMemberValue(instance, memberName);
-            if (value is bool boolean)
-            {
-                return boolean;
-            }
-
-            return null;
-        }
-
-        private static string? GetStringMemberValue(object instance, string memberName)
-        {
-            object value = GetMemberValue(instance, memberName);
-            return value as string;
-        }
-
-        private static bool IsDecisionIdle(object instance, string memberName)
-        {
-            object value = GetMemberValue(instance, memberName);
-            if (value == null)
-            {
-                return true;
-            }
-
-            string state = value.ToString();
-            if (string.IsNullOrEmpty(state))
-            {
-                return true;
-            }
-
-            return string.Equals(state, "None", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(state, "DebugNoDecision", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool ContainsIgnoreCase(string? text, string value)
-        {
-            return !string.IsNullOrEmpty(text)
-                && text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void TrySyncEnemyToOtherFollowers(BotOwner source, EnemyInfo goal)

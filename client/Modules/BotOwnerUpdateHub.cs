@@ -2,6 +2,7 @@ using EFT;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace friendlySAIN.Modules
 {
@@ -9,6 +10,9 @@ namespace friendlySAIN.Modules
     {
         private static readonly Dictionary<string, Action<BotOwner>> Subscribers = new Dictionary<string, Action<BotOwner>>();
         private static readonly object SyncRoot = new object();
+        private static int _subscriberCount;
+
+        internal static bool HasSubscribers => Volatile.Read(ref _subscriberCount) > 0;
 
         public static void Register(string id, Action<BotOwner> callback)
         {
@@ -17,6 +21,7 @@ namespace friendlySAIN.Modules
             lock (SyncRoot)
             {
                 Subscribers[id] = callback;
+                _subscriberCount = Subscribers.Count;
             }
         }
 
@@ -27,14 +32,23 @@ namespace friendlySAIN.Modules
             lock (SyncRoot)
             {
                 Subscribers.Remove(id);
+                _subscriberCount = Subscribers.Count;
             }
         }
 
         internal static void Invoke(BotOwner owner)
         {
+            if (!HasSubscribers) return;
+
             Action<BotOwner>[] callbacks;
             lock (SyncRoot)
             {
+                if (Subscribers.Count == 0)
+                {
+                    _subscriberCount = 0;
+                    return;
+                }
+
                 callbacks = Subscribers.Values.ToArray();
             }
 

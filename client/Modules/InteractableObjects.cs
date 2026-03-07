@@ -37,7 +37,8 @@ namespace friendlySAIN.Modules
         private Dictionary<string, List<string>> _followersEquipment;
 
         private bool _isBossDead = false;
-        private const bool EnableBackendItemReturn = false;
+        // Runtime-disabled by policy; keep non-const to avoid compile-time unreachable branch warnings.
+        private static readonly bool EnableBackendItemReturn = false;
 
         List<Player> _enemiesSeen;
         Player _closestEnemySeen;

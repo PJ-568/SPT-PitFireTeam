@@ -52,6 +52,8 @@ namespace friendlySAIN.Utils
         private static Dictionary<string, bool> flags = new Dictionary<string, bool>();
 
         private static Dictionary<string, int> values = new Dictionary<string, int>();
+        [ThreadStatic]
+        private static RaycastHit[]? _singleRaycastHitBuffer;
 
 
         /** Get distance between 2 points via navigation path **/
@@ -240,7 +242,8 @@ namespace friendlySAIN.Utils
             Vector3 direction = shootToPoint.Point - firePos;
             float distance = direction.magnitude; // Precompute magnitude
 
-            RaycastHit[] hits = new RaycastHit[1]; // Prevents memory allocations
+            // Reuse a tiny per-thread buffer to avoid hot-path allocations.
+            RaycastHit[] hits = _singleRaycastHitBuffer ??= new RaycastHit[1];
 
             // Try shooting forward first
             if (Physics.RaycastNonAlloc(new Ray(firePos, direction), hits, distance * shootToPoint.DistCoef, mask) == 0)

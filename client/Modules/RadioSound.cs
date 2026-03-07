@@ -44,7 +44,7 @@ namespace friendlySAIN.Modules
 
                 while (!asyncOperation.isDone) await Task.Yield();
 
-                if (!req.isNetworkError && !req.isHttpError)
+                if (req.result == UnityWebRequest.Result.Success)
                 {
                     var result = DownloadHandlerAudioClip.GetContent(req);
 

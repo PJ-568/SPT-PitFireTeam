@@ -3,6 +3,7 @@ using EFT;
 
 using HarmonyLib;
 using SPT.Reflection.Patching;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -11,9 +12,34 @@ using friendlySAIN.Utils;
 
 namespace friendlySAIN.Patches
 {
+    internal static class ReactionRateLimiter
+    {
+        private static readonly Dictionary<int, float> CooldownUntil = new Dictionary<int, float>();
+
+        public static bool IsSuppressed(string botProfileId, string sourceProfileId, int reactionType, float cooldownSeconds)
+        {
+            int key;
+            unchecked
+            {
+                int h1 = botProfileId != null ? botProfileId.GetHashCode() : 0;
+                int h2 = sourceProfileId != null ? sourceProfileId.GetHashCode() : 0;
+                key = ((h1 * 397) ^ h2) * 397 ^ reactionType;
+            }
+            if (CooldownUntil.TryGetValue(key, out float until) && Time.time < until)
+            {
+                return true;
+            }
+
+            CooldownUntil[key] = Time.time + cooldownSeconds;
+            return false;
+        }
+    }
+
     internal class HearingSensorPatch : ModulePatch
     {
         private const bool EnableReactionTrace = false;
+        private const float StepReactionCooldownSeconds = 0.14f;
+        private const float SoundReactionCooldownSeconds = 0.12f;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(BotHearingSensor), "method_0");
@@ -38,6 +64,11 @@ namespace friendlySAIN.Patches
                     if (!knownEnemy && !hostileToBossGroup)
                     {
                         Trace(botOwner_0, $"Hearing.step ignore notEnemy src={player.ProfileId}");
+                        return;
+                    }
+
+                    if (ReactionRateLimiter.IsSuppressed(botOwner_0.ProfileId, player.ProfileId, 1, StepReactionCooldownSeconds))
+                    {
                         return;
                     }
 
@@ -80,6 +111,11 @@ namespace friendlySAIN.Patches
                 bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(botOwner_0, person);
                 if (knownEnemy || hostileToBossGroup)
                 {
+                    if (ReactionRateLimiter.IsSuppressed(botOwner_0.ProfileId, player.ProfileId, 2, SoundReactionCooldownSeconds))
+                    {
+                        return;
+                    }
+
                     bool shouldReact = __instance.method_6(position, power, out var distance);
                     Vector3 botPosition = botOwner_0.GetPlayer.Transform.position;
                     if (!shouldReact)
@@ -116,6 +152,7 @@ namespace friendlySAIN.Patches
     internal class FootstepSoundPatch : ModulePatch
     {
         private const bool EnableReactionTrace = false;
+        private const float FootstepReactionCooldownSeconds = 0.18f;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(Player), "PlayStepSound");
@@ -136,6 +173,7 @@ namespace friendlySAIN.Patches
                 bool knownEnemy = bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance);
                 bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(bot, __instance);
                 if (!knownEnemy && !hostileToBossGroup) continue;
+                if (ReactionRateLimiter.IsSuppressed(bot.ProfileId, __instance.ProfileId, 3, FootstepReactionCooldownSeconds)) continue;
 
                 Vector3 position = __instance.Transform.position;
 
@@ -170,6 +208,7 @@ namespace friendlySAIN.Patches
     {
         private const bool EnableReactionTrace = false;
         private const float VoiceReactDistance = 40f;
+        private const float VoiceReactionCooldownSeconds = 0.3f;
         private static float reported = 0f;
         private static float freq = 0;
         protected override MethodBase GetTargetMethod()
@@ -222,6 +261,11 @@ namespace friendlySAIN.Patches
                 if (!knownEnemy && !hostileToBossGroup)
                 {
                     Trace(bot, $"Voice ignore notEnemy src={__instance.ProfileId}");
+                    return;
+                }
+
+                if (ReactionRateLimiter.IsSuppressed(bot.ProfileId, __instance.ProfileId, 4, VoiceReactionCooldownSeconds))
+                {
                     return;
                 }
 
@@ -278,7 +322,7 @@ namespace friendlySAIN.Patches
                         bool turned = FollowerAwareness.FakeShot(bot, sourcePos);
                         if (!reportEnemy)
                         {
-                            bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible,bot);
+                            bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible, bot);
                             bot.BotTalk.TrySay(EPhraseTrigger.NoisePhrase);
                         }
                         reportEnemy = true;

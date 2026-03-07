@@ -32,11 +32,9 @@ namespace friendlySAIN.BigBrain.Actions
         private Vector3 regroupTarget;
         private float nextRegroupRefreshAt;
         private bool regroupReportedOnPosition;
-        private bool regroupReservationActive;
         private bool regroupBossAnchorInitialized;
         private Vector3 regroupBossAnchorPosition;
         private float nextRegroupBossAnchorCheckAt;
-        private bool lootMoveIssued;
         private bool lootPickupInProgress;
         private LootItem? activeLootItem;
         private Door? activeDoor;
@@ -80,11 +78,9 @@ namespace friendlySAIN.BigBrain.Actions
             regroupTarget = Vector3.zero;
             nextRegroupRefreshAt = 0f;
             regroupReportedOnPosition = false;
-            regroupReservationActive = false;
             regroupBossAnchorInitialized = false;
             regroupBossAnchorPosition = Vector3.zero;
             nextRegroupBossAnchorCheckAt = 0f;
-            lootMoveIssued = false;
             lootPickupInProgress = false;
             activeLootItem = null;
             activeDoor = null;
@@ -124,7 +120,6 @@ namespace friendlySAIN.BigBrain.Actions
                 regroupBossAnchorInitialized = false;
                 regroupBossAnchorPosition = Vector3.zero;
                 nextRegroupBossAnchorCheckAt = 0f;
-                lootMoveIssued = false;
                 lootPickupInProgress = false;
                 activeLootItem = null;
                 CleanupDoorInteraction();
@@ -424,19 +419,16 @@ namespace friendlySAIN.BigBrain.Actions
                 Point = target,
                 ExpiresAt = Time.time + RegroupReservationTtl
             };
-            regroupReservationActive = true;
         }
 
         private void ReleaseRegroupReservation()
         {
             if (string.IsNullOrEmpty(BotOwner.ProfileId))
             {
-                regroupReservationActive = false;
                 return;
             }
 
             ActiveRegroupReservations.Remove(BotOwner.ProfileId);
-            regroupReservationActive = false;
         }
 
         private static void CleanupRegroupReservations()
@@ -766,7 +758,6 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.GoToSomePointData.SetPoint(lootPosition);
                 BotOwner.GoToSomePointData.UpdateToGo(false);
                 BotOwner.Steering.LookToMovingDirection();
-                lootMoveIssued = true;
                 return;
             }
 
@@ -926,7 +917,6 @@ namespace friendlySAIN.BigBrain.Actions
         private void ClearTakeLootState(string reason)
         {
             lootPickupInProgress = false;
-            lootMoveIssued = false;
             activeLootItem = null;
             InteractableObjects.RemoveTaker(BotOwner);
             InteractableObjects.ClearCurLootItem();

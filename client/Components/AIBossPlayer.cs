@@ -56,13 +56,19 @@ namespace friendlySAIN.Components
         private const float FriendlyDownVisibilityDistance = 60f;
         private const float FriendlyDownObserveWindow = 60f;
         private const float FriendlyDownPollMs = 3000f;
+        private const float TeamStatusDebounceSeconds = 0.08f;
+        private const float AttentionCommandDebounceSeconds = 0.35f;
         private float _ignoreNextThereGestureUntil;
         private float _nextThereGestureAt;
+        private float _lastTeamStatusCommandAt = -999f;
+        private float _lastAttentionCommandAt = -999f;
         private readonly Dictionary<string, Action<EDamageType>> _followerDeathHandlers = new Dictionary<string, Action<EDamageType>>();
         private readonly Dictionary<string, FallenFollowerInfo> _pendingFriendlyDown = new Dictionary<string, FallenFollowerInfo>();
         private GClass641.IBotTimer _friendlyDownTimer;
         private static Type _sainEnableType;
         private static MethodInfo _sainGetSainMethod;
+        private static MethodInfo _sainGetSainByBotOwnerMethod;
+        private static MethodInfo _sainGetSainByProfileMethod;
         private static MethodInfo _sainDecisionResetMethod;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
@@ -185,6 +191,13 @@ namespace friendlySAIN.Components
             {
                 if (info.phrase == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
+                    float now = Time.time;
+                    if (now - _lastTeamStatusCommandAt < TeamStatusDebounceSeconds)
+                    {
+                        return;
+                    }
+
+                    _lastTeamStatusCommandAt = now;
                     PingTeamates.Instance.Ping(this);
                     SignalTeamStatusFollowers();
                 }
@@ -450,19 +463,36 @@ namespace friendlySAIN.Components
         {
             if (_sainEnableType == null)
             {
-                _sainEnableType = Type.GetType("SAIN.SAINEnableClass, SAIN");
+                _sainEnableType =
+                    Type.GetType("SAIN.SAINEnableClass, SAIN") ??
+                    AccessTools.TypeByName("SAIN.SAINEnableClass") ??
+                    AccessTools.TypeByName("SAIN.Plugin.SAINEnableClass");
             }
-            if (_sainGetSainMethod == null && _sainEnableType != null)
+
+            if (_sainEnableType == null)
             {
-                _sainGetSainMethod = _sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                    .FirstOrDefault(m =>
+                return;
+            }
+
+            if (_sainGetSainByBotOwnerMethod == null || _sainGetSainByProfileMethod == null)
+            {
+                foreach (MethodInfo method in _sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                {
+                    if (method.Name != "GetSAIN") continue;
+
+                    ParameterInfo[] parameters = method.GetParameters();
+                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(BotOwner))
                     {
-                        if (m.Name != "GetSAIN") return false;
-                        ParameterInfo[] p = m.GetParameters();
-                        return p.Length == 2
-                            && p[0].ParameterType == typeof(string)
-                            && p[1].IsOut;
-                    });
+                        _sainGetSainByBotOwnerMethod ??= method;
+                    }
+                    else if (parameters.Length == 2 && parameters[0].ParameterType == typeof(string) && parameters[1].IsOut)
+                    {
+                        _sainGetSainByProfileMethod ??= method;
+                    }
+                }
+
+                // Keep existing call-sites that use the profile overload field.
+                _sainGetSainMethod ??= _sainGetSainByProfileMethod;
             }
         }
 
@@ -711,6 +741,15 @@ namespace friendlySAIN.Components
         private void HandleAttentionCommand()
         {
             const float enforceBlockSeconds = 2f;
+            float now = Time.time;
+            if (now - _lastAttentionCommandAt < AttentionCommandDebounceSeconds)
+            {
+                return;
+            }
+
+            _lastAttentionCommandAt = now;
+            var clearedGroupIds = new HashSet<string>(StringComparer.Ordinal);
+
             foreach (var follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -721,7 +760,7 @@ namespace friendlySAIN.Components
                 followerData?.ResetCombatCommitState();
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
-                ClearEnemyStateForAttention(follower);
+                ClearEnemyStateForAttention(follower, clearedGroupIds);
                 ClearSainEnemyStateForAttention(follower);
 
                 FollowerRecovery.SoftReset(follower);
@@ -730,7 +769,7 @@ namespace friendlySAIN.Components
             }
         }
 
-        private static void ClearEnemyStateForAttention(BotOwner follower)
+        private static void ClearEnemyStateForAttention(BotOwner follower, HashSet<string> clearedGroupIds)
         {
             if (follower == null || follower.Memory == null)
             {
@@ -744,7 +783,7 @@ namespace friendlySAIN.Components
                 follower.Memory.GoalEnemy.GroupInfo.IsHaveSeen = false;
             }
 
-            // Remove all known enemies from bot memory + group cache so they are not immediately reacquired as "visible".
+            // Remove known enemies from bot memory so command intent applies immediately.
             if (follower.EnemiesController?.EnemyInfos != null)
             {
                 List<IPlayer> knownEnemies = follower.EnemiesController.EnemyInfos.Keys.ToList();
@@ -752,7 +791,22 @@ namespace friendlySAIN.Components
                 {
                     if (enemy == null) continue;
                     follower.Memory.DeleteInfoAboutEnemy(enemy);
-                    follower.BotsGroup?.RemoveEnemy(enemy);
+                }
+            }
+
+            // Followers in one boss group share the same enemy cache; clear it once per group per command.
+            if (follower.BotsGroup?.Enemies != null)
+            {
+                string groupId = follower.BotsGroup.Id.ToString();
+                bool shouldClearGroup = string.IsNullOrEmpty(groupId) || clearedGroupIds == null || clearedGroupIds.Add(groupId);
+                if (shouldClearGroup)
+                {
+                    List<IPlayer> groupEnemies = follower.BotsGroup.Enemies.Keys.ToList();
+                    foreach (IPlayer enemy in groupEnemies)
+                    {
+                        if (enemy == null) continue;
+                        follower.BotsGroup.RemoveEnemy(enemy);
+                    }
                 }
             }
 
@@ -767,41 +821,7 @@ namespace friendlySAIN.Components
 
             try
             {
-                Type sainEnableType =
-                    AccessTools.TypeByName("SAIN.SAINEnableClass") ??
-                    AccessTools.TypeByName("SAIN.Plugin.SAINEnableClass");
-                if (sainEnableType == null) return;
-
-                object sainBot = null;
-                MethodInfo getSainByBotOwner = null;
-                MethodInfo getSainByProfile = null;
-                foreach (MethodInfo method in sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                {
-                    if (method.Name != "GetSAIN") continue;
-                    ParameterInfo[] parameters = method.GetParameters();
-                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(BotOwner))
-                    {
-                        getSainByBotOwner = method;
-                    }
-                    else if (parameters.Length == 2 && parameters[0].ParameterType == typeof(string) && parameters[1].IsOut)
-                    {
-                        getSainByProfile = method;
-                    }
-                }
-
-                if (getSainByBotOwner != null)
-                {
-                    sainBot = getSainByBotOwner.Invoke(null, new object[] { follower });
-                }
-                else if (getSainByProfile != null)
-                {
-                    object[] args = { follower.ProfileId, null };
-                    object result = getSainByProfile.Invoke(null, args);
-                    if (result is bool found && found)
-                    {
-                        sainBot = args[1];
-                    }
-                }
+                object sainBot = GetSainBot(follower);
 
                 if (sainBot == null) return;
 
@@ -843,6 +863,33 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogError($"Failed to clear SAIN enemy state for attention follower={follower?.Profile?.Nickname}");
                 Modules.Logger.LogError(ex);
             }
+        }
+
+        private static object GetSainBot(BotOwner follower)
+        {
+            if (follower == null)
+            {
+                return null;
+            }
+
+            EnsureSainReflection();
+
+            if (_sainGetSainByBotOwnerMethod != null)
+            {
+                return _sainGetSainByBotOwnerMethod.Invoke(null, new object[] { follower });
+            }
+
+            if (_sainGetSainByProfileMethod != null && !string.IsNullOrEmpty(follower.ProfileId))
+            {
+                object[] args = { follower.ProfileId, null };
+                bool found = _sainGetSainByProfileMethod.Invoke(null, args) is bool result && result;
+                if (found)
+                {
+                    return args[1];
+                }
+            }
+
+            return null;
         }
 
         public new AIBossPlayerLogic GetBossLogic()
