@@ -51,6 +51,8 @@ namespace friendlySAIN.SAINAddon
                 }
                 SAINFollowerPersonalityPatch.Apply(harmony);
                 SAINFollowerHitAccuracyPatch.Apply(harmony);
+                SAINFollowerAimTargetPatch.Apply(harmony);
+                SAINFollowerRandomLookPatch.Apply(harmony);
                 SAINFollowerLowLightVisionPatch.Apply(harmony);
                 BrainManager.AddCustomLayer(typeof(SAINFollowerCombatLayer), brains, FollowerCombatLayerPriority);
                 logger.LogInfo("[Init] SAIN regroup command handling routed through follower combat layer.");

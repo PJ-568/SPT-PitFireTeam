@@ -23,6 +23,7 @@ namespace friendlySAIN.SAINAddon
         private const float HardPlusBaseHitAffectionDelayMax = 0.35f;
         private const float HardPlusVisibleDistanceMin = 250f;
         private const float HardPlusCoreGainSightCoef = 1.00f;
+        private const float FollowerAimForHeadChance = 100f;
         private static Type? _sainEnableType;
         private static Type? _sainPluginType;
         private static MethodInfo? _getSainByBotOwner;
@@ -187,6 +188,9 @@ namespace friendlySAIN.SAINAddon
                 changed |= SetMaxFloat(aimingSettings, "MAX_AIMING_UPGRADE_BY_TIME", HardPlusMaxAimingUpgradeByTimeMax);
                 changed |= SetMaxFloat(aimingSettings, "MAX_AIM_TIME", HardPlusMaxAimTimeMax);
                 changed |= SetMaxFloat(aimingSettings, "BASE_HIT_AFFECTION_DELAY_SEC", HardPlusBaseHitAffectionDelayMax);
+                changed |= SetBool(aimingSettings, "AimCenterMass", false);
+                changed |= SetBool(aimingSettings, "AimForHead", true);
+                changed |= SetMinFloat(aimingSettings, "AimForHeadChance", FollowerAimForHeadChance);
             }
 
             if (!changed) return;
@@ -324,6 +328,38 @@ namespace friendlySAIN.SAINAddon
                 if (current > maxValue)
                 {
                     field.SetValue(target, maxValue);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool SetBool(object target, string memberName, bool value)
+        {
+            if (target == null || string.IsNullOrEmpty(memberName)) return false;
+
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
+            if (prop != null && prop.PropertyType == typeof(bool) && prop.CanRead && prop.CanWrite)
+            {
+                bool current = (bool)prop.GetValue(target);
+                if (current != value)
+                {
+                    prop.SetValue(target, value);
+                    return true;
+                }
+
+                return false;
+            }
+
+            FieldInfo? field = target.GetType().GetField(memberName, flags);
+            if (field != null && field.FieldType == typeof(bool))
+            {
+                bool current = (bool)field.GetValue(target);
+                if (current != value)
+                {
+                    field.SetValue(target, value);
                     return true;
                 }
             }
