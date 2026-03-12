@@ -58,7 +58,7 @@ namespace friendlySAIN.Components
         private bool _lastHaveEnemy = false;
         private string _lastCommittedEnemyId;
         private float _lastCommittedAt;
-        private const float EnemyStickWindowSeconds = 3f;
+        private const float EnemyStickWindowSeconds = 8f;
         private Vector3 _teleportGraceTarget;
         private float _teleportGraceUntil;
         private const float TeleportGraceSeconds = 0.45f;
@@ -75,12 +75,15 @@ namespace friendlySAIN.Components
         private bool _knownEnemyLatched;
         private const float KnownEnemyAcquireHoldSeconds = 0.5f;
         private string _lastSainSyncedEnemyId;
+        private float _nextTeamEnemyAdoptAt;
+        private const float TeamEnemyAdoptIntervalSeconds = 0.25f;
 
         private static Type _sainEnableType;
         private static MethodInfo _getSainByBotOwnerMethod;
         private static MethodInfo _getSainByProfileMethod;
         private static bool _sainAddonPatrolBridgeErrorLogged;
         private const bool EnableSainEnemyBridgeDebugLogs = false;
+        private const bool EnableTeamEnemyAdoptDebugLogs = true;
 
         public bool CanPatrol
         {
@@ -332,9 +335,15 @@ namespace friendlySAIN.Components
 
                 _bot.Memory.BotsGroup_0 = _bot.BotsGroup;
                 _bot.BotRequestController.GroupRequestController_1 = null;
+                ResetPickupFollowerRuntimeState();
             }
 
             EnsureSainBossAndFollowersFriendly();
+
+            if (isPickedUp)
+            {
+                TryAdoptEnemyFromTeam(_bot);
+            }
 
             var _bots = _bot.BotsController.BotSpawner.Bots;
             var _rougeTypes = Utils.Props.BossFollowersType.ToList();
@@ -1105,6 +1114,50 @@ namespace friendlySAIN.Components
         public bool IsReadyForPatrolAfterCombat()
         {
             BotOwner owner = _bot;
+            if (!IsSafelyOutOfCombat(owner))
+            {
+                return false;
+            }
+
+            if (!friendlySAIN.IsSAINInstalled)
+            {
+                return true;
+            }
+
+            bool bridgeReady = false;
+            bool bridgeAvailable = false;
+
+            try
+            {
+                Func<BotOwner, bool>? bridge = SainAddonBridge.IsReadyForPatrolAfterCombat;
+                if (bridge != null)
+                {
+                    bridgeAvailable = true;
+                    bridgeReady = bridge(owner);
+                }
+            }
+            catch
+            {
+                // Bridge errors are handled below with explicit logging and strict fallback behavior.
+            }
+
+            if (bridgeReady)
+            {
+                return true;
+            }
+
+            if (!bridgeAvailable && !_sainAddonPatrolBridgeErrorLogged)
+            {
+                _sainAddonPatrolBridgeErrorLogged = true;
+                Modules.Logger.LogError("[SAIN] Patrol readiness bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
+            }
+
+            // With fixed SAIN/addon target, fail closed if bridge is unavailable.
+            return false;
+        }
+
+        private static bool IsSafelyOutOfCombat(BotOwner owner)
+        {
             if (owner == null || owner.IsDead || owner.BotState != EBotState.Active)
             {
                 return false;
@@ -1115,59 +1168,25 @@ namespace friendlySAIN.Components
                 return false;
             }
 
-            if (!friendlySAIN.IsSAINInstalled)
+            var infos = owner.EnemiesController?.EnemyInfos;
+            if (infos != null)
             {
-                return true;
-            }
-
-            try
-            {
-                Func<BotOwner, bool>? bridge = SainAddonBridge.IsReadyForPatrolAfterCombat;
-                if (bridge != null)
+                foreach (var kv in infos)
                 {
-                    return bridge(owner);
+                    EnemyInfo info = kv.Value;
+                    if (info == null)
+                    {
+                        continue;
+                    }
+
+                    if (info.IsVisible)
+                    {
+                        return false;
+                    }
                 }
             }
-            catch
-            {
-                // Bridge errors are handled below with explicit logging and strict fallback behavior.
-            }
 
-            if (!_sainAddonPatrolBridgeErrorLogged)
-            {
-                _sainAddonPatrolBridgeErrorLogged = true;
-                Modules.Logger.LogError("[SAIN] Patrol readiness bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
-            }
-
-            // With fixed SAIN/addon target, fail closed if bridge is unavailable.
-            return false;
-        }
-
-        private static bool IsFriendlySainCombatLayerActive(BotOwner owner)
-        {
-            if (owner == null || !friendlySAIN.HasSainRegroupAddon)
-            {
-                return false;
-            }
-
-            try
-            {
-                Type? layerType = AccessTools.TypeByName("friendlySAIN.SAINAddon.SAINFollowerCombatLayer");
-                MethodInfo? isActiveMethod = layerType != null
-                    ? AccessTools.Method(layerType, "IsFollowerCombatLayerActive", new[] { typeof(BotOwner) })
-                    : null;
-                if (isActiveMethod == null)
-                {
-                    return false;
-                }
-
-                object? result = isActiveMethod.Invoke(null, new object[] { owner });
-                return result is bool active && active;
-            }
-            catch
-            {
-                return false;
-            }
+            return true;
         }
 
         public void ResetCombatCommitState()
@@ -1180,8 +1199,15 @@ namespace friendlySAIN.Components
         {
             if (_bot != null)
             {
-                //InteractableObjects.RemoveTaker(_bot);
-                //InteractableObjects.RemoveOpener(_bot);
+                if (_activeCommand == FollowerCommandType.TakeLootItem)
+                {
+                    InteractableObjects.RemoveTaker(_bot);
+                }
+
+                if (_activeCommand == FollowerCommandType.OpenDoor)
+                {
+                    InteractableObjects.RemoveOpener(_bot);
+                }
             }
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
@@ -1190,6 +1216,50 @@ namespace friendlySAIN.Components
             _commandLookPauseUntil = 0f;
             _commandLookOverridePoint = Vector3.zero;
             _commandLookOverrideUntil = 0f;
+        }
+
+        private void ResetPickupFollowerRuntimeState()
+        {
+            if (_bot == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _lastSainSyncedEnemyId = null;
+                _lastCommittedEnemyId = null;
+                _lastCommittedAt = 0f;
+                _knownEnemyProfileId = null;
+                _knownEnemySince = 0f;
+                _knownEnemyLatched = false;
+
+                ClearCommand("PickupReset");
+                _bot.Memory.IsPeace = false;
+                _bot.Memory.GoalEnemy = null;
+                _bot.Memory.LastEnemy = null;
+                _bot.Memory?.GoalTarget?.Clear();
+
+                _bot.StopMove();
+                _bot.Mover.Pause = false;
+                if (_bot.Mover.Sprinting)
+                {
+                    _bot.Mover.Sprint(false, false);
+                }
+
+                if (friendlySAIN.IsSAINInstalled)
+                {
+                    SainAddonBridge.TryResetFollowerDecisionState?.Invoke(_bot);
+                    SainAddonBridge.ForceReleaseFollowerCombatState?.Invoke(_bot);
+                }
+
+                Modules.Logger.LogInfo($"[Follower Pickup Reset] follower={_bot.Profile?.Nickname ?? _bot.name}");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"[Follower Pickup Reset] failed follower={_bot?.Profile?.Nickname ?? _bot?.name}");
+                Modules.Logger.LogError(ex);
+            }
         }
 
         private void ResetBrainForFollower(BaseBrain baseBrain)
@@ -1340,38 +1410,94 @@ namespace friendlySAIN.Components
                     }
                 }
 
-                bool haveEnemy = owner.Memory?.HaveEnemy ?? false;
-                if (!haveEnemy && owner.Memory?.GoalTarget?.HaveMainTarget() == true)
-                {
-                    owner.Memory.GoalTarget.Clear();
-                }
-                if (!haveEnemy)
-                {
-                    _lastSainSyncedEnemyId = null;
-                }
+                /*
+                                bool haveEnemy = owner.Memory?.HaveEnemy ?? false;
+                                if (haveEnemy && IsStaleDeadGoalEnemy(owner))
+                                {
+                                    EnemyInfo staleGoal = owner.Memory?.GoalEnemy;
+                                    IPlayer staleEnemyPlayer = staleGoal?.Person;
+                                    if (staleEnemyPlayer != null)
+                                    {
+                                        owner.Memory.DeleteInfoAboutEnemy(staleEnemyPlayer);
+                                    }
+                                    else if (!string.IsNullOrEmpty(staleGoal?.ProfileId))
+                                    {
+                                        Player stalePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(staleGoal.ProfileId);
+                                        if (stalePlayer != null)
+                                        {
+                                            owner.Memory.DeleteInfoAboutEnemy(stalePlayer);
+                                        }
+                                    }
 
-                if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)
-                {
-                    var goal = owner.Memory?.GoalEnemy;
-                    if (haveEnemy)
-                    {
-                        if (!string.IsNullOrEmpty(goal?.ProfileId))
-                        {
-                            _lastCommittedEnemyId = goal.ProfileId;
-                            _lastCommittedAt = Time.time;
-                            TrySyncEnemyToOtherFollowers(owner, goal);
-                        }
-                    }
-                }
+                                    owner.Memory.GoalEnemy = null;
+                                    owner.Memory.LastEnemy = null;
+                                    haveEnemy = owner.Memory?.HaveEnemy ?? false;
+                                }
 
-                _lastHaveEnemy = haveEnemy;
-                _lastHaveEnemyKnown = true;
+                                if (!haveEnemy && owner.Memory?.GoalTarget?.HaveMainTarget() == true)
+                                {
+                                    owner.Memory.GoalTarget.Clear();
+                                }
+                                if (!haveEnemy)
+                                {
+                                    _lastSainSyncedEnemyId = null;
+
+                                    // First try to re-apply the most recent committed enemy for this follower.
+                                    // This stabilizes short SAIN drop windows and prevents rapid drop/reacquire loops.
+                                    if (!TryReapplyStickyEnemy(owner, out _, out _))
+                                    {
+                                        TryAdoptEnemyFromTeam(owner);
+                                    }
+
+                                    // Re-sample after reapply/adopt. Without this, the local snapshot remains stale
+                                    // for the current tick and can repeatedly re-enter the no-enemy path.
+                                    haveEnemy = owner.Memory?.HaveEnemy ?? false;
+                                }
+
+                                if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)
+                                {
+                                    var goal = owner.Memory?.GoalEnemy;
+                                    if (haveEnemy)
+                                    {
+                                        if (!string.IsNullOrEmpty(goal?.ProfileId))
+                                        {
+                                            _lastCommittedEnemyId = goal.ProfileId;
+                                            _lastCommittedAt = Time.time;
+                                            TrySyncEnemyToOtherFollowers(owner, goal);
+                                        }
+                                    }
+                                }
+
+                                _lastHaveEnemy = haveEnemy;
+                                _lastHaveEnemyKnown = true;*/
             }
             catch (Exception ex)
             {
                 Modules.Logger.LogError("Exception in BotFollowerPlayer manual update combat debounce");
                 Modules.Logger.LogError(ex);
             }
+        }
+
+        private static bool IsStaleDeadGoalEnemy(BotOwner owner)
+        {
+            EnemyInfo goal = owner?.Memory?.GoalEnemy;
+            if (goal == null)
+            {
+                return false;
+            }
+
+            if (goal.Person is Player goalPlayer)
+            {
+                return goalPlayer.HealthController?.IsAlive == false;
+            }
+
+            if (!string.IsNullOrEmpty(goal.ProfileId))
+            {
+                Player aliveById = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goal.ProfileId);
+                return aliveById == null;
+            }
+
+            return false;
         }
 
         private bool HasStickyEnemyCandidate(out string enemyId, out float age)
@@ -1384,6 +1510,53 @@ namespace friendlySAIN.Components
             Player enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(_lastCommittedEnemyId);
             if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) return false;
             return true;
+        }
+
+        private void TryAdoptEnemyFromTeam(BotOwner owner)
+        {
+            if (owner == null || owner.Memory == null || owner.Memory.HaveEnemy) return;
+            if (_player?.realPlayer == null) return;
+            if (Time.time < _nextTeamEnemyAdoptAt) return;
+
+            _nextTeamEnemyAdoptAt = Time.time + TeamEnemyAdoptIntervalSeconds;
+
+            List<BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(_player.realPlayer.ProfileId);
+            if (followers == null || followers.Count < 2) return;
+
+            for (int i = 0; i < followers.Count; i++)
+            {
+                BotOwner source = followers[i]?.GetBot();
+                if (source == null || source == owner || source.IsDead || source.BotState != EBotState.Active) continue;
+                EnemyInfo sourceGoal = source.Memory?.GoalEnemy;
+                if (source.Memory?.HaveEnemy != true || sourceGoal == null || string.IsNullOrEmpty(sourceGoal.ProfileId)) continue;
+
+                // Keep sticky anchor fresh while a teammate still tracks this enemy.
+                _lastCommittedEnemyId = sourceGoal.ProfileId;
+                _lastCommittedAt = Time.time;
+
+                Player enemyPlayer = sourceGoal.Person as Player ?? Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(sourceGoal.ProfileId);
+                if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) continue;
+                if (BossPlayers.IsPlayerBoss(enemyPlayer.ProfileId)) continue;
+                if (enemyPlayer.IsAI && enemyPlayer.AIData?.BotOwner != null && BossPlayers.IsFollower(enemyPlayer.AIData.BotOwner)) continue;
+
+                TrySyncEnemyToOtherFollowers(source, sourceGoal);
+
+                if (owner.Memory.HaveEnemy)
+                {
+                    _lastCommittedEnemyId = sourceGoal.ProfileId;
+                    _lastCommittedAt = Time.time;
+                    if (EnableTeamEnemyAdoptDebugLogs)
+                    {
+                        Modules.Logger.LogInfo($"[TeamAdopt] ok receiver={owner.Profile?.Nickname ?? owner.name} source={source.Profile?.Nickname ?? source.name} enemy={sourceGoal.ProfileId}");
+                    }
+                    break;
+                }
+
+                if (EnableTeamEnemyAdoptDebugLogs)
+                {
+                    Modules.Logger.LogInfo($"[TeamAdopt] miss receiver={owner.Profile?.Nickname ?? owner.name} source={source.Profile?.Nickname ?? source.name} enemy={sourceGoal.ProfileId}");
+                }
+            }
         }
 
         private bool TryReapplyStickyEnemy(BotOwner owner, out string enemyId, out float age)
@@ -1574,74 +1747,41 @@ namespace friendlySAIN.Components
 
             try
             {
-                object sainBot = GetSainBot(owner);
-                if (sainBot == null)
+                Player enemyPlayer = goal.Person as Player;
+                if (enemyPlayer == null)
                 {
                     if (EnableSainEnemyBridgeDebugLogs)
                     {
                         Modules.Logger.LogInfo(
                             $"[SAIN Bridge] bot={owner.Profile?.Nickname ?? owner.name} enemy={goalId} " +
-                            "result=skip reason=sainBot_null");
+                            "result=skip reason=enemyPlayer_invalid");
                     }
                     return;
                 }
 
-                object? enemyController =
-                    AccessTools.Property(sainBot.GetType(), "EnemyController")?.GetValue(sainBot) ??
-                    AccessTools.Field(sainBot.GetType(), "EnemyController")?.GetValue(sainBot);
-                if (enemyController == null)
+                Func<BotOwner, Player, bool> syncEnemyState = SainAddonBridge.TrySyncFollowerEnemyState;
+                if (syncEnemyState == null)
                 {
                     if (EnableSainEnemyBridgeDebugLogs)
                     {
                         Modules.Logger.LogInfo(
                             $"[SAIN Bridge] bot={owner.Profile?.Nickname ?? owner.name} enemy={goalId} " +
-                            "result=skip reason=enemyController_null");
+                            "result=skip reason=bridge_missing");
                     }
                     return;
                 }
 
-                MethodInfo checkAddEnemy = AccessTools.Method(enemyController.GetType(), "CheckAddEnemy", new[] { typeof(IPlayer) });
-                if (checkAddEnemy == null)
-                {
-                    if (EnableSainEnemyBridgeDebugLogs)
-                    {
-                        Modules.Logger.LogInfo(
-                            $"[SAIN Bridge] bot={owner.Profile?.Nickname ?? owner.name} enemy={goalId} " +
-                            "result=skip reason=checkAddEnemy_missing");
-                    }
-                    return;
-                }
-
-                object bridgeResult = checkAddEnemy.Invoke(enemyController, new object[] { goal.Person });
-
-                object? sainGoalEnemy =
-                    AccessTools.Property(enemyController.GetType(), "GoalEnemy")?.GetValue(enemyController) ??
-                    AccessTools.Field(enemyController.GetType(), "_goalEnemy")?.GetValue(enemyController);
-
-                bool hasEnemyAfterAdd = bridgeResult != null;
-                if (!hasEnemyAfterAdd)
-                {
-                    MethodInfo getEnemy = AccessTools.Method(enemyController.GetType(), "GetEnemy", new[] { typeof(string), typeof(bool) });
-                    if (getEnemy != null)
-                    {
-                        object existingEnemy = getEnemy.Invoke(enemyController, new object[] { goalId, false });
-                        hasEnemyAfterAdd = existingEnemy != null;
-                    }
-                }
-
-                if (hasEnemyAfterAdd)
+                bool synced = syncEnemyState(owner, enemyPlayer);
+                if (synced)
                 {
                     _lastSainSyncedEnemyId = goalId;
                 }
 
                 if (EnableSainEnemyBridgeDebugLogs)
                 {
-                    string goalEnemyId = AccessTools.Property(sainGoalEnemy?.GetType(), "EnemyProfileId")?.GetValue(sainGoalEnemy) as string
-                        ?? "<none>";
                     Modules.Logger.LogInfo(
                         $"[SAIN Bridge] bot={owner.Profile?.Nickname ?? owner.name} enemy={goalId} " +
-                        $"result={(hasEnemyAfterAdd ? "ok" : "retry")} returnType={bridgeResult?.GetType().Name ?? "<null>"} " +
-                        $"sainGoal={goalEnemyId}");
+                        $"result={(synced ? "ok" : "retry")}");
                 }
             }
             catch (Exception ex)

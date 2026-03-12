@@ -3,7 +3,6 @@ using EFT;
 using EFT.Interactive;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
-using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -65,11 +64,7 @@ namespace friendlySAIN.Components
         private readonly Dictionary<string, Action<EDamageType>> _followerDeathHandlers = new Dictionary<string, Action<EDamageType>>();
         private readonly Dictionary<string, FallenFollowerInfo> _pendingFriendlyDown = new Dictionary<string, FallenFollowerInfo>();
         private GClass641.IBotTimer _friendlyDownTimer;
-        private static Type _sainEnableType;
-        private static MethodInfo _sainGetSainMethod;
-        private static MethodInfo _sainGetSainByBotOwnerMethod;
-        private static MethodInfo _sainGetSainByProfileMethod;
-        private static MethodInfo _sainDecisionResetMethod;
+        private static bool _sainAddonDecisionResetBridgeErrorLogged;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -402,20 +397,6 @@ namespace friendlySAIN.Components
                 PromoteEnemyAsGoal(follower, enemy.ProfileId);
             }
 
-            /* string enemyProfileId = enemy.ProfileId;
-            Utils.Utils.SetTimeout(() =>
-            {
-                ReinforceContactEnemyAssignment(follower, enemyProfileId);
-            }, 200);
-            Utils.Utils.SetTimeout(() =>
-            {
-                ReinforceContactEnemyAssignment(follower, enemyProfileId);
-            }, 600);
-            Utils.Utils.SetTimeout(() =>
-            {
-                ReinforceContactEnemyAssignment(follower, enemyProfileId);
-            }, 1000); */
-
             BotOwner? enemyBot = enemy.AIData?.BotOwner;
             if (enemyBot != null)
             {
@@ -432,70 +413,6 @@ namespace friendlySAIN.Components
             }
         }
 
-        private void ReinforceContactEnemyAssignment(BotOwner follower, string enemyProfileId)
-        {
-            if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) return;
-            if (string.IsNullOrEmpty(enemyProfileId)) return;
-            if (follower.Memory == null) return;
-
-            if (follower.Memory.HaveEnemy && follower.Memory.GoalEnemy?.ProfileId == enemyProfileId)
-            {
-                return;
-            }
-
-            Player? enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
-            if (enemy == null || enemy.HealthController?.IsAlive != true)
-            {
-                return;
-            }
-
-            follower.Memory.IsPeace = false;
-            BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.addPlayerToBoss)
-            {
-                EnemyLastPosition = enemy.Position
-            };
-            follower.Memory.AddEnemy(enemy, botSettings, false);
-            TrySyncSainEnemyState(follower, enemy);
-            PromoteEnemyAsGoal(follower, enemyProfileId);
-        }
-
-        private static void EnsureSainReflection()
-        {
-            if (_sainEnableType == null)
-            {
-                _sainEnableType =
-                    Type.GetType("SAIN.SAINEnableClass, SAIN") ??
-                    AccessTools.TypeByName("SAIN.SAINEnableClass") ??
-                    AccessTools.TypeByName("SAIN.Plugin.SAINEnableClass");
-            }
-
-            if (_sainEnableType == null)
-            {
-                return;
-            }
-
-            if (_sainGetSainByBotOwnerMethod == null || _sainGetSainByProfileMethod == null)
-            {
-                foreach (MethodInfo method in _sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                {
-                    if (method.Name != "GetSAIN") continue;
-
-                    ParameterInfo[] parameters = method.GetParameters();
-                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(BotOwner))
-                    {
-                        _sainGetSainByBotOwnerMethod ??= method;
-                    }
-                    else if (parameters.Length == 2 && parameters[0].ParameterType == typeof(string) && parameters[1].IsOut)
-                    {
-                        _sainGetSainByProfileMethod ??= method;
-                    }
-                }
-
-                // Keep existing call-sites that use the profile overload field.
-                _sainGetSainMethod ??= _sainGetSainByProfileMethod;
-            }
-        }
-
         private static bool TrySyncSainEnemyState(BotOwner follower, Player enemyPlayer)
         {
             if (!friendlySAIN.IsSAINInstalled) return false;
@@ -503,28 +420,14 @@ namespace friendlySAIN.Components
 
             try
             {
-                EnsureSainReflection();
-                if (_sainGetSainMethod == null) return false;
-
-                object[] args = { follower.ProfileId, null };
-                bool hasSain = (bool)_sainGetSainMethod.Invoke(null, args);
-                if (!hasSain || args[1] == null) return false;
-
-                object sainBot = args[1];
-                object? enemyController = AccessTools.Property(sainBot.GetType(), "EnemyController")?.GetValue(sainBot);
-                if (enemyController == null) return false;
-
-                MethodInfo checkAddEnemy = AccessTools.Method(enemyController.GetType(), "CheckAddEnemy", new[] { typeof(IPlayer) });
-                object? sainEnemy = checkAddEnemy?.Invoke(enemyController, new object[] { enemyPlayer });
-                if (sainEnemy != null)
+                Func<BotOwner, Player, bool>? bridge = SainAddonBridge.TrySyncFollowerEnemyState;
+                if (bridge == null)
                 {
-                    MethodInfo updateLastSeen = AccessTools.Method(sainEnemy.GetType(), "UpdateLastSeenPosition", new[] { typeof(Vector3), typeof(float) });
-                    updateLastSeen?.Invoke(sainEnemy, new object[] { enemyPlayer.Position, Time.time });
+
+                    return false;
                 }
 
-                MethodInfo chooseEnemy = AccessTools.Method(enemyController.GetType(), "ChooseEnemy", Type.EmptyTypes);
-                chooseEnemy?.Invoke(enemyController, null);
-                return true;
+                return bridge(follower, enemyPlayer);
             }
             catch (Exception ex)
             {
@@ -540,22 +443,19 @@ namespace friendlySAIN.Components
 
             try
             {
-                EnsureSainReflection();
-                if (_sainGetSainMethod == null) return false;
+                Func<BotOwner, bool>? bridge = SainAddonBridge.TryResetFollowerDecisionState;
+                if (bridge == null)
+                {
+                    if (!_sainAddonDecisionResetBridgeErrorLogged)
+                    {
+                        _sainAddonDecisionResetBridgeErrorLogged = true;
+                        Modules.Logger.LogError("[SAIN] Decision reset bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
+                    }
 
-                object[] args = { follower.ProfileId, null };
-                bool hasSain = (bool)_sainGetSainMethod.Invoke(null, args);
-                if (!hasSain || args[1] == null) return false;
+                    return false;
+                }
 
-                object sainBot = args[1];
-                object decision = AccessTools.Property(sainBot.GetType(), "Decision")?.GetValue(sainBot);
-                if (decision == null) return false;
-
-                _sainDecisionResetMethod ??= AccessTools.Method(decision.GetType(), "ResetDecisions", new[] { typeof(bool) });
-                if (_sainDecisionResetMethod == null) return false;
-
-                _sainDecisionResetMethod.Invoke(decision, new object[] { false });
-                return true;
+                return bridge(follower);
             }
             catch (Exception ex)
             {
@@ -755,17 +655,93 @@ namespace friendlySAIN.Components
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 if (!BossPlayers.IsFollower(follower)) continue;
 
-                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ResetCombatCommitState();
+                LogAttentionDiagnostics("pre", follower);
+
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
                 ClearEnemyStateForAttention(follower, clearedGroupIds);
-                ClearSainEnemyStateForAttention(follower);
+                LogAttentionDiagnostics("after_clear", follower);
+
+                if (friendlySAIN.IsSAINInstalled)
+                {
+                    try
+                    {
+                        SainAddonBridge.ForceReleaseFollowerCombatState?.Invoke(follower);
+                        bool resetOk = TryResetSainDecisionState(follower);
+                        Modules.Logger.LogInfo($"[AttentionDiag] stage=after_decision_reset bot={follower.Profile?.Nickname ?? "<unknown>"}[{follower.ProfileId}] resetOk={resetOk}");
+                        LogAttentionDiagnostics("after_sain_release", follower);
+                    }
+                    catch (Exception ex)
+                    {
+                        Modules.Logger.LogError($"[SAIN] Force-release combat state failed for attention follower={follower?.Profile?.Nickname}");
+                        Modules.Logger.LogError(ex);
+                    }
+                }
 
                 FollowerRecovery.SoftReset(follower);
+                LogAttentionDiagnostics("after_soft_reset", follower);
 
-                follower.BotTalk.TrySay(EPhraseTrigger.Roger, true);
+                follower?.BotTalk.TrySay(EPhraseTrigger.Roger, true);
+            }
+        }
+
+        private static void LogAttentionDiagnostics(string stage, BotOwner follower)
+        {
+            if (follower == null)
+            {
+                return;
+            }
+
+            try
+            {
+                bool moverPaused = follower.Mover?.Pause == true;
+                bool moverSprinting = follower.Mover?.Sprinting == true;
+                bool haveEnemy = follower.Memory?.HaveEnemy == true;
+                EnemyInfo goalEnemy = follower.Memory?.GoalEnemy;
+                string goalEnemyId = goalEnemy?.ProfileId ?? "<null>";
+                bool goalVisible = goalEnemy?.IsVisible == true;
+                int enemyInfosCount = follower.EnemiesController?.EnemyInfos?.Count ?? -1;
+                int groupEnemiesCount = follower.BotsGroup?.Enemies?.Count ?? -1;
+                bool suppressed = FollowerEnemyEnforceSuppression.IsSuppressed(follower);
+                string sainState = GetSainAttentionDebugState(follower);
+
+                Modules.Logger.LogInfo(
+                    $"[AttentionDiag] stage={stage} bot={follower.Profile?.Nickname ?? "<unknown>"}[{follower.ProfileId}] " +
+                    $"moverPaused={moverPaused} moverSprinting={moverSprinting} " +
+                    $"haveEnemy={haveEnemy} goalEnemy={goalEnemyId} goalVisible={goalVisible} " +
+                    $"enemyInfos={enemyInfosCount} groupEnemies={groupEnemiesCount} suppressed={suppressed} " +
+                    $"sain={sainState}");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[AttentionDiag] Failed to collect attention diagnostics.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static string GetSainAttentionDebugState(BotOwner follower)
+        {
+            if (!friendlySAIN.IsSAINInstalled)
+            {
+                return "not_installed";
+            }
+
+            try
+            {
+                Func<BotOwner, string>? bridge = SainAddonBridge.GetFollowerDebugState;
+                if (bridge == null)
+                {
+                    return "bridge_missing";
+                }
+
+                return bridge(follower) ?? "<null>";
+            }
+            catch (Exception ex)
+            {
+                return $"bridge_error:{ex.GetType().Name}";
             }
         }
 
@@ -814,83 +790,6 @@ namespace friendlySAIN.Components
             follower.Memory.LastEnemy = null;
         }
 
-        private static void ClearSainEnemyStateForAttention(BotOwner follower)
-        {
-            if (!friendlySAIN.IsSAINInstalled) return;
-            if (follower == null) return;
-
-            try
-            {
-                object sainBot = GetSainBot(follower);
-
-                if (sainBot == null) return;
-
-                Type sainBotType = sainBot.GetType();
-                object enemyController =
-                    AccessTools.Property(sainBotType, "EnemyController")?.GetValue(sainBot) ??
-                    AccessTools.Field(sainBotType, "EnemyController")?.GetValue(sainBot);
-                if (enemyController == null) return;
-
-                Type enemyControllerType = enemyController.GetType();
-                MethodInfo removeEnemyMethod = enemyControllerType.GetMethod("RemoveEnemy", new[] { typeof(string) });
-                MethodInfo clearEnemyMethod = enemyControllerType.GetMethod("ClearEnemy", Type.EmptyTypes);
-
-                object enemiesDictionaryObj =
-                    AccessTools.Property(enemyControllerType, "Enemies")?.GetValue(enemyController) ??
-                    AccessTools.Field(enemyControllerType, "Enemies")?.GetValue(enemyController);
-
-                if (removeEnemyMethod != null && enemiesDictionaryObj is System.Collections.IDictionary enemiesDictionary)
-                {
-                    List<string> ids = new List<string>();
-                    foreach (object key in enemiesDictionary.Keys)
-                    {
-                        if (key is string id && !string.IsNullOrEmpty(id))
-                        {
-                            ids.Add(id);
-                        }
-                    }
-
-                    foreach (string id in ids)
-                    {
-                        removeEnemyMethod.Invoke(enemyController, new object[] { id });
-                    }
-                }
-
-                clearEnemyMethod?.Invoke(enemyController, Array.Empty<object>());
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError($"Failed to clear SAIN enemy state for attention follower={follower?.Profile?.Nickname}");
-                Modules.Logger.LogError(ex);
-            }
-        }
-
-        private static object GetSainBot(BotOwner follower)
-        {
-            if (follower == null)
-            {
-                return null;
-            }
-
-            EnsureSainReflection();
-
-            if (_sainGetSainByBotOwnerMethod != null)
-            {
-                return _sainGetSainByBotOwnerMethod.Invoke(null, new object[] { follower });
-            }
-
-            if (_sainGetSainByProfileMethod != null && !string.IsNullOrEmpty(follower.ProfileId))
-            {
-                object[] args = { follower.ProfileId, null };
-                bool found = _sainGetSainByProfileMethod.Invoke(null, args) is bool result && result;
-                if (found)
-                {
-                    return args[1];
-                }
-            }
-
-            return null;
-        }
 
         public new AIBossPlayerLogic GetBossLogic()
         {

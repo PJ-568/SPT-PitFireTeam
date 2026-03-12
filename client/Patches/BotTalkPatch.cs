@@ -1,4 +1,5 @@
-﻿using friendlySAIN.Modules;
+using friendlySAIN.Modules;
+using friendlySAIN.Components;
 using HarmonyLib;
 using EFT;
 using SPT.Reflection.Patching;

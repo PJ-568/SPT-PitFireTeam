@@ -16,18 +16,25 @@ namespace friendlySAIN.SAINAddon
         private const float CalcGoalForwardScanDistance = 80f;
         private const float CalcGoalForwardScanMinDot = 0.45f;
         private const int CalcGoalMaxVisionChecksPerScan = 6;
+        private const float SameSideHostileIntentDebounceSeconds = 1f;
         private static bool _initialized;
         private static bool _subscribedCalcGoal;
         private static readonly System.Collections.Generic.List<Player> CalcGoalForwardCandidates = new System.Collections.Generic.List<Player>(16);
         private static readonly System.Collections.Generic.Dictionary<string, float> NextCalcGoalScanAtByBot = new System.Collections.Generic.Dictionary<string, float>(64);
+        private static readonly System.Collections.Generic.Dictionary<string, float> SameSideHostileIntentSinceByBossCandidate =
+            new System.Collections.Generic.Dictionary<string, float>(64);
         private static readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<string>> ProcessedFriendlySeenByBoss =
             new System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<string>>(8);
 
         public static void Initialize()
         {
-            if (!SAINAddonToggles.EnableForcedEnemyRetention) return;
             if (_initialized) return;
             _initialized = true;
+            if (!SAINAddonToggles.EnableForcedEnemyRetention)
+            {
+                return;
+            }
+
             if (!_subscribedCalcGoal)
             {
                 SAINCalcGoalPatch.OnCalcGoal += HandleCalcGoal;
@@ -103,7 +110,10 @@ namespace friendlySAIN.SAINAddon
 
                 if (IsProcessedFriendlySeen(owner, candidate.ProfileId))
                 {
-                    if (CandidateHasGoalEnemyBossOrFollower(owner, candidate))
+                    bool currentlyHostileToBossSide =
+                        CandidateHasBossOrFollowerAsEnemy(owner, candidate) ||
+                        CandidateHasGoalEnemyBossOrFollower(owner, candidate);
+                    if (HasDebouncedSameSideHostileIntent(owner, candidate.ProfileId, currentlyHostileToBossSide))
                     {
                         RemoveProcessedFriendlySeen(owner, candidate.ProfileId);
                     }
@@ -152,8 +162,7 @@ namespace friendlySAIN.SAINAddon
                     {
                         return;
                     }
-
-                    follower.Memory.AddEnemy(info.Person, info.GroupInfo, false);
+                    Utils.Enemy.MakeEnemy(follower, firstVisible);
                 });
             }
         }
@@ -340,6 +349,7 @@ namespace friendlySAIN.SAINAddon
             bool hasBossOrFollowerAsEnemy =
                 CandidateHasBossOrFollowerAsEnemy(owner, candidate) ||
                 CandidateHasGoalEnemyBossOrFollower(owner, candidate);
+            hasBossOrFollowerAsEnemy = HasDebouncedSameSideHostileIntent(owner, candidate.ProfileId, hasBossOrFollowerAsEnemy);
             bool isPmcSide = owner.Side == EPlayerSide.Bear || owner.Side == EPlayerSide.Usec;
             if (!isPmcSide)
             {
@@ -356,6 +366,36 @@ namespace friendlySAIN.SAINAddon
 
             // Same-side PMC while not badGuy: skip unless candidate has boss/followers as enemies.
             return !hasBossOrFollowerAsEnemy;
+        }
+
+        private static bool HasDebouncedSameSideHostileIntent(BotOwner owner, string? candidateProfileId, bool currentlyHostile)
+        {
+            if (string.IsNullOrEmpty(candidateProfileId))
+            {
+                return false;
+            }
+
+            string? bossId = GetBossProfileId(owner);
+            if (string.IsNullOrEmpty(bossId))
+            {
+                return false;
+            }
+
+            string key = bossId + "|" + candidateProfileId;
+            if (!currentlyHostile)
+            {
+                SameSideHostileIntentSinceByBossCandidate.Remove(key);
+                return false;
+            }
+
+            float now = Time.time;
+            if (!SameSideHostileIntentSinceByBossCandidate.TryGetValue(key, out float since))
+            {
+                SameSideHostileIntentSinceByBossCandidate[key] = now;
+                return false;
+            }
+
+            return now - since >= SameSideHostileIntentDebounceSeconds;
         }
 
         private static bool CandidateHasBossOrFollowerAsEnemy(BotOwner owner, Player candidate)

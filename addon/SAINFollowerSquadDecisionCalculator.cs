@@ -17,8 +17,6 @@ namespace friendlySAIN.SAINAddon
         private const float StartHelpFriendDist = 30f;
         private const float EndHelpFriendDist = 45f;
         private const float EndHelpFriendsEnemySeenRecentTime = 8f;
-        private const float RegroupNoEnemyStartDist = 125f;
-        private const float RegroupNoEnemyEndDistance = 50f;
         private const float RegroupEnemyStartDist = 50f;
         private const float RegroupEnemyEndDistance = 15f;
         private const float RegroupEnemySeenRecentTime = 60f;
@@ -225,9 +223,16 @@ namespace friendlySAIN.SAINAddon
 
         private static bool ShallRegroup(BotOwner owner, BotComponent bot, pitAIBossPlayer boss, Enemy enemy)
         {
+            // Follower combat layer should not claim out-of-combat regroup by distance only.
+            // Keep no-enemy regroup on vanilla/patrol/request routes and reserve this path for combat context.
+            if (enemy == null)
+            {
+                return false;
+            }
+
             Vector3 bossPos = boss.realPlayer.Transform.position;
-            float maxDist = RegroupNoEnemyStartDist;
-            float minDist = RegroupNoEnemyEndDistance;
+            float maxDist = RegroupEnemyStartDist;
+            float minDist = RegroupEnemyEndDistance;
 
             if (enemy != null)
             {
@@ -235,9 +240,6 @@ namespace friendlySAIN.SAINAddon
                 {
                     return false;
                 }
-
-                maxDist = RegroupEnemyStartDist;
-                minDist = RegroupEnemyEndDistance;
             }
 
             Vector3 botPos = owner.Position;

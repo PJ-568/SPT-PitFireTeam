@@ -9,7 +9,7 @@ namespace friendlySAIN.SAINAddon
     internal static class SAINRegroupBootstrap
     {
         private static bool _initialized;
-        private const int FollowerCombatLayerPriority = 71;
+        private const int FollowerCombatLayerPriority = 73;
 
         public static void Initialize(Harmony harmony, ManualLogSource logger)
         {
@@ -36,23 +36,22 @@ namespace friendlySAIN.SAINAddon
 
             try
             {
-                SAINFollowerCombatLayerGatePatch.Apply(harmony);
+                SAINFollowerSquadLayerDisablePatch.Apply(harmony);
                 SAINFollowerFriendlyFirePatch.Apply(harmony);
                 SAINFollowerGroupTalkDirectionPatch.Apply(harmony);
+
                 if (SAINAddonToggles.EnableForcedEnemyRetention)
                 {
                     SAINCalcGoalPatch.Apply(harmony);
                     SAINEnemyAcquireGatePatch.Apply(harmony);
                     SAINFollowerEnemyRetentionService.Initialize();
                 }
-                else
-                {
-                    logger.LogInfo("[Init] SAIN forced enemy retention disabled by toggle.");
-                }
+
                 SAINFollowerPersonalityPatch.Apply(harmony);
                 SAINFollowerHitAccuracyPatch.Apply(harmony);
                 SAINFollowerAimTargetPatch.Apply(harmony);
                 SAINFollowerRandomLookPatch.Apply(harmony);
+                SAINFollowerSquadLeaderPatch.Apply(harmony);
                 SAINFollowerLowLightVisionPatch.Apply(harmony);
                 BrainManager.AddCustomLayer(typeof(SAINFollowerCombatLayer), brains, FollowerCombatLayerPriority);
                 logger.LogInfo("[Init] SAIN regroup command handling routed through follower combat layer.");

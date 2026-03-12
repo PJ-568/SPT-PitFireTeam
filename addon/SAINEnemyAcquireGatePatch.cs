@@ -29,10 +29,6 @@ namespace friendlySAIN.SAINAddon
 
         private static bool Prefix_CheckAddEnemy(SAINEnemyController __instance, IPlayer IPlayer, ref Enemy __result)
         {
-            if (!SAINAddonToggles.EnableForcedEnemyRetention)
-            {
-                return true;
-            }
 
             BotOwner? owner = __instance?.BotOwner;
             if (owner == null || !BossPlayers.IsFollower(owner))
@@ -40,36 +36,24 @@ namespace friendlySAIN.SAINAddon
                 return true;
             }
 
-            // Out of combat we rely on vanilla EFT memory/acquisition paths.
-            // SAIN acquisition is allowed once vanilla has committed to an enemy.
-            if (!SAINFollowerEnemyRetentionService.ShouldAllowAcquire(owner, IPlayer, out string reason))
+            if (owner.BotFollower.HaveBoss)
             {
-                TryLogGate(owner, IPlayer, blocked: true, reason: reason);
-                __result = null;
-                return false;
+                bool isTeammate = false;
+                owner.BotFollower.BossToFollow.Followers.ForEach(f =>
+                {
+                    if (f.ProfileId == IPlayer.ProfileId)
+                    {
+                        isTeammate = true;
+                    }
+                });
+                if (isTeammate)
+                {
+                    return false;
+                }
             }
 
-            TryLogGate(owner, IPlayer, blocked: false, reason: reason);
             return true;
         }
 
-        private static void TryLogGate(BotOwner owner, IPlayer source, bool blocked, string reason)
-        {
-            if (!EnableAcquireGateDebugLogs || owner == null) return;
-
-            string botId = owner.ProfileId ?? owner.name ?? "<null>";
-            float now = Time.time;
-            if (NextLogAtByBot.TryGetValue(botId, out float nextAt) && now < nextAt)
-            {
-                return;
-            }
-            NextLogAtByBot[botId] = now + 0.5f;
-
-            string srcId = source?.ProfileId ?? "<null>";
-            string goalId = owner.Memory?.GoalEnemy?.ProfileId ?? "<none>";
-            Modules.Logger.LogInfo(
-                $"[SAIN AcquireGate] bot={owner.Profile?.Nickname ?? owner.name} blocked={blocked} reason={reason} " +
-                $"haveEnemy={owner.Memory?.HaveEnemy} goal={goalId} src={srcId}");
-        }
     }
 }

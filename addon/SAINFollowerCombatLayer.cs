@@ -1,7 +1,6 @@
 using EFT;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
-using HarmonyLib;
 using SAIN;
 using SAIN.Components;
 using SAIN.Extensions;
@@ -17,12 +16,17 @@ namespace friendlySAIN.SAINAddon
     {
         public static readonly string Name = BuildLayerName("Follower Combat Layer");
         private static readonly HashSet<string> ActiveFollowerCombatBots = new HashSet<string>(System.StringComparer.Ordinal);
-        private static System.Type? _searchActionType;
-        private static System.Type? _rushEnemyActionType;
+        private static readonly Dictionary<string, float> ActiveFollowerCombatSeenAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
+        private const float ActiveFollowerCombatStaleSeconds = 2f;
+        private static readonly System.Type SearchActionType = ResolveSainActionType("SAIN.Layers.Combat.Solo.SearchAction");
+        private static readonly System.Type RushEnemyActionType = ResolveSainActionType("SAIN.Layers.Combat.Solo.RushEnemyAction");
         private static readonly Dictionary<string, float> RegroupCommandLatchUntilByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
         private const float RegroupCommandLatchSeconds = 8f;
+        private const float SquadDecisionNoEnemyGraceSeconds = 2f;
+        private const float SelfActionTransitionGraceSeconds = 1.25f;
         private ESquadDecision _currentDecision = ESquadDecision.None;
         private ESquadDecision _lastActionDecision = ESquadDecision.None;
+        private float _lastEnemySeenAt = -1000f;
 
         public SAINFollowerCombatLayer(BotOwner botOwner, int priority)
             : base(botOwner, priority, Name, ESAINLayer.Squad)
@@ -72,7 +76,6 @@ namespace friendlySAIN.SAINAddon
 
             if (!TryEvaluateFollowerDecision(out ESquadDecision nextDecision))
             {
-                MarkActive(false);
                 return true;
             }
 
@@ -86,7 +89,26 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
-            return ActiveFollowerCombatBots.Contains(botOwner.ProfileId);
+            string profileId = botOwner.ProfileId;
+            if (!ActiveFollowerCombatBots.Contains(profileId))
+            {
+                return false;
+            }
+
+            if (!ActiveFollowerCombatSeenAtByBot.TryGetValue(profileId, out float seenAt))
+            {
+                ActiveFollowerCombatBots.Remove(profileId);
+                return false;
+            }
+
+            if (Time.time - seenAt > ActiveFollowerCombatStaleSeconds)
+            {
+                ActiveFollowerCombatBots.Remove(profileId);
+                ActiveFollowerCombatSeenAtByBot.Remove(profileId);
+                return false;
+            }
+
+            return true;
         }
 
         private bool TryEvaluateFollowerDecision(out ESquadDecision decision)
@@ -119,6 +141,17 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
+            if (ShouldDeferToSoloSelfAction(bot, decisions))
+            {
+                return false;
+            }
+
+            bool haveEnemy = BotOwner.Memory?.HaveEnemy == true;
+            if (haveEnemy)
+            {
+                _lastEnemySeenAt = Time.time;
+            }
+
             if (TryHandleRegroupCommand(out decision))
             {
                 return true;
@@ -132,11 +165,18 @@ namespace friendlySAIN.SAINAddon
             // Fallback: if SAIN already has a squad decision, run follower layer and map leader/member-sensitive actions to boss/followers.
             if (decisions.CurrentSquadDecision != ESquadDecision.None)
             {
+                int knownEnemyCount = bot.EnemyController?.KnownEnemies?.Count ?? 0;
+                bool recentEnemyContext = Time.time - _lastEnemySeenAt <= SquadDecisionNoEnemyGraceSeconds;
+                if (!haveEnemy && knownEnemyCount == 0 && !recentEnemyContext)
+                {
+                    return false;
+                }
+
                 decision = decisions.CurrentSquadDecision;
                 return true;
             }
 
-            if (BotOwner.Memory?.HaveEnemy == true)
+            if (haveEnemy)
             {
                 decision = ESquadDecision.Regroup;
                 return true;
@@ -178,6 +218,51 @@ namespace friendlySAIN.SAINAddon
             return true;
         }
 
+        private static bool ShouldDeferToSoloSelfAction(BotComponent bot, SAINDecisionClass decisions)
+        {
+            if (bot == null || decisions == null)
+            {
+                return false;
+            }
+
+            if (decisions.CurrentCombatDecision == ECombatDecision.Retreat)
+            {
+                return true;
+            }
+
+            bool selfProtectiveAction =
+                decisions.CurrentSelfDecision == ESelfActionType.Reload ||
+                decisions.CurrentSelfDecision == ESelfActionType.FirstAid ||
+                decisions.CurrentSelfDecision == ESelfActionType.Surgery;
+
+            bool runtimeProtectiveAction =
+                bot.BotOwner?.WeaponManager?.Reload?.Reloading == true ||
+                bot.BotOwner?.Medecine?.Using == true ||
+                bot.Medical?.Surgery?.SurgeryStarted == true;
+
+            // Plain SeekCover with no self-action context drifts followers away from boss.
+            // Keep SAIN solo SeekCover only for protective contexts (reload/med/surgery).
+            if (decisions.CurrentCombatDecision == ECombatDecision.SeekCover)
+            {
+                return selfProtectiveAction || runtimeProtectiveAction;
+            }
+
+            if (runtimeProtectiveAction)
+            {
+                return true;
+            }
+
+            if (decisions.PreviousSelfDecision == ESelfActionType.None || decisions.TimeSinceChangeDecision > SelfActionTransitionGraceSeconds)
+            {
+                return false;
+            }
+
+            return decisions.PreviousCombatDecision == ECombatDecision.SeekCover
+                || decisions.PreviousCombatDecision == ECombatDecision.Retreat
+                || bot.Cover?.CoverInUse != null
+                || bot.Cover?.CoverPoint_MovingTo != null;
+        }
+
         private void MarkActive(bool active)
         {
             string profileId = BotOwner?.ProfileId;
@@ -189,23 +274,29 @@ namespace friendlySAIN.SAINAddon
             if (active)
             {
                 ActiveFollowerCombatBots.Add(profileId);
+                ActiveFollowerCombatSeenAtByBot[profileId] = Time.time;
             }
             else
             {
                 ActiveFollowerCombatBots.Remove(profileId);
+                ActiveFollowerCombatSeenAtByBot.Remove(profileId);
             }
         }
 
         private static System.Type ResolveSearchActionType()
         {
-            _searchActionType ??= AccessTools.TypeByName("SAIN.Layers.Combat.Solo.SearchAction") ?? typeof(SAINFollowerCombatSuppressAction);
-            return _searchActionType;
+            return SearchActionType;
         }
 
         private static System.Type ResolveRushEnemyActionType()
         {
-            _rushEnemyActionType ??= AccessTools.TypeByName("SAIN.Layers.Combat.Solo.RushEnemyAction") ?? typeof(SAINFollowerCombatSuppressAction);
-            return _rushEnemyActionType;
+            return RushEnemyActionType;
+        }
+
+        private static System.Type ResolveSainActionType(string fullTypeName)
+        {
+            System.Reflection.Assembly sainAssembly = typeof(SAINLayer).Assembly;
+            return sainAssembly.GetType(fullTypeName, false) ?? typeof(SAINFollowerCombatSuppressAction);
         }
     }
 }

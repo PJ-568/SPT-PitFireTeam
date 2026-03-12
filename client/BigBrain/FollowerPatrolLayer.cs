@@ -13,8 +13,8 @@ namespace friendlySAIN.BigBrain
     internal static class FollowerLayerRegistry
     {
         private static bool initialized;
-        private const int FollowerRequestLayerPriority = 73;
-        private const int FollowerLayerPriority = 72;
+        private const int FollowerRequestLayerPriority = 72;
+        private const int FollowerLayerPriority = 71;
 
         public static void Init()
         {
@@ -114,17 +114,19 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData == null)
+            {
+                return false;
+            }
+
+            if (!followerData.IsReadyForPatrolAfterCombat())
+            {
+                return false;
+            }
+
             if (sawEnemyDuringCurrentCycle)
             {
-                followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
-                if (followerData == null || !followerData.IsReadyForPatrolAfterCombat())
-                {
-                    // Keep follower neutral while SAIN/brain cleanup finalizes.
-                    BotOwner.Mover?.SetPose(1f);
-                    BotOwner.Tilt?.Stop();
-                    return false;
-                }
-
                 sawEnemyDuringCurrentCycle = false;
             }
 

@@ -65,6 +65,11 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (!followerData.IsReadyForPatrolAfterCombat())
+            {
+                return false;
+            }
+
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
 
             if (hasCommand && followerData.HasKnownEnemy())

@@ -1,6 +1,50 @@
+# AI Role: friendlySAIN AI Mod Engineer
+
+You are an AI engineering agent working on `friendlySAIN`, a C# mod for Single Player Tarkov built with BepInEx, Harmony, BigBrain, and optional SAIN integration.
+
+Your job is to make safe, context-aware changes that preserve runtime stability, respect current architecture, and avoid assumptions about Tarkov/SPT/SAIN internals.
+
+You must think like a maintainer of a fragile gameplay-AI integration project, not like a generic C# assistant.
+
+## Working Rules
+
+Read code first. Assume nothing.
+
+If a method, class, property, or runtime behavior is unclear:
+
+- inspect the project source code
+- inspect SAIN or BigBrain source if involved
+- inspect decompiled EFT/SPT references when necessary
+
+Never invent APIs, properties, or behaviors that do not exist. Only reference methods, properties, and classes that are verified in the source code.
+
+Separate vanilla and SAIN reasoning. Every behavior should be classified as one of:
+
+- vanilla / core plugin path
+- SAIN addon / SAIN-owned path
+
+Do not mix these paths unless the code clearly bridges them.
+
+When fixing bugs or implementing changes:
+
+- make the smallest correct change
+- avoid broad refactors unless explicitly requested
+- preserve current architecture and naming style
+- prefer stability over elegance
+
+## Decision Priority
+
+When multiple approaches are possible, prefer:
+
+1. runtime stability
+2. preserving existing architecture
+3. minimal code changes
+4. improved clarity or debugging
+5. improved elegance
+
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-07  
+Last updated: 2026-03-08  
 Scope: runtime behavior currently present in `friendlySAIN/client` and `friendlySAIN/addon` (based on active code paths in `friendlyPlugin.cs` and addon bootstrap/patches).
 
 ## BE / Server State (Important)
@@ -243,7 +287,7 @@ SAIN integration:
         - `SAINFollowerCombatRegroupAction`,
         - `SAINFollowerCombatSuppressAction`,
         - `SAINFollowerCombatFollowBossSearchAction`,
-        - SAIN solo search/rush action types when available (`SearchAction` / `RushEnemyAction`) with safe fallback.
+        - SAIN solo search/rush action types resolved once from SAIN assembly (`SearchAction` / `RushEnemyAction`) with safe fallback.
 - Core plugin validates SAIN/addon presence at runtime:
     - if SAIN is installed but addon is missing, core plugin logs explicit error and SAIN follower combat-layer integration is disabled.
 - Shared bridge contract is active for core->addon SAIN readiness handoff:
@@ -257,7 +301,6 @@ SAIN integration:
     - `SAINLayer.OnLayerChanged(...)` stops built-in mover when entering SAIN layer and handles mover/navmesh handoff on layer switch.
     - treat SAIN combat movement issues as SAIN-layer/mover behavior first, then plugin command-layer behavior.
 - SAIN addon currently applies follower-focused combat/retention patches from `addon/SAINRegroupBootstrap.cs`:
-    - `SAINFollowerCombatLayerGatePatch` (gates SAIN `CombatSoloLayer`/`CombatSquadLayer` while follower combat layer is active),
     - `SAINFollowerFriendlyFirePatch` (blocks boss/follower fireline),
     - `SAINFollowerGroupTalkDirectionPatch` (uses boss look direction for directional enemy talk checks),
     - `SAINCalcGoalPatch` + `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
@@ -301,6 +344,12 @@ SAIN integration:
     - command handling was debounced to reduce repeated heavy work during rapid player phrase spam.
 - SAIN-friendly-fire path:
     - per-shot follower/boss lane check was converted from allocation-heavy physics query path to lightweight geometric checks.
+- `PingTeamates` GUI path optimization:
+    - per-frame draw loops now use index-based iteration instead of delegate-based `List.ForEach`.
+    - bot status text reuses a single `StringBuilder` instance instead of allocating per bot per frame.
+    - tracked body-part iteration uses a static array instead of `Enum.GetValues(...)` allocations.
+- SAIN bridge debug noise reduction:
+    - follower SAIN enemy-bridge debug logs are disabled by default (`EnableSainEnemyBridgeDebugLogs = false`) to reduce runtime string/log overhead.
 - Several debug/trace patches were iterated during movement work; current runtime path is focused on minimal active tracing.
 - Request command logs were reduced/removed from `AIBossPlayer` (`[Req] Hold/There/ComeWithMe ...`) to keep runtime logs cleaner.
 - Debug console command:
@@ -354,7 +403,6 @@ Examples currently tracked there:
     - `addon/SAINFollowerCombatRegroupAction.cs`
     - `addon/SAINFollowerCombatSuppressAction.cs`
     - `addon/SAINFollowerCombatFollowBossSearchAction.cs`
-    - `addon/SAINFollowerCombatLayerGatePatch.cs`
 
 ## 10) Command/Gesture IDs (Current)
 
@@ -391,3 +439,5 @@ Update (2026-03-06):
     - `addon/SAINFollowerPersonalityPatch.cs` raises follower detection/reaction and tightens aim behavior (higher `GainSightCoef`, higher hearing/visible multipliers, faster precision, lower accuracy/scatter multipliers).
     - `addon/SAINFollowerHitAccuracyPatch.cs` bypasses SAIN `AimHitEffectClass.GetHit` aim-affection for followers so incoming hits do not degrade follower aim.
     - `addon/SAINFollowerLowLightVisionPatch.cs` reduces low-light time-to-spot penalty for followers by post-processing SAIN time vision modifier in `EnemyGainSightClass.CalcTimeModifier`.
+
+## BUGS are tracked in : F:\Projects\SPT-Tarkov\FOLLOWER-BUGS.md

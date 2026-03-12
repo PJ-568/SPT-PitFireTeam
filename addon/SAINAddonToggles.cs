@@ -2,7 +2,8 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINAddonToggles
     {
-        // Test mode toggle: disable sticky enemy retention/forced reapply while evaluating Hard+ sensing.
-        public static readonly bool EnableForcedEnemyRetention = true;
+        // Forced calc-goal enemy retention was exploratory and can reacquire invalid targets.
+        // Keep it off unless actively testing that path.
+        public static readonly bool EnableForcedEnemyRetention = false;
     }
 }

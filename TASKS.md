@@ -25,7 +25,7 @@ Very similar to old flow, but with some adjustments:
 
 # (IN PROGRESS) - Implement follower fight behavior for combat
 
-Phase 1 plan (in testing):
+Phase 1 plan (bug fixing phase):
 
 - Build a new SAIN layer: `CombatFollowerLayer`, functionally similar to `CombatSquadLayer`.
 - Keep SAIN baseline behavior where possible by reusing squad decisions that do not depend on SAIN squad leader/member context.
@@ -36,11 +36,21 @@ Phase 1 plan (in testing):
 - Ensure this layer becomes active for recruited followers and SAIN default combat layers do not run for those followers while `CombatFollowerLayer` is active.
 - Keep current SAIN `CombatSoloLayer`/`CombatSquadLayer` priorities in mind (`20` solo, `22` squad) and integrate follower layer with explicit activation/gating rules rather than ad-hoc decision overrides.
 
-Phase 2 plan (in progress):
+Phase 2 plan (not started):
 
 - Iterate and tune `CombatFollowerLayer` decisions from gameplay tests.
 - Adjust/override specific decisions as needed for follower combat feel and reliability.
 - Continue replacing squad-context-sensitive branches with boss/follower-aware variants when test results show mismatch.
+- Implement enemy push behavior when target is close enough and weak enough.
+- Determine enemy weakness using `IsEnemyLowThreat()` behavior from the old plugin.
+- Enemy push implementation in this phase must work with and without SAIN runtime.
+- For non-SAIN runtime, complete this in Phase 3 by replicating the relevant vanilla PMC combat layer as a BigBrain layer to gain full control.
+
+# (NOT STARTED) - Combat commands
+
+Description:
+
+- Add support for boss commands during combat such as `GoForward` (Push), `Suppress`, `On your own` (stop regrouping near the boss), `Regroup` (cancel on your own), and other combat commands supported by the old plugin.
 
 # (NOT STARTED) - Implement follower run-ahead feature
 
@@ -54,20 +64,3 @@ Behavior target:
 - When close enough, follower should settle back into normal local follow/idle behavior.
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
-
-# (IN TESTING) - IMPROVE PingTeams directional enemy callout
-
-Improvement target:
-
-- On ping command, if any follower has enemy info, the closest follower to the boss should say the enemy direction phrase.
-- Direction phrase must be computed relative to the boss look direction, not the speaking follower look direction.
-
-Sub-task:
-
-- SAIN also has direction-speaking paths for bots; investigate SAIN code first to identify those call sites.
-- Current SAIN direction phrases are based on bot look direction; patch/override them so follower direction callouts are relative to boss player look direction.
-
-Implementation (current):
-
-- Ping command directional caller selection + boss-relative phrase mapping is implemented in `client/Utils/PingTeamates.cs`.
-- SAIN direction check override for followers is implemented in `addon/SAINFollowerGroupTalkDirectionPatch.cs` and wired in `addon/SAINRegroupBootstrap.cs`.

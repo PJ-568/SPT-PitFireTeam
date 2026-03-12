@@ -575,14 +575,31 @@ namespace friendlySAIN
                     return;
                 }
 
-                MethodInfo registerWithDescription = AccessTools.Method(
-                    processor.GetType(),
-                    "RegisterCommand",
-                    new[] { typeof(string), typeof(Action), typeof(string) });
-                MethodInfo registerSimple = AccessTools.Method(
-                    processor.GetType(),
-                    "RegisterCommand",
-                    new[] { typeof(string), typeof(Action) });
+                MethodInfo registerWithDescription = null;
+                MethodInfo registerSimple = null;
+                MethodInfo[] registerCandidates = processor.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                foreach (MethodInfo method in registerCandidates)
+                {
+                    if (!string.Equals(method.Name, "RegisterCommand", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    ParameterInfo[] parameters = method.GetParameters();
+                    if (parameters.Length == 3
+                        && parameters[0].ParameterType == typeof(string)
+                        && parameters[1].ParameterType == typeof(Action)
+                        && parameters[2].ParameterType == typeof(string))
+                    {
+                        registerWithDescription = method;
+                    }
+                    else if (parameters.Length == 2
+                        && parameters[0].ParameterType == typeof(string)
+                        && parameters[1].ParameterType == typeof(Action))
+                    {
+                        registerSimple = method;
+                    }
+                }
 
                 if (registerWithDescription != null)
                 {

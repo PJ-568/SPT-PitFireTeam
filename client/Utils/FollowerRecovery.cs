@@ -6,7 +6,7 @@ namespace friendlySAIN.Utils
 {
     public static class FollowerRecovery
     {
-        public static void SoftReset(BotOwner bot)
+        public static void SoftReset(BotOwner? bot)
         {
             if (bot == null || bot.IsDead || bot.BotState != EBotState.Active) return;
 
@@ -19,7 +19,7 @@ namespace friendlySAIN.Utils
                 bot.BotRequestController.CurRequest = null;
             }
 
-            BaseBrain baseBrain = bot.Brain?.BaseBrain;
+            BaseBrain? baseBrain = bot.Brain?.BaseBrain;
             if (baseBrain == null) return;
 
             if (baseBrain.CurLayerInfo is BaseLogicLayerSimpleAbstractClass simpleLayer)
