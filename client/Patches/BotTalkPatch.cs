@@ -9,6 +9,68 @@ using System.Reflection;
 
 namespace friendlySAIN.Patches
 {
+    internal static class FollowerForcedPhraseGate
+    {
+        private sealed class ForcedPhraseState
+        {
+            public EPhraseTrigger Phrase;
+            public float UntilTime;
+        }
+
+        private static readonly Dictionary<string, ForcedPhraseState> StateByFollower = new Dictionary<string, ForcedPhraseState>(StringComparer.Ordinal);
+
+        public static void Arm(BotOwner owner, EPhraseTrigger phrase, float durationSeconds)
+        {
+            if (owner == null || string.IsNullOrEmpty(owner.ProfileId))
+            {
+                return;
+            }
+
+            float safeDuration = Math.Max(0.1f, durationSeconds);
+            StateByFollower[owner.ProfileId] = new ForcedPhraseState
+            {
+                Phrase = phrase,
+                UntilTime = UnityEngine.Time.time + safeDuration
+            };
+        }
+
+        public static void Clear(BotOwner owner)
+        {
+            if (owner == null || string.IsNullOrEmpty(owner.ProfileId))
+            {
+                return;
+            }
+
+            StateByFollower.Remove(owner.ProfileId);
+        }
+
+        public static bool ShouldBlock(BotOwner owner, EPhraseTrigger phrase)
+        {
+            if (owner == null || string.IsNullOrEmpty(owner.ProfileId))
+            {
+                return false;
+            }
+
+            if (!StateByFollower.TryGetValue(owner.ProfileId, out ForcedPhraseState state))
+            {
+                return false;
+            }
+
+            if (UnityEngine.Time.time > state.UntilTime)
+            {
+                StateByFollower.Remove(owner.ProfileId);
+                return false;
+            }
+
+            if (phrase == state.Phrase)
+            {
+                return false;
+            }
+
+            return true;
+        }
+    }
+
     internal static class FollowerContactPhraseGate
     {
         private sealed class ContactState
@@ -65,6 +127,11 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static bool PatchPrefix(BotTalk __instance, EPhraseTrigger type, ETagStatus? additionaMask, bool withGroupDelay)
         {
+            if (FollowerForcedPhraseGate.ShouldBlock(__instance.BotOwner_0, type))
+            {
+                return false;
+            }
+
             if (__instance.IsSilenced) return false;
 
             if (type == EPhraseTrigger.OnRepeatedContact && BossPlayers.IsFollower(__instance.BotOwner_0))
@@ -110,6 +177,11 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static bool PatchPrefix(BotTalk __instance, EPhraseTrigger type, bool sayImmediately = false, ETagStatus? additionalMask = null)
         {
+            if (FollowerForcedPhraseGate.ShouldBlock(__instance.BotOwner_0, type))
+            {
+                return false;
+            }
+
             if (__instance.IsSilenced) return false;
 
             if (type == EPhraseTrigger.OnRepeatedContact && BossPlayers.IsFollower(__instance.BotOwner_0))

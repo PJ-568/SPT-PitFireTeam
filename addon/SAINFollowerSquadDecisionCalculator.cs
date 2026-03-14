@@ -17,6 +17,7 @@ namespace friendlySAIN.SAINAddon
         private const float StartHelpFriendDist = 30f;
         private const float EndHelpFriendDist = 45f;
         private const float EndHelpFriendsEnemySeenRecentTime = 8f;
+        private const float SearchEnemySeenRecentTime = 20f;
         private const float RegroupEnemyStartDist = 50f;
         private const float RegroupEnemyEndDistance = 15f;
         private const float RegroupEnemySeenRecentTime = 60f;
@@ -42,11 +43,6 @@ namespace friendlySAIN.SAINAddon
             {
                 decision = SAIN.ESquadDecision.PushSuppressedEnemy;
                 return true;
-            }
-
-            if (myEnemy != null && (myEnemy.IsVisible || myEnemy.TimeSinceSeen < MyEnemySeenRecentTime))
-            {
-                return false;
             }
 
             if (ShallGroupSearch(bot, owner, boss))
@@ -79,6 +75,12 @@ namespace friendlySAIN.SAINAddon
                 }
             }
 
+            if (ShallSearch(bot, myEnemy))
+            {
+                decision = SAIN.ESquadDecision.Search;
+                return true;
+            }
+
             if (ShallRegroup(owner, bot, boss, myEnemy))
             {
                 decision = SAIN.ESquadDecision.Regroup;
@@ -91,8 +93,7 @@ namespace friendlySAIN.SAINAddon
         private static bool ShallPushSuppressedEnemy(BotComponent bot, Enemy enemy)
         {
             if (enemy == null ||
-                bot.Decision.SelfActionDecisions.LowOnAmmo(PushSuppressedEnemyLowAmmoRatio) ||
-                !bot.Info.PersonalitySettings.Rush.CanRushEnemyReloadHeal)
+                bot.Decision.SelfActionDecisions.LowOnAmmo(PushSuppressedEnemyLowAmmoRatio))
             {
                 return false;
             }
@@ -139,6 +140,26 @@ namespace friendlySAIN.SAINAddon
             return enemyHealth == ETagStatus.Dying ||
                    enemyHealth == ETagStatus.BadlyInjured ||
                    enemy.EnemyPlayer.IsInPronePose;
+        }
+
+        private static bool ShallSearch(BotComponent bot, Enemy enemy)
+        {
+            if (bot == null || enemy == null)
+            {
+                return false;
+            }
+
+            if (enemy.IsVisible || !enemy.Seen)
+            {
+                return false;
+            }
+
+            if (enemy.TimeSinceSeen > SearchEnemySeenRecentTime)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static bool HasRadioComms(BotComponent bot)

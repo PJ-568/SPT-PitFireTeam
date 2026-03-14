@@ -196,18 +196,22 @@ namespace friendlySAIN.Patches
                                     return;
                                 }
 
+                                me.BotTalk.SetSilence(2f);
+                                FollowerForcedPhraseGate.Arm(me, EPhraseTrigger.Roger, 1.5f);
                                 if (BossPlayers.AddFollower(me, playerBoss) != null)
                                 {
-                                    Utils.Utils.SetTimeout(() =>
-                                    {
-                                        if (me.IsDead || me.BotState != EBotState.Active) return;
-                                        me.BotTalk.TrySay(EPhraseTrigger.Roger, false);
-                                        me.Gesture.TryGestus(EInteraction.OkGesture, true);
-                                    }, UnityEngine.Random.Range(300, 700));
+                                    TrySayControlledFollowerPhrase(
+                                        me,
+                                        EPhraseTrigger.Roger,
+                                        EInteraction.OkGesture,
+                                        UnityEngine.Random.Range(300, 700));
                                 }
                                 else
                                 {
-                                    me.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
+                                    FollowerForcedPhraseGate.Arm(me, EPhraseTrigger.DontKnow, 1.5f);
+                                    me.BotTalk.SetSilence(0f);
+                                    me.BotTalk.DropNextSayPeriod();
+                                    me.BotTalk.Say(EPhraseTrigger.DontKnow, true);
                                 }
                             }
                             catch (Exception ex)
@@ -239,6 +243,30 @@ namespace friendlySAIN.Patches
             }
             // allow default to take place
             return true;
+        }
+
+        private static void TrySayControlledFollowerPhrase(
+            BotOwner bot,
+            EPhraseTrigger phrase,
+            EInteraction gesture,
+            int delayMs)
+        {
+            if (bot == null || bot.IsDead || bot.BotState != EBotState.Active)
+            {
+                return;
+            }
+
+            Utils.Utils.SetTimeout(() =>
+            {
+                if (bot == null || bot.IsDead || bot.BotState != EBotState.Active)
+                {
+                    return;
+                }
+                bot.BotTalk.SetSilence(0f);
+                bot.BotTalk.DropNextSayPeriod();
+                bot.BotTalk.Say(phrase, true);
+                bot.Gesture.TryGestus(gesture, true);
+            }, delayMs);
         }
     }
 
@@ -309,6 +337,7 @@ namespace friendlySAIN.Patches
 
             return false;
         }
+
     }
 
     internal class OpenDoorRequestPatch : ModulePatch

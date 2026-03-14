@@ -214,6 +214,8 @@ namespace friendlySAIN
             new LootPatrolActiveLayerListPatch().Enable();
             new LootPatrolDecisionBypassPatch().Enable();
             new AdvAssaultTargetFollowerGuardPatch().Enable();
+            new PatrolDataFollowerUpdateGuardPatch().Enable();
+            new AvoidDangerFollowerGuardPatch().Enable();
             
             if(!IsSAINInstalled)
                 new FollowerSprintPatch().Enable();

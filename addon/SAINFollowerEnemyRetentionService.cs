@@ -77,6 +77,46 @@ namespace friendlySAIN.SAINAddon
             return true;
         }
 
+        public static bool ShouldAllowSameSideAcquire(BotOwner owner, IPlayer enemy, out string reason)
+        {
+            reason = "allow_non_same_side";
+            if (owner == null || enemy == null)
+            {
+                return false;
+            }
+
+            if (owner.Side != enemy.Side)
+            {
+                return true;
+            }
+
+            if (!enemy.IsAI)
+            {
+                reason = "blocked_same_side_human";
+                return false;
+            }
+
+            Player enemyPlayer = enemy as Player;
+            if (enemyPlayer == null)
+            {
+                reason = "blocked_same_side_non_player";
+                return false;
+            }
+
+            bool hostileIntent =
+                CandidateHasBossOrFollowerAsEnemy(owner, enemyPlayer) ||
+                CandidateHasGoalEnemyBossOrFollower(owner, enemyPlayer);
+            hostileIntent = HasDebouncedSameSideHostileIntent(owner, enemy.ProfileId, hostileIntent);
+            if (!hostileIntent)
+            {
+                reason = "blocked_same_side_no_hostile_intent";
+                return false;
+            }
+
+            reason = "allow_same_side_hostile_intent";
+            return true;
+        }
+
         private static void HandleCalcGoal(BotOwner owner)
         {
             if (!SAINAddonToggles.EnableForcedEnemyRetention) return;

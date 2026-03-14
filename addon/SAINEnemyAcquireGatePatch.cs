@@ -52,6 +52,16 @@ namespace friendlySAIN.SAINAddon
                 }
             }
 
+            if (!SAINFollowerEnemyRetentionService.ShouldAllowAcquire(owner, IPlayer, out _))
+            {
+                return false;
+            }
+
+            if (!SAINFollowerEnemyRetentionService.ShouldAllowSameSideAcquire(owner, IPlayer, out _))
+            {
+                return false;
+            }
+
             return true;
         }
 

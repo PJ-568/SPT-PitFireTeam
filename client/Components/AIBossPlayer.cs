@@ -1535,10 +1535,9 @@ namespace friendlySAIN.Components
         {
             Followers.Add(bot);
             HookFollowerDeath(bot);
+            bot.BotFollower.SetToFollow(this, Followers.Count - 1);
             // dispose of the original patrol mode
             bot.BotFollower.PatrolDataFollower.InitPlayer(realPlayer);
-
-            bot.BotFollower.SetToFollow(this, Followers.Count - 1);
             bot.PatrollingData.Pause();
             bot.PatrollingData.Disable();
         }

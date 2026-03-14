@@ -1,0 +1,136 @@
+using EFT;
+using friendlySAIN.Components;
+using friendlySAIN.Modules;
+using HarmonyLib;
+using SPT.Reflection.Patching;
+using System.Reflection;
+
+namespace friendlySAIN.Patches
+{
+    internal class PatrolDataFollowerUpdateGuardPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(PatrolDataFollower), "ManualUpdate");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(PatrolDataFollower __instance)
+        {
+            if (__instance == null)
+            {
+                return false;
+            }
+
+            BotOwner botOwner = Traverse.Create(__instance).Field("BotOwner_0").GetValue<BotOwner>();
+            if (!IsConfirmedFollower(botOwner))
+            {
+                return true;
+            }
+
+            IBossToFollow boss = botOwner.BotFollower?.BossToFollow;
+            if (boss == null && TryRecoverBoss(botOwner, out pitAIBossPlayer recoveredBoss))
+            {
+                boss = recoveredBoss;
+                botOwner.BotFollower.BossToFollow = recoveredBoss;
+            }
+
+            if (boss == null)
+            {
+                botOwner.StopMove();
+                return false;
+            }
+
+            if (boss.IsAI)
+            {
+                return __instance.FollowerAIBase != null;
+            }
+
+            if (__instance.FollowerPlayerBase == null)
+            {
+                Player bossPlayer = boss.Player() as Player;
+                if (bossPlayer == null)
+                {
+                    botOwner.StopMove();
+                    return false;
+                }
+
+                __instance.InitPlayer(bossPlayer);
+            }
+
+            return __instance.FollowerPlayerBase != null;
+        }
+
+        private static bool TryRecoverBoss(BotOwner botOwner, out pitAIBossPlayer boss)
+        {
+            boss = null;
+
+            BotFollowerPlayer follower = BossPlayers.Instance?.GetFollower(botOwner);
+            if (follower == null)
+            {
+                return false;
+            }
+
+            boss = follower.GetBoss();
+            return boss?.realPlayer != null;
+        }
+
+        private static bool IsConfirmedFollower(BotOwner botOwner)
+        {
+            if (botOwner == null) return false;
+            if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return false;
+            if (botOwner.BotFollower == null) return false;
+            return BossPlayers.Instance?.GetFollower(botOwner) != null;
+        }
+    }
+
+    internal class AvoidDangerFollowerGuardPatch : ModulePatch
+    {
+        private static System.Func<object, BotOwner> _botOwnerGetter;
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass48), "ShallUseNow");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(GClass48 __instance, ref bool __result)
+        {
+            if (__instance == null)
+            {
+                __result = false;
+                return false;
+            }
+
+            _botOwnerGetter ??= LootPatrolActiveLayerListPatch.BuildBotOwnerGetter(__instance.GetType());
+            BotOwner botOwner = _botOwnerGetter?.Invoke(__instance);
+            if (!IsConfirmedFollower(botOwner))
+            {
+                return true;
+            }
+
+            if (botOwner.WeaponManager?.Grenades == null ||
+                botOwner.ArtilleryDangerPlace == null ||
+                botOwner.BewareGrenade == null ||
+                botOwner.BewareBTR == null ||
+                botOwner.BotTurnAwayLight == null ||
+                botOwner.FlashGrenade == null ||
+                botOwner.SmokeGrenade == null ||
+                botOwner.BewarePlantedMine == null)
+            {
+                __result = false;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsConfirmedFollower(BotOwner botOwner)
+        {
+            if (botOwner == null) return false;
+            if (botOwner.IsDead || botOwner.BotState != EBotState.Active) return false;
+            if (botOwner.BotFollower == null) return false;
+            return BossPlayers.Instance?.GetFollower(botOwner) != null;
+        }
+    }
+}

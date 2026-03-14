@@ -895,12 +895,7 @@ namespace friendlySAIN.Patches
 
                             BossPlayers.AddFollower(me, player, true, botType, tactic);
 
-                            me.BotTalk.SetSilence(0f);
-
-                            Utils.Utils.SetTimeout(() =>
-                            {
-                                me.BotTalk.TrySay(EPhraseTrigger.Ready);
-                            }, 2000);
+                            TrySayFollowerReadyControlled(me, 2000);
 
                         }
                         catch (Exception ex)
@@ -1160,8 +1155,7 @@ namespace friendlySAIN.Patches
 
                         WildSpawnType botRole = me.Profile.Info?.Settings?.Role ?? role;
                         BossPlayers.AddFollower(me, player, true, botRole, "Default");
-                        me.BotTalk.SetSilence(0f);
-                        Utils.Utils.SetTimeout(() => me.BotTalk.TrySay(EPhraseTrigger.Ready), 1500);
+                        TrySayFollowerReadyControlled(me, 500);
                     }
                     catch (Exception ex)
                     {
@@ -1276,6 +1270,26 @@ namespace friendlySAIN.Patches
                 Modules.Logger.LogError(e);
             }
 
+        }
+
+        private static void TrySayFollowerReadyControlled(BotOwner bot, int delayMs)
+        {
+            if (bot == null || bot.IsDead || bot.BotState != EBotState.Active)
+            {
+                return;
+            }
+
+            FollowerForcedPhraseGate.Arm(bot, EPhraseTrigger.Ready, 1.5f);
+            Utils.Utils.SetTimeout(() =>
+            {
+                if (bot == null || bot.IsDead || bot.BotState != EBotState.Active)
+                {
+                    return;
+                }
+
+                bot.BotTalk.TrySay(EPhraseTrigger.Ready, false);
+                FollowerForcedPhraseGate.Clear(bot);
+            }, delayMs);
         }
     }
 
