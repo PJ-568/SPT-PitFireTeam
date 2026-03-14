@@ -52,12 +52,13 @@ namespace friendlySAIN.SAINAddon
                     return false;
                 }
 
-                // Follower override: keep SAIN part-to-shoot selection, but do not force center-mass blend.
-                Vector3? target = info.Distance < 6f
+                Vector3? centerMass = enemy.CenterMass;
+                Vector3? partToShoot = info.Distance < 6f
                     ? info.GetBodyPartPosition()
                     : info.GetPartToShoot();
 
-                __result = target;
+                Vector3? modifiedTarget = CheckYValue(centerMass, partToShoot);
+                __result = modifiedTarget ?? partToShoot ?? centerMass;
                 return false;
             }
             catch (Exception ex)
@@ -66,6 +67,18 @@ namespace friendlySAIN.SAINAddon
                 Modules.Logger.LogError(ex);
                 return true;
             }
+        }
+
+        private static Vector3? CheckYValue(Vector3? centerMass, Vector3? partTarget)
+        {
+            if (centerMass != null && partTarget != null && centerMass.Value.y < partTarget.Value.y)
+            {
+                Vector3 newTarget = partTarget.Value;
+                newTarget.y = centerMass.Value.y;
+                return newTarget;
+            }
+
+            return null;
         }
     }
 }

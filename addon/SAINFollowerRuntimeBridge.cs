@@ -218,6 +218,7 @@ namespace friendlySAIN.SAINAddon
                     return;
                 }
 
+                ClearFollowerSearchState(bot);
                 ExpireKnownEnemyTimers(bot);
 
                 var enemyController = bot.EnemyController;
@@ -325,6 +326,7 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
+            ClearFollowerSearchState(bot);
             var decisions = bot.Decision;
             if (decisions == null)
             {
@@ -333,6 +335,46 @@ namespace friendlySAIN.SAINAddon
 
             decisions.ResetDecisions(false);
             return true;
+        }
+
+        private static void ClearFollowerSearchState(BotComponent bot)
+        {
+            if (bot == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var search = bot.Search;
+                if (search != null)
+                {
+                    search.ToggleSearch(false, null);
+                    search.Reset();
+                }
+            }
+            catch
+            {
+                // Keep release resilient if SAIN search internals change.
+            }
+
+            try
+            {
+                var enemyController = bot.EnemyController;
+                if (enemyController?.EnemiesArray == null)
+                {
+                    return;
+                }
+
+                foreach (var enemy in enemyController.EnemiesArray)
+                {
+                    enemy?.KnownPlaces?.OnEnemyKnownChanged(false, enemy);
+                }
+            }
+            catch
+            {
+                // Best-effort known-place cleanup only.
+            }
         }
 
         public static string GetFollowerDebugState(BotOwner owner)

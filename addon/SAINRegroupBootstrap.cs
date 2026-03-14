@@ -48,9 +48,6 @@ namespace friendlySAIN.SAINAddon
                 }
 
                 SAINFollowerPersonalityPatch.Apply(harmony);
-                SAINFollowerHitAccuracyPatch.Apply(harmony);
-                SAINFollowerAimTargetPatch.Apply(harmony);
-                SAINFollowerRandomLookPatch.Apply(harmony);
                 SAINFollowerSquadLeaderPatch.Apply(harmony);
                 SAINFollowerLowLightVisionPatch.Apply(harmony);
                 BrainManager.AddCustomLayer(typeof(SAINFollowerCombatLayer), brains, FollowerCombatLayerPriority);

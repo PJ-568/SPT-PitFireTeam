@@ -2,33 +2,22 @@ using EFT;
 using HarmonyLib;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
+using SAIN.Preset;
+using SAIN.Preset.BotSettings;
+using SAIN.Preset.BotSettings.SAINSettings;
 using System;
+using System.Collections;
 using System.Reflection;
+using UnityEngine;
 
 namespace friendlySAIN.SAINAddon
 {
     internal static class SAINFollowerPersonalityPatch
     {
-        private const float HardPlusVisionGainSightCoef = 1.75f;
-        private const float HardPlusHearingDistanceCoef = 1.40f;
-        private const float HardPlusVisibleDistCoef = 1.40f;
-        private const float HardPlusAggressionCoef = 1.50f;
-        private const float HardPlusPrecisionSpeedCoef = 2.10f;
-        private const float HardPlusAccuracySpeedCoefMax = 0.24f;
-        private const float HardPlusScatteringCoefMax = 0.28f;
-        private const float HardPlusFasterCQBReactionsDistance = 50f;
-        private const float HardPlusFasterCQBReactionsMinimumMax = 0.20f;
-        private const float HardPlusMaxAimingUpgradeByTimeMax = 0.20f;
-        private const float HardPlusMaxAimTimeMax = 1.15f;
-        private const float HardPlusBaseHitAffectionDelayMax = 0.35f;
-        private const float HardPlusVisibleDistanceMin = 250f;
-        private const float HardPlusCoreGainSightCoef = 1.00f;
-        private const float FollowerAimForHeadChance = 100f;
         private static Type? _sainEnableType;
         private static Type? _sainPluginType;
         private static MethodInfo? _getSainByBotOwner;
         private static MethodInfo? _getSainByProfile;
-        private static Type? _ePersonalityType;
 
         public static void Apply(Harmony harmony)
         {
@@ -38,12 +27,12 @@ namespace friendlySAIN.SAINAddon
                 new[] { typeof(BotOwner), typeof(pitAIBossPlayer), typeof(bool), typeof(WildSpawnType), typeof(string) });
             if (target == null)
             {
-                Modules.Logger.LogError("[Init] Failed to find BossPlayers.AddFollower for SAIN personality patch.");
+                Modules.Logger.LogError("[Init] Failed to find BossPlayers.AddFollower for SAIN follower template patch.");
                 return;
             }
 
             harmony.Patch(target, postfix: new HarmonyMethod(typeof(SAINFollowerPersonalityPatch), nameof(Postfix_AddFollower)));
-            Modules.Logger.LogInfo("[Init] SAIN follower personality patch applied.");
+            Modules.Logger.LogInfo("[Init] SAIN follower template patch applied.");
         }
 
         private static void Postfix_AddFollower(BotOwner bot, BotFollowerPlayer __result)
@@ -53,56 +42,190 @@ namespace friendlySAIN.SAINAddon
                 if (!friendlySAIN.IsSAINInstalled) return;
                 if (bot == null || __result == null || bot.IsDead) return;
 
-                // Deterministic split per profile so assignment is stable for the same bot.
-                string personalityName = PickFollowerPersonality(bot);
-                TrySetSainPersonality(bot, personalityName);
-                TryApplyFollowerHardPlusSainTuning(bot);
+                TryApplyFollowerBigPipeTemplate(bot);
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogError("[SAIN] Failed to assign follower personality.");
+                Modules.Logger.LogError("[SAIN] Failed to apply followerBigPipe template.");
                 Modules.Logger.LogError(ex);
             }
         }
 
-        private static string PickFollowerPersonality(BotOwner bot)
+        private static void TryApplyFollowerBigPipeTemplate(BotOwner bot)
         {
-            int seed = bot.ProfileId?.GetHashCode() ?? 0;
-            if (seed == int.MinValue) seed = 0;
-            return Math.Abs(seed) % 2 == 0 ? "Chad" : "Normal";
+            if (bot == null) return;
+            if (!ResolveSainGetMethods()) return;
+
+            object? sainBot = GetSainBot(bot);
+            if (sainBot == null) return;
+
+            object? info = GetInstanceMemberValue(sainBot, "Info");
+            if (info == null) return;
+
+            object? loadedPreset = GetSainLoadedPreset();
+            if (loadedPreset == null) return;
+
+            object? botSettings = GetInstanceMemberValue(loadedPreset, "BotSettings");
+            if (botSettings == null) return;
+
+            MethodInfo? getSettings = AccessTools.Method(
+                botSettings.GetType(),
+                "GetSAINSettings",
+                new[] { typeof(WildSpawnType), typeof(BotDifficulty) });
+            if (getSettings == null) return;
+
+            BotDifficulty difficulty = bot.Profile?.Info?.Settings?.BotDifficulty ?? BotDifficulty.normal;
+            SAINSettingsClass? sourceTemplate =
+                getSettings.Invoke(botSettings, new object[] { WildSpawnType.followerBigPipe, difficulty }) as SAINSettingsClass;
+            if (sourceTemplate == null) return;
+
+            SAINSettingsClass followerTemplate = CloneSettings(sourceTemplate);
+            ApplyFollowerTemplateFineTuning(followerTemplate, bot);
+
+            SetInstanceMemberValue(info, "_fileSettings", followerTemplate);
+            SetFollowerProfileDifficultyModifier(info, difficulty);
+            RebuildSainInfoFromTemplate(info, loadedPreset, followerTemplate, bot);
         }
 
-        private static bool TrySetSainPersonality(BotOwner bot, string personalityName)
+        private static SAINSettingsClass CloneSettings(SAINSettingsClass source)
         {
-            if (bot == null || string.IsNullOrEmpty(personalityName)) return false;
-            if (!ResolveSainGetMethods()) return false;
+            SAINSettingsClass clone = DeepCloneObject(source) as SAINSettingsClass ?? new SAINSettingsClass();
+            clone.Init();
+            return clone;
+        }
 
-            object? sainBot = null;
+        private static void ApplyFollowerTemplateFineTuning(SAINSettingsClass settings, BotOwner bot)
+        {
+            if (settings == null) return;
+
+            // Keep this method as the single place for follower-specific tuning on top of the BigPipe template.
+            // Intentionally empty for now: baseline behavior should mirror followerBigPipe as closely as possible.
+        }
+
+        private static void SetFollowerProfileDifficultyModifier(object info, BotDifficulty difficulty)
+        {
+            object? profile = GetInstanceMemberValue(info, "Profile");
+            if (profile == null) return;
+
+            float modifier = SAINBotSettingsClass.DefaultDifficultyModifier.TryGetValue(WildSpawnType.followerBigPipe, out float baseModifier)
+                ? baseModifier
+                : 1f;
+
+            switch (difficulty)
+            {
+                case BotDifficulty.easy:
+                    modifier *= 0.5f;
+                    break;
+                case BotDifficulty.normal:
+                    modifier *= 1.0f;
+                    break;
+                case BotDifficulty.hard:
+                    modifier *= 1.5f;
+                    break;
+                case BotDifficulty.impossible:
+                    modifier *= 1.75f;
+                    break;
+            }
+
+            modifier = Mathf.Round(modifier * 100f) / 100f;
+            float modifierSqrt = Mathf.Round(Mathf.Sqrt(modifier) * 100f) / 100f;
+
+            SetInstanceMemberValue(profile, "<DifficultyModifier>k__BackingField", modifier);
+            SetInstanceMemberValue(profile, "<DifficultyModifierSqrt>k__BackingField", modifierSqrt);
+        }
+
+        private static void RebuildSainInfoFromTemplate(object info, object loadedPreset, SAINSettingsClass followerTemplate, BotOwner bot)
+        {
+            object? difficulty = GetInstanceMemberValue(info, "Difficulty");
+            MethodInfo? updateSettings = difficulty != null ? AccessTools.Method(difficulty.GetType(), "UpdateSettings") : null;
+            updateSettings?.Invoke(difficulty, new[] { loadedPreset });
+
+            MethodInfo? calcTimeBeforeSearch = AccessTools.Method(info.GetType(), "CalcTimeBeforeSearch", Type.EmptyTypes);
+            MethodInfo? calcHoldGroundDelay = AccessTools.Method(info.GetType(), "CalcHoldGroundDelay", Type.EmptyTypes);
+            calcTimeBeforeSearch?.Invoke(info, null);
+            calcHoldGroundDelay?.Invoke(info, null);
+
+            ApplySettingsToBot(info, followerTemplate);
+            Modules.Logger.LogInfo($"[SAIN] Applied followerBigPipe template to follower={bot.Profile?.Nickname ?? bot.name} difficulty={bot.Profile?.Info?.Settings?.BotDifficulty}");
+        }
+
+        private static void ApplySettingsToBot(object info, SAINSettingsClass settings)
+        {
+            object? botOwnerObject = GetInstanceMemberValue(info, "BotOwner");
+            if (botOwnerObject is not BotOwner botOwner) return;
+
+            object? eftFileSettings = botOwner.Settings?.FileSettings;
+            if (eftFileSettings == null) return;
+
+            settings.Aiming.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Boss.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Change.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Grenade.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Hearing.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Lay.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Look.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Mind.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Move.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Patrol.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Scattering.Apply((BotSettingsComponents)eftFileSettings);
+            settings.Shoot.Apply((BotSettingsComponents)eftFileSettings);
+        }
+
+        private static object? DeepCloneObject(object? source)
+        {
+            if (source == null) return null;
+
+            Type type = source.GetType();
+            if (type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal))
+            {
+                return source;
+            }
+
+            if (typeof(IList).IsAssignableFrom(type))
+            {
+                IList sourceList = (IList)source;
+                IList cloneList = (IList)Activator.CreateInstance(type)!;
+                foreach (object? item in sourceList)
+                {
+                    cloneList.Add(DeepCloneObject(item));
+                }
+                return cloneList;
+            }
+
+            object clone = Activator.CreateInstance(type)!;
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            foreach (FieldInfo field in type.GetFields(flags))
+            {
+                if (field.IsInitOnly) continue;
+                object? fieldValue = field.GetValue(source);
+                field.SetValue(clone, DeepCloneObject(fieldValue));
+            }
+
+            return clone;
+        }
+
+        private static object? GetSainLoadedPreset()
+        {
+            _sainPluginType ??= AccessTools.TypeByName("SAIN.SAINPlugin");
+            if (_sainPluginType == null) return null;
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            PropertyInfo? prop = _sainPluginType.GetProperty("LoadedPreset", flags);
+            return prop?.CanRead == true ? prop.GetValue(null, null) : null;
+        }
+
+        private static object? GetSainBot(BotOwner bot)
+        {
             if (_getSainByBotOwner != null)
             {
-                sainBot = _getSainByBotOwner.Invoke(null, new object[] { bot });
+                return _getSainByBotOwner.Invoke(null, new object[] { bot });
             }
-            else if (_getSainByProfile != null && !string.IsNullOrEmpty(bot.ProfileId))
+            if (_getSainByProfile != null && !string.IsNullOrEmpty(bot.ProfileId))
             {
                 object?[] args = { bot.ProfileId, null };
                 bool hasSain = (bool)_getSainByProfile.Invoke(null, args);
-                if (hasSain) sainBot = args[1];
+                if (hasSain) return args[1];
             }
-
-            if (sainBot == null) return false;
-
-            object? info = GetInstanceMemberValue(sainBot, "Info");
-            if (info == null) return false;
-
-            _ePersonalityType ??= AccessTools.TypeByName("SAIN.Models.Preset.Personalities.EPersonality");
-            if (_ePersonalityType == null) return false;
-
-            object enumValue = Enum.Parse(_ePersonalityType, personalityName);
-            MethodInfo? setPersonality = AccessTools.Method(info.GetType(), "SetPersonality", new[] { _ePersonalityType });
-            if (setPersonality == null) return false;
-
-            setPersonality.Invoke(info, new[] { enumValue });
-            return true;
+            return null;
         }
 
         private static bool ResolveSainGetMethods()
@@ -135,261 +258,58 @@ namespace friendlySAIN.SAINAddon
             return _getSainByBotOwner != null || _getSainByProfile != null;
         }
 
-        private static void TryApplyFollowerHardPlusSainTuning(BotOwner bot)
+        private static object? GetInstanceMemberValue(object target, string memberName)
         {
-            if (bot == null) return;
-            if (!ResolveSainGetMethods()) return;
+            if (target == null || string.IsNullOrEmpty(memberName)) return null;
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            object? sainBot = null;
-            if (_getSainByBotOwner != null)
+            Type? type = target.GetType();
+            while (type != null)
             {
-                sainBot = _getSainByBotOwner.Invoke(null, new object[] { bot });
-            }
-            else if (_getSainByProfile != null && !string.IsNullOrEmpty(bot.ProfileId))
-            {
-                object?[] args = { bot.ProfileId, null };
-                bool hasSain = (bool)_getSainByProfile.Invoke(null, args);
-                if (hasSain) sainBot = args[1];
-            }
-
-            if (sainBot == null) return;
-
-            object? info = GetInstanceMemberValue(sainBot, "Info");
-            if (info == null) return;
-
-            object? fileSettings = GetInstanceMemberValue(info, "FileSettings");
-            if (fileSettings == null) return;
-
-            object? difficultySettings = GetInstanceMemberValue(fileSettings, "Difficulty");
-            object? coreSettings = GetInstanceMemberValue(fileSettings, "Core");
-            object? aimingSettings = GetInstanceMemberValue(fileSettings, "Aiming");
-
-            bool changed = false;
-            if (difficultySettings != null)
-            {
-                changed |= SetMinFloat(difficultySettings, "GainSightCoef", HardPlusVisionGainSightCoef);
-                changed |= SetMinFloat(difficultySettings, "HearingDistanceCoef", HardPlusHearingDistanceCoef);
-                changed |= SetMinFloat(difficultySettings, "VisibleDistCoef", HardPlusVisibleDistCoef);
-                changed |= SetMinFloat(difficultySettings, "AggressionCoef", HardPlusAggressionCoef);
-                changed |= SetMinFloat(difficultySettings, "PRECISION_SPEED_COEF", HardPlusPrecisionSpeedCoef);
-                changed |= SetMaxFloat(difficultySettings, "ACCURACY_SPEED_COEF", HardPlusAccuracySpeedCoefMax);
-                changed |= SetMaxFloat(difficultySettings, "ScatteringCoef", HardPlusScatteringCoefMax);
-            }
-            if (coreSettings != null)
-            {
-                changed |= SetMinFloat(coreSettings, "HearingDistanceMulti", HardPlusHearingDistanceCoef);
-                changed |= SetMinFloat(coreSettings, "GainSightCoef", HardPlusCoreGainSightCoef);
-                changed |= SetMinFloat(coreSettings, "VisibleDistance", HardPlusVisibleDistanceMin);
-            }
-            if (aimingSettings != null)
-            {
-                changed |= SetMinFloat(aimingSettings, "FasterCQBReactionsDistance", HardPlusFasterCQBReactionsDistance);
-                changed |= SetMaxFloat(aimingSettings, "FasterCQBReactionsMinimum", HardPlusFasterCQBReactionsMinimumMax);
-                changed |= SetMaxFloat(aimingSettings, "MAX_AIMING_UPGRADE_BY_TIME", HardPlusMaxAimingUpgradeByTimeMax);
-                changed |= SetMaxFloat(aimingSettings, "MAX_AIM_TIME", HardPlusMaxAimTimeMax);
-                changed |= SetMaxFloat(aimingSettings, "BASE_HIT_AFFECTION_DELAY_SEC", HardPlusBaseHitAffectionDelayMax);
-                changed |= SetBool(aimingSettings, "AimCenterMass", false);
-                changed |= SetBool(aimingSettings, "AimForHead", true);
-                changed |= SetMinFloat(aimingSettings, "AimForHeadChance", FollowerAimForHeadChance);
-            }
-
-            if (!changed) return;
-
-            try
-            {
-                // Re-apply core hearing settings immediately.
-                object? eftFileSettings = bot.Settings?.FileSettings;
-                if (coreSettings != null && eftFileSettings != null)
+                PropertyInfo? property = type.GetProperty(memberName, flags);
+                if (property?.CanRead == true)
                 {
-                    MethodInfo? apply = AccessTools.Method(coreSettings.GetType(), "Apply", new[] { eftFileSettings.GetType() });
-                    apply?.Invoke(coreSettings, new[] { eftFileSettings });
+                    return property.GetValue(target, null);
                 }
 
-                // Rebuild SAIN difficulty modifiers from updated settings.
-                object? difficulty = GetInstanceMemberValue(info, "Difficulty");
-                MethodInfo? updateSettings = difficulty != null ? AccessTools.Method(difficulty.GetType(), "UpdateSettings") : null;
-                object? loadedPreset = GetSainLoadedPreset();
-                if (difficulty != null && updateSettings != null && loadedPreset != null)
+                FieldInfo? field = type.GetField(memberName, flags);
+                if (field != null)
                 {
-                    updateSettings.Invoke(difficulty, new[] { loadedPreset });
+                    return field.GetValue(target);
                 }
 
-                float gainSight = GetFloat(difficultySettings, "GainSightCoef");
-                float hearingDiff = GetFloat(difficultySettings, "HearingDistanceCoef");
-                float visibleDist = GetFloat(difficultySettings, "VisibleDistCoef");
-                float aggression = GetFloat(difficultySettings, "AggressionCoef");
-                float precisionSpeed = GetFloat(difficultySettings, "PRECISION_SPEED_COEF");
-                float accuracySpeed = GetFloat(difficultySettings, "ACCURACY_SPEED_COEF");
-                float scattering = GetFloat(difficultySettings, "ScatteringCoef");
-                float hearingCore = GetFloat(coreSettings, "HearingDistanceMulti");
-                float gainSightCore = GetFloat(coreSettings, "GainSightCoef");
-                float visibleDistanceCore = GetFloat(coreSettings, "VisibleDistance");
-                float cqbDistance = GetFloat(aimingSettings, "FasterCQBReactionsDistance");
-                float cqbMinimum = GetFloat(aimingSettings, "FasterCQBReactionsMinimum");
-                float maxAimingUpgrade = GetFloat(aimingSettings, "MAX_AIMING_UPGRADE_BY_TIME");
-                float maxAimTime = GetFloat(aimingSettings, "MAX_AIM_TIME");
-                float baseHitAffection = GetFloat(aimingSettings, "BASE_HIT_AFFECTION_DELAY_SEC");
-                Modules.Logger.LogInfo(
-                    $"[SAIN] follower hard+ tuning applied bot={bot.Profile?.Nickname ?? bot.name} " +
-                    $"gainSight={gainSight:F2} hearingDiff={hearingDiff:F2} visibleDist={visibleDist:F2} aggression={aggression:F2} " +
-                    $"precisionSpeed={precisionSpeed:F2} accuracySpeed={accuracySpeed:F2} scattering={scattering:F2} " +
-                    $"hearingCore={hearingCore:F2} gainSightCore={gainSightCore:F2} visibleDistance={visibleDistanceCore:F1} " +
-                    $"cqbDist={cqbDistance:F1} cqbMin={cqbMinimum:F2} maxAimUpgrade={maxAimingUpgrade:F2} " +
-                    $"maxAimTime={maxAimTime:F2} hitAffectDelay={baseHitAffection:F2}");
+                type = type.BaseType;
             }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError($"[SAIN] Failed applying follower hard+ tuning bot={bot?.Profile?.Nickname}");
-                Modules.Logger.LogError(ex);
-            }
+
+            return null;
         }
 
-        private static object? GetSainLoadedPreset()
-        {
-            _sainPluginType ??= AccessTools.TypeByName("SAIN.SAINPlugin");
-            if (_sainPluginType == null) return null;
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            PropertyInfo? prop = _sainPluginType.GetProperty("LoadedPreset", flags);
-            return prop?.CanRead == true ? prop.GetValue(null, null) : null;
-        }
-
-        private static bool SetMinFloat(object target, string memberName, float minValue)
+        private static bool SetInstanceMemberValue(object target, string memberName, object? value)
         {
             if (target == null || string.IsNullOrEmpty(memberName)) return false;
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
-            if (prop != null && prop.PropertyType == typeof(float) && prop.CanRead && prop.CanWrite)
+            Type? type = target.GetType();
+            while (type != null)
             {
-                float current = (float)prop.GetValue(target);
-                if (current < minValue)
+                PropertyInfo? property = type.GetProperty(memberName, flags);
+                if (property?.CanWrite == true)
                 {
-                    prop.SetValue(target, minValue);
-                    return true;
-                }
-                return false;
-            }
-
-            FieldInfo? field = target.GetType().GetField(memberName, flags);
-            if (field != null && field.FieldType == typeof(float))
-            {
-                float current = (float)field.GetValue(target);
-                if (current < minValue)
-                {
-                    field.SetValue(target, minValue);
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static float GetFloat(object? target, string memberName)
-        {
-            if (target == null || string.IsNullOrEmpty(memberName)) return -1f;
-
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
-            if (prop != null && prop.PropertyType == typeof(float) && prop.CanRead)
-            {
-                return (float)prop.GetValue(target);
-            }
-
-            FieldInfo? field = target.GetType().GetField(memberName, flags);
-            if (field != null && field.FieldType == typeof(float))
-            {
-                return (float)field.GetValue(target);
-            }
-
-            return -1f;
-        }
-
-        private static bool SetMaxFloat(object target, string memberName, float maxValue)
-        {
-            if (target == null || string.IsNullOrEmpty(memberName)) return false;
-
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
-            if (prop != null && prop.PropertyType == typeof(float) && prop.CanRead && prop.CanWrite)
-            {
-                float current = (float)prop.GetValue(target);
-                if (current > maxValue)
-                {
-                    prop.SetValue(target, maxValue);
-                    return true;
-                }
-                return false;
-            }
-
-            FieldInfo? field = target.GetType().GetField(memberName, flags);
-            if (field != null && field.FieldType == typeof(float))
-            {
-                float current = (float)field.GetValue(target);
-                if (current > maxValue)
-                {
-                    field.SetValue(target, maxValue);
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool SetBool(object target, string memberName, bool value)
-        {
-            if (target == null || string.IsNullOrEmpty(memberName)) return false;
-
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            PropertyInfo? prop = target.GetType().GetProperty(memberName, flags);
-            if (prop != null && prop.PropertyType == typeof(bool) && prop.CanRead && prop.CanWrite)
-            {
-                bool current = (bool)prop.GetValue(target);
-                if (current != value)
-                {
-                    prop.SetValue(target, value);
+                    property.SetValue(target, value, null);
                     return true;
                 }
 
-                return false;
-            }
-
-            FieldInfo? field = target.GetType().GetField(memberName, flags);
-            if (field != null && field.FieldType == typeof(bool))
-            {
-                bool current = (bool)field.GetValue(target);
-                if (current != value)
+                FieldInfo? field = type.GetField(memberName, flags);
+                if (field != null)
                 {
                     field.SetValue(target, value);
                     return true;
                 }
+
+                type = type.BaseType;
             }
 
             return false;
-        }
-
-        private static object? GetInstanceMemberValue(object target, string memberName)
-        {
-            if (target == null || string.IsNullOrEmpty(memberName))
-            {
-                return null;
-            }
-
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            Type type = target.GetType();
-
-            PropertyInfo? prop = type.GetProperty(memberName, flags);
-            if (prop != null && prop.CanRead)
-            {
-                return prop.GetValue(target, null);
-            }
-
-            FieldInfo? field = type.GetField(memberName, flags);
-            if (field != null)
-            {
-                return field.GetValue(target);
-            }
-
-            return null;
         }
     }
 }
