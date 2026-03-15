@@ -83,6 +83,13 @@ namespace friendlySAIN.Patches
                     return;
                 }
 
+                // This sprint-direction nudge is only meant to stabilize peaceful follow chase.
+                // Let vanilla combat fully own movement and steering once the follower has an enemy.
+                if (bot.Memory?.HaveEnemy == true || HasVisibleKnownEnemy(bot))
+                {
+                    return;
+                }
+
                 MovementContext movementContext = __instance.MovementContext;
                 if (!movementContext.IsSprintEnabled || !movementContext.CanSprint || !movementContext.CanWalk)
                 {
@@ -114,6 +121,32 @@ namespace friendlySAIN.Patches
             {
                 Logger.LogError(ex);
             }
+        }
+
+        private static bool HasVisibleKnownEnemy(BotOwner bot)
+        {
+            try
+            {
+                var infos = bot.EnemiesController?.EnemyInfos;
+                if (infos == null || infos.Count == 0)
+                {
+                    return false;
+                }
+
+                foreach (var kv in infos)
+                {
+                    if (kv.Value?.IsVisible == true)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // Keep the movement patch fail-closed on transient enemy-info issues.
+            }
+
+            return false;
         }
     }
 }

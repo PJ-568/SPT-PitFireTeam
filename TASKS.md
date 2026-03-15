@@ -25,7 +25,7 @@ Very similar to old flow, but with some adjustments:
 
 # (IN PROGRESS) - Implement follower fight behavior for combat
 
-Phase 1 plan (bug fixing phase):
+Phase 1 plan (finished):
 
 - Build a new SAIN layer: `CombatFollowerLayer`, functionally similar to `CombatSquadLayer`.
 - Keep SAIN baseline behavior where possible by reusing squad decisions that do not depend on SAIN squad leader/member context.
@@ -36,12 +36,12 @@ Phase 1 plan (bug fixing phase):
 - Ensure this layer becomes active for recruited followers and SAIN default combat layers do not run for those followers while `CombatFollowerLayer` is active.
 - Keep current SAIN `CombatSoloLayer`/`CombatSquadLayer` priorities in mind (`20` solo, `22` squad) and integrate follower layer with explicit activation/gating rules rather than ad-hoc decision overrides.
 
-Phase 2 plan (not started):
+Phase 2 plan (started):
 
 - Iterate and tune `CombatFollowerLayer` decisions from gameplay tests.
 - Adjust/override specific decisions as needed for follower combat feel and reliability.
 - Continue replacing squad-context-sensitive branches with boss/follower-aware variants when test results show mismatch.
-- Implement enemy push behavior when target is close enough and weak enough.
+- x - Implement enemy push behavior when target is close enough and weak enough.
 - Determine enemy weakness using `IsEnemyLowThreat()` behavior from the old plugin.
 - Enemy push implementation in this phase must work with and without SAIN runtime.
 - For non-SAIN runtime, complete this in Phase 3 by replicating the relevant vanilla PMC combat layer as a BigBrain layer to gain full control.

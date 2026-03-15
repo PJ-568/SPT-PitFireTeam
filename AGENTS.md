@@ -44,7 +44,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-13  
+Last updated: 2026-03-15  
 Scope: runtime behavior currently present in `friendlySAIN/client` and `friendlySAIN/addon` (based on active code paths in `friendlyPlugin.cs` and addon bootstrap/patches).
 
 ## BE / Server State (Important)
@@ -202,9 +202,9 @@ Implemented:
     - `HoldGesture`,
     - `ThereGesture`.
 - Recruit/spawn follower acknowledgment phrases are now controlled separately:
-    - recruit path uses a forced-phrase gate and immediate `BotTalk.Say(EPhraseTrigger.Roger, true)` after deferred conversion,
+    - recruit path uses a forced-phrase gate, cooldown drop, and direct `BotTalk.Say(EPhraseTrigger.Roger, true)` after deferred conversion,
     - debug-spawn path uses a forced-phrase gate and delayed `TrySay(EPhraseTrigger.Ready, false)`,
-    - spawn `Ready` is currently reliable; recruit phrase timing is still an active validation area.
+    - recruit `Roger` and spawn `Ready` are the current expected behavior.
 - Attention command now clears follower enemy state more aggressively:
     - clears memory goal/last enemy,
     - removes known enemies from bot memory and group cache.
@@ -226,6 +226,8 @@ Bot/group/follower stability:
 - `LootPatrolActiveLayerListPatch`
 - `LootPatrolDecisionBypassPatch`
 - `AdvAssaultTargetFollowerGuardPatch`
+- `PatrolDataFollowerUpdateGuardPatch`
+- `AvoidDangerFollowerGuardPatch`
 - `AICoreAgentUpdatePatch` (logs/rethrows update exceptions)
 
 Movement:
@@ -308,11 +310,13 @@ SAIN integration:
     - `SAINFollowerFriendlyFirePatch` (for follower shooters, delegates SAIN shot blocking to vanilla `ShootData.CheckFriendlyFire(from, to)` using `WeaponRoot.position` -> `CurrentAiming.RealTargetPoint`),
     - `SAINFollowerGroupTalkDirectionPatch` (uses boss look direction for directional enemy talk checks),
     - `SAINCalcGoalPatch` + `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
-    - `SAINFollowerPersonalityPatch`,
-    - `SAINFollowerHitAccuracyPatch`,
-    - `SAINFollowerLowLightVisionPatch`,
-    - `SAINFollowerAimTargetPatch`,
-    - `SAINFollowerRandomLookPatch`.
+    - `SAINFollowerPersonalityPatch` (injects a per-follower clone of SAIN `followerBigPipe` bot settings as the follower combat template and aligns SAIN difficulty modifier to that template),
+    - `SAINFollowerLowLightVisionPatch`.
+- Follower SAIN tuning rule:
+    - current stable path prefers SAIN template settings (`followerBigPipe`) over follower-specific aim/look compensation patches.
+    - legacy follower aim-target/random-look/hit-accuracy patch files still exist in addon source, but are not wired by bootstrap.
+- SAIN attention/release reset now clears stale search state through the addon bridge:
+    - `SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState(...)` and `TryResetFollowerDecisionState(...)` clear `SAINSearchClass` active target/path and invalidate `EnemyKnownPlaces` for all tracked SAIN enemies before resetting decisions/layer state.
 - Legacy `SAINDecisionRegroupPatch.cs` remains in addon source but is currently not wired by bootstrap.
 
 ## 5) Safety/Crash Guards Added
@@ -331,6 +335,10 @@ SAIN integration:
 - Interaction/visibility null guards:
     - `client/Modules/InteractableObjects.cs`
     - hardened seen-enemy and boss-state checks against null/missing player/bot references.
+- Vanilla follower/update crash guards:
+    - `client/Patches/FollowerVanillaSafetyPatch.cs`
+    - `PatrolDataFollowerUpdateGuardPatch` prevents vanilla follower patrol from running with a missing boss/player-follow backing object and attempts boss-link recovery through `BossPlayers`.
+    - `AvoidDangerFollowerGuardPatch` blocks vanilla `GClass48.ShallUseNow()` for followers when required danger subsystems are not initialized, preventing repeated `AvoidDanger` NREs.
 
 ## 6) Teleport / Utility
 
@@ -351,9 +359,13 @@ SAIN integration:
 - SAIN-friendly-fire path:
     - current follower-only SAIN override no longer uses custom boss/follower geometry checks.
     - it asks vanilla `ShootData.CheckFriendlyFire(from, to)` directly so SAIN follower fire denial follows vanilla friendly-fire sphere settings (`settings.FileSettings.Aiming.SHPERE_FRIENDY_FIRE_SIZE`) and vanilla ally filtering.
-- SAIN aiming notes:
-    - follower aim target override preserves SAIN `CheckYValue(centerMass, partTarget)` behavior instead of returning a raw body-part target.
-    - follower random-look suppression only blocks SAIN `RandomLookClass.UpdateRandomLook()` when follower has a visible target; it does not disable other SAIN shot movement sources such as recoil or aim smoothing.
+- SAIN follower combat template:
+    - recruited followers now use a per-bot cloned copy of SAIN `followerBigPipe` settings as their combat template.
+    - the template is applied through addon-owned SAIN info/file-settings injection instead of follower-specific aim-target/random-look/hit-accuracy patching.
+    - `addon/SAINFollowerPersonalityPatch.cs` is the single entry point for future follower SAIN fine-tuning on top of that template (`ApplyFollowerTemplateFineTuning(...)`).
+- SAIN stale search cleanup:
+    - stale `EnemyKnownPlaces` / `SAINSearchClass` state was identified as the source of repeated `EPhraseTrigger.Clear` / `LostVisual` after combat or attention.
+    - addon release/reset bridge now explicitly clears active SAIN search state and invalidates known places during follower combat-state release/reset.
 - `PingTeamates` GUI path optimization:
     - per-frame draw loops now use index-based iteration instead of delegate-based `List.ForEach`.
     - bot status text reuses a single `StringBuilder` instance instead of allocating per bot per frame.
