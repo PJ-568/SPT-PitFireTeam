@@ -216,6 +216,9 @@ namespace friendlySAIN
             new AdvAssaultTargetFollowerGuardPatch().Enable();
             new PatrolDataFollowerUpdateGuardPatch().Enable();
             new AvoidDangerFollowerGuardPatch().Enable();
+            new PmcBearCombatLayerSuppressionPatch().Enable();
+            new PmcUsecCombatLayerSuppressionPatch().Enable();
+            new PmcFlankCombatLayerSuppressionPatch().Enable();
             
             if(!IsSAINInstalled)
                 new FollowerSprintPatch().Enable();

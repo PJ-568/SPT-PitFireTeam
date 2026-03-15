@@ -148,7 +148,7 @@ namespace friendlySAIN.Patches
 
         internal static void ApplyEnglishVoiceForProfile(Profile profile)
         {
-            if (!friendlySAIN.englishBear.Value) return;
+            if (friendlySAIN.englishBear?.Value != true) return;
             if (profile == null || profile.Info == null) return;
             WildSpawnType role = profile.Info.Settings?.Role ?? WildSpawnType.assault;
             bool isBearSide = profile.Info.Side == EPlayerSide.Bear;
@@ -297,7 +297,7 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(ref Task<Profile[]> __result)
         {
-            if (!friendlySAIN.englishBear.Value || __result == null) return;
+            if (friendlySAIN.englishBear?.Value != true || __result == null) return;
             __result = ApplyEnglishVoiceAsync(__result);
         }
 

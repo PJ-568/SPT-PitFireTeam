@@ -13,8 +13,9 @@ namespace friendlySAIN.BigBrain
     internal static class FollowerLayerRegistry
     {
         private static bool initialized;
-        private const int FollowerRequestLayerPriority = 72;
+        private const int FollowerRequestLayerPriority = 73;
         private const int FollowerLayerPriority = 71;
+        private const int FollowerCombatLayerPriority = 72;
 
         public static void Init()
         {
@@ -35,6 +36,17 @@ namespace friendlySAIN.BigBrain
                 "BirdEye"
             };
 
+            List<string> pmcCombatBrains = new List<string>
+            {
+                "PmcBear",
+                "PmcUsec",
+                "ExUsec",
+                "PMC",
+                "Assault",
+                "Obdolbs",
+                "CursAssault"
+            };
+
             List<string> vanillaLayersToDisable = new List<string>
             {
                 "FightReqNull",
@@ -44,6 +56,7 @@ namespace friendlySAIN.BigBrain
             try
             {
                 BrainManager.RemoveLayers(vanillaLayersToDisable, brains);
+                BrainManager.AddCustomLayer(typeof(FollowerPmcCombatLayer), pmcCombatBrains, FollowerCombatLayerPriority);
                 BrainManager.AddCustomLayer(typeof(FollowerRequestLayer), brains, FollowerRequestLayerPriority);
                 BrainManager.AddCustomLayer(typeof(FollowerPatrolLayer), brains, FollowerLayerPriority);
             }

@@ -65,12 +65,15 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            if (!followerData.IsReadyForPatrolAfterCombat())
+            bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
+            bool allowVanillaCombatRegroup = hasCommand &&
+                                            command == FollowerCommandType.RegroupNearBoss &&
+                                            !friendlySAIN.IsSAINInstalled;
+
+            if (!allowVanillaCombatRegroup && !followerData.IsReadyForPatrolAfterCombat())
             {
                 return false;
             }
-
-            bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
 
             if (hasCommand && followerData.HasKnownEnemy())
             {
@@ -81,6 +84,11 @@ namespace friendlySAIN.BigBrain
                     {
                         BotOwner.StopMove();
                         return false;
+                    }
+
+                    if (allowVanillaCombatRegroup)
+                    {
+                        return true;
                     }
                 }
 
