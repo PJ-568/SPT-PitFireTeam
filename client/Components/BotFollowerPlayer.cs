@@ -142,6 +142,7 @@ namespace friendlySAIN.Components
 
             // remove layers that might conflict with our logic (like vanilla follow or loot patrol layers)
             RemoveConflictingLayers(_bot.Brain.BaseBrain, _bot.Brain.Agent);
+            SuppressThirdPartyPeaceBehaviors();
 
             ForceEndCurrentDecision(_bot);
             HookPeaceChange();
@@ -1961,7 +1962,10 @@ namespace friendlySAIN.Components
                 "Exfiltration",
                 "SAIN : Extract",
                 "SAIN : Squad Layer",
-                "Follow Player"
+                "Follow Player",
+                "Looting",
+                "BotMind_Looting",
+                "BotMind_Questing"
             };
 
             var toRemove = new List<int>();
@@ -1994,6 +1998,43 @@ namespace friendlySAIN.Components
 
                 brain.List_0.Remove(layer);
                 //brain.Dictionary_0.Remove(index);
+            }
+        }
+
+        private void SuppressThirdPartyPeaceBehaviors()
+        {
+            SuppressLootingBotsLooting();
+        }
+
+        private void SuppressLootingBotsLooting()
+        {
+            if (!Chainloader.PluginInfos.ContainsKey("me.skwizzy.lootingbots"))
+            {
+                return;
+            }
+
+            try
+            {
+                Type externalType = Type.GetType("LootingBots.External, skwizzy.LootingBots");
+                if (externalType == null)
+                {
+                    Modules.Logger.LogInfo("LootingBots External type not found while suppressing follower looting");
+                    return;
+                }
+
+                MethodInfo preventMethod = AccessTools.Method(externalType, "PreventBotFromLooting");
+                if (preventMethod == null)
+                {
+                    Modules.Logger.LogInfo("LootingBots PreventBotFromLooting method not found while suppressing follower looting");
+                    return;
+                }
+
+                preventMethod.Invoke(null, new object[] { _bot, 36000f });
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to suppress LootingBots looting for follower " + _bot?.Profile?.Nickname);
+                Modules.Logger.LogError(ex);
             }
         }
 
