@@ -44,7 +44,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-15  
+Last updated: 2026-03-17  
 Scope: runtime behavior currently present in `friendlySAIN/client` and `friendlySAIN/addon` (based on active code paths in `friendlyPlugin.cs` and addon bootstrap/patches).
 
 ## BE / Server State (Important)
@@ -216,6 +216,7 @@ Bot/group/follower stability:
 - `BotGroupAddEnemyPatch`
 - `BotGroupReportEnemyPatch`
 - `BotGroupUsecEnemyPatch`
+- `BotGroupCalcGoalPatch`
 - `BotControllerEnemyPropagationSafetyPatch`
 - `BotMemoryDamagePatch`
 - `ExUsecBrainHitPatch`
@@ -309,9 +310,15 @@ SAIN integration:
 - SAIN addon currently applies follower-focused combat/retention patches from `addon/SAINRegroupBootstrap.cs`:
     - `SAINFollowerFriendlyFirePatch` (for follower shooters, delegates SAIN shot blocking to vanilla `ShootData.CheckFriendlyFire(from, to)` using `WeaponRoot.position` -> `CurrentAiming.RealTargetPoint`),
     - `SAINFollowerGroupTalkDirectionPatch` (uses boss look direction for directional enemy talk checks),
-    - `SAINCalcGoalPatch` + `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
+    - `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
     - `SAINFollowerPersonalityPatch` (injects a per-follower clone of SAIN `followerBigPipe` bot settings as the follower combat template and aligns SAIN difficulty modifier to that template),
     - `SAINFollowerLowLightVisionPatch`.
+- Follower enemy acquisition split:
+    - shared forward-scan acquire assist now lives in core and is triggered from `client/Patches/BotGroupCalcGoalPatch.cs` by patching `BotCalcGoal.CalcGoalForBot()` directly,
+    - core handler lives in `client/Modules/FollowerCalcGoalEnemyAcquire.cs`,
+    - this path is runtime-neutral and now assists both vanilla and SAIN follower enemy pickup when vanilla goal calculation runs,
+    - SAIN addon only keeps the SAIN-specific `CheckAddEnemy` gating path (`SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` same-side/ally filtering),
+    - old addon-only wrapper `addon/SAINCalcGoalPatch.cs` was removed.
 - Follower SAIN tuning rule:
     - current stable path prefers SAIN template settings (`followerBigPipe`) over follower-specific aim/look compensation patches.
     - legacy follower aim-target/random-look/hit-accuracy patch files still exist in addon source, but are not wired by bootstrap.
@@ -372,6 +379,13 @@ SAIN integration:
     - tracked body-part iteration uses a static array instead of `Enum.GetValues(...)` allocations.
 - SAIN bridge debug noise reduction:
     - follower SAIN enemy-bridge debug logs are disabled by default (`EnableSainEnemyBridgeDebugLogs = false`) to reduce runtime string/log overhead.
+- SAIN navigation investigation result:
+    - SAIN does not currently have one broad active non-mover "navigation fix" patch that generically recovers stuck bots.
+    - active navigation-adjacent behavior is split across:
+        - `Patches/MovementPatches.cs` global movement-context patches (`MovementContextIsAIPatch`, `CanBeSnappedPatch`) and mover-manual-update patches,
+        - door handling outside the mover (`Classes/PlayerManager/Doors/DoorHandler.cs`, `Classes/Bot/Doors/DoorOpener.cs`),
+        - `SAINBotUnstuckClass`, which contains vault/teleport unstuck logic but its coroutine body currently has the core unstuck calls commented out.
+    - practical implication: treat SAIN door handling and SAIN layer/mover handoff as active navigation influences first; do not assume SAIN has an active generic unstuck system currently rescuing follower navigation.
 - Several debug/trace patches were iterated during movement work; current runtime path is focused on minimal active tracing.
 - Request command logs were reduced/removed from `AIBossPlayer` (`[Req] Hold/There/ComeWithMe ...`) to keep runtime logs cleaner.
 - Debug console command:
