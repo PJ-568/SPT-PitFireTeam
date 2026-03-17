@@ -98,6 +98,7 @@ namespace friendlySAIN
         public Dictionary<string, string> gestures { get; set; }
 
         public Dictionary<string, string> botStatus { get; set; }
+        public Dictionary<string, string> socialUi { get; set; }
 
         public Dictionary<string, string> patrolRadius { get; set; }
 
@@ -257,6 +258,12 @@ namespace friendlySAIN
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();
             new PlayerSayPatch().Enable();
+            new AddTeammateBackButtonPatch().Enable();
+            new AddTeammateNicknameFieldEndEditPatch().Enable();
+            new AddTeammateNicknameFieldInitPatch().Enable();
+            new AddTeammateNicknameFieldStatusPatch().Enable();
+            new AddTeammateNicknameValueChangedPatch().Enable();
+            new AddTeammateFinishPatch().Enable();
 
             // AIBossPlayer class patch
             new AIDataContructPatch().Enable();
@@ -268,6 +275,7 @@ namespace friendlySAIN
             new EPhraseTriggerPatch().Enable();
             new PlayPhraseOrGesturePatch().Enable();
             new BotReceiverGestureOverridePatch().Enable();
+            new ChatFriendsPanelAddTeammateButtonPatch().Enable();
 
             // Temporarily disable screen/matchmaker patching while focusing on in-raid recruit/follow flow.
             new RaidStartPatch().Enable();
@@ -288,15 +296,16 @@ namespace friendlySAIN
             //new ConditionCounterPatch().Enable();
 
             // social/screen related patches disabled for now
-            // new SocialNetworkClassPatch().Enable();
+            new SocialNetworkClassPatch().Enable();
             // new SocialNetworkClassSendPatch().Enable();
             // new QuestClassPatch().Enable();
 
             // set configuration manager
             SetConfiguration();
 
-            // new OtherPlayerProfileScreenPatch().Enable();
-            // new OtherPlayerProfileScreenClosePatch().Enable();
+            new FriendlyDropdownNamePatch().Enable();
+            new OtherPlayerProfileScreenPatch().Enable();
+            new OtherPlayerProfileScreenClosePatch().Enable();
 
             // SAIN/Donuts patches
             if (IsSAINInstalled)

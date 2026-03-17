@@ -101,6 +101,17 @@ namespace friendlySAIN.Localization
                     ["Alerted"] = "Enemy Detected",
                     ["Heal"] = "Healing",
                     ["WantToHeal"] = "Wants to heal"
+                },
+                socialUi = new Dictionary<string, string>
+                {
+                    ["AddTeammate"] = "+ Add teammate",
+                    ["AddTeammateInProgress"] = "adding {0} as teammate",
+                    ["AddTeammateConfirm"] = "Add Teammate",
+                    ["AddTeammateFlowActive"] = "Add teammate flow is already open.",
+                    ["AddTeammateOpenFailed"] = "Could not open teammate creation screen.",
+                    ["AddTeammateUnsupportedSide"] = "Add teammate only supports PMC profiles right now.",
+                    ["EnterNickname"] = "Enter player nickname",
+                    ["NicknameTooShort"] = "Nickname too short"
                 }
             };
         }

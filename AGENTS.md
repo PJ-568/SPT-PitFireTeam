@@ -32,6 +32,8 @@ When fixing bugs or implementing changes:
 - preserve current architecture and naming style
 - prefer stability over elegance
 
+Do not leave left overs. When going with a different approach, clean up (or revert) the old approach
+
 ## Decision Priority
 
 When multiple approaches are possible, prefer:
@@ -44,16 +46,46 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-17  
-Scope: runtime behavior currently present in `friendlySAIN/client` and `friendlySAIN/addon` (based on active code paths in `friendlyPlugin.cs` and addon bootstrap/patches).
+Last updated: 2026-03-18  
+Scope: runtime behavior currently present in `friendlySAIN/client`, `friendlySAIN/addon`, and the in-progress teammate backend under `friendlySAIN/server` (based on active code paths in `friendlyPlugin.cs`, addon bootstrap/patches, and current server mod routes).
 
 ## BE / Server State (Important)
 
-- Backend (BE) support for this plugin is **not implemented yet**.
-- Do **not** add new runtime paths that depend on **plugin-owned/custom** BE profile generation/fetch endpoints for debug/runtime bot spawn flows.
-- Using existing **game-side** profile loading flow (`ISession.LoadBots`) is allowed.
+- A plugin-owned teammate backend is now **in progress** under `friendlySAIN/server`.
+- This backend is currently limited to custom teammate profile creation/storage/social-view flows. It is **not** a general replacement for stock SPT profile generation or runtime bot loading.
+- Do **not** add new runtime paths that depend on plugin-owned/custom BE profile generation/fetch endpoints for debug/runtime follower spawn flows unless the task is explicitly about the teammate system.
+- Using existing game-side profile loading flow (`ISession.LoadBots`) remains the allowed path for debug/runtime spawn helpers.
 - If a spawn flow requires BE profile data and no local/prefetched profile exists, it should fail fast with a clear reason instead of attempting BE fallback.
 - `InteractableObjects` BE return-items endpoint call is currently disabled in client runtime (`/singleplayer/returnitems` is not posted).
+
+## 0a) Teammate System Status (In Progress)
+
+Current custom teammate feature state:
+
+- Friends list has a localized `Add Teammate` entry injected into the social UI.
+- Pressing it opens a custom teammate creation flow built on the stock appearance screen:
+    - name entry,
+    - player-side forced automatically,
+    - head and voice selection,
+    - localized validation/prompt text overrides,
+    - custom back/submit handling.
+- On submit, the client posts `{ nickname, voice, head }` to the server endpoint `/singleplayer/friendlysain/teammate/create`.
+- Server generates a PMC bot of the player side, overwrites name/voice/head, and saves it as mod-owned JSON under:
+    - `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
+- Stock social flows are partially bridged for teammates:
+    - teammates are merged into `/client/friend/list`
+    - teammate profile view is merged into `/client/profile/view`
+    - teammate deletion is bridged through `/client/friend/delete`
+- Teammate profile view customization is in progress:
+    - hideout/report are hidden,
+    - stock clothes dropdowns are reused,
+    - custom loadout dropdown is injected below,
+    - clothes/loadout persistence routes exist on the server,
+    - UI layout tuning is still active.
+- Not implemented yet:
+    - teammate spawn from saved backend profile during raid,
+    - broader teammate runtime systems beyond social/profile customization,
+    - converting teammate profiles into full stock `SptProfile` accounts.
 
 ## 0) Project Context
 

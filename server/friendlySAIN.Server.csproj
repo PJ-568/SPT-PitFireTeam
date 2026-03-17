@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <Import Project="..\..\SERVER-4.08\Build.props" />
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>friendlySAIN.Server</AssemblyName>
+    <RootNamespace>friendlySAIN.Server</RootNamespace>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="SPTarkov.Common">
+      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.Common\bin\$(Configuration)\net9.0\SPTarkov.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="SPTarkov.DI">
+      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.DI\bin\$(Configuration)\net9.0\SPTarkov.DI.dll</HintPath>
+    </Reference>
+    <Reference Include="SPTarkov.Server.Core">
+      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.Server.Core\bin\$(Configuration)\net9.0\SPTarkov.Server.Core.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="SemanticVersioning" Version="3.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Resources\" />
+  </ItemGroup>
+  <Target Name="CopyToServer" AfterTargets="PostBuildEvent">
+    <ItemGroup>
+      <OutputDll Include="$(ProjectDir)$(OutDir)$(TargetName).dll" />
+      <Resources Include="$(ProjectDir)Resources\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(OutputDll)" DestinationFolder="F:\Projects\SPT-Tarkov\SERVER-4.08\SPTarkov.Server\bin\$(Configuration)\net9.0\user\mods\friendlySAIN-ServerMod" />
+    <Copy
+      SourceFiles="@(Resources)"
+      DestinationFolder="F:\Projects\SPT-Tarkov\SERVER-4.08\SPTarkov.Server\bin\$(Configuration)\net9.0\user\mods\friendlySAIN-ServerMod\Resources\%(RecursiveDir)"
+      SkipUnchangedFiles="true"
+    />
+  </Target>
+</Project>

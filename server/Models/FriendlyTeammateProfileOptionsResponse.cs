@@ -1,0 +1,15 @@
+namespace friendlySAIN.Server.Models;
+
+public record FriendlyTeammateProfileOptionsResponse
+{
+    public string CurrentLoadoutId { get; set; } = string.Empty;
+
+    public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; } = [];
+}
+
+public record FriendlyTeammateLoadoutOption
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+}

@@ -1,4 +1,4 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 using EFT.InventoryLogic;
 using EFT.UI;
@@ -8,7 +8,6 @@ using Newtonsoft.Json;
 using SPT.Common.Http;
 using SPT.Common.Utils;
 using SPT.Reflection.Patching;
-using SPT.Reflection.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,26 +15,59 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.UI;
 using dropDownItem = GClass3682;
-using OtherProfileController = EFT.UI.OtherPlayerProfileScreen.GClass3883;
 using OtherProfileResult = GClass2213;
 using ResultProfile = GClass1416;
 
 namespace friendlySAIN.Patches
 {
-
-    internal class DropDownItem : dropDownItem
+    internal class FriendlyProfileDropdownItem : dropDownItem
     {
-        public string Type;
     }
 
-    /** Patch how items name are displayed in the dropdown as we cannot rely on the game's built-in localization for all */
-    [HarmonyPatch(typeof(GClass3672), "NameLocalizationKey", MethodType.Getter)]
-    public static class NameLocalizationKeyPatch
+    internal class FriendlyTeammateBodyResponse<T>
     {
-        static bool Prefix(GClass3672 __instance, ref string __result)
+        public int err { get; set; }
+        public string errmsg { get; set; }
+        public T data { get; set; }
+    }
+
+    internal class FriendlyTeammateLoadoutOption
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+    }
+
+    internal class FriendlyTeammateProfileOptions
+    {
+        public string CurrentLoadoutId { get; set; }
+        public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; }
+    }
+
+    internal class FriendlyTeammateSuitRequest
+    {
+        public string aid { get; set; }
+        public string[] suit { get; set; }
+    }
+
+    internal class FriendlyTeammateLoadoutRequest
+    {
+        public string aid { get; set; }
+        public string loadoutId { get; set; }
+    }
+
+    internal class FriendlyDropdownNamePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
         {
-            if (OtherPlayerProfileScreenPatch.EquipIds.Contains(__instance.Id))
+            return AccessTools.PropertyGetter(typeof(GClass3672), "NameLocalizationKey");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(GClass3672 __instance, ref string __result)
+        {
+            if (OtherPlayerProfileScreenPatch.CustomDropdownIds.Contains(__instance.Id))
             {
                 __result = __instance.Name;
                 return false;
@@ -47,231 +79,424 @@ namespace friendlySAIN.Patches
 
     internal class OtherPlayerProfileScreenPatch : ModulePatch
     {
-        public static ResultProfile viewedProfile = null;
+        private const string OptionsRoute = "/singleplayer/friendlysain/teammate/profile/options";
+        private const string SuitRoute = "/singleplayer/friendlysain/teammate/profile/suit";
+        private const string LoadoutRoute = "/singleplayer/friendlysain/teammate/profile/loadout";
 
-        public static Transform equipSelector = null;
+        private static readonly FieldInfo PlayerModelWindowField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow");
+        private static readonly FieldInfo ClothingPanelField = AccessTools.Field(typeof(InventoryPlayerModelWithStatsWindow), "_clothingPanel");
+        private static readonly FieldInfo HideoutButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_hideoutButton");
+        private static readonly FieldInfo ReportPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_reportPanel");
+        private static readonly FieldInfo UiField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "UI");
+        private static readonly FieldInfo UpperDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_upperButtonDropDown");
+        private static readonly FieldInfo LowerDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_lowerButtonDropDown");
+        private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
+        private static readonly string GearIconPath = Path.Combine(PluginDirectory, "gear.png");
 
-        public static Transform charsSelector = null;
-
-        public static List<MongoID> EquipIds = new List<MongoID>();
-        /**
-         * Helper method to change the icon of a dropdown
-         */
-        private static void ReplaceIcon(Transform parent, string childPath, string filePath)
-        {
-            Transform imgTransform = parent.Find(childPath);
-            if (imgTransform != null)
-            {
-                UnityEngine.UI.Image imgComponent = imgTransform.GetComponent<UnityEngine.UI.Image>();
-                if (imgComponent != null)
-                {
-                    if (File.Exists(filePath))
-                    {
-                        byte[] fileData = File.ReadAllBytes(filePath);
-                        Texture2D tex = new Texture2D(2, 2);
-                        if (tex.LoadImage(fileData))
-                        {
-                            Sprite newSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 200f);
-                            imgComponent.sprite = newSprite;
-                            imgComponent.enabled = true;
-                            imgComponent.rectTransform.sizeDelta = new Vector2(25, 30);
-                        }
-                        else
-                        {
-                            imgComponent.enabled = false;
-                        }
-                    }
-                    else
-                    {
-                        imgComponent.enabled = false;
-                    }
-                }
-            }
-        }
+        public static ResultProfile ViewedProfile { get; set; }
+        public static Transform LoadoutSelector { get; set; }
+        public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
 
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(OtherPlayerProfileScreen), "Show", new System.Type[] { typeof(OtherProfileController) });
+            return AccessTools.Method(
+                typeof(OtherPlayerProfileScreen),
+                "Show",
+                new Type[] { typeof(ResultProfile), typeof(InventoryController), typeof(EItemViewType), typeof(ISession) });
         }
-        /**
-         * Patch the OtherPlayerProfileScreen to show the customization dropdowns for the bot
-         */
+
         [PatchPostfix]
-        private static void PatchPostfix(OtherPlayerProfileScreen __instance, OtherProfileController controller)
+        private static void PatchPostfix(OtherPlayerProfileScreen __instance, ResultProfile profile, InventoryController inventoryController, EItemViewType viewType, ISession session)
         {
-
-
-            var fieldInfo = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow");
-            if (fieldInfo == null) return;
-
-            var playerModelWithStatsWindow = (InventoryPlayerModelWithStatsWindow)fieldInfo.GetValue(__instance);
-            if (playerModelWithStatsWindow == null) return;
-
-            playerModelWithStatsWindow.OnCustomizationChanged += PlayerModelWithStatsWindow_OnCustomizationChanged;
-
-            Transform parent = GameObject.Find("Menu UI/UI/InventoryOtherPlayerProfile/PlayerModelWithStats").transform;
-            Transform clothingPanel = parent?.Find("ClothingPanel");
-
-            if (clothingPanel != null) clothingPanel.gameObject.SetActive(false);
-
-            if (PatchConstants.BackEndSession.Profile != null && PatchConstants.BackEndSession.Profile.AccountId == controller.Profile.AccountId)
+            InventoryPlayerModelWithStatsWindow playerModelWindow =
+                PlayerModelWindowField?.GetValue(__instance) as InventoryPlayerModelWithStatsWindow;
+            if (playerModelWindow == null)
             {
                 return;
             }
 
-            bool isFriend = false;
-            foreach (var friend in PatchConstants.BackEndSession.SocialNetwork.FriendsList)
+            if (session?.Profile != null
+                && session.Profile.AccountId == profile.AccountId)
             {
-                if (friend.AccountId == controller.Profile.AccountId)
-                {
-                    isFriend = true;
-                    break;
-                }
+                return;
             }
 
-            if (!isFriend) return;
-
-            var _hideoutButton = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_hideoutButton");
-            if (_hideoutButton != null)
+            FriendlyTeammateProfileOptions options = TryLoadProfileOptions(profile.AccountId);
+            if (options == null || options.Loadouts == null || options.Loadouts.Count == 0)
             {
-                ((DefaultUIButton)_hideoutButton.GetValue(__instance))?.gameObject.SetActive(false);
+                friendlySAIN.Log.LogWarning($"[UI] Teammate profile patch aborted: no profile options for accountId '{profile.AccountId}'.");
+                return;
             }
 
-            if (Utils.Props.BossFriendsIds.Contains(controller.Profile.AccountId)) return; // bosses cannot be customized
-
-            if (clothingPanel != null)
-            {   // show the clothing dropdowns for the bot
-                clothingPanel.gameObject.SetActive(true);
-                InventoryClothingSelectionPanel inventoryClothingSelectionPanel = clothingPanel.GetComponent<InventoryClothingSelectionPanel>();
-                if (inventoryClothingSelectionPanel != null)
-                {
-
-                    viewedProfile = controller.Profile;
-                }
-
-
-                var UIInfo = AccessTools.Field(typeof(OtherPlayerProfileScreen), "UI");
-                if (UIInfo != null)
-                {
-                    var UI = UIInfo.GetValue(__instance) as AddViewListClass;
-                    if (UI != null)
-                    {
-                        // duplicate the clothing panel so we can add the tactic and equipment dropdowns
-                        var clone = GameObject.Instantiate(clothingPanel, parent, true);
-                        clone.name = clothingPanel.name + "_Clone";
-                        clone.transform.localPosition += new Vector3(1, 0, 0);
-
-                        InventoryClothingSelectionPanel panel = clone.GetComponent<InventoryClothingSelectionPanel>();
-                        UI.AddDisposable(panel);
-                        equipSelector = clone;
-
-                        string dllPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-
-                        string letIconFile = Path.Combine(dllPath, "brain.png");
-                        string rightIconFile = Path.Combine(dllPath, "gear.png");
-
-                        ReplaceIcon(clone, "Upper/Icon", letIconFile);
-                        ReplaceIcon(clone, "Lower/Icon", rightIconFile);
-
-                        // duplicate again for voice and head options
-                        var clone2 = GameObject.Instantiate(clothingPanel, parent, true);
-                        clone2.name = clothingPanel.name + "_Clone2";
-                        clone2.transform.localPosition += new Vector3(2, 0, 0);
-
-                        InventoryClothingSelectionPanel panel2 = clone2.GetComponent<InventoryClothingSelectionPanel>();
-                        UI.AddDisposable(panel2);
-                        charsSelector = clone2;
-
-                        letIconFile = Path.Combine(dllPath, "voice.png");
-                        rightIconFile = Path.Combine(dllPath, "head.png");
-
-                        ReplaceIcon(clone2, "Upper/Icon", letIconFile);
-                        ReplaceIcon(clone2, "Lower/Icon", rightIconFile);
-
-
-                    }
-                }
-                // populate available clothing options
-                if (inventoryClothingSelectionPanel != null)
-                {
-                    DisplayClothingOptions(controller.Profile.PlayerVisualRepresentation, playerModelWithStatsWindow, controller.InventoryController, inventoryClothingSelectionPanel);
-                }
-
-                // populate available tactics, equipment, voice and head options
-                if (equipSelector != null || charsSelector != null)
-                {
-                    EquipIds.Clear();
-                    try
-                    {
-                        string detailsBE = RequestHandler.GetJson("/client/game/bot/followerdetails");
-                        List<BotDetails> BEDetails = Json.Deserialize<List<BotDetails>>(detailsBE);
-
-                        BotDetails currentDetails = BEDetails.FirstOrDefault(x => x.Aid == controller.Profile.AccountId);
-
-                        var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                            .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-
-                        var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
-
-                        string charsBE = RequestHandler.PostJson("/client/game/bot/followercustoms", new
-                        {
-                            Aid = controller.Profile.AccountId
-
-                        }.ToJson(_defaultJsonConverters));
-
-                        BotCharacteristics BEChars = Json.Deserialize<BotCharacteristics>(charsBE);
-
-
-                        if (equipSelector != null)
-                            DisplayEquipmentOptions(controller, equipSelector.GetComponent<InventoryClothingSelectionPanel>(), playerModelWithStatsWindow, BEChars, currentDetails);
-
-                        if (charsSelector != null)
-                        {
-                            DisplayCharacteristicsOptions(controller, charsSelector.GetComponent<InventoryClothingSelectionPanel>(), playerModelWithStatsWindow, BEChars, currentDetails);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Modules.Logger.LogError(e);
-                    }
-                }
+            if (!TryGetClothingPanel(__instance, playerModelWindow, out RectTransform clothingPanel, out InventoryClothingSelectionPanel clothingSelectionPanel, out Transform parent))
+            {
+                friendlySAIN.Log.LogWarning("[UI] Teammate profile patch aborted: clothing panel not found on profile screen.");
+                return;
             }
+
+            friendlySAIN.Log.LogInfo($"[UI] Applying teammate profile customization UI for '{profile.AccountId}'.");
+            ViewedProfile = profile;
+            playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
+            playerModelWindow.OnCustomizationChanged += PlayerModelWithStatsWindow_OnCustomizationChanged;
+
+            HideProfileActions(__instance);
+
+            clothingPanel.gameObject.SetActive(true);
+            DisplayClothingOptions(profile.PlayerVisualRepresentation, playerModelWindow, inventoryController, clothingSelectionPanel);
+
+            AddViewListClass ui = UiField?.GetValue(__instance) as AddViewListClass;
+            if (ui == null)
+            {
+                return;
+            }
+
+            if (LoadoutSelector != null)
+            {
+                GameObject.Destroy(LoadoutSelector.gameObject);
+                LoadoutSelector = null;
+            }
+
+            RectTransform clone = GameObject.Instantiate(clothingPanel, parent, true);
+            clone.name = "friendlySAIN_LoadoutSelector";
+            clone.anchoredPosition = clothingPanel.anchoredPosition + new Vector2(0f, -72f);
+
+            InventoryClothingSelectionPanel loadoutPanel = clone.GetComponent<InventoryClothingSelectionPanel>();
+            if (loadoutPanel == null)
+            {
+                GameObject.Destroy(clone.gameObject);
+                return;
+            }
+
+            ui.AddDisposable(loadoutPanel);
+            LoadoutSelector = clone;
+            ConfigureLoadoutPanel(loadoutPanel);
+            DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
         }
-        /**
-         * Update Bot's profile with the new customization
-         */
+
+        private static bool TryGetClothingPanel(
+            OtherPlayerProfileScreen screen,
+            InventoryPlayerModelWithStatsWindow playerModelWindow,
+            out RectTransform clothingPanel,
+            out InventoryClothingSelectionPanel clothingSelectionPanel,
+            out Transform parent)
+        {
+            clothingPanel = null;
+            clothingSelectionPanel = null;
+            parent = null;
+
+            clothingSelectionPanel = ClothingPanelField?.GetValue(playerModelWindow) as InventoryClothingSelectionPanel;
+            if (clothingSelectionPanel == null)
+            {
+                Transform playerModelTransform = playerModelWindow.transform;
+                Transform hierarchyPanel = playerModelTransform.Find("ClothingPanel")
+                    ?? playerModelTransform.Find("PlayerModelWithStats/ClothingPanel")
+                    ?? screen.transform.Find("PlayerModelWithStats/ClothingPanel")
+                    ?? screen.transform.Find("ClothingPanel");
+
+                if (hierarchyPanel == null)
+                {
+                    hierarchyPanel = FindChildRecursive(playerModelTransform, "ClothingPanel")
+                        ?? FindChildRecursive(screen.transform, "ClothingPanel");
+                }
+
+                clothingSelectionPanel = hierarchyPanel?.GetComponent<InventoryClothingSelectionPanel>();
+            }
+
+            clothingPanel = clothingSelectionPanel?.transform as RectTransform;
+            parent = clothingPanel?.parent;
+            return clothingPanel != null && clothingSelectionPanel != null && parent != null;
+        }
+
+        private static Transform FindChildRecursive(Transform root, string childName)
+        {
+            if (root == null)
+            {
+                return null;
+            }
+
+            for (int index = 0; index < root.childCount; index++)
+            {
+                Transform child = root.GetChild(index);
+                if (string.Equals(child.name, childName, StringComparison.Ordinal))
+                {
+                    return child;
+                }
+
+                Transform nested = FindChildRecursive(child, childName);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
+        }
+
         public static void PlayerModelWithStatsWindow_OnCustomizationChanged(dropDownItem suit)
         {
-            if (viewedProfile == null) return;
-
-            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-
-            var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
-
-            RequestHandler.PostJson("/client/game/bot/followersuit", new
+            if (ViewedProfile == null)
             {
-                aid = viewedProfile.AccountId,
-                suit = new String[] { viewedProfile.Customization[EBodyModelPart.Body], viewedProfile.Customization[EBodyModelPart.Feet] }
+                return;
+            }
 
-            }.ToJson(_defaultJsonConverters));
+            try
+            {
+                string body = ViewedProfile.Customization[EBodyModelPart.Body];
+                string feet = ViewedProfile.Customization[EBodyModelPart.Feet];
+                RequestHandler.PostJson(SuitRoute, SerializeBody(new FriendlyTeammateSuitRequest
+                {
+                    aid = ViewedProfile.AccountId,
+                    suit = new string[] { body, feet }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to persist teammate suit change.");
+                Modules.Logger.LogError(ex);
+            }
         }
 
-        private static void RefershPlayerVisualization(OtherProfileController controller, InventoryPlayerModelWithStatsWindow window)
+        private static FriendlyTeammateProfileOptions TryLoadProfileOptions(string accountId)
         {
+            try
+            {
+                string responseJson = RequestHandler.PostJson(OptionsRoute, SerializeBody(new { aid = accountId }));
+                FriendlyTeammateBodyResponse<FriendlyTeammateProfileOptions> body =
+                    JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<FriendlyTeammateProfileOptions>>(responseJson);
 
-            ResultProfile profile = controller.Profile;
+                if (body?.data != null)
+                {
+                    return body.data;
+                }
+
+                return JsonConvert.DeserializeObject<FriendlyTeammateProfileOptions>(responseJson);
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError($"[UI] Failed to load teammate profile options for '{accountId}'.");
+                friendlySAIN.Log.LogError(ex);
+                return null;
+            }
+        }
+
+        private static string SerializeBody(object body)
+        {
+            return body.ToJson(GetDefaultJsonConverters());
+        }
+
+        private static JsonConverter[] GetDefaultJsonConverters()
+        {
+            Type converterClass = typeof(AbstractGame).Assembly
+                .GetTypes()
+                .First(type => type.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+
+            return Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+        }
+
+        private static void HideProfileActions(OtherPlayerProfileScreen screen)
+        {
+            DefaultUIButton hideoutButton = HideoutButtonField?.GetValue(screen) as DefaultUIButton;
+            hideoutButton?.gameObject.SetActive(false);
+
+            ReportPanel reportPanel = ReportPanelField?.GetValue(screen) as ReportPanel;
+            if (reportPanel != null)
+            {
+                reportPanel.Close();
+                reportPanel.gameObject.SetActive(false);
+            }
+        }
+
+        private static void ConfigureLoadoutPanel(InventoryClothingSelectionPanel panel)
+        {
+            DropDownBox upperDropdown = UpperDropdownField?.GetValue(panel) as DropDownBox;
+            DropDownBox lowerDropdown = LowerDropdownField?.GetValue(panel) as DropDownBox;
+
+            if (upperDropdown != null && lowerDropdown != null)
+            {
+                ReplaceDropdownIcon(panel.transform, "Upper/Icon", GearIconPath);
+                HideDropdownIcon(panel.transform, "Lower/Icon");
+
+                RectTransform upperRect = upperDropdown.transform as RectTransform;
+                if (upperRect != null)
+                {
+                    upperRect.anchorMin = new Vector2(0f, upperRect.anchorMin.y);
+                    upperRect.anchorMax = new Vector2(1f, upperRect.anchorMax.y);
+                    upperRect.pivot = new Vector2(0.5f, upperRect.pivot.y);
+                    upperRect.anchoredPosition = new Vector2(0f, upperRect.anchoredPosition.y);
+                    upperRect.offsetMin = new Vector2(60f, upperRect.offsetMin.y);
+                    upperRect.offsetMax = new Vector2(-14f, upperRect.offsetMax.y);
+                }
+
+                lowerDropdown.gameObject.SetActive(false);
+            }
+        }
+
+        private static void ReplaceDropdownIcon(Transform parent, string childPath, string filePath)
+        {
+            Transform iconTransform = parent.Find(childPath);
+            if (iconTransform == null)
+            {
+                return;
+            }
+
+            Image image = iconTransform.GetComponent<Image>();
+            if (image == null)
+            {
+                return;
+            }
+
+            if (!File.Exists(filePath))
+            {
+                image.enabled = false;
+                return;
+            }
+
+            byte[] fileData = File.ReadAllBytes(filePath);
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+            if (!texture.LoadImage(fileData))
+            {
+                image.enabled = false;
+                UnityEngine.Object.Destroy(texture);
+                return;
+            }
+
+            image.sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
+            image.enabled = true;
+            image.rectTransform.sizeDelta = new Vector2(25f, 30f);
+        }
+
+        private static void HideDropdownIcon(Transform parent, string childPath)
+        {
+            Transform iconTransform = parent.Find(childPath);
+            if (iconTransform == null)
+            {
+                return;
+            }
+
+            Image image = iconTransform.GetComponent<Image>();
+            if (image != null)
+            {
+                image.enabled = false;
+            }
+        }
+
+        private static void DisplayClothingOptions(
+            LastPlayerStateClass playerVisualRepresentation,
+            InventoryPlayerModelWithStatsWindow window,
+            InventoryController inventoryController,
+            InventoryClothingSelectionPanel panel
+        )
+        {
+            InventoryPlayerModelWithStatsWindow.Class3160 state = new InventoryPlayerModelWithStatsWindow.Class3160
+            {
+                playerVisualRepresentation = playerVisualRepresentation,
+                inventoryPlayerModelWithStatsWindow_0 = window,
+                inventoryController = inventoryController
+            };
+
+            IEnumerable<dropDownItem> availableSuites =
+                Singleton<CustomizationSolverClass>.Instance.GetAvailableSuites(EPlayerSide.Bear)
+                .Concat(Singleton<CustomizationSolverClass>.Instance.GetAvailableSuites(EPlayerSide.Usec))
+                .Concat(Singleton<CustomizationSolverClass>.Instance.GetAvailableSuites(EPlayerSide.Savage));
+
+            List<dropDownItem> upper = new List<dropDownItem>();
+            List<dropDownItem> lower = new List<dropDownItem>();
+            MongoID selectedBody = state.playerVisualRepresentation.Customization[EBodyModelPart.Body];
+            MongoID selectedFeet = state.playerVisualRepresentation.Customization[EBodyModelPart.Feet];
+            dropDownItem currentUpper = null;
+            dropDownItem currentLower = null;
+
+            foreach (dropDownItem suite in availableSuites)
+            {
+                if (suite is GClass3683 upperSuite)
+                {
+                    upper.Add(upperSuite);
+                }
+                else if (suite is GClass3684 lowerSuite)
+                {
+                    lower.Add(lowerSuite);
+                }
+
+                if (selectedBody == suite.MainBodyPartItem)
+                {
+                    currentUpper = suite;
+                }
+                else if (selectedFeet == suite.MainBodyPartItem)
+                {
+                    currentLower = suite;
+                }
+            }
+
+            panel.Show(upper, currentUpper, lower, currentLower, false, state.method_0);
+        }
+
+        private static void DisplayLoadoutOptions(
+            ResultProfile profile,
+            InventoryController inventoryController,
+            ISession session,
+            InventoryClothingSelectionPanel panel,
+            InventoryPlayerModelWithStatsWindow window,
+            FriendlyTeammateProfileOptions options
+        )
+        {
+            CustomDropdownIds.Clear();
+
+            List<dropDownItem> loadoutItems = [];
+            dropDownItem currentLoadout = null;
+            foreach (FriendlyTeammateLoadoutOption option in options.Loadouts)
+            {
+                FriendlyProfileDropdownItem item = new FriendlyProfileDropdownItem
+                {
+                    Id = option.Id,
+                    Name = option.Name
+                };
+
+                CustomDropdownIds.Add(item.Id);
+                loadoutItems.Add(item);
+
+                if (string.Equals(option.Id, options.CurrentLoadoutId, StringComparison.OrdinalIgnoreCase))
+                {
+                    currentLoadout = item;
+                }
+            }
+
+            currentLoadout ??= loadoutItems.FirstOrDefault();
+            if (currentLoadout == null)
+            {
+                return;
+            }
+
+            panel.Show(loadoutItems, currentLoadout, new List<dropDownItem> { currentLoadout }, currentLoadout, false, selected =>
+            {
+                try
+                {
+                    RequestHandler.PostJson(LoadoutRoute, SerializeBody(new FriendlyTeammateLoadoutRequest
+                    {
+                        aid = profile.AccountId,
+                        loadoutId = selected.Id
+                    }));
+
+                    RefreshPlayerVisualization(profile, inventoryController, session, window);
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("[UI] Failed to persist teammate loadout change.");
+                    Modules.Logger.LogError(ex);
+                }
+            });
+        }
+
+        private static void RefreshPlayerVisualization(ResultProfile profile, InventoryController inventoryController, ISession session, InventoryPlayerModelWithStatsWindow window)
+        {
             try
             {
                 Task.Run(async () =>
                 {
-                    Result<OtherProfileResult> result = await PatchConstants.BackEndSession.GetOtherPlayerProfile(viewedProfile.AccountId);
+                    Result<OtherProfileResult> result = await session.GetOtherPlayerProfile(ViewedProfile.AccountId);
                     return result;
-                }).ContinueWith(r =>
+                }).ContinueWith(task =>
                 {
-                    var result = r.Result;
-
-                    FieldInfo equipmentField = typeof(LastPlayerStateClass).GetField("Equipment", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    Result<OtherProfileResult> result = task.Result;
                     if (result.Failed)
                     {
                         Modules.Logger.LogError(result.Error);
@@ -280,329 +505,24 @@ namespace friendlySAIN.Patches
 
                     profile.PlayerVisualRepresentation.Customization[EBodyModelPart.Head] = result.Value.Customization[EBodyModelPart.Head];
 
+                    FieldInfo equipmentField = profile.PlayerVisualRepresentation.GetType()
+                        .GetField("Equipment", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
                     equipmentField?.SetValue(profile.PlayerVisualRepresentation, result.Value.Equipment.ToEquipment());
 
                     FieldInfo playerModelInfo = AccessTools.Field(typeof(InventoryPlayerModelWithStatsWindow), "_playerModelView");
-
-                    if (playerModelInfo != null)
+                    PlayerModelView playerModelView = playerModelInfo?.GetValue(window) as PlayerModelView;
+                    if (playerModelView?.gameObject.activeSelf == true)
                     {
-                        var playerModelView = playerModelInfo.GetValue(window) as PlayerModelView;
-
-                        if (playerModelView != null)
-                        {
-                            if (playerModelView.gameObject.activeSelf)
-                            {
-                                playerModelView.Close();
-                            }
-                        }
-                        window.method_3(profile.PlayerVisualRepresentation, controller.InventoryController);
+                        playerModelView.Close();
                     }
 
+                    window.method_3(profile.PlayerVisualRepresentation, inventoryController);
                 }, TaskScheduler.FromCurrentSynchronizationContext()).HandleExceptions();
-
             }
             catch (Exception ex)
             {
                 Modules.Logger.LogError(ex);
             }
-        }
-
-        /*
-        * Replicated and adapted from method_2 of InventoryPlayerModelWithStatsWindow
-        */
-        private static void DisplayClothingOptions(LastPlayerStateClass playerVisualRepresentation, InventoryPlayerModelWithStatsWindow window, InventoryController inventoryController, InventoryClothingSelectionPanel inventoryClothingSelectionPanel)
-        {
-            InventoryPlayerModelWithStatsWindow.Class3160 @class = new InventoryPlayerModelWithStatsWindow.Class3160();
-            @class.playerVisualRepresentation = playerVisualRepresentation;
-            @class.inventoryPlayerModelWithStatsWindow_0 = window;
-            @class.inventoryController = inventoryController;
-
-            IEnumerable<dropDownItem> availableSuites;
-
-            IEnumerable<dropDownItem> availableSuitesBear = Singleton<CustomizationSolverClass>.Instance.GetAvailableSuites(EPlayerSide.Bear);
-            IEnumerable<dropDownItem> availableSuitesUsec = Singleton<CustomizationSolverClass>.Instance.GetAvailableSuites(EPlayerSide.Usec);
-            IEnumerable<dropDownItem> availableSuitesSavage = Singleton<CustomizationSolverClass>.Instance.GetAvailableSuites(EPlayerSide.Savage);
-            // make all suites available, regardless of faction
-            availableSuites = availableSuitesBear.Concat(availableSuitesUsec).Concat(availableSuitesSavage);
-
-            List<dropDownItem> list = new List<dropDownItem>();
-            List<dropDownItem> list2 = new List<dropDownItem>();
-            MongoID mongoID = @class.playerVisualRepresentation.Customization[EBodyModelPart.Body];
-            MongoID mongoID2 = @class.playerVisualRepresentation.Customization[EBodyModelPart.Feet];
-            dropDownItem gclass = null;
-            dropDownItem gclass2 = null;
-            foreach (dropDownItem gclass3 in availableSuites)
-            {
-                dropDownItem gclass4 = gclass3;
-                if (gclass4 != null)
-                {
-                    GClass3683 gclass5;
-                    if ((gclass5 = gclass4 as GClass3683) == null)
-                    {
-                        GClass3684 gclass6;
-                        if ((gclass6 = gclass4 as GClass3684) != null)
-                        {
-                            GClass3684 gclass7 = gclass6;
-                            list2.Add(gclass7);
-                        }
-                    }
-                    else
-                    {
-                        GClass3683 gclass8 = gclass5;
-                        list.Add(gclass8);
-                    }
-                }
-                if (mongoID == gclass3.MainBodyPartItem)
-                {
-                    gclass = gclass3;
-                }
-                else if (mongoID2 == gclass3.MainBodyPartItem)
-                {
-                    gclass2 = gclass3;
-                }
-            }
-            inventoryClothingSelectionPanel.Show(list, gclass, list2, gclass2, false, new Action<dropDownItem>(@class.method_0));
-        }
-
-        private static void DisplayEquipmentOptions(OtherProfileController controller, InventoryClothingSelectionPanel inventoryClothingSelectionPanel, InventoryPlayerModelWithStatsWindow window, BotCharacteristics BEChars, BotDetails BEDetails)
-        {
-            ResultProfile profile = controller.Profile;
-
-
-            dropDownItem currentTacticItem = null;
-            dropDownItem currentEquipmentItem = null;
-
-            List<dropDownItem> tactics = new List<dropDownItem>();
-            List<dropDownItem> equipment = new List<dropDownItem>();
-
-            try
-            {
-
-                foreach (var x in BEChars.Tactics)
-                {
-                    dropDownItem item = new dropDownItem
-                    {
-                        Name = x.Name,
-                        Id = x.Id
-                    };
-
-                    EquipIds.Add(x.Id);
-                    tactics.Add(item);
-
-                    if (BEDetails != null && x.Tactic == BEDetails.Tactic)
-                    {
-                        currentTacticItem = item;
-                    }
-                }
-
-                if (currentTacticItem == null)
-                {
-                    currentTacticItem = tactics[0];
-                }
-
-                foreach (var eq in BEChars.Equipment)
-                {
-                    dropDownItem item = new dropDownItem
-                    {
-                        Name = eq.Name,
-                        Id = eq.Id
-                    };
-
-                    EquipIds.Add(eq.Id);
-                    equipment.Add(item);
-
-                    if (eq.Name == BEDetails.Equipment)
-                    {
-                        currentEquipmentItem = item;
-                    }
-                }
-
-                if (currentEquipmentItem == null)
-                {
-                    currentEquipmentItem = equipment[0];
-                }
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError(ex);
-                return;
-            }
-
-
-            inventoryClothingSelectionPanel.Show(tactics, currentTacticItem, equipment, currentEquipmentItem, false,
-            new Action<dropDownItem>((dropDownItem suit) =>
-            {
-                if (viewedProfile == null) return;
-
-                var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                    .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-
-                var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
-
-                if (tactics.Contains(suit))
-                {
-                    BotTactic tacticItem = BEChars.Tactics.FirstOrDefault(x => x.Id == suit.Id);
-                    string tactic = "default";
-                    if (tacticItem != null)
-                    {
-                        tactic = tacticItem.Tactic.ToLower();
-                    }
-                    try
-                    {
-                        RequestHandler.PostJson("/client/game/bot/followertactic", new
-                        {
-                            aid = viewedProfile.AccountId,
-                            tactic
-                        }.ToJson(_defaultJsonConverters));
-                    }
-                    catch (Exception ex)
-                    {
-                        Modules.Logger.LogError(ex);
-                    }
-                }
-                else
-                {
-
-                    RequestHandler.PostJson("/client/game/bot/followerequip", new
-                    {
-                        aid = viewedProfile.AccountId,
-                        equipment = suit.NameLocalizationKey
-                    }.ToJson(_defaultJsonConverters));
-
-                    RefershPlayerVisualization(controller, window);
-                }
-            }));
-        }
-
-
-        private static void DisplayCharacteristicsOptions(OtherProfileController controller, InventoryClothingSelectionPanel inventoryClothingSelectionPanel, InventoryPlayerModelWithStatsWindow window, BotCharacteristics BEChars, BotDetails currentDetails)
-        {
-            ResultProfile profile = controller.Profile;
-
-            string currentVoiceId = currentDetails.Voice ?? new MongoID();
-            string currentHeadId = currentDetails.Head ?? new MongoID();
-
-            string currentVoice = "Default";
-            string currentHead = "Default";
-            foreach (var item in BEChars.Voices)
-            {
-                if (item.Id == currentVoiceId)
-                {
-                    currentVoice = item.Name;
-                    break;
-                }
-            }
-
-            foreach (var item in BEChars.Heads)
-            {
-                if (item.Id == currentHeadId)
-                {
-                    currentHead = item.Name;
-                    break;
-                }
-            }
-
-
-            List<dropDownItem> voices = new List<dropDownItem>();
-            List<dropDownItem> heads = new List<dropDownItem>();
-
-            DropDownItem currentVoiceItem = new DropDownItem
-            {
-                Name = currentVoice,
-                Id = currentVoiceId,
-                Type = "Voice"
-            };
-            voices.Add(currentVoiceItem);
-
-            DropDownItem currentHeadItem = new DropDownItem
-            {
-                Name = currentHead,
-                Id = currentHeadId,
-                Type = "Head"
-            };
-            heads.Add(currentHeadItem);
-
-            EquipIds.Add(currentVoiceItem.Id);
-            EquipIds.Add(currentHeadItem.Id);
-
-            foreach (var item in BEChars.Voices)
-            {
-                if (item.Id != currentVoiceId)
-                {
-                    MongoID id = item.Id;
-                    EquipIds.Add(id);
-                    DropDownItem voice = new DropDownItem
-                    {
-                        Name = item.Name,
-                        Id = item.Id,
-                        Type = "Voice"
-                    };
-                    voices.Add(voice);
-                }
-            }
-
-            foreach (var item in BEChars.Heads)
-            {
-                if (item.Id != currentHeadId)
-                {
-                    MongoID id = item.Id;
-                    EquipIds.Add(id);
-                    DropDownItem head = new DropDownItem
-                    {
-                        Name = item.Name,
-                        Id = item.Id,
-                        Type = "Head"
-                    };
-                    heads.Add(head);
-                }
-            }
-
-
-            inventoryClothingSelectionPanel.Show(voices, currentVoiceItem, heads, currentHeadItem, false, (dropDownItem suit) =>
-            {
-                DropDownItem dropDownItem = suit as DropDownItem;
-
-                var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                    .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-
-                var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
-
-                RequestHandler.PostJson("/client/game/bot/followerchars", new
-                {
-                    Aid = viewedProfile.AccountId,
-                    dropDownItem.Type,
-                    dropDownItem.Id
-
-                }.ToJson(_defaultJsonConverters));
-
-                if (dropDownItem.Type == "Head")
-                {
-                    RefershPlayerVisualization(controller, window);
-                }
-                else
-                {
-                    Task.Run(async () =>
-                    {
-                        try
-                        {
-                            BotVoice vc = BEChars.Voices.Find(x => x.Id == suit.Id);
-
-                            TagBank voice = await Singleton<GClass899>.Instance.TakeVoice(vc.Voice, EPhraseTrigger.OnMutter);
-                            Modules.Logger.LogInfo("Clips length " + voice.Clips.Length);
-
-                            int num = global::UnityEngine.Random.Range(0, voice.Clips.Length);
-                            TaggedClip taggedClip = voice.Clips[num];
-
-                            await Singleton<GUISounds>.Instance.ForcePlaySound(taggedClip.Clip);
-                        }
-                        catch (Exception ex)
-                        {
-                            Modules.Logger.LogError(ex);
-                        }
-                    }).HandleExceptions();
-                }
-            });
-
         }
     }
 
@@ -612,27 +532,26 @@ namespace friendlySAIN.Patches
         {
             return AccessTools.Method(typeof(OtherPlayerProfileScreen), "Close");
         }
+
         [PatchPostfix]
         private static void PatchPostfix(OtherPlayerProfileScreen __instance)
         {
-            var fieldInfo = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow");
-            if (fieldInfo != null)
+            InventoryPlayerModelWithStatsWindow playerModelWindow =
+                AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow")?.GetValue(__instance)
+                as InventoryPlayerModelWithStatsWindow;
+            if (playerModelWindow != null)
             {
-                var playerModelWithStatsWindow = (InventoryPlayerModelWithStatsWindow)fieldInfo.GetValue(__instance);
-
-                if (playerModelWithStatsWindow != null)
-                {
-                    playerModelWithStatsWindow.OnCustomizationChanged -= OtherPlayerProfileScreenPatch.PlayerModelWithStatsWindow_OnCustomizationChanged;
-                }
+                playerModelWindow.OnCustomizationChanged -= OtherPlayerProfileScreenPatch.PlayerModelWithStatsWindow_OnCustomizationChanged;
             }
 
-            OtherPlayerProfileScreenPatch.viewedProfile = null;
+            OtherPlayerProfileScreenPatch.ViewedProfile = null;
+            OtherPlayerProfileScreenPatch.CustomDropdownIds.Clear();
 
-            if (OtherPlayerProfileScreenPatch.equipSelector != null) GameObject.Destroy(OtherPlayerProfileScreenPatch.equipSelector.gameObject);
-            OtherPlayerProfileScreenPatch.equipSelector = null;
-
-            if (OtherPlayerProfileScreenPatch.charsSelector != null) GameObject.Destroy(OtherPlayerProfileScreenPatch.charsSelector.gameObject);
-            OtherPlayerProfileScreenPatch.charsSelector = null;
+            if (OtherPlayerProfileScreenPatch.LoadoutSelector != null)
+            {
+                GameObject.Destroy(OtherPlayerProfileScreenPatch.LoadoutSelector.gameObject);
+                OtherPlayerProfileScreenPatch.LoadoutSelector = null;
+            }
         }
     }
 }
