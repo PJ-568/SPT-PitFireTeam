@@ -42,9 +42,7 @@ namespace friendlySAIN.SAINAddon
 
                 if (SAINAddonToggles.EnableForcedEnemyRetention)
                 {
-                    SAINCalcGoalPatch.Apply(harmony);
                     SAINEnemyAcquireGatePatch.Apply(harmony);
-                    SAINFollowerEnemyRetentionService.Initialize();
                 }
 
                 SAINFollowerPersonalityPatch.Apply(harmony);

@@ -202,6 +202,7 @@ namespace friendlySAIN
             new BotGroupAddEnemyPatch().Enable();
             new BotGroupReportEnemyPatch().Enable();
             new BotGroupUsecEnemyPatch().Enable();
+            new BotGroupCalcGoalPatch().Enable();
             new BotControllerEnemyPropagationSafetyPatch().Enable();
 
             new BotMemoryDamagePatch().Enable();
