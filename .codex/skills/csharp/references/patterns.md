@@ -185,30 +185,6 @@ public static class SAINInterop
 
 ## Anti-Patterns
 
-### WARNING: Catching Exception Without Logging
-
-**The Problem:**
-
-```csharp
-// BAD - Silent failure
-try { ProcessLoot(); }
-catch { } // Swallowed
-```
-
-**Why This Breaks:** You'll never know why bots stopped looting. Debugging becomes impossible.
-
-**The Fix:**
-
-```csharp
-// GOOD - Log and handle
-try { ProcessLoot(); }
-catch (Exception ex)
-{
-    BotMindPlugin.Log?.LogError($"ProcessLoot failed: {ex.Message}");
-    _currentState = ELootState.Exit; // Recover to safe state
-}
-```
-
 ### WARNING: Mutable Static State
 
 **The Problem:**

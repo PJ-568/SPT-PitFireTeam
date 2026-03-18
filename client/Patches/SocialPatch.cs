@@ -1,6 +1,8 @@
 ﻿using ChatShared;
 using Comfort.Common;
 
+using EFT;
+using EFT.UI.Chat;
 using EFT.InventoryLogic;
 using EFT.Quests;
 
@@ -10,6 +12,7 @@ using SPT.Common.Utils;
 using SPT.Reflection.Patching;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -18,7 +21,6 @@ namespace friendlySAIN.Patches
 {
     internal class SocialNetworkClassPatch : ModulePatch
     {
-
         private static SocialNetworkClass socialNetworkClass = null;
         private static IChatInteractions iChatInteractions;
         protected override MethodBase GetTargetMethod()
@@ -42,6 +44,81 @@ namespace friendlySAIN.Patches
                 delay = Time.time + 2;
                 iChatInteractions.GetFriendsList(new Callback<GClass1055>(socialNetworkClass.method_13));
             }
+        }
+    }
+
+    internal class ChatInvitePlayersPanelRefreshPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ChatInvitePlayersPanel), "Show");
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix()
+        {
+            SocialNetworkClassPatch.RefreshFriendsList();
+        }
+    }
+
+    internal class ChatCreateDialoguePanelRefreshPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ChatCreateDialoguePanel), "Show");
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix()
+        {
+            SocialNetworkClassPatch.RefreshFriendsList();
+        }
+    }
+
+    internal class SocialNetworkClassFriendsListDedupePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(SocialNetworkClass), "method_13");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(SocialNetworkClass __instance)
+        {
+            if (__instance?.FriendsList == null || __instance.FriendsList.Count <= 1)
+            {
+                return;
+            }
+
+            List<UpdatableChatMember> deduped = new List<UpdatableChatMember>();
+            HashSet<string> seenKeys = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (UpdatableChatMember member in __instance.FriendsList)
+            {
+                if (member == null)
+                {
+                    continue;
+                }
+
+                string key = !string.IsNullOrEmpty(member.AccountId)
+                    ? $"aid:{member.AccountId}"
+                    : $"id:{member.Id}";
+
+                if (!seenKeys.Add(key))
+                {
+                    continue;
+                }
+
+                deduped.Add(member);
+            }
+
+            if (deduped.Count == __instance.FriendsList.Count)
+            {
+                return;
+            }
+
+            friendlySAIN.Log.LogInfo($"[UI] Deduped social friends list from {__instance.FriendsList.Count} to {deduped.Count} entries.");
+            __instance.FriendsList.UpdateItems(deduped.ToArray());
         }
     }
     /** Refresh friends list whenever we send a message to the SquadManager **/

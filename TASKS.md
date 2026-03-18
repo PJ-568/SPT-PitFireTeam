@@ -23,7 +23,7 @@ Very similar to old flow, but with some adjustments:
 - Triggered by `EPhraseTrigger.GoForward` but in the "transmision flow" is in the matter the others are in friendlySAIN (like EPhraseTrigger.OnRepeatedContact or EPhraseTrigger.Regroup)
 - When out of combat `EPhraseTrigger.GoForward` acts like ` EInteraction.ThereGesture` except it will be for all nearby followers instead of just the closest one.
 
-# (IN PROGRESS) - Implement follower fight behavior for combat
+# (DONE) - Implement follower fight behavior for combat
 
 Phase 1 plan (finished):
 
@@ -36,7 +36,7 @@ Phase 1 plan (finished):
 - Ensure this layer becomes active for recruited followers and SAIN default combat layers do not run for those followers while `CombatFollowerLayer` is active.
 - Keep current SAIN `CombatSoloLayer`/`CombatSquadLayer` priorities in mind (`20` solo, `22` squad) and integrate follower layer with explicit activation/gating rules rather than ad-hoc decision overrides.
 
-Phase 2 plan (started):
+Phase 2 plan (finished):
 
 - Iterate and tune `CombatFollowerLayer` decisions from gameplay tests.
 - Adjust/override specific decisions as needed for follower combat feel and reliability.
@@ -64,3 +64,7 @@ Behavior target:
 - When close enough, follower should settle back into normal local follow/idle behavior.
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
+
+# (IN PROGRESS) - Implemnent follower spawn
+
+The old plugin has an entire Back End system (in node js) to allow for adding custom followers via a terminal command and then they would spawn with the player. Investigate the old plugin and create a robust pland for implementing the BE service so we can have add and spawning behavior. Added followers appeared in the friends list and player would add them by right-click and selecting "add to group". You will need to investigate the client + the old Front End plugin for this. You could also view the follower and customize it. In Phase 1 we do not enable customization, just viewing the follower. Instead of a terminal command to add followers, we will have an "add teamate" button in the friends list. You will investigate the friends list component on FE to figure out how to properly add the buttom. Ask me for screenshots of the friends list to help.

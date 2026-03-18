@@ -3,6 +3,7 @@ using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Constants;
 using SPTarkov.Server.Core.Generators;
 using SPTarkov.Server.Core.Helpers;
+using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
@@ -88,6 +89,35 @@ public class FriendlyTeammateService(
     public List<SearchFriendResponse> ListTeammates(MongoId sessionId)
     {
         return LoadTeammates(sessionId).Select(ToFriendSummary).ToList();
+    }
+
+    public List<FriendlyTeammateFollowerDetailsResponse> ListFollowerDetails(MongoId sessionId)
+    {
+        var fullProfile = profileHelper.GetFullProfile(sessionId);
+        var loadoutNames = GetCustomEquipmentBuilds(fullProfile)
+            .ToDictionary(build => build.Id.ToString(), build => build.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+        return LoadTeammates(sessionId)
+            .Select(teammate =>
+            {
+                var settings = GetTeammateSettings(sessionId, teammate);
+                var loadoutId = NormalizeCurrentLoadoutId(fullProfile, settings.SelectedLoadoutId);
+                var equipmentName = string.Equals(loadoutId, DefaultLoadoutId, StringComparison.OrdinalIgnoreCase)
+                    ? DefaultLoadoutName
+                    : loadoutNames.TryGetValue(loadoutId, out var customName)
+                        ? customName
+                        : DefaultLoadoutName;
+
+                return new FriendlyTeammateFollowerDetailsResponse
+                {
+                    Aid = teammate.Aid?.ToString() ?? string.Empty,
+                    Tactic = "Default",
+                    Equipment = equipmentName,
+                    Voice = teammate.Customization?.Voice?.ToString() ?? string.Empty,
+                    Head = teammate.Customization?.Head?.ToString() ?? string.Empty,
+                };
+            })
+            .ToList();
     }
 
     public List<UserDialogInfo> ListTeammateDialogs(MongoId sessionId)
@@ -177,7 +207,7 @@ public class FriendlyTeammateService(
         SaveTeammate(sessionId, teammate);
     }
 
-    public bool TryGetTeammateProfile(MongoId sessionId, string? accountId, out GetOtherProfileResponse profile)
+    public bool TryGetTeammateProfile(MongoId sessionId, string? accountId, out GetOtherProfileResponse? profile)
     {
         profile = null;
         if (string.IsNullOrWhiteSpace(accountId))
@@ -192,6 +222,32 @@ public class FriendlyTeammateService(
         }
 
         profile = ToOtherProfileResponse(teammate);
+        return true;
+    }
+
+    public bool TryGetRaidGroupCharacter(MongoId sessionId, string? accountId, out GroupCharacter? groupCharacter)
+    {
+        groupCharacter = null;
+        if (!TryFindByAccountId(sessionId, accountId, out var teammate))
+        {
+            return false;
+        }
+
+        groupCharacter = ToGroupCharacter(teammate!);
+        return true;
+    }
+
+    public bool TryGetSpawnProfile(MongoId sessionId, string? accountId, double? healthMultiplier, out BotBase? profile)
+    {
+        profile = null;
+        if (!TryFindByAccountId(sessionId, accountId, out var teammate))
+        {
+            return false;
+        }
+
+        var clone = cloner.Clone(teammate!) ?? teammate;
+        ApplyTemporaryHealthMultiplier(clone!, healthMultiplier);
+        profile = clone;
         return true;
     }
 
@@ -317,6 +373,18 @@ public class FriendlyTeammateService(
 
         var teammate = LoadTeammates(sessionId).FirstOrDefault(profile => profile.Aid == aid);
         return teammate ?? throw new FriendlyTeammateException($"Unable to find teammate with accountId '{accountId}'");
+    }
+
+    private bool TryFindByAccountId(MongoId sessionId, string? accountId, out BotBase? teammate)
+    {
+        teammate = null;
+        if (string.IsNullOrWhiteSpace(accountId) || !int.TryParse(accountId, out var aid))
+        {
+            return false;
+        }
+
+        teammate = LoadTeammates(sessionId).FirstOrDefault(profile => profile.Aid == aid);
+        return teammate != null;
     }
 
     private void SaveTeammate(MongoId sessionId, BotBase teammate)
@@ -473,6 +541,82 @@ public class FriendlyTeammateService(
             HideoutAreaStashes = inventory.HideoutAreaStashes ?? [],
             Items = [],
         };
+    }
+
+    private GroupCharacter ToGroupCharacter(BotBase teammate)
+    {
+        var info = teammate.Info ?? throw new FriendlyTeammateException("Teammate profile is missing Info");
+        var customization = teammate.Customization ?? new CommonCustomization();
+        var inventory = teammate.Inventory ?? new BotBaseInventory { Items = [] };
+
+        return new GroupCharacter
+        {
+            Id = teammate.Id?.ToString(),
+            Aid = teammate.Aid,
+            Info = new CharacterInfo
+            {
+                Nickname = info.Nickname,
+                SavageNickname = info.Nickname,
+                Side = info.Side,
+                Level = info.Level,
+                MemberCategory = MemberCategory.Group,
+                GameVersion = info.GameVersion,
+                HasCoopExtension = info.HasCoopExtension,
+            },
+            VisualRepresentation = new PlayerVisualRepresentation
+            {
+                Info = new VisualInfo
+                {
+                    Nickname = info.Nickname,
+                    Side = info.Side,
+                    Level = info.Level,
+                    MemberCategory = MemberCategory.Group,
+                    GameVersion = info.GameVersion,
+                },
+                Customization = new SPTarkov.Server.Core.Models.Eft.Match.Customization
+                {
+                    Head = customization.Head?.ToString(),
+                    Body = customization.Body?.ToString(),
+                    Feet = customization.Feet?.ToString(),
+                    Hands = customization.Hands?.ToString(),
+                },
+                Equipment = new SPTarkov.Server.Core.Models.Eft.Match.Equipment
+                {
+                    Id = inventory.Equipment?.ToString(),
+                    Items = inventory.Items ?? [],
+                },
+            },
+            IsLeader = false,
+            IsReady = true,
+            LookingGroup = false,
+            Region = string.Empty,
+        };
+    }
+
+    private void ApplyTemporaryHealthMultiplier(BotBase teammate, double? healthMultiplier)
+    {
+        if (healthMultiplier is null || Math.Abs(healthMultiplier.Value - 1d) < 0.0001d)
+        {
+            return;
+        }
+
+        var bodyParts = teammate.Health?.BodyParts;
+        if (bodyParts == null)
+        {
+            return;
+        }
+
+        foreach (var bodyPart in bodyParts.Values)
+        {
+            var health = bodyPart?.Health;
+            if (health?.Maximum == null)
+            {
+                continue;
+            }
+
+            health.Maximum *= healthMultiplier.Value;
+            health.Current = health.Maximum;
+        }
     }
 
     private bool IsTeammateProfileFile(string path)

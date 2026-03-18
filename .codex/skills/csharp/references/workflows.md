@@ -38,7 +38,7 @@ public class PatrolLayer : CustomLayer
         }
         catch (Exception ex)
         {
-            BotMindPlugin.Log?.LogError($"PatrolLayer.IsActive: {ex.Message}");
+            Modules.Logger.LogError($"PatrolLayer.IsActive: {ex.Message}");
             return false;
         }
     }
@@ -53,7 +53,7 @@ public class PatrolLayer : CustomLayer
 ```
 
 ```csharp
-// Step 3: Register in BotMindPlugin.cs
+// Step 3: Register Layer
 private void RegisterLayers()
 {
     var brainNames = new List<string> { "PMC", "Assault", "BossKnight" };
@@ -119,32 +119,6 @@ public class LootContainerLogic : CustomLogic
 }
 ```
 
-### Validation Loop
-
-1. Implement state transitions
-2. Test each state: `BotMindPlugin.Log?.LogDebug($"State: {_state}");`
-3. If bot gets stuck, add timeout logic and repeat step 2
-4. Only proceed when all states transition correctly
-
-## Adding Configuration Options
-
-See the **bepinex** skill for full configuration patterns.
-
-```csharp
-// In BotMindConfig.cs
-public static ConfigEntry<float> PatrolRadius { get; private set; } = null!;
-
-public static void Bind(ConfigFile config)
-{
-    PatrolRadius = config.Bind(
-        "Patrol",
-        "Patrol Radius",
-        100f,
-        new ConfigDescription(
-            "Maximum patrol distance in meters",
-            new AcceptableValueRange<float>(10f, 500f)));
-}
-```
 
 ## Reflection-Based API Integration
 
@@ -191,40 +165,9 @@ public static class ExternalModInterop
         }
         catch (Exception ex)
         {
-            BotMindPlugin.Log?.LogWarning($"Interop call failed: {ex.Message}");
+            Modules.Logger.LogInfo($"Interop call failed: {ex.Message}");
             return false;
         }
     }
 }
 ```
-
-## Debugging Runtime Issues
-
-### Console Logging Levels
-
-```csharp
-// Use appropriate levels
-BotMindPlugin.Log?.LogDebug("Detailed state info");  // Development only
-BotMindPlugin.Log?.LogInfo("Layer activated");       // Normal operation
-BotMindPlugin.Log?.LogWarning("Fallback used");      // Degraded but working
-BotMindPlugin.Log?.LogError("Critical failure");     // Needs attention
-```
-
-### Common Issues
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Layer never activates | `IsActive()` throwing | Wrap in try-catch, log exception |
-| Bot freezes mid-action | State machine stuck | Add timeout, force state transition |
-| NullReferenceException | Game object destroyed | Check `BotOwner?.IsDead` first |
-| Inconsistent behavior | Race condition | Add locks around shared state |
-
-### Debug BuildDebugText
-
-```csharp
-public override void BuildDebugText(StringBuilder sb)
-{
-    sb.AppendLine($"State: {_currentState}");
-    sb.AppendLine($"Target: {_target?.name ?? "None"}");
-    sb.AppendLine($"Distance: {_distanceToTarget:F1}m");
-}

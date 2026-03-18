@@ -17,6 +17,55 @@ using playerGroup = System.Collections.Generic.List<GroupPlayerViewModelClass>;
 
 namespace friendlySAIN.Patches
 {
+    internal static class SyntheticTeammateRaidGuard
+    {
+        private static readonly MethodInfo LocalRaidStartMethod = AccessTools.Method(typeof(TarkovApplication), "method_41", new Type[]
+        {
+            typeof(TimeAndWeatherSettings),
+            typeof(bool)
+        });
+
+        public static bool HasSyntheticTeammates()
+        {
+            return MainMenuControllerPatch.GroupPlayers != null && MainMenuControllerPatch.GroupPlayers.Count > 0;
+        }
+
+        public static bool TryForceLocalRaid(TarkovApplication application, string reason)
+        {
+            if (application == null || !HasSyntheticTeammates())
+            {
+                return false;
+            }
+
+            RaidSettings raidSettings = AccessTools.Field(typeof(TarkovApplication), "_raidSettings").GetValue(application) as RaidSettings;
+            if (raidSettings == null)
+            {
+                friendlySAIN.Log.LogWarning($"[Raid] Failed to force local raid at {reason}: raid settings missing.");
+                return false;
+            }
+
+            raidSettings.RaidMode = ERaidMode.Local;
+            raidSettings.IsPveOffline = true;
+            friendlySAIN.Log.LogInfo($"[Raid] Forced local teammate raid at {reason}. groupPlayers={MainMenuControllerPatch.GroupPlayers.Count}");
+            return true;
+        }
+
+        public static Task StartLocalRaid(TarkovApplication application)
+        {
+            RaidSettings raidSettings = AccessTools.Field(typeof(TarkovApplication), "_raidSettings").GetValue(application) as RaidSettings;
+            if (raidSettings == null)
+            {
+                throw new InvalidOperationException("Raid settings missing while starting local teammate raid.");
+            }
+
+            return (Task)LocalRaidStartMethod.Invoke(application, new object[]
+            {
+                raidSettings.TimeAndWeatherSettings,
+                false
+            });
+        }
+    }
+
     /**
      * Patch to set what followers will the player start with (PMC case only)
      */
@@ -296,6 +345,72 @@ namespace friendlySAIN.Patches
             MainMenuControllerPatch.GroupPlayers.Clear();
         }
     }
+
+    /**
+     * Keep the stock ready-screen gate on the local branch by hiding synthetic teammates
+     * from the temporary stock group-count check, then restoring them immediately after.
+     */
+    internal class MainMenuControllerReadyScreenGatePatch : ModulePatch
+    {
+        private static readonly playerGroup RemovedPlayers = new playerGroup();
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(MainMenuControllerClass), "method_52");
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix(MainMenuControllerClass __instance)
+        {
+            RemovedPlayers.Clear();
+
+            MatchmakerPlayerControllerClass controller = __instance.MatchmakerPlayerControllerClass;
+            RaidSettings raidSettings = __instance.RaidSettings_0;
+            if (controller == null || raidSettings == null || !raidSettings.Local || MainMenuControllerPatch.GroupPlayers.Count < 1)
+            {
+                return;
+            }
+
+            foreach (GroupPlayerViewModelClass player in controller.GroupPlayers)
+            {
+                if (player != controller.CurrentPlayer)
+                {
+                    RemovedPlayers.Add(player);
+                }
+            }
+
+            foreach (GroupPlayerViewModelClass player in RemovedPlayers)
+            {
+                controller.GroupPlayers.Remove(player);
+            }
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(MainMenuControllerClass __instance)
+        {
+            if (RemovedPlayers.Count < 1)
+            {
+                return;
+            }
+
+            MatchmakerPlayerControllerClass controller = __instance.MatchmakerPlayerControllerClass;
+            if (controller == null)
+            {
+                RemovedPlayers.Clear();
+                return;
+            }
+
+            foreach (GroupPlayerViewModelClass player in RemovedPlayers)
+            {
+                if (controller.GroupPlayers.All(existing => existing.AccountId != player.AccountId))
+                {
+                    controller.GroupPlayers.Add(player);
+                }
+            }
+
+            RemovedPlayers.Clear();
+        }
+    }
     /**
      * Clear the raid group when the player aborts the matchmaking
      */
@@ -505,6 +620,44 @@ namespace friendlySAIN.Patches
 
             }, TaskScheduler.FromCurrentSynchronizationContext()).HandleExceptions();
 
+        }
+    }
+
+    internal class TarkovApplicationLocalRaidGatePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(TarkovApplication), "method_37");
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix(TarkovApplication __instance)
+        {
+            SyntheticTeammateRaidGuard.TryForceLocalRaid(__instance, "TarkovApplication.method_37");
+        }
+    }
+
+    internal class TarkovApplicationOnlineFallbackPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(TarkovApplication), "method_42", new Type[]
+            {
+                typeof(string),
+                typeof(EMatchingType)
+            });
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(TarkovApplication __instance, ref Task __result)
+        {
+            if (!SyntheticTeammateRaidGuard.TryForceLocalRaid(__instance, "TarkovApplication.method_42"))
+            {
+                return true;
+            }
+
+            __result = SyntheticTeammateRaidGuard.StartLocalRaid(__instance);
+            return false;
         }
     }
 

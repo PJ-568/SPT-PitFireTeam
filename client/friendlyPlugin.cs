@@ -277,26 +277,29 @@ namespace friendlySAIN
             new BotReceiverGestureOverridePatch().Enable();
             new ChatFriendsPanelAddTeammateButtonPatch().Enable();
 
-            // Temporarily disable screen/matchmaker patching while focusing on in-raid recruit/follow flow.
             new RaidStartPatch().Enable();
-            // new MainMenuControllerPatch().Enable();
-            // new MatchmakerPlayerControllerClassAddMemberPatch().Enable();
-            // new MatchmakerPlayerControllerClassDisbandGroupPatch().Enable();
-            // new MatchmakerPlayerControllerClassAbortPatch().Enable();
-            // new MatchmakerPlayerControllerClassLeavePatch().Enable();
-            // new MatchMakerAcceptScreenPatch().Enable();
-            // new ContextInteractionsPlayerRemovePatch().Enable();
+            new MainMenuControllerPatch().Enable();
+            new MainMenuControllerReadyScreenGatePatch().Enable();
+            new TarkovApplicationLocalRaidGatePatch().Enable();
+            new TarkovApplicationOnlineFallbackPatch().Enable();
+            new MatchmakerPlayerControllerClassAddMemberPatch().Enable();
+            new MatchmakerPlayerControllerClassDisbandGroupPatch().Enable();
+            new MatchmakerPlayerControllerClassAbortPatch().Enable();
+            new MatchmakerPlayerControllerClassLeavePatch().Enable();
+            new MatchMakerAcceptScreenPatch().Enable();
+            new ContextInteractionsPlayerRemovePatch().Enable();
             // new MatchMakerSelectionLocationScreenPatch().Enable();
             // new SelectSpawnPointPatch().Enable();
 
-            // transit patches
-            // new TransitPointPatch().Enable();
-            // new MatchmakerTimeHasComeShowPatch().Enable();
+            new MatchmakerTimeHasComeShowPatch().Enable();
 
             //new ConditionCounterPatch().Enable();
 
             // social/screen related patches disabled for now
             new SocialNetworkClassPatch().Enable();
+            new SocialNetworkClassFriendsListDedupePatch().Enable();
+            new ChatInvitePlayersPanelRefreshPatch().Enable();
+            new ChatCreateDialoguePanelRefreshPatch().Enable();
             // new SocialNetworkClassSendPatch().Enable();
             // new QuestClassPatch().Enable();
 

@@ -15,55 +15,15 @@ BepInEx is the plugin framework for Unity game modding. This project uses BepInE
 ### Plugin Entry Point
 
 ```csharp
-[BepInPlugin("com.blackhorse311.botmind", "BotMind", "1.0.0")]
-[BepInDependency("xyz.drakia.bigbrain", BepInDependency.DependencyFlags.HardDependency)]
-[BepInDependency("me.sol.sain", BepInDependency.DependencyFlags.SoftDependency)]
-public class BotMindPlugin : BaseUnityPlugin
+[BepInPlugin("xyz.pit.friendlysain", "friendlySAIN", "1.0.0")]
+[BepInDependency("xyz.drakia.bigbrain")]
+public class friendlySAIN : BaseUnityPlugin
 {
     public static ManualLogSource Log { get; private set; }
     
     private void Awake()
     {
-        Log = Logger;
-        Log.LogInfo("BotMind is loading...");
         
-        // Initialize configuration
-        BotMindConfig.Initialize(Config);
-        
-        // Apply Harmony patches
-        new Harmony("com.blackhorse311.botmind").PatchAll();
-        
-        Log.LogInfo("BotMind loaded successfully!");
-    }
-}
-```
-
-### Configuration Binding
-
-```csharp
-public static class BotMindConfig
-{
-    public static ConfigEntry<bool> EnableLooting { get; private set; }
-    public static ConfigEntry<float> SearchRadius { get; private set; }
-    
-    public static void Initialize(ConfigFile config)
-    {
-        EnableLooting = config.Bind(
-            "General",           // Section
-            "Enable Looting",    // Key
-            true,                // Default
-            "Enable bot looting behavior"  // Description
-        );
-        
-        SearchRadius = config.Bind(
-            "Looting",
-            "Search Radius",
-            50f,
-            new ConfigDescription(
-                "Loot search distance in meters",
-                new AcceptableValueRange<float>(10f, 200f)
-            )
-        );
     }
 }
 ```
