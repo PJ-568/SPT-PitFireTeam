@@ -115,7 +115,7 @@ namespace friendlySAIN.Localization
                     ["RenameTeammateTitle"] = "Rename teammate",
                     ["RenameSave"] = "Save",
                     ["RenameCancel"] = "Cancel",
-                    ["RenameChange"] = "CHANGE",
+                    ["RenameChange"] = "EDIT NAME",
                     ["RenameFailed"] = "Could not rename teammate"
                 }
             };

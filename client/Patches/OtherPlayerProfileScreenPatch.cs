@@ -117,6 +117,7 @@ namespace friendlySAIN.Patches
         public static NicknameField RenameOverlayField { get; set; }
         public static Vector2? OriginalNicknameAnchoredPosition { get; set; }
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
+        private static List<GameObject> HiddenRenameButtonDecorations { get; } = new List<GameObject>();
 
         protected override MethodBase GetTargetMethod()
         {
@@ -139,8 +140,11 @@ namespace friendlySAIN.Patches
             if (session?.Profile != null
                 && session.Profile.AccountId == profile.AccountId)
             {
+                RestoreHideoutButtonVisuals(__instance);
                 return;
             }
+
+            RestoreHideoutButtonVisuals(__instance);
 
             FriendlyTeammateProfileOptions options = TryLoadProfileOptions(profile.AccountId);
             if (options == null || options.Loadouts == null || options.Loadouts.Count == 0)
@@ -281,7 +285,7 @@ namespace friendlySAIN.Patches
 
         private static void ConfigureNicknameRenameUi(OtherPlayerProfileScreen screen, InventoryPlayerModelWithStatsWindow window, ResultProfile profile)
         {
-            if (NicknameRenameButton != null)
+            if (NicknameRenameButton != null && NicknameRenameButton.name == "friendlySAIN_NicknameRenameButton")
             {
                 GameObject.Destroy(NicknameRenameButton.gameObject);
                 NicknameRenameButton = null;
@@ -304,36 +308,61 @@ namespace friendlySAIN.Patches
                 OriginalNicknameAnchoredPosition = sourceRect.anchoredPosition;
             }
 
-            sourceRect.anchoredPosition = OriginalNicknameAnchoredPosition.Value + new Vector2(0f, 26f);
+            sourceRect.anchoredPosition = OriginalNicknameAnchoredPosition.Value;
 
-            DefaultUIButton buttonTemplate = BackButtonField?.GetValue(screen) as DefaultUIButton;
-            if (buttonTemplate == null)
+            DefaultUIButton hideoutButton = HideoutButtonField?.GetValue(screen) as DefaultUIButton;
+            if (hideoutButton == null)
             {
                 return;
             }
 
-            DefaultUIButton changeButton = CreateOverlayButton(
-                buttonTemplate,
-                sourceRect.parent,
-                Vector2.zero,
-                new Vector2(Mathf.Max(sourceRect.rect.width, 170f), 36f));
-            changeButton.name = "friendlySAIN_NicknameRenameButton";
+            hideoutButton.gameObject.SetActive(true);
+            hideoutButton.SetRawText(GetSocialUiText("RenameChange", "EDIT NAME"), 18);
+            HideHideoutButtonDecorations(hideoutButton);
+            hideoutButton.OnClick.RemoveAllListeners();
+            hideoutButton.OnClick.AddListener(() => ShowRenameOverlay(screen, profile));
+            NicknameRenameButton = hideoutButton;
+        }
 
-            if (changeButton.transform is RectTransform buttonRect)
+        private static void HideHideoutButtonDecorations(DefaultUIButton button)
+        {
+            HiddenRenameButtonDecorations.Clear();
+
+            foreach (Image image in button.GetComponentsInChildren<Image>(true))
             {
-                buttonRect.anchorMin = sourceRect.anchorMin;
-                buttonRect.anchorMax = sourceRect.anchorMax;
-                buttonRect.pivot = new Vector2(0.5f, 0.5f);
-                buttonRect.sizeDelta = new Vector2(128f, 30f);
-                buttonRect.localScale = Vector3.one * 0.72f;
-                buttonRect.localPosition = sourceRect.localPosition + new Vector3(0f, -38f, 0f);
-                buttonRect.SetSiblingIndex(sourceRect.GetSiblingIndex() + 1);
+                if (image == null || image.gameObject == button.gameObject)
+                {
+                    continue;
+                }
+
+                RectTransform rect = image.transform as RectTransform;
+                if (rect == null)
+                {
+                    continue;
+                }
+
+                bool looksLikeSmallIcon = rect.rect.width <= 40f && rect.rect.height <= 40f;
+                if (!looksLikeSmallIcon)
+                {
+                    continue;
+                }
+
+                HiddenRenameButtonDecorations.Add(image.gameObject);
+                image.gameObject.SetActive(false);
+            }
+        }
+
+        internal static void RestoreHideoutButtonVisuals(OtherPlayerProfileScreen screen)
+        {
+            foreach (GameObject decoration in HiddenRenameButtonDecorations)
+            {
+                if (decoration != null)
+                {
+                    decoration.SetActive(true);
+                }
             }
 
-            changeButton.SetRawText(GetSocialUiText("RenameChange", "CHANGE"), 18);
-            changeButton.OnClick.RemoveAllListeners();
-            changeButton.OnClick.AddListener(() => ShowRenameOverlay(screen, profile));
-            NicknameRenameButton = changeButton;
+            HiddenRenameButtonDecorations.Clear();
         }
 
         private static void ShowRenameOverlay(OtherPlayerProfileScreen screen, ResultProfile profile)
@@ -730,9 +759,6 @@ namespace friendlySAIN.Patches
 
         private static void HideProfileActions(OtherPlayerProfileScreen screen)
         {
-            DefaultUIButton hideoutButton = HideoutButtonField?.GetValue(screen) as DefaultUIButton;
-            hideoutButton?.gameObject.SetActive(false);
-
             ReportPanel reportPanel = ReportPanelField?.GetValue(screen) as ReportPanel;
             if (reportPanel != null)
             {
@@ -1010,9 +1036,15 @@ namespace friendlySAIN.Patches
 
             if (OtherPlayerProfileScreenPatch.NicknameRenameButton != null)
             {
-                GameObject.Destroy(OtherPlayerProfileScreenPatch.NicknameRenameButton.gameObject);
+                if (OtherPlayerProfileScreenPatch.NicknameRenameButton.name == "friendlySAIN_NicknameRenameButton")
+                {
+                    GameObject.Destroy(OtherPlayerProfileScreenPatch.NicknameRenameButton.gameObject);
+                }
+
                 OtherPlayerProfileScreenPatch.NicknameRenameButton = null;
             }
+
+            OtherPlayerProfileScreenPatch.RestoreHideoutButtonVisuals(__instance);
 
             if (OtherPlayerProfileScreenPatch.LoadoutSelector != null)
             {

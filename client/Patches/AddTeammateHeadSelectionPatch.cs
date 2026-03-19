@@ -33,13 +33,19 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static bool PatchPrefix(NicknameField __instance, string nickname)
         {
-            if (!AddTeammateCreationFlow.IsActiveForController(CurrentScreenSingletonClass.Instance.CurrentScreenController))
+            bool isTeammateCreationFlow = AddTeammateCreationFlow.IsActiveForController(CurrentScreenSingletonClass.Instance.CurrentScreenController);
+            bool isRenameOverlayField = ReferenceEquals(__instance, OtherPlayerProfileScreenPatch.RenameOverlayField);
+            if (!isTeammateCreationFlow && !isRenameOverlayField)
             {
                 return true;
             }
 
             __instance.method_3(nickname);
-            AddTeammateCreationFlow.RefreshSubmitButton();
+            if (isTeammateCreationFlow)
+            {
+                AddTeammateCreationFlow.RefreshSubmitButton();
+            }
+
             return false;
         }
     }
