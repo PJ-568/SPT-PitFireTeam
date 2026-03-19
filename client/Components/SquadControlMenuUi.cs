@@ -1,12 +1,24 @@
+using ChatShared;
+using Comfort.Common;
+using EFT;
+using EFT.InventoryLogic;
 using EFT.UI;
+using friendlySAIN.Modules;
+using friendlySAIN.Patches;
 using HarmonyLib;
+using Newtonsoft.Json.Linq;
+using PlayerIcons;
+using SPT.Common.Http;
 using TMPro;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace friendlySAIN.Components
@@ -19,18 +31,13 @@ namespace friendlySAIN.Components
         private static readonly FieldInfo HeaderLabelField = AccessTools.Field(typeof(DefaultUIButton), "_headerLabel");
         private static readonly FieldInfo TraderCloseButtonField = AccessTools.Field(typeof(TraderScreensGroup), "_closeButton");
         private static readonly FieldInfo TraderCardsContainerField = AccessTools.Field(typeof(TraderScreensGroup), "_traderCardsContainer");
-        private static readonly FieldInfo TraderCardPrefabField = AccessTools.Field(typeof(TraderScreensGroup), "_traderCardPrefab");
-        private static readonly FieldInfo TraderCardAvatarField = AccessTools.Field(typeof(TraderCard), "_traderAvatar");
-        private static readonly FieldInfo TraderCardRankPanelField = AccessTools.Field(typeof(TraderCard), "_rankPanel");
-        private static readonly FieldInfo TraderCardQuestionMarkField = AccessTools.Field(typeof(TraderCard), "_questionMark");
-        private static readonly FieldInfo TraderCardStandingField = AccessTools.Field(typeof(TraderCard), "_standing");
-        private static readonly FieldInfo TraderCardTimeLeftField = AccessTools.Field(typeof(TraderCard), "_timeLeft");
-        private static readonly FieldInfo TraderCardNickNameField = AccessTools.Field(typeof(TraderCard), "_nickName");
         private static readonly FieldInfo RagfairAllOffersToggleField = AccessTools.Field(typeof(EFT.UI.Ragfair.RagfairScreen), "_allOffersToggle");
         private static readonly FieldInfo RagfairWishListToggleField = AccessTools.Field(typeof(EFT.UI.Ragfair.RagfairScreen), "_wishListToggle");
         private static readonly FieldInfo SpawnableToggleHeaderLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_headerLabel");
         private static readonly FieldInfo SpawnableToggleSizeLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_sizeLabel");
+        private static readonly FieldInfo TradingPlayerPanelIconField = AccessTools.Field(typeof(TradingPlayerPanel), "_playerIconImage");
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
+        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
         private static Sprite squadIconSprite;
 
         private MenuScreen menuScreen;
@@ -44,9 +51,74 @@ namespace friendlySAIN.Components
         private UIAnimatedToggleSpawner rosterAnimatedTab;
         private UIAnimatedToggleSpawner settingsAnimatedTab;
         private RectTransform stockCardsContainer;
+        private RectTransform rosterContentRoot;
         private GameObject rosterPanel;
         private GameObject settingsPanel;
+        private DefaultUIButton addTeammateButton;
+        private TextMeshProUGUI emptyRosterLabel;
+        private GameObject removeConfirmOverlay;
         private readonly Dictionary<RectTransform, Vector2> originalButtonPositions = new Dictionary<RectTransform, Vector2>();
+        private static readonly Vector2 PopulatedAddTeammateButtonPosition = new Vector2(0f, 8f);
+        private static readonly Vector2 EmptyAddTeammateButtonPosition = new Vector2(0f, 84f);
+        private static readonly Vector2 PopulatedEmptyRosterLabelPosition = new Vector2(0f, 86f);
+        private static readonly Vector2 EmptyRosterLabelPosition = new Vector2(0f, 152f);
+        private int rosterBuildVersion;
+
+        private sealed class SquadRosterEntry
+        {
+            public string AccountId { get; set; } = string.Empty;
+            public string SocialMemberId { get; set; } = string.Empty;
+            public string Nickname { get; set; } = string.Empty;
+            public int Level { get; set; }
+        }
+
+        private sealed class RosterTileHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+        {
+            private Image background;
+            private Color normalColor;
+            private Color hoverColor;
+            private Color pressedColor;
+            private bool isHovered;
+
+            public void Configure(Image target, Color normal, Color hover, Color pressed)
+            {
+                background = target;
+                normalColor = normal;
+                hoverColor = hover;
+                pressedColor = pressed;
+                Apply(normalColor);
+            }
+
+            public void OnPointerEnter(PointerEventData eventData)
+            {
+                isHovered = true;
+                Apply(hoverColor);
+            }
+
+            public void OnPointerExit(PointerEventData eventData)
+            {
+                isHovered = false;
+                Apply(normalColor);
+            }
+
+            public void OnPointerDown(PointerEventData eventData)
+            {
+                Apply(pressedColor);
+            }
+
+            public void OnPointerUp(PointerEventData eventData)
+            {
+                Apply(isHovered ? hoverColor : normalColor);
+            }
+
+            private void Apply(Color color)
+            {
+                if (background != null)
+                {
+                    background.color = color;
+                }
+            }
+        }
 
         public static SquadControlMenuUi GetOrCreate(MenuScreen menuScreen)
         {
@@ -113,8 +185,6 @@ namespace friendlySAIN.Components
                 CaptureOriginalButtonPositions(playerRect);
                 RestoreOriginalButtonPositions();
 
-                ShiftMenuColumn(playerRect, 26f);
-
                 float verticalStep = ResolveVerticalStep(playerRect, tradeRect) * 0.82f;
                 squadRect.anchorMin = playerRect.anchorMin;
                 squadRect.anchorMax = playerRect.anchorMax;
@@ -157,7 +227,7 @@ namespace friendlySAIN.Components
             rootRect.offsetMax = Vector2.zero;
 
             Image background = screenRoot.GetComponent<Image>();
-            background.color = new Color(0.04f, 0.05f, 0.06f, 0.96f);
+            background.color = new Color(0.04f, 0.05f, 0.06f, 1f);
             background.raycastTarget = true;
 
             CreateScreenChrome();
@@ -205,11 +275,10 @@ namespace friendlySAIN.Components
 
             DefaultUIButton closeTemplate = TraderCloseButtonField?.GetValue(templateGroup) as DefaultUIButton;
             Transform cardsContainerTemplate = TraderCardsContainerField?.GetValue(templateGroup) as Transform;
-            TraderCard traderCardTemplate = TraderCardPrefabField?.GetValue(templateGroup) as TraderCard;
             UIAnimatedToggleSpawner rosterTabTemplate = ResolveRagfairToggleTemplate(true);
             UIAnimatedToggleSpawner settingsTabTemplate = ResolveRagfairToggleTemplate(false);
 
-            if (closeTemplate == null || rosterTabTemplate == null || settingsTabTemplate == null || cardsContainerTemplate == null || traderCardTemplate == null)
+            if (closeTemplate == null || rosterTabTemplate == null || settingsTabTemplate == null || cardsContainerTemplate == null)
             {
                 return false;
             }
@@ -256,11 +325,19 @@ namespace friendlySAIN.Components
             rosterRect.anchorMin = new Vector2(0.5f, 0.5f);
             rosterRect.anchorMax = new Vector2(0.5f, 0.5f);
             rosterRect.pivot = new Vector2(0.5f, 0.5f);
-            rosterRect.sizeDelta = new Vector2(1260f, 360f);
-            rosterRect.anchoredPosition = new Vector2(0f, -8f);
+            rosterRect.sizeDelta = new Vector2(1260f, 430f);
+            rosterRect.anchoredPosition = new Vector2(0f, 18f);
 
             stockCardsContainer.SetParent(rosterRect, false);
-            CreateRosterPlaceholderCards(traderCardTemplate, stockCardsContainer);
+            stockCardsContainer.anchorMin = new Vector2(0.5f, 0.5f);
+            stockCardsContainer.anchorMax = new Vector2(0.5f, 0.5f);
+            stockCardsContainer.pivot = new Vector2(0.5f, 0.5f);
+            stockCardsContainer.sizeDelta = new Vector2(1180f, 230f);
+            stockCardsContainer.anchoredPosition = new Vector2(0f, 36f);
+            rosterContentRoot = stockCardsContainer;
+            CreateEmptyRosterLabel(rosterRect);
+            CreateAddTeammateButton(rosterRect);
+            RebuildRosterTiles();
 
             settingsPanel = CreateFallbackContentPanel("friendlySAIN_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
             return true;
@@ -273,7 +350,9 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            screenRoot.transform.SetAsLastSibling();
             screenRoot.SetActive(true);
+            RebuildRosterTiles();
             SyncButtonVisibility();
         }
 
@@ -284,6 +363,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            CloseRemoveConfirmOverlay();
             screenRoot.SetActive(false);
             SyncButtonVisibility();
         }
@@ -502,51 +582,739 @@ namespace friendlySAIN.Components
                 .FirstOrDefault(toggle => toggle != null);
         }
 
-        private void CreateRosterPlaceholderCards(TraderCard traderCardTemplate, RectTransform parent)
+        private void RebuildRosterTiles()
         {
-            CreateRosterCard(traderCardTemplate, parent, GetSocialUiText("SquadControlRosterPlayer", "PLAYER"), GetSocialUiText("SquadControlRosterLeader", "Leader"), true);
-            CreateRosterCard(traderCardTemplate, parent, GetSocialUiText("SquadControlRosterMemberA", "TEAMMATE 01"), GetSocialUiText("SquadControlRosterRole", "Squad Member"), false);
-            CreateRosterCard(traderCardTemplate, parent, GetSocialUiText("SquadControlRosterMemberB", "TEAMMATE 02"), GetSocialUiText("SquadControlRosterRole", "Squad Member"), false);
+            if (rosterContentRoot == null)
+            {
+                return;
+            }
+
+            CloseRemoveConfirmOverlay();
+            rosterBuildVersion++;
+
+            for (int i = rosterContentRoot.childCount - 1; i >= 0; i--)
+            {
+                Destroy(rosterContentRoot.GetChild(i).gameObject);
+            }
+
+            List<SquadRosterEntry> entries = BuildRosterEntries().ToList();
+            foreach (SquadRosterEntry entry in entries)
+            {
+                CreateRosterTile(rosterContentRoot, entry, rosterBuildVersion);
+            }
+
+            UpdateEmptyRosterState(entries.Count == 0);
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(rosterContentRoot);
+
+            if (rosterPanel != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rosterPanel.GetComponent<RectTransform>());
+            }
         }
 
-        private void CreateRosterCard(TraderCard template, RectTransform parent, string title, string subtitle, bool selected)
+        private IEnumerable<SquadRosterEntry> BuildRosterEntries()
         {
-            TraderCard card = Instantiate(template, parent, false);
-            card.name = $"friendlySAIN_{title.Replace(' ', '_')}";
-            card.ApplyState(selected ? TraderCard.ETraderCardState.Selected : TraderCard.ETraderCardState.Available);
+            List<SquadRosterEntry> entries = new List<SquadRosterEntry>();
 
-            if (TraderCardAvatarField?.GetValue(card) is Component avatar)
+            try
             {
-                avatar.gameObject.SetActive(false);
+                string response = RequestHandler.GetJson(TeammatesRoute);
+                if (!string.IsNullOrWhiteSpace(response))
+                {
+                    JToken root = JToken.Parse(response);
+                    JToken dataToken = root.Type == JTokenType.Array ? root : root["data"];
+                    if (dataToken is JArray teammates)
+                    {
+                        foreach (JToken teammate in teammates)
+                        {
+                            string accountId = teammate?["Aid"]?.ToString() ?? teammate?["aid"]?.ToString() ?? string.Empty;
+                            string socialMemberId = teammate?["Id"]?.ToString() ?? teammate?["id"]?.ToString() ?? string.Empty;
+                            string nickname = teammate?["Info"]?["Nickname"]?.ToString() ?? teammate?["info"]?["nickname"]?.ToString() ?? string.Empty;
+                            int level = ParseLevel(teammate?["Info"]?["Level"]?.ToString() ?? teammate?["info"]?["level"]?.ToString());
+                            if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(nickname))
+                            {
+                                continue;
+                            }
+
+                            entries.Add(new SquadRosterEntry
+                            {
+                                AccountId = accountId,
+                                SocialMemberId = socialMemberId,
+                                Nickname = nickname,
+                                Level = level
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI] Failed to build Squad Control roster.");
+                friendlySAIN.Log.LogError(ex);
             }
 
-            if (TraderCardRankPanelField?.GetValue(card) is Component rankPanel)
+            return entries
+                .GroupBy(entry => entry.AccountId, StringComparer.Ordinal)
+                .Select(group => group.First());
+        }
+
+        private static int ParseLevel(string value)
+        {
+            return int.TryParse(value, out int level) ? Mathf.Max(1, level) : 1;
+        }
+
+        private void CreateAddTeammateButton(RectTransform rosterRect)
+        {
+            if (rosterRect == null || playerButton == null)
             {
-                rankPanel.gameObject.SetActive(false);
+                return;
             }
 
-            if (TraderCardQuestionMarkField?.GetValue(card) is GameObject questionMark)
+            if (addTeammateButton != null)
             {
-                questionMark.SetActive(false);
+                Destroy(addTeammateButton.gameObject);
+                addTeammateButton = null;
             }
 
-            if (TraderCardNickNameField?.GetValue(card) is LocalizedText nickname)
+            addTeammateButton = Instantiate(playerButton, rosterRect, false);
+            addTeammateButton.name = "friendlySAIN_SquadControlAddTeammateButton";
+            addTeammateButton.SetRawText(GetSocialUiText("AddTeammate", "+ Add teammate"), playerButton.HeaderSize);
+            addTeammateButton.SetIcon(null);
+            addTeammateButton.Interactable = true;
+            addTeammateButton.OnClick.RemoveAllListeners();
+            addTeammateButton.OnClick.AddListener(OnAddTeammateClicked);
+
+            RectTransform buttonRect = addTeammateButton.transform as RectTransform;
+            if (buttonRect != null)
             {
-                nickname.enabled = false;
-                nickname.method_2(title);
+                buttonRect.anchorMin = new Vector2(0.5f, 0f);
+                buttonRect.anchorMax = new Vector2(0.5f, 0f);
+                buttonRect.pivot = new Vector2(0.5f, 0f);
+                buttonRect.sizeDelta = new Vector2(320f, playerButton.transform is RectTransform playerRect ? playerRect.sizeDelta.y : 54f);
+                buttonRect.anchoredPosition = PopulatedAddTeammateButtonPosition;
+            }
+        }
+
+        private void OnAddTeammateClicked()
+        {
+            CloseScreen();
+            AddTeammateCreationFlow.Start();
+        }
+
+        private void CreateEmptyRosterLabel(RectTransform rosterRect)
+        {
+            if (rosterRect == null)
+            {
+                return;
             }
 
-            if (TraderCardStandingField?.GetValue(card) is TMP_Text standing)
+            if (emptyRosterLabel != null)
             {
-                standing.text = subtitle;
+                Destroy(emptyRosterLabel.gameObject);
+                emptyRosterLabel = null;
             }
 
-            if (TraderCardTimeLeftField?.GetValue(card) is TMP_Text timeLeft)
+            GameObject textObject = CreateText(
+                "friendlySAIN_EmptyRosterLabel",
+                GetSocialUiText("SquadControlEmptyRoster", "You have not created any team members yet, press the add button below to get started"),
+                24f,
+                TextAlignmentOptions.Center);
+            textObject.transform.SetParent(rosterRect, false);
+
+            RectTransform textRect = textObject.GetComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0.5f, 0f);
+            textRect.anchorMax = new Vector2(0.5f, 0f);
+            textRect.pivot = new Vector2(0.5f, 0f);
+            textRect.sizeDelta = new Vector2(760f, 90f);
+            textRect.anchoredPosition = PopulatedEmptyRosterLabelPosition;
+
+            emptyRosterLabel = textObject.GetComponent<TextMeshProUGUI>();
+            emptyRosterLabel.enableWordWrapping = true;
+            emptyRosterLabel.overflowMode = TextOverflowModes.Ellipsis;
+            emptyRosterLabel.gameObject.SetActive(false);
+        }
+
+        private void UpdateEmptyRosterState(bool isEmpty)
+        {
+            if (emptyRosterLabel == null)
             {
-                timeLeft.text = string.Empty;
+                return;
             }
 
-            AddCardIcon(card.transform as RectTransform);
+            emptyRosterLabel.text = GetSocialUiText(
+                "SquadControlEmptyRoster",
+                "You have not created any team members yet, press the add button below to get started");
+            emptyRosterLabel.gameObject.SetActive(isEmpty);
+
+            if (emptyRosterLabel.transform is RectTransform emptyLabelRect)
+            {
+                emptyLabelRect.anchoredPosition = isEmpty ? EmptyRosterLabelPosition : PopulatedEmptyRosterLabelPosition;
+            }
+
+            if (addTeammateButton?.transform is RectTransform addButtonRect)
+            {
+                addButtonRect.anchoredPosition = isEmpty ? EmptyAddTeammateButtonPosition : PopulatedAddTeammateButtonPosition;
+            }
+        }
+
+        private void CreateRosterTile(RectTransform parent, SquadRosterEntry entry, int buildVersion)
+        {
+            GameObject tileObject = new GameObject(
+                $"friendlySAIN_RosterTile_{entry.AccountId}",
+                typeof(RectTransform),
+                typeof(Image),
+                typeof(LayoutElement),
+                typeof(Button));
+            tileObject.transform.SetParent(parent, false);
+
+            RectTransform tileRect = tileObject.GetComponent<RectTransform>();
+            tileRect.sizeDelta = new Vector2(190f, 238f);
+
+            LayoutElement layoutElement = tileObject.GetComponent<LayoutElement>();
+            layoutElement.preferredWidth = 190f;
+            layoutElement.preferredHeight = 238f;
+            layoutElement.flexibleWidth = 0f;
+            layoutElement.flexibleHeight = 0f;
+
+            Image tileBackground = tileObject.GetComponent<Image>();
+            Color normalColor = new Color(0.08f, 0.08f, 0.08f, 0.96f);
+            Color hoverColor = new Color(0.16f, 0.16f, 0.16f, 0.98f);
+            Color pressedColor = new Color(0.24f, 0.24f, 0.24f, 0.98f);
+            tileBackground.color = normalColor;
+
+            Button button = tileObject.GetComponent<Button>();
+            button.transition = Selectable.Transition.None;
+            button.targetGraphic = tileBackground;
+            button.onClick.AddListener(() => OpenProfile(entry.AccountId));
+
+            RosterTileHoverController hoverController = tileObject.AddComponent<RosterTileHoverController>();
+            hoverController.Configure(tileBackground, normalColor, hoverColor, pressedColor);
+
+            RectTransform portraitHost = CreatePortraitHost(tileRect, entry.Level, out PlayerIconImage iconImage);
+            CreateRemoveButton(tileRect, entry);
+            CreateRosterNameLabel(tileRect, entry.Nickname);
+            StartCoroutine(LoadTeammatePortraitCoroutine(entry.AccountId, iconImage, portraitHost, buildVersion));
+        }
+
+        private void CreateRemoveButton(RectTransform tileRect, SquadRosterEntry entry)
+        {
+            GameObject buttonObject = new GameObject("friendlySAIN_RemoveButton", typeof(RectTransform), typeof(Image), typeof(Button));
+            buttonObject.transform.SetParent(tileRect, false);
+
+            RectTransform rect = buttonObject.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.sizeDelta = new Vector2(24f, 22f);
+            rect.anchoredPosition = new Vector2(-8f, -8f);
+
+            Image background = buttonObject.GetComponent<Image>();
+            background.color = new Color(0.43f, 0.12f, 0.12f, 1f);
+            background.raycastTarget = true;
+
+            Button button = buttonObject.GetComponent<Button>();
+            button.transition = Selectable.Transition.ColorTint;
+            ColorBlock colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 0.92f, 0.92f, 1f);
+            colors.pressedColor = new Color(0.88f, 0.82f, 0.82f, 1f);
+            colors.selectedColor = Color.white;
+            colors.disabledColor = Color.white;
+            button.colors = colors;
+            button.onClick.AddListener(() => ShowRemoveConfirmOverlay(entry));
+
+            GameObject labelObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+            labelObject.transform.SetParent(buttonObject.transform, false);
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            Stretch(labelRect);
+
+            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            TextMeshProUGUI templateLabel = ResolveTemplateLabel();
+            if (templateLabel != null)
+            {
+                label.font = templateLabel.font;
+                label.fontSharedMaterial = templateLabel.fontSharedMaterial;
+            }
+
+            label.text = GetSocialUiText("RenameClose", "x");
+            label.fontSize = 16f;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = new Color(0.95f, 0.95f, 0.95f, 1f);
+            label.raycastTarget = false;
+        }
+
+        private void ShowRemoveConfirmOverlay(SquadRosterEntry entry)
+        {
+            CloseRemoveConfirmOverlay();
+
+            if (screenRoot == null || entry == null)
+            {
+                return;
+            }
+
+            GameObject overlayRoot = new GameObject("friendlySAIN_RemoveOverlay", typeof(RectTransform), typeof(Image));
+            overlayRoot.transform.SetParent(screenRoot.transform, false);
+            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
+            Stretch(overlayRect);
+            overlayRect.SetAsLastSibling();
+
+            Image backdrop = overlayRoot.GetComponent<Image>();
+            backdrop.color = new Color(0f, 0f, 0f, 0.12f);
+            backdrop.raycastTarget = true;
+
+            GameObject panel = new GameObject("friendlySAIN_RemovePanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(overlayRoot.transform, false);
+            RectTransform panelRect = panel.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.sizeDelta = new Vector2(620f, 188f);
+
+            Image panelImage = panel.GetComponent<Image>();
+            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
+            panelImage.raycastTarget = true;
+
+            GameObject header = new GameObject("friendlySAIN_RemoveHeader", typeof(RectTransform), typeof(Image));
+            header.transform.SetParent(panel.transform, false);
+            RectTransform headerRect = header.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0f, 1f);
+            headerRect.anchorMax = new Vector2(1f, 1f);
+            headerRect.pivot = new Vector2(0.5f, 1f);
+            headerRect.offsetMin = new Vector2(0f, -28f);
+            headerRect.offsetMax = new Vector2(0f, 0f);
+
+            Image headerImage = header.GetComponent<Image>();
+            headerImage.color = new Color(0.06f, 0.06f, 0.06f, 1f);
+            headerImage.raycastTarget = true;
+
+            GameObject titleObject = CreateText(
+                "friendlySAIN_RemoveTitle",
+                GetSocialUiText("RemoveTeammateTitle", "Remove teammate").ToUpperInvariant(),
+                18f,
+                TextAlignmentOptions.MidlineLeft);
+            RectTransform titleRect = titleObject.GetComponent<RectTransform>();
+            titleRect.SetParent(header.transform, false);
+            titleRect.anchorMin = new Vector2(0f, 0f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.offsetMin = new Vector2(16f, 0f);
+            titleRect.offsetMax = new Vector2(-42f, 0f);
+
+            Button closeButton = CreateWindowCloseButton(header.transform, "friendlySAIN_RemoveCloseButton");
+            if (closeButton.transform is RectTransform closeRect)
+            {
+                closeRect.anchorMin = new Vector2(1f, 0.5f);
+                closeRect.anchorMax = new Vector2(1f, 0.5f);
+                closeRect.pivot = new Vector2(1f, 0.5f);
+                closeRect.anchoredPosition = new Vector2(-4f, 0f);
+            }
+
+            closeButton.onClick.AddListener(CloseRemoveConfirmOverlay);
+
+            GameObject bodyObject = CreateText(
+                "friendlySAIN_RemoveBody",
+                string.Format(
+                    GetSocialUiText("RemoveTeammatePrompt", "Are you sure you want to delete member {0}? Process cannot be undone."),
+                    entry.Nickname),
+                24f,
+                TextAlignmentOptions.Center);
+            RectTransform bodyRect = bodyObject.GetComponent<RectTransform>();
+            bodyRect.SetParent(panel.transform, false);
+            bodyRect.anchorMin = new Vector2(0f, 0f);
+            bodyRect.anchorMax = new Vector2(1f, 1f);
+            bodyRect.offsetMin = new Vector2(28f, 68f);
+            bodyRect.offsetMax = new Vector2(-28f, -42f);
+
+            TextMeshProUGUI bodyLabel = bodyObject.GetComponent<TextMeshProUGUI>();
+            bodyLabel.enableWordWrapping = true;
+            bodyLabel.overflowMode = TextOverflowModes.Ellipsis;
+
+            DefaultUIButton removeButton = CreateOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f));
+            removeButton.SetRawText(GetSocialUiText("RemoveTeammateConfirm", "Remove"), 22);
+            removeButton.OnClick.RemoveAllListeners();
+            removeButton.OnClick.AddListener(() => RemoveTeammate(entry));
+
+            removeConfirmOverlay = overlayRoot;
+        }
+
+        private void RemoveTeammate(SquadRosterEntry entry)
+        {
+            if (entry == null)
+            {
+                return;
+            }
+
+            try
+            {
+                IChatInteractions chatInteractions = ItemUiContext.Instance?.Session;
+                SocialNetworkClass socialNetwork = chatInteractions?.SocialNetwork;
+                if (socialNetwork?.FriendsList == null)
+                {
+                    friendlySAIN.Log.LogError("[UI] Failed to delete teammate: social network is unavailable.");
+                    return;
+                }
+
+                UpdatableChatMember member = socialNetwork.FriendsList
+                    .FirstOrDefault(candidate =>
+                        candidate != null &&
+                        (!string.IsNullOrWhiteSpace(candidate.AccountId)
+                            ? string.Equals(candidate.AccountId, entry.AccountId, StringComparison.Ordinal)
+                            : string.Equals(candidate.Id, entry.SocialMemberId, StringComparison.Ordinal)));
+
+                if (member == null)
+                {
+                    friendlySAIN.Log.LogError($"[UI] Failed to delete teammate '{entry.AccountId}': social member was not found.");
+                    return;
+                }
+
+                socialNetwork.RemoveFromFriendsList(member, new Callback(_ =>
+                {
+                    CloseRemoveConfirmOverlay();
+                    SocialNetworkClassPatch.RefreshFriendsList();
+                    RebuildRosterTiles();
+                }));
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError($"[UI] Failed to delete teammate '{entry.AccountId}'.");
+                friendlySAIN.Log.LogError(ex);
+            }
+        }
+
+        private void CloseRemoveConfirmOverlay()
+        {
+            if (removeConfirmOverlay == null)
+            {
+                return;
+            }
+
+            Destroy(removeConfirmOverlay);
+            removeConfirmOverlay = null;
+        }
+
+        private RectTransform CreatePortraitHost(RectTransform tileRect, int level, out PlayerIconImage iconImage)
+        {
+            RectTransform portraitRoot = new GameObject("PortraitRoot", typeof(RectTransform)).GetComponent<RectTransform>();
+            portraitRoot.SetParent(tileRect, false);
+            portraitRoot.anchorMin = new Vector2(0.5f, 1f);
+            portraitRoot.anchorMax = new Vector2(0.5f, 1f);
+            portraitRoot.pivot = new Vector2(0.5f, 1f);
+            portraitRoot.sizeDelta = new Vector2(150f, 150f);
+            portraitRoot.anchoredPosition = new Vector2(0f, -18f);
+
+            if (TryCreateStockPortrait(portraitRoot, level, out iconImage))
+            {
+                return portraitRoot;
+            }
+
+            RectTransform fallbackRoot = new GameObject("PortraitFallback", typeof(RectTransform), typeof(Image)).GetComponent<RectTransform>();
+            fallbackRoot.SetParent(portraitRoot, false);
+            Stretch(fallbackRoot);
+
+            Image preview = fallbackRoot.GetComponent<Image>();
+            preview.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+            preview.preserveAspect = true;
+            preview.sprite = LoadSquadIcon();
+
+            GameObject progress = new GameObject("Progress", typeof(RectTransform), typeof(Image));
+            progress.transform.SetParent(fallbackRoot, false);
+            RectTransform progressRect = progress.GetComponent<RectTransform>();
+            progressRect.anchorMin = new Vector2(0.5f, 0.5f);
+            progressRect.anchorMax = new Vector2(0.5f, 0.5f);
+            progressRect.pivot = new Vector2(0.5f, 0.5f);
+            progressRect.sizeDelta = new Vector2(28f, 28f);
+            progress.SetActive(false);
+
+            Image progressImage = progress.GetComponent<Image>();
+            progressImage.color = new Color(0.9f, 0.9f, 0.88f, 0.85f);
+            progressImage.sprite = LoadSquadIcon();
+
+            iconImage = new PlayerIconImage
+            {
+                _pmcPreview = preview,
+                _progress = progress
+            };
+
+            return portraitRoot;
+        }
+
+        private bool TryCreateStockPortrait(RectTransform parent, int level, out PlayerIconImage iconImage)
+        {
+            iconImage = null;
+
+            TradingPlayerPanel template = ResolveTradingPlayerPanelTemplate();
+            PlayerIconImage templateIcon = TradingPlayerPanelIconField?.GetValue(template) as PlayerIconImage;
+            if (templateIcon?._pmcPreview == null || templateIcon._progress == null)
+            {
+                return false;
+            }
+
+            Transform templateRoot = FindPortraitTemplateRoot(templateIcon);
+            if (templateRoot == null)
+            {
+                return false;
+            }
+
+            GameObject clonedRoot = Instantiate(templateRoot.gameObject, parent, false);
+            clonedRoot.name = "Portrait";
+            RectTransform clonedRect = clonedRoot.transform as RectTransform;
+            if (clonedRect != null)
+            {
+                Stretch(clonedRect);
+            }
+
+            Image previewClone = FindComponentByPath<Image>(templateRoot, clonedRoot.transform, templateIcon._pmcPreview.transform);
+            GameObject progressClone = FindTransformByPath(templateRoot, clonedRoot.transform, templateIcon._progress.transform)?.gameObject;
+            if (previewClone == null || progressClone == null)
+            {
+                Destroy(clonedRoot);
+                return false;
+            }
+
+            iconImage = new PlayerIconImage
+            {
+                _pmcPreview = previewClone,
+                _progress = progressClone
+            };
+
+            ApplyStockPortraitLevel(templateRoot, clonedRoot.transform, level);
+
+            return true;
+        }
+
+        private void ApplyStockPortraitLevel(Transform templateRoot, Transform clonedRoot, int level)
+        {
+            Transform templateLevelLabel = templateRoot.Find("Level/LevelLabel");
+            TextMeshProUGUI levelLabel = FindComponentByPath<TextMeshProUGUI>(templateRoot, clonedRoot, templateLevelLabel);
+            if (levelLabel != null)
+            {
+                levelLabel.text = level.ToString("D2");
+            }
+        }
+
+        private Transform FindPortraitTemplateRoot(PlayerIconImage templateIcon)
+        {
+            Transform previewTransform = templateIcon._pmcPreview.transform;
+            Transform progressTransform = templateIcon._progress.transform;
+            if (previewTransform == null || progressTransform == null)
+            {
+                return null;
+            }
+
+            HashSet<Transform> previewAncestors = new HashSet<Transform>();
+            for (Transform current = previewTransform; current != null; current = current.parent)
+            {
+                previewAncestors.Add(current);
+            }
+
+            for (Transform current = progressTransform; current != null; current = current.parent)
+            {
+                if (previewAncestors.Contains(current))
+                {
+                    return current;
+                }
+            }
+
+            return previewTransform.parent;
+        }
+
+        private static T FindComponentByPath<T>(Transform templateRoot, Transform clonedRoot, Transform target) where T : Component
+        {
+            Transform clone = FindTransformByPath(templateRoot, clonedRoot, target);
+            return clone != null ? clone.GetComponent<T>() : null;
+        }
+
+        private static Transform FindTransformByPath(Transform templateRoot, Transform clonedRoot, Transform target)
+        {
+            if (templateRoot == null || clonedRoot == null || target == null)
+            {
+                return null;
+            }
+
+            List<int> path = new List<int>();
+            for (Transform current = target; current != null && current != templateRoot; current = current.parent)
+            {
+                path.Add(current.GetSiblingIndex());
+            }
+
+            if (target != templateRoot && (target.parent == null || !IsAncestorOf(templateRoot, target)))
+            {
+                return null;
+            }
+
+            Transform resolved = clonedRoot;
+            for (int i = path.Count - 1; i >= 0; i--)
+            {
+                int index = path[i];
+                if (index < 0 || index >= resolved.childCount)
+                {
+                    return null;
+                }
+
+                resolved = resolved.GetChild(index);
+            }
+
+            return resolved;
+        }
+
+        private static bool IsAncestorOf(Transform ancestor, Transform target)
+        {
+            for (Transform current = target; current != null; current = current.parent)
+            {
+                if (current == ancestor)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void CreateRosterNameLabel(RectTransform tileRect, string nickname)
+        {
+            GameObject textObject = new GameObject("Name", typeof(RectTransform), typeof(TextMeshProUGUI));
+            textObject.transform.SetParent(tileRect, false);
+
+            RectTransform textRect = textObject.GetComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0f, 0f);
+            textRect.anchorMax = new Vector2(1f, 0f);
+            textRect.pivot = new Vector2(0.5f, 0f);
+            textRect.offsetMin = new Vector2(16f, 16f);
+            textRect.offsetMax = new Vector2(-16f, 78f);
+
+            TextMeshProUGUI label = textObject.GetComponent<TextMeshProUGUI>();
+            TextMeshProUGUI templateLabel = ResolveTemplateLabel();
+            if (templateLabel != null)
+            {
+                label.font = templateLabel.font;
+                label.fontSharedMaterial = templateLabel.fontSharedMaterial;
+            }
+
+            label.text = nickname;
+            label.fontSize = 26f;
+            label.alignment = TextAlignmentOptions.Bottom;
+            label.enableWordWrapping = true;
+            label.overflowMode = TextOverflowModes.Ellipsis;
+            label.color = new Color(0.86f, 0.86f, 0.84f, 1f);
+        }
+
+        private DefaultUIButton CreateOverlayActionButton(Transform parent, Vector2 anchoredPosition, Vector2 size)
+        {
+            DefaultUIButton button = Instantiate(playerButton, parent, false);
+            button.name = "friendlySAIN_OverlayActionButton";
+            RectTransform rect = button.transform as RectTransform;
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(0.5f, 0f);
+                rect.anchorMax = new Vector2(0.5f, 0f);
+                rect.pivot = new Vector2(0.5f, 0f);
+                rect.anchoredPosition = anchoredPosition;
+                rect.sizeDelta = size;
+                rect.localScale = Vector3.one * 0.9f;
+            }
+
+            button.gameObject.SetActive(true);
+            button.Interactable = true;
+            button.SetIcon(null);
+            return button;
+        }
+
+        private Button CreateWindowCloseButton(Transform parent, string name)
+        {
+            GameObject buttonObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
+            buttonObject.transform.SetParent(parent, false);
+
+            RectTransform rect = buttonObject.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(28f, 22f);
+            rect.localScale = Vector3.one;
+
+            Image background = buttonObject.GetComponent<Image>();
+            background.color = new Color(0.43f, 0.12f, 0.12f, 1f);
+            background.raycastTarget = true;
+
+            GameObject labelObject = new GameObject($"{name}_Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+            labelObject.transform.SetParent(buttonObject.transform, false);
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            Stretch(labelRect);
+
+            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            TextMeshProUGUI templateLabel = ResolveTemplateLabel();
+            if (templateLabel != null)
+            {
+                label.font = templateLabel.font;
+                label.fontSharedMaterial = templateLabel.fontSharedMaterial;
+            }
+
+            label.text = GetSocialUiText("RenameClose", "x");
+            label.fontSize = 16f;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = new Color(0.95f, 0.95f, 0.95f, 1f);
+            label.raycastTarget = false;
+
+            return buttonObject.GetComponent<Button>();
+        }
+
+        private IEnumerator LoadTeammatePortraitCoroutine(string accountId, PlayerIconImage iconImage, RectTransform portraitRoot, int buildVersion)
+        {
+            if (string.IsNullOrWhiteSpace(accountId) || iconImage == null || ItemUiContext.Instance?.Session == null)
+            {
+                yield break;
+            }
+
+            var profileTask = ItemUiContext.Instance.Session.GetOtherPlayerProfile(accountId);
+            while (!profileTask.IsCompleted)
+            {
+                yield return null;
+            }
+
+            if (buildVersion != rosterBuildVersion || portraitRoot == null || iconImage._pmcPreview == null)
+            {
+                yield break;
+            }
+
+            if (profileTask.IsFaulted || profileTask.Result.Failed || profileTask.Result.Value == null)
+            {
+                yield break;
+            }
+
+            try
+            {
+                GClass1416 profile = new GClass1416(profileTask.Result.Value);
+                iconImage.SetPresetIcon(profile.Customization, profile.Equipment);
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError($"[UI] Failed to load teammate portrait for '{accountId}'.");
+                friendlySAIN.Log.LogError(ex);
+            }
+        }
+
+        private void OpenProfile(string accountId)
+        {
+            if (string.IsNullOrWhiteSpace(accountId) || ItemUiContext.Instance == null)
+            {
+                return;
+            }
+
+            try
+            {
+                Task<OtherPlayerProfileScreen.GClass3883> task = ItemUiContext.Instance.ShowPlayerProfileScreen(accountId, EItemViewType.OtherPlayerProfile);
+                task.ContinueWith(
+                    continuation =>
+                    {
+                        if (continuation.IsFaulted)
+                        {
+                            friendlySAIN.Log.LogError($"[UI] Failed to open profile for '{accountId}'.");
+                            friendlySAIN.Log.LogError(continuation.Exception);
+                        }
+                    },
+                    TaskContinuationOptions.OnlyOnFaulted);
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError($"[UI] Failed to start profile open for '{accountId}'.");
+                friendlySAIN.Log.LogError(ex);
+            }
         }
 
         private void CenterRosterContainer(RectTransform container)
@@ -560,6 +1328,11 @@ namespace friendlySAIN.Components
             {
                 horizontalLayout.childAlignment = TextAnchor.MiddleCenter;
                 horizontalLayout.padding = new RectOffset(0, 0, 0, 0);
+                horizontalLayout.spacing = 18f;
+                horizontalLayout.childControlWidth = false;
+                horizontalLayout.childControlHeight = false;
+                horizontalLayout.childForceExpandWidth = false;
+                horizontalLayout.childForceExpandHeight = false;
             }
 
             if (container.GetComponent<GridLayoutGroup>() is GridLayoutGroup gridLayout)
@@ -569,36 +1342,23 @@ namespace friendlySAIN.Components
             }
         }
 
-        private void AddCardIcon(RectTransform cardRect)
-        {
-            if (cardRect == null)
-            {
-                return;
-            }
-
-            GameObject iconObject = new GameObject("friendlySAIN_CardIcon", typeof(RectTransform), typeof(Image));
-            iconObject.transform.SetParent(cardRect, false);
-            RectTransform iconRect = iconObject.GetComponent<RectTransform>();
-            iconRect.anchorMin = new Vector2(0.5f, 0.58f);
-            iconRect.anchorMax = new Vector2(0.5f, 0.58f);
-            iconRect.pivot = new Vector2(0.5f, 0.5f);
-            iconRect.sizeDelta = new Vector2(52f, 52f);
-            iconRect.anchoredPosition = Vector2.zero;
-
-            Image icon = iconObject.GetComponent<Image>();
-            icon.sprite = LoadSquadIcon();
-            icon.preserveAspect = true;
-            icon.color = new Color(0.92f, 0.92f, 0.9f, 0.92f);
-        }
-
         private TraderScreensGroup ResolveTraderScreensGroupTemplate()
         {
             return Resources.FindObjectsOfTypeAll<TraderScreensGroup>()
                 .FirstOrDefault(group =>
                     group != null &&
                     TraderCloseButtonField?.GetValue(group) is DefaultUIButton &&
-                    TraderCardsContainerField?.GetValue(group) is Transform &&
-                    TraderCardPrefabField?.GetValue(group) is TraderCard);
+                    TraderCardsContainerField?.GetValue(group) is Transform);
+        }
+
+        private TradingPlayerPanel ResolveTradingPlayerPanelTemplate()
+        {
+            return Resources.FindObjectsOfTypeAll<TradingPlayerPanel>()
+                .FirstOrDefault(panel =>
+                    panel != null &&
+                    TradingPlayerPanelIconField?.GetValue(panel) is PlayerIconImage playerIcon &&
+                    playerIcon._pmcPreview != null &&
+                    playerIcon._progress != null);
         }
 
         private static void Stretch(RectTransform rect)
@@ -644,29 +1404,6 @@ namespace friendlySAIN.Components
                 }
 
                 sibling.anchoredPosition -= new Vector2(0f, verticalStep);
-            }
-        }
-
-        private void ShiftMenuColumn(RectTransform playerRect, float amount)
-        {
-            foreach (RectTransform sibling in playerButton.transform.parent.Cast<Transform>().Select(t => t as RectTransform).Where(t => t != null))
-            {
-                if (sibling == null || sibling == squadButton.transform)
-                {
-                    continue;
-                }
-
-                if (Mathf.Abs(sibling.anchoredPosition.x - playerRect.anchoredPosition.x) > 8f)
-                {
-                    continue;
-                }
-
-                if (sibling.name.StartsWith("friendlySAIN_", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                sibling.anchoredPosition += new Vector2(0f, amount);
             }
         }
 

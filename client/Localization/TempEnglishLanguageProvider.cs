@@ -118,6 +118,9 @@ namespace friendlySAIN.Localization
                     ["RenameChange"] = "EDIT NAME",
                     ["RenameFailed"] = "Could not rename teammate",
                     ["RenameClose"] = "x",
+                    ["RemoveTeammateTitle"] = "Remove teammate",
+                    ["RemoveTeammatePrompt"] = "Are you sure you want to delete member {0}? Process cannot be undone.",
+                    ["RemoveTeammateConfirm"] = "Remove",
                     ["SquadControlButton"] = "Squad Control",
                     ["SquadControlTitle"] = "Squad Control",
                     ["SquadControlBack"] = "Back",
@@ -127,7 +130,8 @@ namespace friendlySAIN.Localization
                     ["SquadControlRosterLeader"] = "Leader",
                     ["SquadControlRosterMemberA"] = "TEAMMATE 01",
                     ["SquadControlRosterMemberB"] = "TEAMMATE 02",
-                    ["SquadControlRosterRole"] = "Squad Member"
+                    ["SquadControlRosterRole"] = "Squad Member",
+                    ["SquadControlEmptyRoster"] = "You have not created any team members yet, press the add button below to get started"
                 }
             };
         }
