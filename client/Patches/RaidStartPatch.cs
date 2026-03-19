@@ -292,6 +292,10 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MainMenuControllerClass __instance)
         {
+            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
+            {
+                return;
+            }
 
             MatchmakerPlayerControllerClass matchmakerPlayerControllerClass = __instance.MatchmakerPlayerControllerClass;
 
@@ -307,9 +311,6 @@ namespace friendlySAIN.Patches
             {
                 matchmakerPlayerControllerClass.GroupPlayers.Remove(item);
             }
-
-            RaidSettings raidSettings_0 = __instance.RaidSettings_0;
-            raidSettings_0.RaidMode = ERaidMode.Local;
 
         }
     }
@@ -366,10 +367,12 @@ namespace friendlySAIN.Patches
 
             MatchmakerPlayerControllerClass controller = __instance.MatchmakerPlayerControllerClass;
             RaidSettings raidSettings = __instance.RaidSettings_0;
-            if (controller == null || raidSettings == null || !raidSettings.Local || MainMenuControllerPatch.GroupPlayers.Count < 1)
+            if (controller == null || raidSettings == null || MainMenuControllerPatch.GroupPlayers.Count < 1)
             {
                 return;
             }
+
+            raidSettings.RaidMode = ERaidMode.Local;
 
             foreach (GroupPlayerViewModelClass player in controller.GroupPlayers)
             {
@@ -442,6 +445,11 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MatchMakerAcceptScreen __instance)
         {
+            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
+            {
+                return;
+            }
+
             var controller = AccessTools.Field(typeof(MatchMakerAcceptScreen), "MatchmakerPlayersController").GetValue(__instance) as MatchmakerPlayerControllerClass;
 
             var removeGroup = new playerGroup();
@@ -535,11 +543,21 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MatchMakerAcceptScreen __instance, ISession session, RaidSettings raidSettings, RaidSettings offlineRaidSettings)
         {
+            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
+            {
+                return;
+            }
+
             raidSettings.RaidMode = ERaidMode.Local;
         }
         [PatchPostfix]
         private static void PatchPostfix(MatchMakerAcceptScreen __instance, ISession session, RaidSettings raidSettings, RaidSettings offlineRaidSettings)
         {
+            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
+            {
+                return;
+            }
+
             if (!raidSettings.IsPmc) return;
 
             AddViewListClass UI = AccessTools.Field(typeof(MatchMakerAcceptScreen), "UI").GetValue(__instance) as AddViewListClass;

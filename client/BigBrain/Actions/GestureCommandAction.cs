@@ -434,7 +434,7 @@ namespace friendlySAIN.BigBrain.Actions
         private static void CleanupRegroupReservations()
         {
             if (ActiveRegroupReservations.Count == 0) return;
-            List<string> expired = null;
+            List<string>? expired = null;
             foreach (KeyValuePair<string, RegroupReservation> entry in ActiveRegroupReservations)
             {
                 if (entry.Value.ExpiresAt >= Time.time) continue;
@@ -779,7 +779,7 @@ namespace friendlySAIN.BigBrain.Actions
         {
             try
             {
-                Item item = lootItem?.Item;
+                Item? item = lootItem?.Item;
                 if (item == null)
                 {
                     ClearTakeLootState("TakeLoot:itemNull");
@@ -794,8 +794,9 @@ namespace friendlySAIN.BigBrain.Actions
                     return;
                 }
 
-                InventoryController inventory = BotOwner.GetPlayer?.InventoryController;
-                if (inventory == null)
+                Player? botPlayer = BotOwner.GetPlayer;
+                InventoryController? inventory = botPlayer?.InventoryController;
+                if (inventory == null || botPlayer == null)
                 {
                     ClearTakeLootState("TakeLoot:noInventory");
                     return;
@@ -814,14 +815,14 @@ namespace friendlySAIN.BigBrain.Actions
                 if (equipTypes.Any(t => item.GetType() == t))
                 {
                     var quickPlace = InteractionsHandlerClass.QuickFindAppropriatePlace(
-                        lootItem.Item,
+                        item,
                         inventory,
                         equipment.ToEnumerable<InventoryEquipment>(),
                         InteractionsHandlerClass.EMoveItemOrder.PrioritizeTargetsOrder,
                         true);
                     if (quickPlace.Succeeded)
                     {
-                        BotOwner.ItemTaker.method_1(BotOwner.GetPlayer, quickPlace.Value, lootItem.ItemOwner.RootItem, lootItem.LastOwner);
+                        BotOwner.ItemTaker.method_1(botPlayer, quickPlace.Value, lootItem.ItemOwner.RootItem, lootItem.LastOwner);
                         wasTransferred = true;
                         if (item is MagazineItemClass mag)
                         {
@@ -851,7 +852,7 @@ namespace friendlySAIN.BigBrain.Actions
 
                 if (!wasTransferred && item is Weapon weapon && item.GetItemComponent<KnifeComponent>() == null)
                 {
-                    ItemAddress location = null;
+                    ItemAddress? location = null;
                     if (
                         (item is PistolItemClass && equipment.GetSlot(EquipmentSlot.Holster).ContainedItem == null) ||
                         (item is not PistolItemClass && equipment.GetSlot(EquipmentSlot.SecondPrimaryWeapon).ContainedItem == null))
@@ -916,9 +917,39 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void ClearTakeLootState(string reason)
         {
+            LootItem? lootToClear = activeLootItem;
             lootPickupInProgress = false;
             activeLootItem = null;
-            InteractableObjects.RemoveTaker(BotOwner);
+
+            try
+            {
+                if (BotOwner?.ItemTaker != null)
+                {
+                    if (lootToClear != null)
+                    {
+                        BotOwner.ItemTaker.ThrownItems?.Remove(lootToClear);
+
+                        if (ReferenceEquals(BotOwner.ItemTaker.ItemToTake, lootToClear))
+                        {
+                            BotOwner.ItemTaker.ItemToTake = null;
+                        }
+                    }
+                    else if (BotOwner.ItemTaker.ItemToTake != null)
+                    {
+                        BotOwner.ItemTaker.ItemToTake = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("TakeLoot cleanup failed");
+                Modules.Logger.LogError(ex);
+            }
+
+            if (BotOwner != null)
+            {
+                InteractableObjects.RemoveTaker(BotOwner);
+            }
             InteractableObjects.ClearCurLootItem();
             followerData?.ClearCommand(reason);
         }

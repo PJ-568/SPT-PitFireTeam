@@ -46,7 +46,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-18  
+Last updated: 2026-03-19  
 Scope: runtime behavior currently present in `friendlySAIN/client`, `friendlySAIN/addon`, and the in-progress teammate backend under `friendlySAIN/server` (based on active code paths in `friendlyPlugin.cs`, addon bootstrap/patches, and current server mod routes).
 
 ## BE / Server State (Important)
@@ -72,20 +72,31 @@ Current custom teammate feature state:
 - On submit, the client posts `{ nickname, voice, head }` to the server endpoint `/singleplayer/friendlysain/teammate/create`.
 - Server generates a PMC bot of the player side, overwrites name/voice/head, and saves it as mod-owned JSON under:
     - `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
-- Stock social flows are partially bridged for teammates:
+- Stock social flows are now bridged for teammates:
     - teammates are merged into `/client/friend/list`
     - teammate profile view is merged into `/client/profile/view`
     - teammate deletion is bridged through `/client/friend/delete`
+- Team grouping flow is partially active:
+    - teammate appears in right-click invite/group flows
+    - teammate can accept group invite
+    - pre-raid ready screen and loading screen can show player + teammate
+    - local/offline raid guard is now enforced late in `TarkovApplication` and `MainMenuController.method_52()`
+    - teammate path must preserve the normal PMC insurance screen before the custom ready screen
+- Server teammate routes now also include legacy follower spawn/settings compatibility used by the current client:
+    - `/client/game/bot/followergenerate`
+    - `/client/game/bot/followerdetails`
 - Teammate profile view customization is in progress:
     - hideout/report are hidden,
     - stock clothes dropdowns are reused,
     - custom loadout dropdown is injected below,
     - clothes/loadout persistence routes exist on the server,
     - UI layout tuning is still active.
-- Not implemented yet:
-    - teammate spawn from saved backend profile during raid,
-    - broader teammate runtime systems beyond social/profile customization,
-    - converting teammate profiles into full stock `SptProfile` accounts.
+- Current backend/social/profile/runtime limitations:
+    - tactic persistence/UI is not implemented yet (`followerdetails` currently returns `Default`)
+    - voice/head customization from profile screen is not implemented yet
+    - teammate invite/group flow still needs more parity with old plugin around pre-raid screen sequencing and group state handling
+    - broader team-management/chatbot behaviors from old `friendlyPMC` are not ported
+    - teammate profiles remain mod-owned bot JSON, not full stock `SptProfile` accounts
 
 ## 0) Project Context
 

@@ -10,10 +10,10 @@ namespace friendlySAIN.Modules
 {
     internal class NpcMessage
     {
-        private static NpcMessage Instance = null;
+        private static NpcMessage? Instance;
 
-        private Dictionary<string, object> _npcs;
-        private List<string> _matesLost;
+        private Dictionary<string, object> _npcs = new Dictionary<string, object>();
+        private List<string> _matesLost = new List<string>();
 
         private bool _playerDied = false;
 
@@ -29,6 +29,11 @@ namespace friendlySAIN.Modules
 
         public static void AddNpc(BotOwner npc, bool isSquadMate = true, bool isBoss = false)
         {
+            if (Instance == null)
+            {
+                return;
+            }
+
             if (!Instance._npcs.ContainsKey(npc.ProfileId))
             {
                 Instance._npcs.Add(npc.ProfileId, new Dictionary<string, object> {
@@ -46,7 +51,7 @@ namespace friendlySAIN.Modules
                         "SquadInfo", new Dictionary<string, object>
                         {
                             { "Mate", isSquadMate  },
-                            { "AllyBoss", isBoss ? npc.Profile.Info.Settings.Role.ToString() : null }
+                            { "AllyBoss", isBoss ? npc.Profile.Info.Settings.Role.ToString() : string.Empty }
                         }
                     }
                 });
@@ -74,8 +79,13 @@ namespace friendlySAIN.Modules
             }
         }
 
-        public static string GetNpcType(string type)
+        public static string? GetNpcType(string type)
         {
+            if (Instance == null)
+            {
+                return null;
+            }
+
             List<string> mates = new List<string>();
             List<string> allies = new List<string>();
             List<string> bosses = new List<string>();
@@ -100,15 +110,15 @@ namespace friendlySAIN.Modules
             return null;
         }
 
-        public static void NpcSendThankYou(string id = null)
+        public static void NpcSendThankYou(string? id = null)
         {
-            if (Instance._playerDied || !friendlySAIN.npcSendMessage.Value) { return; }
+            if (Instance == null || Instance._playerDied || !friendlySAIN.npcSendMessage.Value) { return; }
 
             List<object> mates = new List<object>();
             List<object> allies = new List<object>();
             List<object> bosses = new List<object>();
 
-            object info = null;
+            object? info = null;
 
             if (id == null)
             {
@@ -149,10 +159,10 @@ namespace friendlySAIN.Modules
 
             var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
 
-            /* RequestHandler.PostJson("/singleplayer/teamescaped", new
+            RequestHandler.PostJson("/singleplayer/teamescaped", new
             {
                 member = info,
-            }.ToJson(_defaultJsonConverters)); */
+            }.ToJson(_defaultJsonConverters));
         }
 
         public static void Flush()

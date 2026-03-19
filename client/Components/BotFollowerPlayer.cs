@@ -39,7 +39,7 @@ namespace friendlySAIN.Components
         protected string _grouId = "";
         protected string _teamId = "";
 
-        protected List<AICoreLayerClass<BotLogicDecision>> vanillaLayers;
+        protected List<AICoreLayerClass<BotLogicDecision>>? vanillaLayers;
 
         public bool IsSquadMate
         {
@@ -56,7 +56,7 @@ namespace friendlySAIN.Components
         private bool _manualUpdateHooked = false;
         private bool _lastHaveEnemyKnown = false;
         private bool _lastHaveEnemy = false;
-        private string _lastCommittedEnemyId;
+        private string? _lastCommittedEnemyId;
         private float _lastCommittedAt;
         private const float EnemyStickWindowSeconds = 8f;
         private Vector3 _teleportGraceTarget;
@@ -70,17 +70,17 @@ namespace friendlySAIN.Components
         private float _commandLookPauseUntil;
         private Vector3 _commandLookOverridePoint;
         private float _commandLookOverrideUntil;
-        private string _knownEnemyProfileId;
+        private string? _knownEnemyProfileId;
         private float _knownEnemySince;
         private bool _knownEnemyLatched;
         private const float KnownEnemyAcquireHoldSeconds = 0.5f;
-        private string _lastSainSyncedEnemyId;
+        private string? _lastSainSyncedEnemyId;
         private float _nextTeamEnemyAdoptAt;
         private const float TeamEnemyAdoptIntervalSeconds = 0.25f;
 
-        private static Type _sainEnableType;
-        private static MethodInfo _getSainByBotOwnerMethod;
-        private static MethodInfo _getSainByProfileMethod;
+        private static Type? _sainEnableType;
+        private static MethodInfo? _getSainByBotOwnerMethod;
+        private static MethodInfo? _getSainByProfileMethod;
         private static bool _sainAddonPatrolBridgeErrorLogged;
         private const bool EnableSainEnemyBridgeDebugLogs = false;
         private const bool EnableTeamEnemyAdoptDebugLogs = true;
@@ -236,24 +236,27 @@ namespace friendlySAIN.Components
             // make bot join the player's group
             if (_player.bossGroup != null)
             {
+                Dictionary<IPlayer, EnemyInfo>? enemyInfos = _bot.EnemiesController?.EnemyInfos;
+                BotsGroup currentGroup = _bot.BotsGroup;
+
                 // clear the player's followers from being enemies to the bot
                 _player.Followers.ForEach(bt =>
                 {
-                    if (_bot.EnemiesController.EnemyInfos.TryGetValue(bt, out var fl))
+                    if (enemyInfos != null && enemyInfos.TryGetValue(bt, out _))
                     {
-                        _bot.EnemiesController.EnemyInfos.Remove(bt);
+                        enemyInfos.Remove(bt);
                     }
                 });
                 // clear the player from being an enemy to the bot
-                if (_bot.EnemiesController.EnemyInfos.TryGetValue(_player.realPlayer, out var info))
+                if (enemyInfos != null && enemyInfos.TryGetValue(_player.realPlayer, out _))
                 {
-                    _bot.EnemiesController.EnemyInfos.Remove(_player.realPlayer);
+                    enemyInfos.Remove(_player.realPlayer);
                 }
                 // add the bot to the player's group, if not already (PickUp case here with spawn)
-                if (_bot.BotsGroup.Id != _player.bossGroup.Id)
+                if (currentGroup != null && currentGroup.Id != _player.bossGroup.Id)
                 {
                     // - bot is some kind of boss of a group, we have to change that
-                    if (_bot.Boss.HaveFollowers() && (_bot.BotsGroup.BossGroup != null) && _bot.Boss.Followers.Count >= 1)
+                    if (_bot.Boss.HaveFollowers() && currentGroup.BossGroup != null && _bot.Boss.Followers.Count >= 1)
                     {
                         foreach (BotOwner follower in _bot.Boss.Followers)
                         {
@@ -266,9 +269,16 @@ namespace friendlySAIN.Components
                     RefreshSainEnemyListAfterGroupReassign();
 
                     // - ensure the bot is not marked as enemy already by the others
-                    _player.bossGroup.RemoveEnemy(_bot.GetPlayer);
+                    if (_bot.GetPlayer != null)
+                    {
+                        _player.bossGroup.RemoveEnemy(_bot.GetPlayer);
+                    }
 
-                    var botEnemies = _bot.EnemiesController.EnemyInfos.ToList();
+                    var botEnemies = enemyInfos?.ToList();
+                    if (botEnemies == null)
+                    {
+                        botEnemies = new List<KeyValuePair<IPlayer, EnemyInfo>>();
+                    }
                     foreach (var item in botEnemies)
                     {
                         _bot.Memory.DeleteInfoAboutEnemy(item.Key);
@@ -845,6 +855,14 @@ namespace friendlySAIN.Components
                 {
                     _bot.GetPlayer.BeingHitAction -= OnBeingHit;
                 }
+
+                if (_bot != null)
+                {
+                    InteractableObjects.ClearStoredItems(_bot.ProfileId);
+                    InteractableObjects.RemoveTaker(_bot);
+                    NpcMessage.RemoveNpc(_bot.ProfileId);
+                }
+
                 ClearCommand("Dismiss:finally");
                 UnhookManualUpdate();
                 UnhookPeaceChange();
@@ -1082,7 +1100,7 @@ namespace friendlySAIN.Components
                 return false;
             }
 
-            string goalProfileId = goalEnemy.ProfileId;
+            string? goalProfileId = goalEnemy.ProfileId;
             if (string.IsNullOrEmpty(goalProfileId))
             {
                 _knownEnemyProfileId = null;
@@ -1501,7 +1519,7 @@ namespace friendlySAIN.Components
             return false;
         }
 
-        private bool HasStickyEnemyCandidate(out string enemyId, out float age)
+        private bool HasStickyEnemyCandidate(out string? enemyId, out float age)
         {
             enemyId = _lastCommittedEnemyId;
             age = string.IsNullOrEmpty(_lastCommittedEnemyId) ? float.MaxValue : Time.time - _lastCommittedAt;
@@ -1560,7 +1578,7 @@ namespace friendlySAIN.Components
             }
         }
 
-        private bool TryReapplyStickyEnemy(BotOwner owner, out string enemyId, out float age)
+        private bool TryReapplyStickyEnemy(BotOwner owner, out string? enemyId, out float age)
         {
             if (owner == null)
             {
@@ -1611,7 +1629,7 @@ namespace friendlySAIN.Components
         {
             if (follower?.EnemiesController?.EnemyInfos == null || string.IsNullOrEmpty(enemyProfileId)) return;
 
-            EnemyInfo promoted = null;
+            EnemyInfo? promoted = null;
             foreach (var item in follower.EnemiesController.EnemyInfos)
             {
                 if (item.Key?.ProfileId == enemyProfileId)
@@ -1705,7 +1723,7 @@ namespace friendlySAIN.Components
                 member.Memory.IsPeace = false;
                 if (!member.Memory.HaveEnemy || member.Memory.GoalEnemy == null)
                 {
-                    BotSettingsClass groupInfo = null;
+                    BotSettingsClass? groupInfo = null;
                     member.BotsGroup?.Enemies?.TryGetValue(enemyPlayer, out groupInfo);
                     if (groupInfo == null)
                     {
@@ -2153,10 +2171,10 @@ namespace friendlySAIN.Components
                     return;
                 }
 
-                object sainBot = null;
+                object? sainBot = null;
 
-                MethodInfo getSainByBotOwner = null;
-                MethodInfo getSainByProfile = null;
+                MethodInfo? getSainByBotOwner = null;
+                MethodInfo? getSainByProfile = null;
                 foreach (MethodInfo method in sainEnableType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                 {
                     if (method.Name != "GetSAIN") continue;

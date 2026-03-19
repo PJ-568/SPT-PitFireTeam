@@ -221,8 +221,8 @@ namespace friendlySAIN
             new PmcBearCombatLayerSuppressionPatch().Enable();
             new PmcUsecCombatLayerSuppressionPatch().Enable();
             new PmcFlankCombatLayerSuppressionPatch().Enable();
-            
-            if(!IsSAINInstalled)
+
+            if (!IsSAINInstalled)
                 new FollowerSprintPatch().Enable();
             new FollowerSprintStateDirectionPatch().Enable();
 
@@ -298,6 +298,7 @@ namespace friendlySAIN
             // social/screen related patches disabled for now
             new SocialNetworkClassPatch().Enable();
             new SocialNetworkClassFriendsListDedupePatch().Enable();
+            new TeammateTransferLeadershipButtonPatch().Enable();
             new ChatInvitePlayersPanelRefreshPatch().Enable();
             new ChatCreateDialoguePanelRefreshPatch().Enable();
             // new SocialNetworkClassSendPatch().Enable();

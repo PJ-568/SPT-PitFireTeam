@@ -65,6 +65,70 @@ Behavior target:
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
 
-# (IN PROGRESS) - Implemnent follower spawn
+# (IN PROGRESS) - Team management
 
-The old plugin has an entire Back End system (in node js) to allow for adding custom followers via a terminal command and then they would spawn with the player. Investigate the old plugin and create a robust pland for implementing the BE service so we can have add and spawning behavior. Added followers appeared in the friends list and player would add them by right-click and selecting "add to group". You will need to investigate the client + the old Front End plugin for this. You could also view the follower and customize it. In Phase 1 we do not enable customization, just viewing the follower. Instead of a terminal command to add followers, we will have an "add teamate" button in the friends list. You will investigate the friends list component on FE to figure out how to properly add the buttom. Ask me for screenshots of the friends list to help.
+Goal:
+
+- Replace the old terminal/chatbot-heavy squad management flow with a proper FE + BE teammate management flow that still preserves the core old-plugin experience:
+  - add teammate from social UI
+  - customize/view teammate from profile screen
+  - invite teammate to group
+  - see player + teammates on the pre-raid ready and loading screens
+  - spawn saved teammate bot in raid
+
+Implemented so far:
+
+- Friends list:
+  - localized `Add Teammate` entry is injected into the friends list
+  - button opens teammate creation flow
+- Creation flow:
+  - uses stock appearance UI
+  - player side is forced automatically
+  - collects nickname, head, and voice
+  - posts data to BE
+- Backend:
+  - creates a same-side PMC bot profile
+  - overwrites nickname, voice, and head
+  - saves teammate as mod-owned JSON under `friendlySAIN-ServerMod`
+  - exposes teammate social/profile/delete routes
+  - exposes legacy-compatible `/client/game/bot/followergenerate` and `/client/game/bot/followerdetails`
+- Social/profile:
+  - teammate appears in friends list
+  - teammate can be viewed from profile
+  - teammate can be deleted from friends list
+- Profile customization:
+  - hideout/report hidden
+  - clothes dropdowns active
+  - loadout dropdown active and persisted
+- Grouping/runtime:
+  - teammate can be invited to group
+  - teammate can appear on ready screen and loading screen
+  - teammate can spawn in raid from saved backend profile
+  - local/offline raid guard exists and has been adjusted to preserve solo flow
+  - insurance screen must still appear before the custom teammate ready screen
+
+Still to do:
+
+- Tactic management:
+  - add the second dropdown next to loadout for tactic
+  - persist tactic to BE
+  - restore old plugin tactic meanings where still applicable (`Default`, `Support`, `Marksman`, `Holder`, `Pusher`)
+- Profile customization parity:
+  - add voice and head customization from profile view
+  - verify clothing/loadout/tactic UI layout and iconography
+- Pre-raid flow parity:
+  - ensure teammate flow matches solo flow exactly up to insurance
+  - ensure only the ready screen and loading screen are customized
+  - keep group state clean across raid end, abort, and solo/follower transitions
+- Old plugin investigation still needed:
+  - review old pre-raid/group-state handling in `friendlypmc` to compare against the current alternative implementation
+  - review old team-management behavior from `moddescription.html` and old FE/BE paths for anything user-facing still missing
+- Optional later scope:
+  - evaluate which old `Squad Manager` chat features still matter in the new model (`info`, `restrictions`, `autojoin`, `recruit`, scav-squad variants, static default equipment)
+
+Notes from old plugin / description:
+
+- Old plugin exposed squad management through a `Squad Manager` messenger/chatbot.
+- Right-click `Invite to group` was the main way to bring a saved member into the next raid.
+- Profile view supported clothes, tactic, equipment, voice, and head.
+- The intended user experience is that teammate raids feel like the normal solo pre-raid flow, except the ready/loading screens show the squad instead of only the player.

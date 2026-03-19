@@ -3,6 +3,7 @@ using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
+using System;
 using System.Reflection;
 
 namespace friendlySAIN.Patches
@@ -43,6 +44,14 @@ namespace friendlySAIN.Patches
 
             if (boss.IsAI)
             {
+                // Some AI boss implementations can throw inside MoveSpeed getter when not fully initialized.
+                // Probe here and skip vanilla follower patrol update instead of letting it throw every frame.
+                if (!CanReadBossMoveSpeed(boss))
+                {
+                    botOwner.StopMove();
+                    return false;
+                }
+
                 return __instance.FollowerAIBase != null;
             }
 
@@ -59,6 +68,30 @@ namespace friendlySAIN.Patches
             }
 
             return __instance.FollowerPlayerBase != null;
+        }
+
+        private static bool CanReadBossMoveSpeed(IBossToFollow boss)
+        {
+            if (boss == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                PropertyInfo? moveSpeedProperty = boss.GetType().GetProperty("MoveSpeed", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (moveSpeedProperty == null)
+                {
+                    return true;
+                }
+
+                _ = moveSpeedProperty.GetValue(boss);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static bool TryRecoverBoss(BotOwner botOwner, out pitAIBossPlayer boss)

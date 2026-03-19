@@ -326,8 +326,8 @@ public class FriendlyTeammateService(
         teammate.Inventory.HideoutAreaStashes ??= [];
 
         teammate.Info.Side = playerPmc.Info?.Side;
-        teammate.Info.MemberCategory = MemberCategory.Group;
-        teammate.Info.SelectedMemberCategory = MemberCategory.Group;
+        teammate.Info.MemberCategory = MemberCategory.Unheard;
+        teammate.Info.SelectedMemberCategory = MemberCategory.Unheard;
         teammate.Info.BannedState = playerPmc.Info?.BannedState;
         teammate.Info.BannedUntil = playerPmc.Info?.BannedUntil;
         teammate.Info.RegistrationDate = playerPmc.Info?.RegistrationDate;
@@ -465,8 +465,8 @@ public class FriendlyTeammateService(
                 Nickname = info.Nickname,
                 Side = info.Side,
                 Level = info.Level,
-                MemberCategory = MemberCategory.Group,
-                SelectedMemberCategory = MemberCategory.Group,
+                MemberCategory = MemberCategory.Unheard,
+                SelectedMemberCategory = MemberCategory.Unheard,
             },
         };
     }
@@ -498,7 +498,7 @@ public class FriendlyTeammateService(
                 Nickname = info.Nickname,
                 Side = info.Side,
                 Experience = info.Experience,
-                MemberCategory = (int)MemberCategory.Group,
+                MemberCategory = (int)MemberCategory.Unheard,
                 BannedState = info.BannedState,
                 BannedUntil = info.BannedUntil,
                 RegistrationDate = info.RegistrationDate,
@@ -559,7 +559,7 @@ public class FriendlyTeammateService(
                 SavageNickname = info.Nickname,
                 Side = info.Side,
                 Level = info.Level,
-                MemberCategory = MemberCategory.Group,
+                MemberCategory = MemberCategory.Unheard,
                 GameVersion = info.GameVersion,
                 HasCoopExtension = info.HasCoopExtension,
             },
@@ -570,7 +570,7 @@ public class FriendlyTeammateService(
                     Nickname = info.Nickname,
                     Side = info.Side,
                     Level = info.Level,
-                    MemberCategory = MemberCategory.Group,
+                    MemberCategory = MemberCategory.Unheard,
                     GameVersion = info.GameVersion,
                 },
                 Customization = new SPTarkov.Server.Core.Models.Eft.Match.Customization

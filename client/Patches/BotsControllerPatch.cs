@@ -1507,6 +1507,12 @@ namespace friendlySAIN.Patches
             Utils.Utils.FlagsClear();
             Utils.Utils.ValuesClear();
 
+            MainMenuControllerPatch.GroupPlayers.Clear();
+            MainMenuControllerPatch.TransitPlayers.Clear();
+            SpawnHelper.spawnMemberIds.Clear();
+            SpawnHelper.spawnMemberIdsScav.Clear();
+            SpawnHelper.spawnMemberIdsBoss.Clear();
+
 
             BotsEventsControllerSpawnPatch.squadSpawned = false;
 

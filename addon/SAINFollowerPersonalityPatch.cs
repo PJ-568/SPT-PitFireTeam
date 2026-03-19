@@ -2,6 +2,7 @@ using EFT;
 using HarmonyLib;
 using friendlySAIN.Components;
 using friendlySAIN.Modules;
+using SAIN.Models.Preset.Personalities;
 using SAIN.Preset;
 using SAIN.Preset.BotSettings;
 using SAIN.Preset.BotSettings.SAINSettings;
@@ -35,14 +36,17 @@ namespace friendlySAIN.SAINAddon
             Modules.Logger.LogInfo("[Init] SAIN follower template patch applied.");
         }
 
-        private static void Postfix_AddFollower(BotOwner bot, BotFollowerPlayer __result)
+        private static void Postfix_AddFollower(BotOwner bot, bool squadMate, string tactic, BotFollowerPlayer __result)
         {
             try
             {
                 if (!friendlySAIN.IsSAINInstalled) return;
                 if (bot == null || __result == null || bot.IsDead) return;
 
-                TryApplyFollowerBigPipeTemplate(bot);
+                // Only force personality for bots we spawned; recruited followers keep SAIN's lottery result.
+                if (!squadMate) return;
+
+                TryApplyFollowerBigPipeTemplate(bot, tactic);
             }
             catch (Exception ex)
             {
@@ -51,7 +55,7 @@ namespace friendlySAIN.SAINAddon
             }
         }
 
-        private static void TryApplyFollowerBigPipeTemplate(BotOwner bot)
+        private static void TryApplyFollowerBigPipeTemplate(BotOwner bot, string tactic = "Default")
         {
             if (bot == null) return;
             if (!ResolveSainGetMethods()) return;
@@ -85,6 +89,8 @@ namespace friendlySAIN.SAINAddon
             SetInstanceMemberValue(info, "_fileSettings", followerTemplate);
             SetFollowerProfileDifficultyModifier(info, difficulty);
             RebuildSainInfoFromTemplate(info, loadedPreset, followerTemplate, bot);
+
+            TryApplySpawnedFollowerPersonality(info, bot);
         }
 
         private static SAINSettingsClass CloneSettings(SAINSettingsClass source)
@@ -100,6 +106,69 @@ namespace friendlySAIN.SAINAddon
 
             // Keep this method as the single place for follower-specific tuning on top of the BigPipe template.
             // Intentionally empty for now: baseline behavior should mirror followerBigPipe as closely as possible.
+        }
+
+        private static void TryApplySpawnedFollowerPersonality(object info, BotOwner bot)
+        {
+            if (info == null || bot == null) return;
+
+            WildSpawnType role = bot.Profile?.Info?.Settings?.Role ?? WildSpawnType.assault;
+            if (!TryResolveSpawnedFollowerPersonality(role, out EPersonality personality))
+            {
+                Modules.Logger.LogInfo($"[SAIN] Preserved existing spawned follower personality follower={bot.Profile?.Nickname ?? bot.name} role={role}");
+                return;
+            }
+
+            ApplyPersonality(info, personality);
+        }
+
+        private static bool TryResolveSpawnedFollowerPersonality(WildSpawnType role, out EPersonality personality)
+        {
+            switch (role)
+            {
+                case WildSpawnType.pmcBEAR:
+                case WildSpawnType.pmcUSEC:
+                case WildSpawnType.pmcBot:
+                case WildSpawnType.followerBigPipe:
+                    personality = EPersonality.Chad;
+                    return true;
+
+                case WildSpawnType.bossKnight:
+                    personality = EPersonality.GigaChad;
+                    return true;
+
+                case WildSpawnType.followerBirdEye:
+                    personality = EPersonality.Normal;
+                    return true;
+            }
+
+            personality = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Forces a SAIN personality on a SAINBotInfoClass instance and re-evaluates timing values that
+        /// depend on personality (search time, hold-ground delay).
+        /// Call with EPersonality.Normal, .Chad, or .GigaChad as needed.
+        /// </summary>
+        private static void ApplyPersonality(object info, EPersonality personality)
+        {
+            if (info == null) return;
+
+            MethodInfo? setPersonality = AccessTools.Method(info.GetType(), "SetPersonality", new[] { typeof(EPersonality) });
+            if (setPersonality == null)
+            {
+                Modules.Logger.LogError("[SAIN] SetPersonality method not found on SAINBotInfoClass.");
+                return;
+            }
+
+            setPersonality.Invoke(info, new object[] { personality });
+
+            // Re-run timing helpers because they read from PersonalitySettings.
+            AccessTools.Method(info.GetType(), "CalcTimeBeforeSearch", Type.EmptyTypes)?.Invoke(info, null);
+            AccessTools.Method(info.GetType(), "CalcHoldGroundDelay", Type.EmptyTypes)?.Invoke(info, null);
+
+            Modules.Logger.LogInfo($"[SAIN] Applied personality={personality} to follower.");
         }
 
         private static void SetFollowerProfileDifficultyModifier(object info, BotDifficulty difficulty)
@@ -146,7 +215,7 @@ namespace friendlySAIN.SAINAddon
             calcHoldGroundDelay?.Invoke(info, null);
 
             ApplySettingsToBot(info, followerTemplate);
-            Modules.Logger.LogInfo($"[SAIN] Applied followerBigPipe template to follower={bot.Profile?.Nickname ?? bot.name} difficulty={bot.Profile?.Info?.Settings?.BotDifficulty}");
+            Modules.Logger.LogInfo($"[SAIN] Applied followerBigPipe template to follower={bot.Profile?.Nickname ?? bot.name} difficulty={bot.Profile?.Info?.Settings?.BotDifficulty} (personality will be set next)");
         }
 
         private static void ApplySettingsToBot(object info, SAINSettingsClass settings)

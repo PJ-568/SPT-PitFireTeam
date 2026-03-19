@@ -5,6 +5,7 @@ using EFT;
 using EFT.UI.Chat;
 using EFT.InventoryLogic;
 using EFT.Quests;
+using Newtonsoft.Json.Linq;
 
 using HarmonyLib;
 using SPT.Common.Http;
@@ -21,8 +22,8 @@ namespace friendlySAIN.Patches
 {
     internal class SocialNetworkClassPatch : ModulePatch
     {
-        private static SocialNetworkClass socialNetworkClass = null;
-        private static IChatInteractions iChatInteractions;
+        private static SocialNetworkClass? socialNetworkClass;
+        private static IChatInteractions? iChatInteractions;
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(SocialNetworkClass), "method_1");
@@ -39,7 +40,7 @@ namespace friendlySAIN.Patches
 
         public static void RefreshFriendsList()
         {
-            if (socialNetworkClass != null && delay < Time.time)
+            if (socialNetworkClass != null && iChatInteractions != null && delay < Time.time)
             {
                 delay = Time.time + 2;
                 iChatInteractions.GetFriendsList(new Callback<GClass1055>(socialNetworkClass.method_13));
@@ -121,6 +122,95 @@ namespace friendlySAIN.Patches
             __instance.FriendsList.UpdateItems(deduped.ToArray());
         }
     }
+
+    internal class TeammateTransferLeadershipButtonPatch : ModulePatch
+    {
+        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private static readonly HashSet<string> TeammateAccountIds = new HashSet<string>(StringComparer.Ordinal);
+        private static float _nextRefreshTime;
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass3785), nameof(GClass3785.IsActive));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(GClass3785 __instance, EFriendInteractionButton button, ref bool __result)
+        {
+            if (button != EFriendInteractionButton.TransferLeadership)
+            {
+                return true;
+            }
+
+            UpdatableChatMember? member = __instance?.UpdatableChatMember_0;
+            if (member == null)
+            {
+                return true;
+            }
+
+            if (!IsTeammateMember(member))
+            {
+                return true;
+            }
+
+            __result = false;
+            return false;
+        }
+
+        private static bool IsTeammateMember(UpdatableChatMember member)
+        {
+            if (member == null || string.IsNullOrWhiteSpace(member.AccountId))
+            {
+                return false;
+            }
+
+            RefreshTeammateCacheIfNeeded();
+            return TeammateAccountIds.Contains(member.AccountId);
+        }
+
+        private static void RefreshTeammateCacheIfNeeded()
+        {
+            if (Time.time < _nextRefreshTime)
+            {
+                return;
+            }
+
+            _nextRefreshTime = Time.time + 5f;
+
+            try
+            {
+                string response = RequestHandler.GetJson(TeammatesRoute);
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    return;
+                }
+
+                JToken root = JToken.Parse(response);
+                JToken? dataToken = root.Type == JTokenType.Array ? root : root["data"];
+
+                if (dataToken is not JArray teammates)
+                {
+                    return;
+                }
+
+                TeammateAccountIds.Clear();
+                foreach (JToken teammate in teammates)
+                {
+                    string? accountId = teammate?["Aid"]?.ToString() ?? teammate?["aid"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(accountId))
+                    {
+                        TeammateAccountIds.Add(accountId!);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo("[UI] Failed to refresh teammate cache for social context actions.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+    }
+
     /** Refresh friends list whenever we send a message to the SquadManager **/
     internal class SocialNetworkClassSendPatch : ModulePatch
     {
@@ -159,7 +249,7 @@ namespace friendlySAIN.Patches
                     }
 
 
-                    UpdatableChatMember playerToInvite = null;
+                    UpdatableChatMember? playerToInvite = null;
 
                     foreach (var friend in __instance.FriendsList)
                     {
@@ -215,9 +305,9 @@ namespace friendlySAIN.Patches
 
             string json = RequestHandler.GetJson("/singleplayer/pendingauto");
 
-            var ids = Json.Deserialize<List<string>>(json);
+            List<string>? ids = Json.Deserialize<List<string>>(json);
 
-            if (ids.Contains(playerToInvite.AccountId))
+            if (ids != null && ids.Contains(playerToInvite.AccountId))
             {
                 matchPlayer.SendInvite(playerToInvite.AccountId, true, null);
             }

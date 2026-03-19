@@ -18,30 +18,29 @@ namespace friendlySAIN.Modules
 {
     internal class InteractableObjects
     {
-        public static InteractableObjects Instance;
+        public static InteractableObjects? Instance;
 
         private Door? _currDoor;
-        private Dictionary<string, Door> _doorsToOpen;
+        private Dictionary<string, Door>? _doorsToOpen;
 
-        private LootItem _lootItem;
+        private LootItem? _lootItem;
         private Vector3? _lootPosition;
-        private Components.BotFollowerPlayer _botToLoot;
-        private string _botToLootProfileId;
+        private Components.BotFollowerPlayer? _botToLoot;
+        private string? _botToLootProfileId;
 
         private bool IsDisposed = false;
 
-        private Dictionary<string, List<string>> _lootedItems;
-        private List<Item> _toSendItems;
-        private Dictionary<string, Dictionary<string, object>> _followersWithLoot;
+        private Dictionary<string, List<string>>? _lootedItems;
+        private List<Item>? _toSendItems;
+        private Dictionary<string, Dictionary<string, object>>? _followersWithLoot;
 
-        private Dictionary<string, List<string>> _followersEquipment;
+        private Dictionary<string, List<string>>? _followersEquipment;
 
         private bool _isBossDead = false;
-        // Runtime-disabled by policy; keep non-const to avoid compile-time unreachable branch warnings.
-        private static readonly bool EnableBackendItemReturn = false;
+        private static readonly bool EnableBackendItemReturn = true;
 
-        List<Player> _enemiesSeen;
-        Player _closestEnemySeen;
+        private List<Player>? _enemiesSeen;
+        private Player? _closestEnemySeen;
 
         public InteractableObjects()
         {
@@ -68,10 +67,15 @@ namespace friendlySAIN.Modules
 
             if (!EnableBackendItemReturn)
             {
-                if (_toSendItems.Count > 0)
+                if (_toSendItems != null && _toSendItems.Count > 0)
                 {
                     Logger.LogInfo($"[Loot] BE return disabled. Kept {_toSendItems.Count} tracked follower items local-only.");
                 }
+                return false;
+            }
+
+            if (_toSendItems == null)
+            {
                 return false;
             }
 
@@ -98,6 +102,11 @@ namespace friendlySAIN.Modules
         private void GatherItems()
         {
             var bossPlayers = BossPlayers.Instance.GetBossPlayers();
+            if (_toSendItems == null)
+            {
+                return;
+            }
+
             _toSendItems.Clear();
             List<string> gathered = new List<string>();
 
@@ -229,7 +238,7 @@ namespace friendlySAIN.Modules
                 }
                 else
                 {
-                    string id = NpcMessage.GetNpcType("boss");
+                    string? id = NpcMessage.GetNpcType("boss");
                     if (id == null) id = NpcMessage.GetNpcType("ally");
 
                     if (id != null)
@@ -244,20 +253,23 @@ namespace friendlySAIN.Modules
                 Logger.LogError(e);
             }
 
-            foreach (var stack in _lootedItems)
+            if (_lootedItems != null)
             {
-                stack.Value.Clear();
+                foreach (var stack in _lootedItems)
+                {
+                    stack.Value.Clear();
+                }
             }
 
-            _lootedItems.Clear();
-            _toSendItems.Clear();
-            _followersWithLoot.Clear();
-            _enemiesSeen.Clear();
+            _lootedItems?.Clear();
+            _toSendItems?.Clear();
+            _followersWithLoot?.Clear();
+            _enemiesSeen?.Clear();
 
-            _followersEquipment.Clear();
+            _followersEquipment?.Clear();
 
             _currDoor = null;
-            _doorsToOpen.Clear();
+            _doorsToOpen?.Clear();
 
             _lootItem = null;
             _lootedItems = null;
@@ -293,7 +305,7 @@ namespace friendlySAIN.Modules
             return Instance._currDoor;
         }
         /** Set what loot item the boss wants to be picked up */
-        public static void SetCurLootItem(LootItem item)
+        public static void SetCurLootItem(LootItem? item)
         {
             if (Instance != null)
             {
@@ -301,7 +313,7 @@ namespace friendlySAIN.Modules
             }
         }
 
-        public static LootItem GetCurLootItem()
+        public static LootItem? GetCurLootItem()
         {
             if (Instance == null) return null;
             return Instance._lootItem;
@@ -309,7 +321,7 @@ namespace friendlySAIN.Modules
 
         public static Vector3 GetLootPosition()
         {
-            return (Vector3)Instance._lootPosition;
+            return Instance?._lootPosition ?? Vector3.zero;
         }
 
         /** Set what bot is going to pick up the loot */
@@ -326,6 +338,10 @@ namespace friendlySAIN.Modules
                 try
                 {
                     Collider collider = Instance._lootItem.GetComponentInChildren<Collider>();
+                    if (collider == null)
+                    {
+                        return false;
+                    }
 
                     Vector3 center = collider.bounds.center;
                     center.y = collider.bounds.center.y - collider.bounds.extents.y - 0.4f;
@@ -391,10 +407,10 @@ namespace friendlySAIN.Modules
             }
         }
         /** Set what bot is going to open the door */
-        public static bool SetOpener(BotOwner bot, Door door = null)
+        public static bool SetOpener(BotOwner bot, Door? door = null)
         {
             if (Instance == null || bot == null) return false;
-            if (Instance._currDoor != null)
+            if (Instance._currDoor != null && Instance._doorsToOpen != null)
             {
                 if (!Instance._doorsToOpen.ContainsKey(bot.ProfileId))
                 {
@@ -411,19 +427,19 @@ namespace friendlySAIN.Modules
 
         public static bool IsOpener(BotOwner bot)
         {
-            if (Instance == null || bot == null) return false;
+            if (Instance == null || Instance._doorsToOpen == null || bot == null) return false;
             return Instance._doorsToOpen.ContainsKey(bot.ProfileId);
         }
 
         public static void RemoveOpener(BotOwner bot)
         {
-            if (Instance == null || bot == null || string.IsNullOrEmpty(bot.ProfileId)) return;
+            if (Instance == null || Instance._doorsToOpen == null || bot == null || string.IsNullOrEmpty(bot.ProfileId)) return;
             if (Instance._doorsToOpen.ContainsKey(bot.ProfileId)) Instance._doorsToOpen.Remove(bot.ProfileId);
         }
 
-        public static Door GetDoorToOpen(BotOwner bot)
+        public static Door? GetDoorToOpen(BotOwner bot)
         {
-            if (Instance == null) return null;
+            if (Instance == null || Instance._doorsToOpen == null) return null;
             if (!Instance._doorsToOpen.ContainsKey(bot.ProfileId)) return null;
             return Instance._doorsToOpen[bot.ProfileId];
         }
@@ -441,6 +457,11 @@ namespace friendlySAIN.Modules
         /** Store the item that was given to a follower */
         public static void StoreItem(BotOwner bot, Item item)
         {
+            if (Instance == null || Instance._lootedItems == null || Instance._followersWithLoot == null)
+            {
+                return;
+            }
+
             if (!Instance._lootedItems.ContainsKey(bot.ProfileId))
             {
                 Instance._lootedItems.Add(bot.ProfileId, new List<string>());
@@ -468,7 +489,7 @@ namespace friendlySAIN.Modules
 
         public static void RemoveStoredItem(string bot, string itemId)
         {
-            if (Instance._lootedItems.ContainsKey(bot))
+            if (Instance?._lootedItems != null && Instance._lootedItems.ContainsKey(bot))
             {
                 var list = Instance._lootedItems[bot];
                 if (list.Contains(itemId))
@@ -478,9 +499,9 @@ namespace friendlySAIN.Modules
             }
         }
 
-        public static List<string> GetStoredItems(string bot)
+        public static List<string>? GetStoredItems(string bot)
         {
-            if (Instance._lootedItems.ContainsKey(bot))
+            if (Instance?._lootedItems != null && Instance._lootedItems.ContainsKey(bot))
             {
                 return Instance._lootedItems[bot];
             }
@@ -490,7 +511,7 @@ namespace friendlySAIN.Modules
 
         public static void ClearStoredItems(string bot)
         {
-            if (Instance == null || Instance._isBossDead) return;
+            if (Instance == null || Instance._isBossDead || Instance._lootedItems == null || Instance._followersWithLoot == null) return;
 
             if (Instance._lootedItems.ContainsKey(bot))
             {
@@ -665,14 +686,22 @@ namespace friendlySAIN.Modules
             {
                 items.Add(slot.ContainedItem.Id);
 
-                if (slot.ContainedItem is Mod) foreach (Slot modSlot in (slot.ContainedItem as Mod).Slots)
+                if (slot.ContainedItem is Mod mod)
                 {
-                    if (modSlot.ContainedItem != null) ModEquipmentStore(modSlot, items);
+                    foreach (Slot modSlot in mod.Slots)
+                    {
+                        if (modSlot.ContainedItem != null) ModEquipmentStore(modSlot, items);
+                    }
                 }
             }
         }
         public static void StoreEquipment(Profile profile)
         {
+            if (Instance == null || Instance._followersEquipment == null)
+            {
+                return;
+            }
+
             if (!Instance._followersEquipment.ContainsKey(profile.ProfileId))
             {
                 List<string> items = new List<string>();
@@ -696,7 +725,8 @@ namespace friendlySAIN.Modules
                     {
                         try
                         {
-                            List<IItemComponent>? components = AccessTools.Field(typeof(Item), "Components").GetValue(contained) as List<IItemComponent>;
+                            FieldInfo? componentsField = AccessTools.Field(typeof(Item), "Components");
+                            List<IItemComponent>? components = componentsField?.GetValue(contained) as List<IItemComponent>;
                             if (components != null)
                             {
                                 components.Add(new UnlootableComponent(contained, contained.Template));
@@ -712,9 +742,9 @@ namespace friendlySAIN.Modules
                         else
                         {
                             items.Add(contained.Id);
-                            if (contained is Weapon)
+                            if (contained is Weapon weapon)
                             {
-                                foreach (Slot slot in (contained as Weapon).Slots)
+                                foreach (Slot slot in weapon.Slots)
                                 {
                                     if (slot.Locked) continue;
                                     if (slot.ContainedItem != null && !(slot.ContainedItem is MagazineItemClass) && !(slot.ContainedItem is AmmoItemClass))
@@ -725,9 +755,9 @@ namespace friendlySAIN.Modules
                             }
                             else if (slotType == EquipmentSlot.Headwear || slotType == EquipmentSlot.TacticalVest || slotType == EquipmentSlot.ArmorVest)
                             {
-                                if (contained is CompoundItem)
+                                if (contained is CompoundItem compoundItem)
                                 {
-                                    foreach (Slot slot in (contained as CompoundItem).Slots)
+                                    foreach (Slot slot in compoundItem.Slots)
                                     {
                                         if (slot.Locked) continue;
 
@@ -752,7 +782,7 @@ namespace friendlySAIN.Modules
 
         public static Dictionary<string, List<string>> GetStoredEquipment()
         {
-            if (Instance == null) return new Dictionary<string, List<string>>();
+            if (Instance?._followersEquipment == null) return new Dictionary<string, List<string>>();
             return Instance._followersEquipment;
         }
     }
