@@ -17,6 +17,7 @@ using SPTarkov.Server.Core.Utils;
 using SPTarkov.Server.Core.Utils.Cloners;
 using CommonCustomization = SPTarkov.Server.Core.Models.Eft.Common.Tables.Customization;
 using CommonInfo = SPTarkov.Server.Core.Models.Eft.Common.Tables.Info;
+using System;
 
 namespace friendlySAIN.Server.Services;
 
@@ -346,7 +347,7 @@ public class FriendlyTeammateService(
         teammate.Info.SelectedMemberCategory = MemberCategory.Unheard;
         teammate.Info.BannedState = playerPmc.Info?.BannedState;
         teammate.Info.BannedUntil = playerPmc.Info?.BannedUntil;
-        teammate.Info.RegistrationDate = playerPmc.Info?.RegistrationDate;
+        teammate.Info.RegistrationDate = GetCurrentUnixTimestampSeconds();
         teammate.Achievements = playerPmc.Achievements;
         teammate.Stats.Eft.TotalInGameTime = playerPmc.Stats?.Eft?.TotalInGameTime ?? teammate.Stats.Eft.TotalInGameTime ?? 0;
         teammate.Stats.Eft.OverallCounters = playerPmc.Stats?.Eft?.OverallCounters ?? teammate.Stats.Eft.OverallCounters;
@@ -372,7 +373,15 @@ public class FriendlyTeammateService(
             teammates.Add(teammate);
         }
 
-        return teammates.OrderBy(profile => profile.Aid ?? int.MaxValue).ToList();
+        return teammates
+            .OrderBy(profile => profile.Info?.RegistrationDate ?? int.MaxValue)
+            .ThenBy(profile => profile.Aid ?? int.MaxValue)
+            .ToList();
+    }
+
+    private static int GetCurrentUnixTimestampSeconds()
+    {
+        return (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     }
 
     private BotBase FindByAccountId(MongoId sessionId, string? accountId)

@@ -28,7 +28,7 @@ namespace friendlySAIN.Modules
         private const string DefaultOpenFailed = "Could not open teammate creation screen.";
         private const string DefaultUnsupportedSide = "Add teammate only supports PMC profiles right now.";
         private const string DefaultCreateFailed = "Could not add teammate.";
-        private const float ReturnTransitionDurationSeconds = 0.45f;
+        private const float MinimumReturnLoaderDurationSeconds = 0.1f;
 
         private static readonly Type SideSelectionScreenType = typeof(AccountSideSelectionScreen<EftAccountSideSelectionScreen.GClass3905, EEftScreenType>);
         private static readonly System.Reflection.MethodInfo AdvanceStateMethod = AccessTools.Method(SideSelectionScreenType, "method_3");
@@ -48,12 +48,15 @@ namespace friendlySAIN.Modules
         private static Coroutine submitCoroutine;
         private static bool skipScheduled;
         private static bool submitInProgress;
+        private static bool returnInProgress;
+        private static bool nicknamePrepared;
         private static Button wiredNextButton;
         private static Button wiredBackButton;
         private static UnityAction nextButtonAction;
         private static UnityAction backButtonAction;
+        private static Action pendingReturnAction;
 
-        public static void Start()
+        public static void Start(Action onReturn = null)
         {
             if (activeController != null)
             {
@@ -61,6 +64,7 @@ namespace friendlySAIN.Modules
                 return;
             }
 
+            pendingReturnAction = onReturn;
             StartInternal().HandleExceptions();
         }
 
@@ -74,6 +78,7 @@ namespace friendlySAIN.Modules
             if (friendlySAIN.Instance == null)
             {
                 CurrentScreenSingletonClass.Instance.TryReturnToRootScreen().HandleExceptions();
+                InvokePendingReturnAction();
                 return;
             }
 
@@ -82,6 +87,7 @@ namespace friendlySAIN.Modules
                 friendlySAIN.Instance.StopCoroutine(returnCoroutine);
             }
 
+            returnInProgress = true;
             returnCoroutine = friendlySAIN.Instance.StartCoroutine(ReturnToMainScreenWithOverlay());
         }
 
@@ -209,6 +215,7 @@ namespace friendlySAIN.Modules
 
                 activeController = controller;
                 skipScheduled = false;
+                nicknamePrepared = false;
                 controller.ShowScreen(EScreenState.Queued);
             }
             catch (Exception ex)
@@ -327,10 +334,15 @@ namespace friendlySAIN.Modules
             activeController = null;
             skipScheduled = false;
             submitInProgress = false;
+            nicknamePrepared = false;
             wiredNextButton = null;
             wiredBackButton = null;
             nextButtonAction = null;
             backButtonAction = null;
+            if (returnCoroutine == null && !returnInProgress)
+            {
+                pendingReturnAction = null;
+            }
         }
 
         private static TarkovApplication ResolveApplication()
@@ -390,15 +402,23 @@ namespace friendlySAIN.Modules
                 : null;
 
             preloaderUi?.SetLoaderStatus(true);
-
-            CurrentScreenSingletonClass.Instance.TryReturnToRootScreen().HandleExceptions();
-
+            Task<bool> returnTask = CurrentScreenSingletonClass.Instance.TryReturnToRootScreen();
             float elapsed = 0f;
-            while (elapsed < ReturnTransitionDurationSeconds)
+
+            while (!returnTask.IsCompleted || elapsed < MinimumReturnLoaderDurationSeconds)
             {
                 elapsed += Time.unscaledDeltaTime;
                 yield return null;
             }
+
+            if (returnTask.IsFaulted)
+            {
+                friendlySAIN.Log.LogError("[UI] Failed while returning from add teammate flow to root screen.");
+                friendlySAIN.Log.LogError(returnTask.Exception);
+            }
+
+            InvokePendingReturnAction();
+            yield return null;
 
             if (preloaderUi != null)
             {
@@ -406,6 +426,7 @@ namespace friendlySAIN.Modules
             }
 
             returnCoroutine = null;
+            returnInProgress = false;
         }
 
         private static void HideSkippedSideSelectionVisuals(EftAccountSideSelectionScreen screen)
@@ -468,6 +489,7 @@ namespace friendlySAIN.Modules
                     return;
                 }
 
+                PrepareNicknameField(headSelectionState);
                 headSelectionState.StateReady = true;
                 nextButton.gameObject.SetActive(true);
                 nextButton.SetRawText(GetLocalizedSocialUi("AddTeammateConfirm", "ADD"), nextButton.HeaderSize);
@@ -482,6 +504,32 @@ namespace friendlySAIN.Modules
                 friendlySAIN.Log.LogError("[UI] Failed to configure head selection UI for add teammate flow.");
                 friendlySAIN.Log.LogError(ex);
             }
+        }
+
+        private static void PrepareNicknameField(HeadSelectionState headSelectionState)
+        {
+            if (nicknamePrepared || headSelectionState == null)
+            {
+                return;
+            }
+
+            if (headSelectionState.ProfileData != null)
+            {
+                headSelectionState.ProfileData.Nickname = string.Empty;
+            }
+
+            TMP_InputField inputField = headSelectionState._nicknameField != null
+                ? NicknameInputField?.GetValue(headSelectionState._nicknameField) as TMP_InputField
+                : null;
+
+            if (inputField != null)
+            {
+                inputField.SetTextWithoutNotify(string.Empty);
+                inputField.text = string.Empty;
+            }
+
+            headSelectionState._nicknameField?.method_6(ENicknameError.ValidNickname, false);
+            nicknamePrepared = true;
         }
 
         private static string GetNicknameText(HeadSelectionState headSelectionState)
@@ -589,6 +637,26 @@ namespace friendlySAIN.Modules
             SocialNetworkClassPatch.RefreshFriendsList();
             yield return null;
             ReturnToMainScreen();
+        }
+
+        private static void InvokePendingReturnAction()
+        {
+            Action callback = pendingReturnAction;
+            pendingReturnAction = null;
+            if (callback == null)
+            {
+                return;
+            }
+
+            try
+            {
+                callback();
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI] Failed to invoke add teammate return action.");
+                friendlySAIN.Log.LogError(ex);
+            }
         }
 
         private static string SerializeRequest(object payload)

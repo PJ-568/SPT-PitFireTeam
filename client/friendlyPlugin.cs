@@ -275,8 +275,6 @@ namespace friendlySAIN
             new EPhraseTriggerPatch().Enable();
             new PlayPhraseOrGesturePatch().Enable();
             new BotReceiverGestureOverridePatch().Enable();
-            new ChatFriendsPanelAddTeammateButtonPatch().Enable();
-
             new RaidStartPatch().Enable();
             new MainMenuControllerPatch().Enable();
             new MainMenuControllerReadyScreenGatePatch().Enable();

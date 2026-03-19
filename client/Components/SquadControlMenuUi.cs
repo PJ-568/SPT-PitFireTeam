@@ -27,6 +27,17 @@ namespace friendlySAIN.Components
     {
         private const string SquadButtonName = "friendlySAIN_SquadControlButton";
         private const string ScreenRootName = "friendlySAIN_SquadControlScreen";
+        private const float RosterTileWidth = 190f;
+        private const float RosterTileHeight = 214f;
+        private const float RosterTileSpacing = 18f;
+        private const float RosterViewportPadding = 20f;
+        private const float RosterViewportTopInset = 44f;
+        private const float RosterViewportBottomInset = 26f;
+        private const float RosterHeightScreenRatio = 0.54f;
+        private const float RosterShellToButtonGap = -14f;
+        private const float RosterBlockVerticalOffset = -24f;
+        private const float EmptyRosterButtonCenterY = -36f;
+        private const float EmptyRosterLabelSpacing = 92f;
 
         private static readonly FieldInfo HeaderLabelField = AccessTools.Field(typeof(DefaultUIButton), "_headerLabel");
         private static readonly FieldInfo TraderCloseButtonField = AccessTools.Field(typeof(TraderScreensGroup), "_closeButton");
@@ -51,17 +62,20 @@ namespace friendlySAIN.Components
         private UIAnimatedToggleSpawner rosterAnimatedTab;
         private UIAnimatedToggleSpawner settingsAnimatedTab;
         private RectTransform stockCardsContainer;
+        private RectTransform rosterPanelRect;
+        private ScrollRectNoDrag rosterScrollRect;
+        private RectTransform rosterViewport;
         private RectTransform rosterContentRoot;
+        private RectTransform rosterGridRoot;
+        private GridLayoutGroup rosterGridLayout;
+        private Scrollbar rosterScrollbar;
         private GameObject rosterPanel;
         private GameObject settingsPanel;
         private DefaultUIButton addTeammateButton;
         private TextMeshProUGUI emptyRosterLabel;
         private GameObject removeConfirmOverlay;
+        private float currentRosterShellHeight;
         private readonly Dictionary<RectTransform, Vector2> originalButtonPositions = new Dictionary<RectTransform, Vector2>();
-        private static readonly Vector2 PopulatedAddTeammateButtonPosition = new Vector2(0f, 8f);
-        private static readonly Vector2 EmptyAddTeammateButtonPosition = new Vector2(0f, 84f);
-        private static readonly Vector2 PopulatedEmptyRosterLabelPosition = new Vector2(0f, 86f);
-        private static readonly Vector2 EmptyRosterLabelPosition = new Vector2(0f, 152f);
         private int rosterBuildVersion;
 
         private sealed class SquadRosterEntry
@@ -144,6 +158,11 @@ namespace friendlySAIN.Components
 
             EnsureSquadButton();
             EnsureScreen();
+            if (screenRoot != null)
+            {
+                screenRoot.SetActive(false);
+            }
+
             SyncButtonVisibility();
         }
 
@@ -307,12 +326,14 @@ namespace friendlySAIN.Components
 
             stockCardsContainer = Instantiate(cardsContainerTemplate as RectTransform, rootRect, false);
             stockCardsContainer.name = "friendlySAIN_SquadControlCardsContainer";
+            float rosterShellHeight = CalculateRosterShellHeight();
+            currentRosterShellHeight = rosterShellHeight;
             stockCardsContainer.anchorMin = new Vector2(0.5f, 0.5f);
             stockCardsContainer.anchorMax = new Vector2(0.5f, 0.5f);
             stockCardsContainer.pivot = new Vector2(0.5f, 0.5f);
-            stockCardsContainer.sizeDelta = new Vector2(1180f, 230f);
+            stockCardsContainer.sizeDelta = new Vector2(1180f, rosterShellHeight);
             stockCardsContainer.anchoredPosition = new Vector2(0f, -12f);
-            CenterRosterContainer(stockCardsContainer);
+            PrepareRosterShellContainer(stockCardsContainer);
 
             for (int i = stockCardsContainer.childCount - 1; i >= 0; i--)
             {
@@ -322,21 +343,22 @@ namespace friendlySAIN.Components
             rosterPanel = new GameObject("friendlySAIN_SquadControlRosterPanel", typeof(RectTransform));
             rosterPanel.transform.SetParent(rootRect, false);
             RectTransform rosterRect = rosterPanel.GetComponent<RectTransform>();
+            rosterPanelRect = rosterRect;
             rosterRect.anchorMin = new Vector2(0.5f, 0.5f);
             rosterRect.anchorMax = new Vector2(0.5f, 0.5f);
             rosterRect.pivot = new Vector2(0.5f, 0.5f);
-            rosterRect.sizeDelta = new Vector2(1260f, 430f);
-            rosterRect.anchoredPosition = new Vector2(0f, 18f);
+            rosterRect.sizeDelta = new Vector2(1260f, rosterShellHeight + 180f);
+            rosterRect.anchoredPosition = new Vector2(0f, 8f);
 
             stockCardsContainer.SetParent(rosterRect, false);
             stockCardsContainer.anchorMin = new Vector2(0.5f, 0.5f);
             stockCardsContainer.anchorMax = new Vector2(0.5f, 0.5f);
             stockCardsContainer.pivot = new Vector2(0.5f, 0.5f);
-            stockCardsContainer.sizeDelta = new Vector2(1180f, 230f);
-            stockCardsContainer.anchoredPosition = new Vector2(0f, 36f);
-            rosterContentRoot = stockCardsContainer;
+            stockCardsContainer.sizeDelta = new Vector2(1180f, rosterShellHeight);
+            CreateScrollableRosterArea(stockCardsContainer);
             CreateEmptyRosterLabel(rosterRect);
             CreateAddTeammateButton(rosterRect);
+            UpdateRosterPanelLayout(false);
             RebuildRosterTiles();
 
             settingsPanel = CreateFallbackContentPanel("friendlySAIN_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
@@ -584,7 +606,7 @@ namespace friendlySAIN.Components
 
         private void RebuildRosterTiles()
         {
-            if (rosterContentRoot == null)
+            if (rosterGridRoot == null)
             {
                 return;
             }
@@ -592,24 +614,39 @@ namespace friendlySAIN.Components
             CloseRemoveConfirmOverlay();
             rosterBuildVersion++;
 
-            for (int i = rosterContentRoot.childCount - 1; i >= 0; i--)
+            for (int i = rosterGridRoot.childCount - 1; i >= 0; i--)
             {
-                Destroy(rosterContentRoot.GetChild(i).gameObject);
+                Destroy(rosterGridRoot.GetChild(i).gameObject);
             }
 
             List<SquadRosterEntry> entries = BuildRosterEntries().ToList();
+            UpdateRosterGridLayout(entries.Count);
+
             foreach (SquadRosterEntry entry in entries)
             {
-                CreateRosterTile(rosterContentRoot, entry, rosterBuildVersion);
+                CreateRosterTile(rosterGridRoot, entry, rosterBuildVersion);
             }
 
             UpdateEmptyRosterState(entries.Count == 0);
 
-            LayoutRebuilder.ForceRebuildLayoutImmediate(rosterContentRoot);
+            if (rosterGridRoot != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rosterGridRoot);
+            }
+
+            if (rosterContentRoot != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rosterContentRoot);
+            }
 
             if (rosterPanel != null)
             {
                 LayoutRebuilder.ForceRebuildLayoutImmediate(rosterPanel.GetComponent<RectTransform>());
+            }
+
+            if (rosterScrollRect != null)
+            {
+                rosterScrollRect.verticalNormalizedPosition = 1f;
             }
         }
 
@@ -688,18 +725,18 @@ namespace friendlySAIN.Components
             RectTransform buttonRect = addTeammateButton.transform as RectTransform;
             if (buttonRect != null)
             {
-                buttonRect.anchorMin = new Vector2(0.5f, 0f);
-                buttonRect.anchorMax = new Vector2(0.5f, 0f);
-                buttonRect.pivot = new Vector2(0.5f, 0f);
+                buttonRect.anchorMin = new Vector2(0.5f, 0.5f);
+                buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
+                buttonRect.pivot = new Vector2(0.5f, 0.5f);
                 buttonRect.sizeDelta = new Vector2(320f, playerButton.transform is RectTransform playerRect ? playerRect.sizeDelta.y : 54f);
-                buttonRect.anchoredPosition = PopulatedAddTeammateButtonPosition;
+                buttonRect.anchoredPosition = Vector2.zero;
             }
         }
 
         private void OnAddTeammateClicked()
         {
             CloseScreen();
-            AddTeammateCreationFlow.Start();
+            AddTeammateCreationFlow.Start(OpenScreen);
         }
 
         private void CreateEmptyRosterLabel(RectTransform rosterRect)
@@ -723,11 +760,11 @@ namespace friendlySAIN.Components
             textObject.transform.SetParent(rosterRect, false);
 
             RectTransform textRect = textObject.GetComponent<RectTransform>();
-            textRect.anchorMin = new Vector2(0.5f, 0f);
-            textRect.anchorMax = new Vector2(0.5f, 0f);
-            textRect.pivot = new Vector2(0.5f, 0f);
+            textRect.anchorMin = new Vector2(0.5f, 0.5f);
+            textRect.anchorMax = new Vector2(0.5f, 0.5f);
+            textRect.pivot = new Vector2(0.5f, 0.5f);
             textRect.sizeDelta = new Vector2(760f, 90f);
-            textRect.anchoredPosition = PopulatedEmptyRosterLabelPosition;
+            textRect.anchoredPosition = Vector2.zero;
 
             emptyRosterLabel = textObject.GetComponent<TextMeshProUGUI>();
             emptyRosterLabel.enableWordWrapping = true;
@@ -747,15 +784,7 @@ namespace friendlySAIN.Components
                 "You have not created any team members yet, press the add button below to get started");
             emptyRosterLabel.gameObject.SetActive(isEmpty);
 
-            if (emptyRosterLabel.transform is RectTransform emptyLabelRect)
-            {
-                emptyLabelRect.anchoredPosition = isEmpty ? EmptyRosterLabelPosition : PopulatedEmptyRosterLabelPosition;
-            }
-
-            if (addTeammateButton?.transform is RectTransform addButtonRect)
-            {
-                addButtonRect.anchoredPosition = isEmpty ? EmptyAddTeammateButtonPosition : PopulatedAddTeammateButtonPosition;
-            }
+            UpdateRosterPanelLayout(isEmpty);
         }
 
         private void CreateRosterTile(RectTransform parent, SquadRosterEntry entry, int buildVersion)
@@ -769,11 +798,11 @@ namespace friendlySAIN.Components
             tileObject.transform.SetParent(parent, false);
 
             RectTransform tileRect = tileObject.GetComponent<RectTransform>();
-            tileRect.sizeDelta = new Vector2(190f, 238f);
+            tileRect.sizeDelta = new Vector2(RosterTileWidth, RosterTileHeight);
 
             LayoutElement layoutElement = tileObject.GetComponent<LayoutElement>();
-            layoutElement.preferredWidth = 190f;
-            layoutElement.preferredHeight = 238f;
+            layoutElement.preferredWidth = RosterTileWidth;
+            layoutElement.preferredHeight = RosterTileHeight;
             layoutElement.flexibleWidth = 0f;
             layoutElement.flexibleHeight = 0f;
 
@@ -999,8 +1028,8 @@ namespace friendlySAIN.Components
             portraitRoot.anchorMin = new Vector2(0.5f, 1f);
             portraitRoot.anchorMax = new Vector2(0.5f, 1f);
             portraitRoot.pivot = new Vector2(0.5f, 1f);
-            portraitRoot.sizeDelta = new Vector2(150f, 150f);
-            portraitRoot.anchoredPosition = new Vector2(0f, -18f);
+            portraitRoot.sizeDelta = new Vector2(142f, 142f);
+            portraitRoot.anchoredPosition = new Vector2(0f, -14f);
 
             if (TryCreateStockPortrait(portraitRoot, level, out iconImage))
             {
@@ -1077,19 +1106,83 @@ namespace friendlySAIN.Components
                 _progress = progressClone
             };
 
-            ApplyStockPortraitLevel(templateRoot, clonedRoot.transform, level);
+            ReplaceStockPortraitChrome(clonedRoot.transform, level);
 
             return true;
         }
 
-        private void ApplyStockPortraitLevel(Transform templateRoot, Transform clonedRoot, int level)
+        private void ReplaceStockPortraitChrome(Transform clonedRoot, int level)
         {
-            Transform templateLevelLabel = templateRoot.Find("Level/LevelLabel");
-            TextMeshProUGUI levelLabel = FindComponentByPath<TextMeshProUGUI>(templateRoot, clonedRoot, templateLevelLabel);
-            if (levelLabel != null)
+            if (clonedRoot == null)
             {
-                levelLabel.text = level.ToString("D2");
+                return;
             }
+
+            Transform background = clonedRoot.Find("Background");
+            if (background != null)
+            {
+                background.gameObject.SetActive(false);
+            }
+
+            Transform levelRoot = clonedRoot.Find("Level");
+            if (levelRoot != null)
+            {
+                levelRoot.gameObject.SetActive(false);
+            }
+
+            CreatePortraitBackground(clonedRoot);
+            CreatePortraitLevelBadge(clonedRoot, level);
+        }
+
+        private static void CreatePortraitBackground(Transform clonedRoot)
+        {
+            GameObject backgroundObject = new GameObject("friendlySAIN_PortraitBackground", typeof(RectTransform), typeof(Image));
+            backgroundObject.transform.SetParent(clonedRoot, false);
+            backgroundObject.transform.SetAsFirstSibling();
+
+            RectTransform backgroundRect = backgroundObject.GetComponent<RectTransform>();
+            Stretch(backgroundRect);
+
+            Image backgroundImage = backgroundObject.GetComponent<Image>();
+            backgroundImage.color = new Color(0.14f, 0.15f, 0.16f, 1f);
+            backgroundImage.raycastTarget = false;
+        }
+
+        private void CreatePortraitLevelBadge(Transform clonedRoot, int level)
+        {
+            GameObject badgeObject = new GameObject("friendlySAIN_LevelBadge", typeof(RectTransform), typeof(Image));
+            badgeObject.transform.SetParent(clonedRoot, false);
+
+            RectTransform badgeRect = badgeObject.GetComponent<RectTransform>();
+            badgeRect.anchorMin = new Vector2(0f, 1f);
+            badgeRect.anchorMax = new Vector2(0f, 1f);
+            badgeRect.pivot = new Vector2(0f, 1f);
+            badgeRect.sizeDelta = new Vector2(44f, 36f);
+            badgeRect.anchoredPosition = new Vector2(0f, 0f);
+
+            Image badgeImage = badgeObject.GetComponent<Image>();
+            badgeImage.color = new Color(0.94f, 0.96f, 0.98f, 1f);
+            badgeImage.raycastTarget = false;
+
+            GameObject labelObject = new GameObject("LevelLabel", typeof(RectTransform), typeof(TextMeshProUGUI));
+            labelObject.transform.SetParent(badgeObject.transform, false);
+
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            Stretch(labelRect);
+
+            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            TextMeshProUGUI templateLabel = ResolveTemplateLabel();
+            if (templateLabel != null)
+            {
+                label.font = templateLabel.font;
+                label.fontSharedMaterial = templateLabel.fontSharedMaterial;
+            }
+
+            label.text = level.ToString("D2");
+            label.fontSize = 18f;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = new Color(0.28f, 0.3f, 0.32f, 1f);
+            label.raycastTarget = false;
         }
 
         private Transform FindPortraitTemplateRoot(PlayerIconImage templateIcon)
@@ -1179,8 +1272,8 @@ namespace friendlySAIN.Components
             textRect.anchorMin = new Vector2(0f, 0f);
             textRect.anchorMax = new Vector2(1f, 0f);
             textRect.pivot = new Vector2(0.5f, 0f);
-            textRect.offsetMin = new Vector2(16f, 16f);
-            textRect.offsetMax = new Vector2(-16f, 78f);
+            textRect.offsetMin = new Vector2(16f, 14f);
+            textRect.offsetMax = new Vector2(-16f, 66f);
 
             TextMeshProUGUI label = textObject.GetComponent<TextMeshProUGUI>();
             TextMeshProUGUI templateLabel = ResolveTemplateLabel();
@@ -1191,7 +1284,7 @@ namespace friendlySAIN.Components
             }
 
             label.text = nickname;
-            label.fontSize = 26f;
+            label.fontSize = 24f;
             label.alignment = TextAlignmentOptions.Bottom;
             label.enableWordWrapping = true;
             label.overflowMode = TextOverflowModes.Ellipsis;
@@ -1317,7 +1410,7 @@ namespace friendlySAIN.Components
             }
         }
 
-        private void CenterRosterContainer(RectTransform container)
+        private void PrepareRosterShellContainer(RectTransform container)
         {
             if (container == null)
             {
@@ -1326,20 +1419,53 @@ namespace friendlySAIN.Components
 
             if (container.GetComponent<HorizontalLayoutGroup>() is HorizontalLayoutGroup horizontalLayout)
             {
-                horizontalLayout.childAlignment = TextAnchor.MiddleCenter;
-                horizontalLayout.padding = new RectOffset(0, 0, 0, 0);
-                horizontalLayout.spacing = 18f;
-                horizontalLayout.childControlWidth = false;
-                horizontalLayout.childControlHeight = false;
-                horizontalLayout.childForceExpandWidth = false;
-                horizontalLayout.childForceExpandHeight = false;
+                horizontalLayout.enabled = false;
+            }
+
+            if (container.GetComponent<VerticalLayoutGroup>() is VerticalLayoutGroup verticalLayout)
+            {
+                verticalLayout.enabled = false;
             }
 
             if (container.GetComponent<GridLayoutGroup>() is GridLayoutGroup gridLayout)
             {
-                gridLayout.childAlignment = TextAnchor.MiddleCenter;
-                gridLayout.padding = new RectOffset(0, 0, 0, 0);
+                gridLayout.enabled = false;
             }
+
+            if (container.GetComponent<ContentSizeFitter>() is ContentSizeFitter sizeFitter)
+            {
+                sizeFitter.enabled = false;
+            }
+        }
+
+        private void ConfigureRosterContentContainer(RectTransform container)
+        {
+            if (container == null)
+            {
+                return;
+            }
+
+            rosterGridLayout = container.GetComponent<GridLayoutGroup>() ?? container.gameObject.AddComponent<GridLayoutGroup>();
+            rosterGridLayout.enabled = true;
+            rosterGridLayout.startCorner = GridLayoutGroup.Corner.UpperLeft;
+            rosterGridLayout.startAxis = GridLayoutGroup.Axis.Horizontal;
+            rosterGridLayout.cellSize = new Vector2(RosterTileWidth, RosterTileHeight);
+            rosterGridLayout.spacing = new Vector2(RosterTileSpacing, RosterTileSpacing);
+            rosterGridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            rosterGridLayout.constraintCount = 5;
+            rosterGridLayout.childAlignment = TextAnchor.UpperCenter;
+            rosterGridLayout.padding = new RectOffset(0, 0, 0, 0);
+
+            ContentSizeFitter sizeFitter = container.GetComponent<ContentSizeFitter>() ?? container.gameObject.AddComponent<ContentSizeFitter>();
+            sizeFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            sizeFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            container.anchorMin = new Vector2(0.5f, 1f);
+            container.anchorMax = new Vector2(0.5f, 1f);
+            container.pivot = new Vector2(0.5f, 1f);
+            container.anchoredPosition = Vector2.zero;
+            container.sizeDelta = Vector2.zero;
+            container.localScale = Vector3.one;
         }
 
         private TraderScreensGroup ResolveTraderScreensGroupTemplate()
@@ -1359,6 +1485,235 @@ namespace friendlySAIN.Components
                     TradingPlayerPanelIconField?.GetValue(panel) is PlayerIconImage playerIcon &&
                     playerIcon._pmcPreview != null &&
                     playerIcon._progress != null);
+        }
+
+        private Scrollbar ResolveVerticalScrollbarTemplate()
+        {
+            Scrollbar template = Resources.FindObjectsOfTypeAll<ScrollRectNoDrag>()
+                .Select(scrollRect => scrollRect?.verticalScrollbar)
+                .FirstOrDefault(scrollbar => scrollbar != null && scrollbar.transform is RectTransform);
+
+            if (template != null)
+            {
+                return template;
+            }
+
+            return Resources.FindObjectsOfTypeAll<Scrollbar>()
+                .FirstOrDefault(scrollbar => scrollbar != null && scrollbar.direction == Scrollbar.Direction.BottomToTop);
+        }
+
+        private void CreateScrollableRosterArea(RectTransform shellRect)
+        {
+            if (shellRect == null)
+            {
+                return;
+            }
+
+            GameObject scrollRootObject = new GameObject("friendlySAIN_SquadControlRosterScroll", typeof(RectTransform), typeof(ScrollRectNoDrag));
+            scrollRootObject.transform.SetParent(shellRect, false);
+            RectTransform scrollRoot = scrollRootObject.GetComponent<RectTransform>();
+            Stretch(scrollRoot);
+            scrollRoot.offsetMin = new Vector2(18f, RosterViewportBottomInset);
+            scrollRoot.offsetMax = new Vector2(-18f, -RosterViewportTopInset);
+
+            GameObject viewportObject = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(RectMask2D));
+            viewportObject.transform.SetParent(scrollRoot, false);
+            rosterViewport = viewportObject.GetComponent<RectTransform>();
+            rosterViewport.anchorMin = Vector2.zero;
+            rosterViewport.anchorMax = Vector2.one;
+            rosterViewport.offsetMin = Vector2.zero;
+            rosterViewport.offsetMax = new Vector2(-22f, 0f);
+
+            Image viewportImage = viewportObject.GetComponent<Image>();
+            viewportImage.color = new Color(0f, 0f, 0f, 0.01f);
+            viewportImage.raycastTarget = true;
+
+            rosterScrollbar = CreateRosterScrollbar(scrollRoot);
+
+            GameObject contentObject = new GameObject("friendlySAIN_SquadControlRosterContent", typeof(RectTransform));
+            contentObject.transform.SetParent(rosterViewport, false);
+            rosterContentRoot = contentObject.GetComponent<RectTransform>();
+            rosterContentRoot.anchorMin = new Vector2(0f, 1f);
+            rosterContentRoot.anchorMax = new Vector2(1f, 1f);
+            rosterContentRoot.pivot = new Vector2(0.5f, 1f);
+            rosterContentRoot.anchoredPosition = Vector2.zero;
+            rosterContentRoot.sizeDelta = new Vector2(0f, 0f);
+
+            GameObject gridObject = new GameObject("friendlySAIN_SquadControlRosterGrid", typeof(RectTransform));
+            gridObject.transform.SetParent(rosterContentRoot, false);
+            rosterGridRoot = gridObject.GetComponent<RectTransform>();
+            ConfigureRosterContentContainer(rosterGridRoot);
+
+            rosterScrollRect = scrollRootObject.GetComponent<ScrollRectNoDrag>();
+            rosterScrollRect.horizontal = false;
+            rosterScrollRect.vertical = true;
+            rosterScrollRect.movementType = ScrollRect.MovementType.Clamped;
+            rosterScrollRect.scrollSensitivity = 30f;
+            rosterScrollRect.inertia = true;
+            rosterScrollRect.viewport = rosterViewport;
+            rosterScrollRect.content = rosterContentRoot;
+            rosterScrollRect.verticalScrollbar = rosterScrollbar;
+            rosterScrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
+            rosterScrollRect.horizontalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
+            rosterScrollRect.verticalScrollbarSpacing = 6f;
+            rosterScrollRect.AutoZeroing = true;
+            rosterScrollRect.Alignment = TextAnchor.UpperCenter;
+        }
+
+        private Scrollbar CreateRosterScrollbar(RectTransform parent)
+        {
+            Scrollbar template = ResolveVerticalScrollbarTemplate();
+            Scrollbar scrollbar;
+
+            if (template != null)
+            {
+                scrollbar = Instantiate(template, parent, false);
+                scrollbar.name = "friendlySAIN_SquadControlScrollbar";
+            }
+            else
+            {
+                scrollbar = CreateFallbackScrollbar(parent);
+            }
+
+            if (scrollbar.transform is RectTransform rect)
+            {
+                rect.anchorMin = new Vector2(1f, 0f);
+                rect.anchorMax = new Vector2(1f, 1f);
+                rect.pivot = new Vector2(1f, 1f);
+                rect.sizeDelta = new Vector2(12f, 0f);
+                rect.anchoredPosition = Vector2.zero;
+                rect.localScale = Vector3.one;
+            }
+
+            scrollbar.gameObject.SetActive(true);
+            scrollbar.direction = Scrollbar.Direction.BottomToTop;
+            scrollbar.numberOfSteps = 0;
+            return scrollbar;
+        }
+
+        private static Scrollbar CreateFallbackScrollbar(RectTransform parent)
+        {
+            GameObject root = new GameObject("friendlySAIN_SquadControlScrollbar", typeof(RectTransform), typeof(Image), typeof(Scrollbar));
+            root.transform.SetParent(parent, false);
+
+            RectTransform rootRect = root.GetComponent<RectTransform>();
+            rootRect.anchorMin = new Vector2(1f, 0f);
+            rootRect.anchorMax = new Vector2(1f, 1f);
+            rootRect.pivot = new Vector2(1f, 1f);
+            rootRect.sizeDelta = new Vector2(12f, 0f);
+            rootRect.anchoredPosition = Vector2.zero;
+
+            Image background = root.GetComponent<Image>();
+            background.color = new Color(1f, 1f, 1f, 0.12f);
+
+            GameObject slidingArea = new GameObject("Sliding Area", typeof(RectTransform));
+            slidingArea.transform.SetParent(root.transform, false);
+            RectTransform slidingRect = slidingArea.GetComponent<RectTransform>();
+            Stretch(slidingRect);
+            slidingRect.offsetMin = new Vector2(0f, 4f);
+            slidingRect.offsetMax = new Vector2(0f, -4f);
+
+            GameObject handle = new GameObject("Handle", typeof(RectTransform), typeof(Image));
+            handle.transform.SetParent(slidingArea.transform, false);
+            RectTransform handleRect = handle.GetComponent<RectTransform>();
+            handleRect.anchorMin = Vector2.zero;
+            handleRect.anchorMax = Vector2.one;
+            handleRect.offsetMin = Vector2.zero;
+            handleRect.offsetMax = Vector2.zero;
+
+            Image handleImage = handle.GetComponent<Image>();
+            handleImage.color = new Color(0.88f, 0.88f, 0.88f, 0.9f);
+
+            Scrollbar scrollbar = root.GetComponent<Scrollbar>();
+            scrollbar.handleRect = handleRect;
+            scrollbar.targetGraphic = handleImage;
+            scrollbar.direction = Scrollbar.Direction.BottomToTop;
+            return scrollbar;
+        }
+
+        private void UpdateRosterGridLayout(int entryCount)
+        {
+            if (rosterGridLayout == null)
+            {
+                return;
+            }
+
+            int columnCount = Mathf.Clamp(entryCount, 1, 5);
+            int rowCount = Mathf.Max(1, Mathf.CeilToInt(entryCount / 5f));
+            float contentHeight = CalculateRowsHeight(rowCount) - RosterViewportPadding;
+            float viewportHeight = Mathf.Max(0f, rosterViewport != null && rosterViewport.rect.height > 1f
+                ? rosterViewport.rect.height
+                : currentRosterShellHeight - 20f);
+            float wrapperHeight = Mathf.Max(viewportHeight, contentHeight);
+            float gridOffsetY = contentHeight < wrapperHeight ? (wrapperHeight - contentHeight) * 0.5f : 0f;
+
+            rosterGridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            rosterGridLayout.constraintCount = columnCount;
+
+            if (rosterContentRoot != null)
+            {
+                rosterContentRoot.sizeDelta = new Vector2(0f, wrapperHeight);
+            }
+
+            if (rosterGridRoot != null)
+            {
+                rosterGridRoot.sizeDelta = new Vector2(0f, contentHeight);
+                rosterGridRoot.anchoredPosition = new Vector2(0f, -gridOffsetY);
+            }
+        }
+
+        private void UpdateRosterPanelLayout(bool isEmpty)
+        {
+            float buttonHeight = addTeammateButton?.transform is RectTransform addButtonSource
+                ? addButtonSource.sizeDelta.y
+                : 54f;
+
+            if (stockCardsContainer != null)
+            {
+                float shellCenterY = isEmpty ? 54f : (RosterShellToButtonGap + buttonHeight) * 0.5f;
+                stockCardsContainer.anchoredPosition = new Vector2(0f, shellCenterY + RosterBlockVerticalOffset);
+            }
+
+            if (addTeammateButton?.transform is RectTransform addButtonRect)
+            {
+                float buttonCenterY = isEmpty
+                    ? EmptyRosterButtonCenterY
+                    : -(currentRosterShellHeight + RosterShellToButtonGap) * 0.5f;
+                addButtonRect.anchoredPosition = new Vector2(0f, buttonCenterY + RosterBlockVerticalOffset);
+            }
+
+            if (emptyRosterLabel?.transform is RectTransform emptyLabelRect)
+            {
+                float emptyLabelY = EmptyRosterButtonCenterY + EmptyRosterLabelSpacing;
+                emptyLabelRect.anchoredPosition = new Vector2(0f, emptyLabelY + RosterBlockVerticalOffset);
+            }
+
+            if (rosterPanelRect != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rosterPanelRect);
+            }
+        }
+
+        private static float CalculateRosterShellHeight()
+        {
+            float screenHeight = Mathf.Max(720f, Screen.height);
+            float targetHeight = screenHeight * RosterHeightScreenRatio;
+            int visibleRowCount = CalculateVisibleRosterRowCount(targetHeight);
+            return CalculateRowsHeight(visibleRowCount) + RosterViewportTopInset + RosterViewportBottomInset;
+        }
+
+        private static int CalculateVisibleRosterRowCount(float targetHeight)
+        {
+            float rowUnit = RosterTileHeight + RosterTileSpacing;
+            float usableHeight = Mathf.Max(0f, targetHeight - RosterViewportTopInset - RosterViewportBottomInset - RosterViewportPadding + RosterTileSpacing);
+            int visibleRows = Mathf.FloorToInt(usableHeight / rowUnit);
+            return Mathf.Max(2, visibleRows);
+        }
+
+        private static float CalculateRowsHeight(int rowCount)
+        {
+            int rows = Mathf.Max(1, rowCount);
+            return RosterTileHeight * rows + RosterTileSpacing * (rows - 1) + RosterViewportPadding;
         }
 
         private static void Stretch(RectTransform rect)
