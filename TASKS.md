@@ -132,6 +132,36 @@ Still to do:
 - Optional later scope:
   - evaluate which old `Squad Manager` chat features still matter in the new model (`info`, `restrictions`, `autojoin`, `recruit`, scav-squad variants, static default equipment)
 
+Next phase plan:
+
+- Phase 1: planning and documentation for a dedicated Team Management screen
+  - document the stock EFT UI surfaces already touched by friendlySAIN:
+    - other profile screen
+    - raid preparation / ready / loading screens
+    - teammate creation flow based on the stock account side/head selection screen
+    - nickname edit overlay pattern
+  - investigate the trader top-right player portrait pattern for a lightweight team portrait/header option
+  - investigate the stock `Settings` screen with focus on:
+    - `Game` tab
+    - `PostFX` tab
+  - use that investigation to plan a dedicated Team screen with:
+    - `Settings` tab for friendlySAIN settings currently living in BepInEx config
+    - `Roster` tab for teammate/member management
+  - keep this phase implementation-free beyond documentation/tracking updates
+
+Current implementation follow-up:
+
+- Phase 1 planning is complete:
+  - UI investigation doc written
+  - trader portrait and settings screen references documented
+- Phase 2 has started with the first FE shell:
+  - main menu now gains a `Squad Control` entry
+  - initial Team screen shell is being introduced with:
+    - `Roaster` tab
+    - `Settings` tab
+    - back navigation
+  - this phase is shell/layout only; no settings migration or roster management logic yet
+
 Notes from old plugin / description:
 
 - Old plugin exposed squad management through a `Squad Manager` messenger/chatbot.

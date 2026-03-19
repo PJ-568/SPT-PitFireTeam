@@ -1,0 +1,65 @@
+using EFT;
+using EFT.UI;
+using friendlySAIN.Components;
+using HarmonyLib;
+using SPT.Reflection.Patching;
+using System;
+using System.Reflection;
+
+namespace friendlySAIN.Patches
+{
+    internal class MenuScreenShowSquadControlPatch : ModulePatch
+    {
+        private static readonly FieldInfo PlayerButtonField = AccessTools.Field(typeof(MenuScreen), "_playerButton");
+        private static readonly FieldInfo TradeButtonField = AccessTools.Field(typeof(MenuScreen), "_tradeButton");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(
+                typeof(MenuScreen),
+                "Show",
+                new Type[] { typeof(Profile), typeof(MatchmakerPlayerControllerClass), typeof(ESessionMode) });
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(MenuScreen __instance)
+        {
+            DefaultUIButton playerButton = PlayerButtonField?.GetValue(__instance) as DefaultUIButton;
+            DefaultUIButton tradeButton = TradeButtonField?.GetValue(__instance) as DefaultUIButton;
+            if (playerButton == null)
+            {
+                return;
+            }
+
+            SquadControlMenuUi.GetOrCreate(__instance).Initialize(__instance, playerButton, tradeButton);
+        }
+    }
+
+    internal class MenuScreenReconnectVisibilitySquadControlPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(MenuScreen), "method_3");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(MenuScreen __instance)
+        {
+            __instance.GetComponent<SquadControlMenuUi>()?.SyncButtonVisibility();
+        }
+    }
+
+    internal class MenuScreenMinimizedVisibilitySquadControlPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(MenuScreen), "method_9");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(MenuScreen __instance)
+        {
+            __instance.GetComponent<SquadControlMenuUi>()?.SyncButtonVisibility();
+        }
+    }
+}

@@ -575,7 +575,7 @@ namespace friendlySAIN.Patches
             labelRect.offsetMax = Vector2.zero;
 
             CustomTextMeshProUGUI label = labelObject.GetComponent<CustomTextMeshProUGUI>();
-            label.text = "x";
+            label.text = GetSocialUiText("RenameClose", "x");
             label.fontSize = 16f;
             label.alignment = TextAlignmentOptions.Center;
             label.color = new Color(0.95f, 0.95f, 0.95f, 1f);

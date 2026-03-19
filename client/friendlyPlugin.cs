@@ -292,6 +292,9 @@ namespace friendlySAIN
             // new SelectSpawnPointPatch().Enable();
 
             new MatchmakerTimeHasComeShowPatch().Enable();
+            new MenuScreenShowSquadControlPatch().Enable();
+            new MenuScreenReconnectVisibilitySquadControlPatch().Enable();
+            new MenuScreenMinimizedVisibilitySquadControlPatch().Enable();
 
             //new ConditionCounterPatch().Enable();
 

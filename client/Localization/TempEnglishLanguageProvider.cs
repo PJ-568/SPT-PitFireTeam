@@ -116,7 +116,18 @@ namespace friendlySAIN.Localization
                     ["RenameSave"] = "Save",
                     ["RenameCancel"] = "Cancel",
                     ["RenameChange"] = "EDIT NAME",
-                    ["RenameFailed"] = "Could not rename teammate"
+                    ["RenameFailed"] = "Could not rename teammate",
+                    ["RenameClose"] = "x",
+                    ["SquadControlButton"] = "Squad Control",
+                    ["SquadControlTitle"] = "Squad Control",
+                    ["SquadControlBack"] = "Back",
+                    ["SquadControlRosterTab"] = "Roaster",
+                    ["SquadControlSettingsTab"] = "Settings",
+                    ["SquadControlRosterPlayer"] = "PLAYER",
+                    ["SquadControlRosterLeader"] = "Leader",
+                    ["SquadControlRosterMemberA"] = "TEAMMATE 01",
+                    ["SquadControlRosterMemberB"] = "TEAMMATE 02",
+                    ["SquadControlRosterRole"] = "Squad Member"
                 }
             };
         }
