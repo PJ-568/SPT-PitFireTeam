@@ -29,7 +29,9 @@ public class FriendlyTeammateSocialCallbacks(
         response.Friends ??= [];
         foreach (var teammate in teammateService.ListTeammateDialogs(sessionId))
         {
-            if (response.Friends.Any(existing => existing.Id == teammate.Id))
+            if (response.Friends.Any(existing =>
+                existing.Id == teammate.Id ||
+                (existing.Aid != 0 && teammate.Aid != 0 && existing.Aid == teammate.Aid)))
             {
                 continue;
             }

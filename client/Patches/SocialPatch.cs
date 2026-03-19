@@ -5,6 +5,7 @@ using EFT;
 using EFT.UI.Chat;
 using EFT.InventoryLogic;
 using EFT.Quests;
+using EFT.UI;
 using Newtonsoft.Json.Linq;
 
 using HarmonyLib;
@@ -16,6 +17,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using UI.Matchmaker.Group;
 using UnityEngine;
 
 namespace friendlySAIN.Patches
@@ -73,53 +75,6 @@ namespace friendlySAIN.Patches
         private static void PatchPrefix()
         {
             SocialNetworkClassPatch.RefreshFriendsList();
-        }
-    }
-
-    internal class SocialNetworkClassFriendsListDedupePatch : ModulePatch
-    {
-        protected override MethodBase GetTargetMethod()
-        {
-            return AccessTools.Method(typeof(SocialNetworkClass), "method_13");
-        }
-
-        [PatchPostfix]
-        private static void PatchPostfix(SocialNetworkClass __instance)
-        {
-            if (__instance?.FriendsList == null || __instance.FriendsList.Count <= 1)
-            {
-                return;
-            }
-
-            List<UpdatableChatMember> deduped = new List<UpdatableChatMember>();
-            HashSet<string> seenKeys = new HashSet<string>(StringComparer.Ordinal);
-
-            foreach (UpdatableChatMember member in __instance.FriendsList)
-            {
-                if (member == null)
-                {
-                    continue;
-                }
-
-                string key = !string.IsNullOrEmpty(member.AccountId)
-                    ? $"aid:{member.AccountId}"
-                    : $"id:{member.Id}";
-
-                if (!seenKeys.Add(key))
-                {
-                    continue;
-                }
-
-                deduped.Add(member);
-            }
-
-            if (deduped.Count == __instance.FriendsList.Count)
-            {
-                return;
-            }
-
-            friendlySAIN.Log.LogInfo($"[UI] Deduped social friends list from {__instance.FriendsList.Count} to {deduped.Count} entries.");
-            __instance.FriendsList.UpdateItems(deduped.ToArray());
         }
     }
 
@@ -208,6 +163,141 @@ namespace friendlySAIN.Patches
                 Modules.Logger.LogInfo("[UI] Failed to refresh teammate cache for social context actions.");
                 Modules.Logger.LogError(ex);
             }
+        }
+    }
+
+    internal class FriendListInvitePlayerPanelPatch : ModulePatch
+    {
+        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(FriendListInvitePlayerPanel), nameof(FriendListInvitePlayerPanel.Show));
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix(ref GClass1628<UpdatableChatMember> friendsList)
+        {
+            friendsList = BuildInviteableFriendsList(friendsList);
+        }
+
+        private static GClass1628<UpdatableChatMember> BuildInviteableFriendsList(GClass1628<UpdatableChatMember> source)
+        {
+            List<UpdatableChatMember> filtered = new List<UpdatableChatMember>();
+            HashSet<string> seenAccountIds = new HashSet<string>(StringComparer.Ordinal);
+
+            if (source != null)
+            {
+                foreach (UpdatableChatMember member in source)
+                {
+                    if (!ShouldIncludeInviteMember(member))
+                    {
+                        continue;
+                    }
+
+                    string accountId = GetStableAccountId(member);
+                    if (!seenAccountIds.Add(accountId))
+                    {
+                        continue;
+                    }
+
+                    filtered.Add(member);
+                }
+            }
+
+            try
+            {
+                string response = RequestHandler.GetJson(TeammatesRoute);
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    return new GClass1628<UpdatableChatMember>(filtered);
+                }
+
+                JToken root = JToken.Parse(response);
+                JToken dataToken = root.Type == JTokenType.Array ? root : root["data"];
+                if (dataToken is not JArray teammates)
+                {
+                    return new GClass1628<UpdatableChatMember>(filtered);
+                }
+
+                foreach (JToken teammate in teammates)
+                {
+                    string accountId = teammate?["Aid"]?.ToString() ?? teammate?["aid"]?.ToString();
+                    string id = teammate?["Id"]?.ToString() ?? teammate?["id"]?.ToString();
+                    string nickname = teammate?["Info"]?["Nickname"]?.ToString() ?? teammate?["info"]?["nickname"]?.ToString();
+
+                    if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(nickname))
+                    {
+                        continue;
+                    }
+
+                    if (!seenAccountIds.Add(accountId))
+                    {
+                        continue;
+                    }
+
+                    UpdatableChatMember teammateMember = UpdatableChatMember.FindOrCreate(id, static memberId => new UpdatableChatMember(memberId));
+                    teammateMember.AccountId = accountId;
+                    teammateMember.Info.Nickname = nickname;
+                    teammateMember.Info.Level = ParseInt(teammate?["Info"]?["Level"]?.ToString() ?? teammate?["info"]?["level"]?.ToString());
+                    teammateMember.Info.MemberCategory = EMemberCategory.Unheard;
+                    teammateMember.Info.SelectedMemberCategory = EMemberCategory.Unheard;
+                    teammateMember.Info.Side = ParseSide(teammate?["Info"]?["Side"]?.ToString() ?? teammate?["info"]?["side"]?.ToString());
+                    filtered.Add(teammateMember);
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo("[UI] Failed to build teammate invite list.");
+                Modules.Logger.LogError(ex);
+            }
+
+            return new GClass1628<UpdatableChatMember>(filtered);
+        }
+
+        private static bool ShouldIncludeInviteMember(UpdatableChatMember member)
+        {
+            if (member == null)
+            {
+                return false;
+            }
+
+            if (member.Info == null)
+            {
+                return false;
+            }
+
+            if (member.Info.MemberCategory == EMemberCategory.Developer)
+            {
+                return false;
+            }
+
+            return !string.IsNullOrWhiteSpace(GetStableAccountId(member));
+        }
+
+        private static string GetStableAccountId(UpdatableChatMember member)
+        {
+            return !string.IsNullOrWhiteSpace(member?.AccountId) ? member.AccountId : member?.Id ?? string.Empty;
+        }
+
+        private static int ParseInt(string value)
+        {
+            return int.TryParse(value, out int parsed) ? parsed : 1;
+        }
+
+        private static EChatMemberSide ParseSide(string side)
+        {
+            if (string.Equals(side, "Bear", StringComparison.OrdinalIgnoreCase))
+            {
+                return EChatMemberSide.Bear;
+            }
+
+            if (string.Equals(side, "Savage", StringComparison.OrdinalIgnoreCase))
+            {
+                return EChatMemberSide.Savage;
+            }
+
+            return EChatMemberSide.Usec;
         }
     }
 

@@ -295,9 +295,9 @@ namespace friendlySAIN
 
             //new ConditionCounterPatch().Enable();
 
-            // social/screen related patches disabled for now
+            // social / teammate management patches
             new SocialNetworkClassPatch().Enable();
-            new SocialNetworkClassFriendsListDedupePatch().Enable();
+            new FriendListInvitePlayerPanelPatch().Enable();
             new TeammateTransferLeadershipButtonPatch().Enable();
             new ChatInvitePlayersPanelRefreshPatch().Enable();
             new ChatCreateDialoguePanelRefreshPatch().Enable();

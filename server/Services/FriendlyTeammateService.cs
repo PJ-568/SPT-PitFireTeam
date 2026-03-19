@@ -24,6 +24,7 @@ namespace friendlySAIN.Server.Services;
 public class FriendlyTeammateService(
     BotGenerator botGenerator,
     FileUtil fileUtil,
+    HashUtil hashUtil,
     JsonUtil jsonUtil,
     ItemHelper itemHelper,
     ProfileHelper profileHelper,
@@ -74,11 +75,11 @@ public class FriendlyTeammateService(
         teammate.Info.LowerNickname = nickname.ToLowerInvariant();
         teammate.Customization!.Voice = voice;
         teammate.Customization.Head = head;
-        teammate.Aid = GetNextAid();
+        teammate.Aid = GetUniqueAccountId(sessionId);
 
         NormalizeTeammateProfile(teammate, playerPmc);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammate(sessionId, teammate);
-        SaveDefaultEquipmentSnapshot(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
 
         logger.Info($"Created teammate '{nickname}' for session '{sessionId}' with aid '{teammate.Aid}'");
@@ -175,6 +176,20 @@ public class FriendlyTeammateService(
         teammate.Customization ??= new CommonCustomization();
         teammate.Customization.Body = NormalizeRequiredValue(request.Suit[0], "body");
         teammate.Customization.Feet = NormalizeRequiredValue(request.Suit[1], "feet");
+
+        SaveTeammate(sessionId, teammate);
+    }
+
+    public void RenameTeammate(MongoId sessionId, FriendlyTeammateRenameRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        var nickname = NormalizeRequiredValue(request.Nickname, "nickname");
+
+        EnsureNicknameIsUnique(sessionId, nickname, teammate.Aid);
+
+        teammate.Info ??= new CommonInfo();
+        teammate.Info.Nickname = nickname;
+        teammate.Info.LowerNickname = nickname.ToLowerInvariant();
 
         SaveTeammate(sessionId, teammate);
     }
@@ -303,9 +318,10 @@ public class FriendlyTeammateService(
         return pmc;
     }
 
-    private void EnsureNicknameIsUnique(MongoId sessionId, string nickname)
+    private void EnsureNicknameIsUnique(MongoId sessionId, string nickname, int? ignoreAid = null)
     {
         var exists = LoadTeammates(sessionId).Any(profile =>
+            (!ignoreAid.HasValue || profile.Aid != ignoreAid.Value) &&
             string.Equals(profile.Info?.Nickname, nickname, StringComparison.OrdinalIgnoreCase)
         );
 
@@ -430,27 +446,43 @@ public class FriendlyTeammateService(
         return normalized;
     }
 
-    private int GetNextAid()
+    private int GetUniqueAccountId(MongoId sessionId)
     {
-        var maxProfileAid = saveServer
-            .GetProfiles()
-            .Values.Select(profile => profile.ProfileInfo?.Aid ?? 0)
-            .DefaultIfEmpty(0)
-            .Max();
+        var usedAids = new HashSet<int>(
+            saveServer.GetProfiles().Values.Select(profile => profile.ProfileInfo?.Aid ?? 0).Where(aid => aid > 0)
+        );
+
+        foreach (var teammate in LoadTeammates(sessionId))
+        {
+            if (teammate.Aid is > 0)
+            {
+                usedAids.Add(teammate.Aid.Value);
+            }
+        }
 
         var teammateRoot = System.IO.Path.Combine(fileUtil.GetModPath(ModFolderName), "Resources", TeammateFolderName);
-        var maxTeammateAid = 0;
         if (fileUtil.DirectoryExists(teammateRoot))
         {
-            maxTeammateAid = fileUtil
+            foreach (var teammateAid in fileUtil
                 .GetFiles(teammateRoot, recursive: true, searchPattern: "*.json")
                 .Where(IsTeammateProfileFile)
                 .Select(path => jsonUtil.DeserializeFromFile<BotBase>(path)?.Aid ?? 0)
-                .DefaultIfEmpty(0)
-                .Max();
+                .Where(aid => aid > 0))
+            {
+                usedAids.Add(teammateAid);
+            }
         }
 
-        return Math.Max(maxProfileAid, maxTeammateAid) + 1;
+        for (var attempts = 0; attempts < 1024; attempts++)
+        {
+            var candidateAid = hashUtil.GenerateAccountId();
+            if (!usedAids.Contains(candidateAid))
+            {
+                return candidateAid;
+            }
+        }
+
+        throw new FriendlyTeammateException("Unable to allocate a unique teammate account id");
     }
 
     private SearchFriendResponse ToFriendSummary(BotBase teammate)
@@ -655,11 +687,16 @@ public class FriendlyTeammateService(
         fileUtil.WriteFile(filePath, json);
     }
 
-    private void SaveDefaultEquipmentSnapshot(MongoId sessionId, BotBase teammate)
+    private void SaveDefaultEquipmentSnapshot(MongoId sessionId, BotBase teammate, bool overwrite = false)
     {
         teammate.Inventory ??= new BotBaseInventory { Items = [] };
 
         string filePath = GetDefaultEquipmentFilePath(sessionId, teammate);
+        if (!overwrite && fileUtil.FileExists(filePath))
+        {
+            return;
+        }
+
         var items = cloner.Clone(teammate.Inventory.Items ?? []) ?? [];
         string? json = jsonUtil.Serialize(items, indented: true);
         if (json is null)
@@ -675,7 +712,7 @@ public class FriendlyTeammateService(
         string filePath = GetDefaultEquipmentFilePath(sessionId, teammate);
         if (!fileUtil.FileExists(filePath))
         {
-            SaveDefaultEquipmentSnapshot(sessionId, teammate);
+            throw new FriendlyTeammateException("Teammate default equipment snapshot is missing");
         }
 
         List<Item>? items = jsonUtil.DeserializeFromFile<List<Item>>(filePath);

@@ -33,6 +33,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/friendlysain/teammate/profile/suit",
                 async (url, info, sessionId, output) => await callbacks.SetSuit(url, info, sessionId)
             ),
+            new RouteAction<FriendlyTeammateRenameRequest>(
+                "/singleplayer/friendlysain/teammate/profile/rename",
+                async (url, info, sessionId, output) => await callbacks.Rename(url, info, sessionId)
+            ),
             new RouteAction<FriendlyTeammateLoadoutRequest>(
                 "/singleplayer/friendlysain/teammate/profile/loadout",
                 async (url, info, sessionId, output) => await callbacks.SetLoadout(url, info, sessionId)

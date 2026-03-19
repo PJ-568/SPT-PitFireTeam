@@ -92,20 +92,25 @@ Implemented so far:
   - saves teammate as mod-owned JSON under `friendlySAIN-ServerMod`
   - exposes teammate social/profile/delete routes
   - exposes legacy-compatible `/client/game/bot/followergenerate` and `/client/game/bot/followerdetails`
+  - stores generated default equipment snapshot separately so `Default` can restore the original generated kit
+  - uses stock-style server account-id generation for teammate `aid` allocation instead of custom max-id logic
 - Social/profile:
   - teammate appears in friends list
   - teammate can be viewed from profile
   - teammate can be deleted from friends list
+  - friends list refreshes after teammate create
 - Profile customization:
   - hideout/report hidden
   - clothes dropdowns active
   - loadout dropdown active and persisted
+  - rename teammate overlay works from profile view and persists to backend
 - Grouping/runtime:
   - teammate can be invited to group
   - teammate can appear on ready screen and loading screen
   - teammate can spawn in raid from saved backend profile
   - local/offline raid guard exists and has been adjusted to preserve solo flow
   - insurance screen must still appear before the custom teammate ready screen
+  - 4.x invite popup now uses a filtered teammate-aware list so stock chat-bot `aid` collisions do not break it
 
 Still to do:
 
@@ -116,6 +121,7 @@ Still to do:
 - Profile customization parity:
   - add voice and head customization from profile view
   - verify clothing/loadout/tactic UI layout and iconography
+  - continue polishing rename/profile UI layout
 - Pre-raid flow parity:
   - ensure teammate flow matches solo flow exactly up to insurance
   - ensure only the ready screen and loading screen are customized

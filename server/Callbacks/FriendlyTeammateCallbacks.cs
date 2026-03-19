@@ -69,6 +69,19 @@ public class FriendlyTeammateCallbacks(
         }
     }
 
+    public ValueTask<string> Rename(string url, FriendlyTeammateRenameRequest request, MongoId sessionId)
+    {
+        try
+        {
+            teammateService.RenameTeammate(sessionId, request);
+            return new ValueTask<string>(httpResponse.NullResponse());
+        }
+        catch (FriendlyTeammateException ex)
+        {
+            return new ValueTask<string>(httpResponse.GetBody<object?>(null, err: BackendErrorCodes.UnknownTradingError, errmsg: ex.Message));
+        }
+    }
+
     public ValueTask<string> SetLoadout(string url, FriendlyTeammateLoadoutRequest request, MongoId sessionId)
     {
         try

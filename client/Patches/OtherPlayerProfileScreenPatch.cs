@@ -1,3 +1,4 @@
+using Arena.UI;
 using Comfort.Common;
 using EFT;
 using EFT.InventoryLogic;
@@ -14,8 +15,11 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
+using UnityEngine.Events;
 using dropDownItem = GClass3682;
 using OtherProfileResult = GClass2213;
 using ResultProfile = GClass1416;
@@ -57,6 +61,12 @@ namespace friendlySAIN.Patches
         public string loadoutId { get; set; }
     }
 
+    internal class FriendlyTeammateRenameRequest
+    {
+        public string aid { get; set; }
+        public string nickname { get; set; }
+    }
+
     internal class FriendlyDropdownNamePatch : ModulePatch
     {
         protected override MethodBase GetTargetMethod()
@@ -81,10 +91,16 @@ namespace friendlySAIN.Patches
     {
         private const string OptionsRoute = "/singleplayer/friendlysain/teammate/profile/options";
         private const string SuitRoute = "/singleplayer/friendlysain/teammate/profile/suit";
+        private const string RenameRoute = "/singleplayer/friendlysain/teammate/profile/rename";
         private const string LoadoutRoute = "/singleplayer/friendlysain/teammate/profile/loadout";
 
         private static readonly FieldInfo PlayerModelWindowField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow");
         private static readonly FieldInfo ClothingPanelField = AccessTools.Field(typeof(InventoryPlayerModelWithStatsWindow), "_clothingPanel");
+        private static readonly FieldInfo NicknameLabelField = AccessTools.Field(typeof(InventoryPlayerModelWithStatsWindow), "_nicknameLabel");
+        private static readonly FieldInfo NicknameFieldInputField = AccessTools.Field(typeof(NicknameField), "_inputField");
+        private static readonly FieldInfo NicknameFieldStatusLabelField = AccessTools.Field(typeof(NicknameField), "_statusLabel");
+        private static readonly FieldInfo NicknameFieldUsedSymbolsField = AccessTools.Field(typeof(NicknameField), "_usedSymbolsCount");
+        private static readonly FieldInfo BackButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_backButton");
         private static readonly FieldInfo HideoutButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_hideoutButton");
         private static readonly FieldInfo ReportPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_reportPanel");
         private static readonly FieldInfo UiField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "UI");
@@ -95,6 +111,11 @@ namespace friendlySAIN.Patches
 
         public static ResultProfile ViewedProfile { get; set; }
         public static Transform LoadoutSelector { get; set; }
+        public static CustomTextMeshProUGUI OriginalNicknameLabel { get; set; }
+        public static DefaultUIButton NicknameRenameButton { get; set; }
+        public static GameObject RenameOverlayRoot { get; set; }
+        public static NicknameField RenameOverlayField { get; set; }
+        public static Vector2? OriginalNicknameAnchoredPosition { get; set; }
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
 
         protected override MethodBase GetTargetMethod()
@@ -140,6 +161,7 @@ namespace friendlySAIN.Patches
             playerModelWindow.OnCustomizationChanged += PlayerModelWithStatsWindow_OnCustomizationChanged;
 
             HideProfileActions(__instance);
+            ConfigureNicknameRenameUi(__instance, playerModelWindow, profile);
 
             clothingPanel.gameObject.SetActive(true);
             DisplayClothingOptions(profile.PlayerVisualRepresentation, playerModelWindow, inventoryController, clothingSelectionPanel);
@@ -169,8 +191,9 @@ namespace friendlySAIN.Patches
 
             ui.AddDisposable(loadoutPanel);
             LoadoutSelector = clone;
-            ConfigureLoadoutPanel(loadoutPanel);
+            ConfigureLoadoutPanel(loadoutPanel, clothingSelectionPanel);
             DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
+            ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
         }
 
         private static bool TryGetClothingPanel(
@@ -256,6 +279,418 @@ namespace friendlySAIN.Patches
             }
         }
 
+        private static void ConfigureNicknameRenameUi(OtherPlayerProfileScreen screen, InventoryPlayerModelWithStatsWindow window, ResultProfile profile)
+        {
+            if (NicknameRenameButton != null)
+            {
+                GameObject.Destroy(NicknameRenameButton.gameObject);
+                NicknameRenameButton = null;
+            }
+
+            OriginalNicknameLabel = NicknameLabelField?.GetValue(window) as CustomTextMeshProUGUI;
+            if (OriginalNicknameLabel == null)
+            {
+                return;
+            }
+
+            RectTransform sourceRect = OriginalNicknameLabel.transform as RectTransform;
+            if (sourceRect == null)
+            {
+                return;
+            }
+
+            if (OriginalNicknameAnchoredPosition == null)
+            {
+                OriginalNicknameAnchoredPosition = sourceRect.anchoredPosition;
+            }
+
+            sourceRect.anchoredPosition = OriginalNicknameAnchoredPosition.Value + new Vector2(0f, 26f);
+
+            DefaultUIButton buttonTemplate = BackButtonField?.GetValue(screen) as DefaultUIButton;
+            if (buttonTemplate == null)
+            {
+                return;
+            }
+
+            DefaultUIButton changeButton = CreateOverlayButton(
+                buttonTemplate,
+                sourceRect.parent,
+                Vector2.zero,
+                new Vector2(Mathf.Max(sourceRect.rect.width, 170f), 36f));
+            changeButton.name = "friendlySAIN_NicknameRenameButton";
+
+            if (changeButton.transform is RectTransform buttonRect)
+            {
+                buttonRect.anchorMin = sourceRect.anchorMin;
+                buttonRect.anchorMax = sourceRect.anchorMax;
+                buttonRect.pivot = new Vector2(0.5f, 0.5f);
+                buttonRect.sizeDelta = new Vector2(128f, 30f);
+                buttonRect.localScale = Vector3.one * 0.72f;
+                buttonRect.localPosition = sourceRect.localPosition + new Vector3(0f, -38f, 0f);
+                buttonRect.SetSiblingIndex(sourceRect.GetSiblingIndex() + 1);
+            }
+
+            changeButton.SetRawText(GetSocialUiText("RenameChange", "CHANGE"), 18);
+            changeButton.OnClick.RemoveAllListeners();
+            changeButton.OnClick.AddListener(() => ShowRenameOverlay(screen, profile));
+            NicknameRenameButton = changeButton;
+        }
+
+        private static void ShowRenameOverlay(OtherPlayerProfileScreen screen, ResultProfile profile)
+        {
+            CloseRenameOverlay();
+
+            if (profile == null || OriginalNicknameLabel == null)
+            {
+                return;
+            }
+
+            DefaultUIButton buttonTemplate = BackButtonField?.GetValue(screen) as DefaultUIButton;
+            NicknameField nicknameTemplate = Resources.FindObjectsOfTypeAll<NicknameField>()
+                .FirstOrDefault(field =>
+                    field != null &&
+                    field.gameObject != null &&
+                    field.gameObject.scene.IsValid() &&
+                    NicknameFieldInputField?.GetValue(field) is TMP_InputField);
+            if (buttonTemplate == null || nicknameTemplate == null)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Teammate rename overlay aborted: template button or NicknameField not found.");
+                return;
+            }
+
+            GameObject overlayRoot = new GameObject("friendlySAIN_RenameOverlay", typeof(RectTransform), typeof(Image));
+            overlayRoot.transform.SetParent(screen.transform, false);
+            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
+            overlayRect.anchorMin = Vector2.zero;
+            overlayRect.anchorMax = Vector2.one;
+            overlayRect.offsetMin = Vector2.zero;
+            overlayRect.offsetMax = Vector2.zero;
+            overlayRect.localScale = Vector3.one;
+            overlayRect.SetAsLastSibling();
+
+            Image backdrop = overlayRoot.GetComponent<Image>();
+            backdrop.color = new Color(0f, 0f, 0f, 0.08f);
+            backdrop.raycastTarget = true;
+
+            GameObject panel = new GameObject("friendlySAIN_RenamePanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(overlayRoot.transform, false);
+            RectTransform panelRect = panel.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.anchoredPosition = Vector2.zero;
+            panelRect.sizeDelta = new Vector2(620f, 188f);
+            panelRect.localScale = Vector3.one;
+
+            Image panelImage = panel.GetComponent<Image>();
+            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
+            panelImage.raycastTarget = true;
+
+            GameObject header = new GameObject("friendlySAIN_RenameHeader", typeof(RectTransform), typeof(Image));
+            header.transform.SetParent(panel.transform, false);
+            RectTransform headerRect = header.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0f, 1f);
+            headerRect.anchorMax = new Vector2(1f, 1f);
+            headerRect.pivot = new Vector2(0.5f, 1f);
+            headerRect.offsetMin = new Vector2(0f, -28f);
+            headerRect.offsetMax = new Vector2(0f, 0f);
+
+            Image headerImage = header.GetComponent<Image>();
+            headerImage.color = new Color(0.06f, 0.06f, 0.06f, 1f);
+            headerImage.raycastTarget = true;
+
+            GameObject titleObject = new GameObject("friendlySAIN_RenameTitle", typeof(RectTransform), typeof(CustomTextMeshProUGUI));
+            titleObject.transform.SetParent(header.transform, false);
+            RectTransform titleRect = titleObject.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 0f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.pivot = new Vector2(0.5f, 0.5f);
+            titleRect.offsetMin = new Vector2(16f, 0f);
+            titleRect.offsetMax = new Vector2(-42f, 0f);
+
+            CustomTextMeshProUGUI title = titleObject.GetComponent<CustomTextMeshProUGUI>();
+            title.text = "\u270E " + GetSocialUiText("RenameTeammateTitle", "Rename teammate").ToUpperInvariant();
+            title.fontSize = 18f;
+            title.alignment = TextAlignmentOptions.MidlineLeft;
+            title.color = new Color(0.87f, 0.87f, 0.84f, 1f);
+
+            Button closeButton = CreateWindowCloseButton(header.transform);
+            if (closeButton.transform is RectTransform closeRect)
+            {
+                closeRect.anchorMin = new Vector2(1f, 0.5f);
+                closeRect.anchorMax = new Vector2(1f, 0.5f);
+                closeRect.pivot = new Vector2(1f, 0.5f);
+                closeRect.anchoredPosition = new Vector2(-4f, 0f);
+            }
+
+            closeButton.onClick.AddListener(new UnityAction(CloseRenameOverlay));
+
+            GameObject fieldRoot = GameObject.Instantiate(nicknameTemplate.gameObject, panel.transform, false);
+            fieldRoot.name = "friendlySAIN_RenameNicknameField";
+            RectTransform fieldRect = fieldRoot.transform as RectTransform;
+            if (fieldRect != null)
+            {
+                fieldRect.anchorMin = new Vector2(0f, 1f);
+                fieldRect.anchorMax = new Vector2(1f, 1f);
+                fieldRect.pivot = new Vector2(0.5f, 1f);
+                fieldRect.offsetMin = new Vector2(26f, -118f);
+                fieldRect.offsetMax = new Vector2(-26f, -54f);
+                fieldRect.localScale = Vector3.one;
+            }
+
+            NicknameField nicknameField = fieldRoot.GetComponent<NicknameField>();
+            TMP_InputField inputField = NicknameFieldInputField?.GetValue(nicknameField) as TMP_InputField;
+            if (nicknameField == null || inputField == null)
+            {
+                GameObject.Destroy(overlayRoot);
+                return;
+            }
+
+            string currentNickname = OriginalNicknameLabel.text?.Trim() ?? string.Empty;
+            nicknameField.Init(string.Empty);
+            inputField.SetTextWithoutNotify(currentNickname);
+            inputField.text = currentNickname;
+            inputField.interactable = true;
+            nicknameField.method_3(currentNickname);
+            inputField.textViewport.offsetMin = Vector2.zero;
+            inputField.textViewport.offsetMax = Vector2.zero;
+            AddTeammateNicknameFieldUi.SetStatusLabelText(
+                nicknameField,
+                GetSocialUiText("EnterNickname", "Enter player nickname"));
+
+            TMP_Text stockStatusLabel = NicknameFieldStatusLabelField?.GetValue(nicknameField) as TMP_Text;
+            if (stockStatusLabel != null)
+            {
+                stockStatusLabel.gameObject.SetActive(true);
+                stockStatusLabel.text = string.Empty;
+                stockStatusLabel.color = new Color(0.88f, 0.39f, 0.35f, 1f);
+            }
+
+            LocalizedText usedSymbolsLabel = NicknameFieldUsedSymbolsField?.GetValue(nicknameField) as LocalizedText;
+            if (usedSymbolsLabel != null)
+            {
+                usedSymbolsLabel.gameObject.SetActive(false);
+            }
+
+            if (inputField.transform is RectTransform inputRect)
+            {
+                inputRect.offsetMin = Vector2.zero;
+                inputRect.offsetMax = Vector2.zero;
+            }
+
+            inputField.pointSize = 28f;
+
+            DefaultUIButton saveButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(0f, 12f), new Vector2(180f, 36f));
+            saveButton.SetRawText(GetSocialUiText("RenameSave", "Save"), 22);
+            saveButton.OnClick.RemoveAllListeners();
+            saveButton.OnClick.AddListener(() => TryPersistNickname(inputField.text, profile, nicknameField, stockStatusLabel));
+            if (saveButton.transform is RectTransform saveRect)
+            {
+                saveRect.anchorMin = new Vector2(0.5f, 0f);
+                saveRect.anchorMax = new Vector2(0.5f, 0f);
+                saveRect.pivot = new Vector2(0.5f, 0f);
+                saveRect.anchoredPosition = new Vector2(0f, 10f);
+                saveRect.localScale = Vector3.one * 0.9f;
+            }
+
+            RenameOverlayRoot = overlayRoot;
+            RenameOverlayField = nicknameField;
+
+            inputField.ActivateInputField();
+            inputField.Select();
+            if (EventSystem.current != null)
+            {
+                EventSystem.current.SetSelectedGameObject(inputField.gameObject);
+            }
+        }
+
+        private static DefaultUIButton CreateOverlayButton(DefaultUIButton template, Transform parent, Vector2 anchoredPosition, Vector2 size)
+        {
+            DefaultUIButton button = GameObject.Instantiate(template, parent, false);
+            button.name = $"friendlySAIN_{template.name}";
+            RectTransform rect = button.transform as RectTransform;
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(0f, 0f);
+                rect.anchorMax = new Vector2(0f, 0f);
+                rect.pivot = new Vector2(0f, 0f);
+                rect.anchoredPosition = anchoredPosition;
+                rect.sizeDelta = size;
+                rect.localScale = Vector3.one;
+            }
+
+            button.gameObject.SetActive(true);
+            button.Interactable = true;
+            return button;
+        }
+
+        private static Button CreateWindowCloseButton(Transform parent)
+        {
+            GameObject buttonObject = new GameObject("friendlySAIN_RenameCloseButton", typeof(RectTransform), typeof(Image), typeof(Button));
+            buttonObject.transform.SetParent(parent, false);
+
+            RectTransform rect = buttonObject.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(28f, 22f);
+            rect.localScale = Vector3.one;
+
+            Image background = buttonObject.GetComponent<Image>();
+            background.color = new Color(0.43f, 0.12f, 0.12f, 1f);
+            background.raycastTarget = true;
+
+            GameObject labelObject = new GameObject("friendlySAIN_RenameCloseLabel", typeof(RectTransform), typeof(CustomTextMeshProUGUI));
+            labelObject.transform.SetParent(buttonObject.transform, false);
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+
+            CustomTextMeshProUGUI label = labelObject.GetComponent<CustomTextMeshProUGUI>();
+            label.text = "x";
+            label.fontSize = 16f;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = new Color(0.95f, 0.95f, 0.95f, 1f);
+
+            return buttonObject.GetComponent<Button>();
+        }
+
+        private static void TryPersistNickname(string value, ResultProfile profile, NicknameField nicknameField, TMP_Text statusLabel)
+        {
+            if (ViewedProfile == null || profile == null || nicknameField == null)
+            {
+                return;
+            }
+
+            TMP_InputField inputField = NicknameFieldInputField?.GetValue(nicknameField) as TMP_InputField;
+            string normalized = value?.Trim() ?? string.Empty;
+            string current = OriginalNicknameLabel?.text?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                AddTeammateNicknameFieldUi.SetStatusLabelText(
+                    nicknameField,
+                    GetSocialUiText("NicknameTooShort", "Nickname too short"));
+                SetRenameStatus(statusLabel, GetSocialUiText("NicknameTooShort", "Nickname too short"), true);
+                inputField?.ActivateInputField();
+                return;
+            }
+
+            ENicknameError validationError = nicknameField.method_5(normalized);
+            if (validationError != ENicknameError.ValidNickname)
+            {
+                nicknameField.method_6(validationError, false);
+                string message = validationError == ENicknameError.TooShort
+                    ? GetSocialUiText("NicknameTooShort", "Nickname too short")
+                    : validationError.Localized(EStringCase.None);
+                if (validationError == ENicknameError.TooShort)
+                {
+                    AddTeammateNicknameFieldUi.SetStatusLabelText(nicknameField, message);
+                }
+                SetRenameStatus(statusLabel, message, true);
+                inputField?.ActivateInputField();
+                return;
+            }
+
+            AddTeammateNicknameFieldUi.SetStatusLabelText(
+                nicknameField,
+                GetSocialUiText("EnterNickname", "Enter player nickname"));
+
+            if (string.Equals(normalized, current, StringComparison.Ordinal))
+            {
+                CloseRenameOverlay();
+                return;
+            }
+
+            try
+            {
+                string responseJson = RequestHandler.PostJson(RenameRoute, SerializeBody(new FriendlyTeammateRenameRequest
+                {
+                    aid = profile.AccountId,
+                    nickname = normalized
+                }));
+                EnsureBodySuccess(responseJson);
+
+                if (OriginalNicknameLabel != null)
+                {
+                    OriginalNicknameLabel.text = normalized;
+                }
+
+                SocialNetworkClassPatch.RefreshFriendsList();
+                CloseRenameOverlay();
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to persist teammate nickname change.");
+                Modules.Logger.LogError(ex);
+
+                if (inputField != null)
+                {
+                    inputField.SetTextWithoutNotify(current);
+                    inputField.ActivateInputField();
+                }
+
+                SetRenameStatus(statusLabel, GetSocialUiText("RenameFailed", "Could not rename teammate"), true);
+            }
+        }
+
+        private static void SetRenameStatus(TMP_Text statusLabel, string message, bool isError)
+        {
+            if (statusLabel == null)
+            {
+                return;
+            }
+
+            statusLabel.text = message;
+            statusLabel.color = isError
+                ? new Color(0.88f, 0.39f, 0.35f, 1f)
+                : new Color(0.62f, 0.62f, 0.6f, 1f);
+        }
+
+        internal static void CloseRenameOverlay()
+        {
+            if (RenameOverlayRoot != null)
+            {
+                GameObject.Destroy(RenameOverlayRoot);
+                RenameOverlayRoot = null;
+            }
+
+            RenameOverlayField = null;
+        }
+
+        private static string GetSocialUiText(string key, string fallback)
+        {
+            if (friendlySAIN.optionsLang?.socialUi != null
+                && friendlySAIN.optionsLang.socialUi.TryGetValue(key, out string value)
+                && !string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            return fallback;
+        }
+
+        private static void EnsureBodySuccess(string responseJson)
+        {
+            if (string.IsNullOrWhiteSpace(responseJson))
+            {
+                return;
+            }
+
+            FriendlyTeammateBodyResponse<object> body = null;
+            try
+            {
+                body = JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<object>>(responseJson);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (body != null && body.err != 0)
+            {
+                throw new InvalidOperationException(body.errmsg ?? "Unknown teammate backend error");
+            }
+        }
+
         private static FriendlyTeammateProfileOptions TryLoadProfileOptions(string accountId)
         {
             try
@@ -306,7 +741,7 @@ namespace friendlySAIN.Patches
             }
         }
 
-        private static void ConfigureLoadoutPanel(InventoryClothingSelectionPanel panel)
+        private static void ConfigureLoadoutPanel(InventoryClothingSelectionPanel panel, InventoryClothingSelectionPanel sourcePanel)
         {
             DropDownBox upperDropdown = UpperDropdownField?.GetValue(panel) as DropDownBox;
             DropDownBox lowerDropdown = LowerDropdownField?.GetValue(panel) as DropDownBox;
@@ -316,19 +751,27 @@ namespace friendlySAIN.Patches
                 ReplaceDropdownIcon(panel.transform, "Upper/Icon", GearIconPath);
                 HideDropdownIcon(panel.transform, "Lower/Icon");
 
-                RectTransform upperRect = upperDropdown.transform as RectTransform;
-                if (upperRect != null)
-                {
-                    upperRect.anchorMin = new Vector2(0f, upperRect.anchorMin.y);
-                    upperRect.anchorMax = new Vector2(1f, upperRect.anchorMax.y);
-                    upperRect.pivot = new Vector2(0.5f, upperRect.pivot.y);
-                    upperRect.anchoredPosition = new Vector2(0f, upperRect.anchoredPosition.y);
-                    upperRect.offsetMin = new Vector2(60f, upperRect.offsetMin.y);
-                    upperRect.offsetMax = new Vector2(-14f, upperRect.offsetMax.y);
-                }
-
                 lowerDropdown.gameObject.SetActive(false);
             }
+        }
+
+        private static void ApplyLoadoutPanelLayout(InventoryClothingSelectionPanel panel, InventoryClothingSelectionPanel sourcePanel)
+        {
+            DropDownBox upperDropdown = UpperDropdownField?.GetValue(panel) as DropDownBox;
+            DropDownBox sourceUpperDropdown = UpperDropdownField?.GetValue(sourcePanel) as DropDownBox;
+            if (upperDropdown?.transform is not RectTransform upperRect || sourceUpperDropdown?.transform is not RectTransform sourceUpperRect)
+            {
+                return;
+            }
+
+            upperRect.anchorMin = sourceUpperRect.anchorMin;
+            upperRect.anchorMax = sourceUpperRect.anchorMax;
+            upperRect.pivot = sourceUpperRect.pivot;
+            upperRect.anchoredPosition = sourceUpperRect.anchoredPosition;
+            upperRect.sizeDelta = sourceUpperRect.sizeDelta;
+            upperRect.offsetMin = sourceUpperRect.offsetMin;
+            upperRect.offsetMax = sourceUpperRect.offsetMax;
+            upperRect.localScale = sourceUpperRect.localScale;
         }
 
         private static void ReplaceDropdownIcon(Transform parent, string childPath, string filePath)
@@ -492,7 +935,7 @@ namespace friendlySAIN.Patches
             {
                 Task.Run(async () =>
                 {
-                    Result<OtherProfileResult> result = await session.GetOtherPlayerProfile(ViewedProfile.AccountId);
+                    Result<OtherProfileResult> result = await session.GetOtherPlayerProfile(profile.AccountId);
                     return result;
                 }).ContinueWith(task =>
                 {
@@ -503,7 +946,12 @@ namespace friendlySAIN.Patches
                         return;
                     }
 
+                    profile.PlayerVisualRepresentation.Info.Nickname = result.Value.Info?.Nickname ?? profile.PlayerVisualRepresentation.Info.Nickname;
+                    profile.PlayerVisualRepresentation.Info.Side = result.Value.Info?.Side ?? profile.PlayerVisualRepresentation.Info.Side;
                     profile.PlayerVisualRepresentation.Customization[EBodyModelPart.Head] = result.Value.Customization[EBodyModelPart.Head];
+                    profile.PlayerVisualRepresentation.Customization[EBodyModelPart.Body] = result.Value.Customization[EBodyModelPart.Body];
+                    profile.PlayerVisualRepresentation.Customization[EBodyModelPart.Feet] = result.Value.Customization[EBodyModelPart.Feet];
+                    profile.PlayerVisualRepresentation.Customization[EBodyModelPart.Hands] = result.Value.Customization[EBodyModelPart.Hands];
 
                     FieldInfo equipmentField = profile.PlayerVisualRepresentation.GetType()
                         .GetField("Equipment", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
@@ -546,6 +994,25 @@ namespace friendlySAIN.Patches
 
             OtherPlayerProfileScreenPatch.ViewedProfile = null;
             OtherPlayerProfileScreenPatch.CustomDropdownIds.Clear();
+            OtherPlayerProfileScreenPatch.CloseRenameOverlay();
+
+            if (OtherPlayerProfileScreenPatch.OriginalNicknameLabel != null)
+            {
+                if (OtherPlayerProfileScreenPatch.OriginalNicknameAnchoredPosition != null
+                    && OtherPlayerProfileScreenPatch.OriginalNicknameLabel.transform is RectTransform labelRect)
+                {
+                    labelRect.anchoredPosition = OtherPlayerProfileScreenPatch.OriginalNicknameAnchoredPosition.Value;
+                }
+
+                OtherPlayerProfileScreenPatch.OriginalNicknameLabel = null;
+                OtherPlayerProfileScreenPatch.OriginalNicknameAnchoredPosition = null;
+            }
+
+            if (OtherPlayerProfileScreenPatch.NicknameRenameButton != null)
+            {
+                GameObject.Destroy(OtherPlayerProfileScreenPatch.NicknameRenameButton.gameObject);
+                OtherPlayerProfileScreenPatch.NicknameRenameButton = null;
+            }
 
             if (OtherPlayerProfileScreenPatch.LoadoutSelector != null)
             {

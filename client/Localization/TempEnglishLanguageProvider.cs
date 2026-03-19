@@ -105,13 +105,18 @@ namespace friendlySAIN.Localization
                 socialUi = new Dictionary<string, string>
                 {
                     ["AddTeammate"] = "+ Add teammate",
-                    ["AddTeammateInProgress"] = "adding {0} as teammate",
+                    ["AddTeammateInProgress"] = "{0} was added to your friends list",
                     ["AddTeammateConfirm"] = "Add Teammate",
                     ["AddTeammateFlowActive"] = "Add teammate flow is already open.",
                     ["AddTeammateOpenFailed"] = "Could not open teammate creation screen.",
                     ["AddTeammateUnsupportedSide"] = "Add teammate only supports PMC profiles right now.",
                     ["EnterNickname"] = "Enter player nickname",
-                    ["NicknameTooShort"] = "Nickname too short"
+                    ["NicknameTooShort"] = "Nickname too short",
+                    ["RenameTeammateTitle"] = "Rename teammate",
+                    ["RenameSave"] = "Save",
+                    ["RenameCancel"] = "Cancel",
+                    ["RenameChange"] = "CHANGE",
+                    ["RenameFailed"] = "Could not rename teammate"
                 }
             };
         }

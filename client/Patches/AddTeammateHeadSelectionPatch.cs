@@ -114,7 +114,9 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(NicknameField __instance, ENicknameError error, bool isFromBackend = false)
         {
-            if (!AddTeammateCreationFlow.IsActiveForController(CurrentScreenSingletonClass.Instance.CurrentScreenController) || isFromBackend)
+            bool isTeammateCreationFlow = AddTeammateCreationFlow.IsActiveForController(CurrentScreenSingletonClass.Instance.CurrentScreenController);
+            bool isRenameOverlayField = ReferenceEquals(__instance, OtherPlayerProfileScreenPatch.RenameOverlayField);
+            if ((!isTeammateCreationFlow && !isRenameOverlayField) || isFromBackend)
             {
                 return;
             }
@@ -123,7 +125,7 @@ namespace friendlySAIN.Patches
             {
                 AddTeammateNicknameFieldUi.SetStatusLabelText(
                     __instance,
-                    AddTeammateCreationFlow.GetLocalizedSocialUi("NicknameTooShort", "nickname too short"));
+                    AddTeammateCreationFlow.GetLocalizedSocialUi("NicknameTooShort", "Nickname too short"));
                 return;
             }
 
@@ -131,7 +133,7 @@ namespace friendlySAIN.Patches
             {
                 AddTeammateNicknameFieldUi.SetStatusLabelText(
                     __instance,
-                    AddTeammateCreationFlow.GetLocalizedSocialUi("EnterNickname", "enter player nickname"));
+                    AddTeammateCreationFlow.GetLocalizedSocialUi("EnterNickname", "Enter player nickname"));
             }
         }
     }

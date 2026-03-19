@@ -76,6 +76,10 @@ Current custom teammate feature state:
     - teammates are merged into `/client/friend/list`
     - teammate profile view is merged into `/client/profile/view`
     - teammate deletion is bridged through `/client/friend/delete`
+- Social/update details:
+    - add-success path refreshes the social list so newly created teammates appear without reopening the game
+    - teammate ids now use stock server-side `HashUtil.GenerateAccountId()` collision-checked allocation, not a custom max-id allocator
+    - 4.x invite popup is patched separately because stock `Commando` and `SPT` chat bots share the same `Aid` and break popup row-keying
 - Team grouping flow is partially active:
     - teammate appears in right-click invite/group flows
     - teammate can accept group invite
@@ -90,6 +94,7 @@ Current custom teammate feature state:
     - stock clothes dropdowns are reused,
     - custom loadout dropdown is injected below,
     - clothes/loadout persistence routes exist on the server,
+    - teammate rename from profile view is implemented through a custom overlay + backend rename route,
     - UI layout tuning is still active.
 - Current backend/social/profile/runtime limitations:
     - tactic persistence/UI is not implemented yet (`followerdetails` currently returns `Default`)
