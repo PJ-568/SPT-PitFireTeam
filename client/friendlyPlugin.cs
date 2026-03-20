@@ -393,46 +393,46 @@ namespace friendlySAIN
                 savedConfigValues.Add(it.Key, it.Value);
             });
 
-            scanDistance = Config.Bind("", "1 " + optionsLang.scanDistance["Name"], 140, new ConfigDescription(optionsLang.scanDistance["Description"], new AcceptableValueRange<int>(50, 300), new ConfigurationManagerAttributes { Order = -100 }));
+            scanDistance = Config.Bind("", "1 " + optionsLang.scanDistance["Name"], 140, new ConfigDescription(optionsLang.scanDistance["Description"], new AcceptableValueRange<int>(50, 300), new ConfigurationManagerAttributes { Order = -100, Browsable = false }));
 
-            patrolRadius = Config.Bind("", "2 " + optionsLang.patrolRadius["Name"], 50, new ConfigDescription(optionsLang.patrolRadius["Description"], new AcceptableValueRange<int>(30, 100), new ConfigurationManagerAttributes { Order = -200 }));
+            patrolRadius = Config.Bind("", "2 " + optionsLang.patrolRadius["Name"], 50, new ConfigDescription(optionsLang.patrolRadius["Description"], new AcceptableValueRange<int>(30, 100), new ConfigurationManagerAttributes { Order = -200, Browsable = false }));
 
-            enemyRemember = Config.Bind("", "3 " + optionsLang.enemyRemember["Name"], 20, new ConfigDescription(optionsLang.enemyRemember["Description"], new AcceptableValueRange<int>(5, 60), new ConfigurationManagerAttributes { Order = -300 }));
+            enemyRemember = Config.Bind("", "3 " + optionsLang.enemyRemember["Name"], 20, new ConfigDescription(optionsLang.enemyRemember["Description"], new AcceptableValueRange<int>(5, 60), new ConfigurationManagerAttributes { Order = -300, Browsable = false }));
 
-            heatlhMultiplier = Config.Bind("", "4 " + optionsLang.healthMultiplier["Name"], 1, new ConfigDescription(optionsLang.healthMultiplier["Description"], new AcceptableValueRange<int>(1, 10), new ConfigurationManagerAttributes { Order = -400 }));
+            heatlhMultiplier = Config.Bind("", "4 " + optionsLang.healthMultiplier["Name"], 1, new ConfigDescription(optionsLang.healthMultiplier["Description"], new AcceptableValueRange<int>(1, 10), new ConfigurationManagerAttributes { Order = -400, Browsable = false }));
 
-            statusSound = Config.Bind("", "5 " + optionsLang.statusSound["Name"], 100, new ConfigDescription(optionsLang.statusSound["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -500 }));
+            statusSound = Config.Bind("", "5 " + optionsLang.statusSound["Name"], 100, new ConfigDescription(optionsLang.statusSound["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -500, Browsable = false }));
 
-            enemyMarker = Config.Bind("", "6 " + optionsLang.enemyMarker["Name"], true, new ConfigDescription(optionsLang.enemyMarker["Description"], null, new ConfigurationManagerAttributes { Order = -600 }));
+            enemyMarker = Config.Bind("", "6 " + optionsLang.enemyMarker["Name"], true, new ConfigDescription(optionsLang.enemyMarker["Description"], null, new ConfigurationManagerAttributes { Order = -600, Browsable = false }));
 
-            npcSendMessage = Config.Bind("", "7 " + optionsLang.npcSendMessage["Name"], true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, new ConfigurationManagerAttributes { Order = -700 }));
+            npcSendMessage = Config.Bind("", "7 " + optionsLang.npcSendMessage["Name"], true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, new ConfigurationManagerAttributes { Order = -700, Browsable = false }));
 
-            friendlySAINFLAG = Config.Bind("", "8 " + optionsLang.friendlySAIN["Name"], true, new ConfigDescription(optionsLang.friendlySAIN["Description"], null, new ConfigurationManagerAttributes { Order = -800 }));
+            friendlySAINFLAG = Config.Bind("", "8 " + optionsLang.friendlySAIN["Name"], true, new ConfigDescription(optionsLang.friendlySAIN["Description"], null, new ConfigurationManagerAttributes { Order = -800, Browsable = false }));
 
-            badGuy = Config.Bind("", "9 " + optionsLang.badGuy["Name"], false, new ConfigDescription(optionsLang.badGuy["Description"], null, new ConfigurationManagerAttributes { Order = -900 }));
+            badGuy = Config.Bind("", "9 " + optionsLang.badGuy["Name"], false, new ConfigDescription(optionsLang.badGuy["Description"], null, new ConfigurationManagerAttributes { Order = -900, Browsable = false }));
 
-            pmcArmbands = Config.Bind("", "10 " + optionsLang.pmcArmbands["Name"], true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, new ConfigurationManagerAttributes { Order = -1000 }));
+            pmcArmbands = Config.Bind("", "10 " + optionsLang.pmcArmbands["Name"], true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, new ConfigurationManagerAttributes { Order = -1000, Browsable = false }));
 
-            englishBear = Config.Bind("", "11 " + optionsLang.englishBear["Name"], true, new ConfigDescription(optionsLang.englishBear["Description"], null, new ConfigurationManagerAttributes { Order = -1001 }));
+            englishBear = Config.Bind("", "11 " + optionsLang.englishBear["Name"], true, new ConfigDescription(optionsLang.englishBear["Description"], null, new ConfigurationManagerAttributes { Order = -1001, Browsable = false }));
 
-            botGrenades = Config.Bind("", "12 " + optionsLang.botGrenades["Name"], true, new ConfigDescription(optionsLang.botGrenades["Description"], null, new ConfigurationManagerAttributes { Order = -1002 }));
+            botGrenades = Config.Bind("", "12 " + optionsLang.botGrenades["Name"], true, new ConfigDescription(optionsLang.botGrenades["Description"], null, new ConfigurationManagerAttributes { Order = -1002, Browsable = false }));
 
-            pingKey = Config.Bind("", "13 " + optionsLang.pingSquad["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, new ConfigurationManagerAttributes { Order = -1003 }));
+            pingKey = Config.Bind("", "13 " + optionsLang.pingSquad["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, new ConfigurationManagerAttributes { Order = -1003, Browsable = false }));
 
-            pingRadioVolume = Config.Bind("", "14 " + optionsLang.pingRadioVolume["Name"], 50, new ConfigDescription(optionsLang.pingRadioVolume["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1004 }));
+            pingRadioVolume = Config.Bind("", "14 " + optionsLang.pingRadioVolume["Name"], 50, new ConfigDescription(optionsLang.pingRadioVolume["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1004, Browsable = false }));
 
-            pingTime = Config.Bind("", "15 " + optionsLang.pingTime["Name"], 5, new ConfigDescription(optionsLang.pingTime["Description"], new AcceptableValueRange<int>(5, 30), new ConfigurationManagerAttributes { Order = -1005 }));
+            pingTime = Config.Bind("", "15 " + optionsLang.pingTime["Name"], 5, new ConfigDescription(optionsLang.pingTime["Description"], new AcceptableValueRange<int>(5, 30), new ConfigurationManagerAttributes { Order = -1005, Browsable = false }));
 
-            contactKey = Config.Bind("", "16 " + optionsLang.enemyContact["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, new ConfigurationManagerAttributes { Order = -1006 }));
+            contactKey = Config.Bind("", "16 " + optionsLang.enemyContact["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, new ConfigurationManagerAttributes { Order = -1006, Browsable = false }));
 
-            teleportKey = Config.Bind("", "17 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1007 }));
-            healKey = Config.Bind("", "18 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1008 }));
+            teleportKey = Config.Bind("", "17 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1007, Browsable = false }));
+            healKey = Config.Bind("", "18 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1008, Browsable = false }));
 
-            botPrefetch = Config.Bind("", "19 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1009 }));
+            botPrefetch = Config.Bind("", "19 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1009, Browsable = false }));
 
-            botTalk = Config.Bind("", "20 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1010 }));
+            botTalk = Config.Bind("", "20 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1010, Browsable = false }));
 
-            spawnPoint = Config.Bind("", "21 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1011 }));
+            spawnPoint = Config.Bind("", "21 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1011, Browsable = false }));
 
             Config.SaveOnConfigSet = true;
             Config.Save();

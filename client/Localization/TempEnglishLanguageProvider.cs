@@ -25,8 +25,8 @@ namespace friendlySAIN.Localization
                 tacticOptions = new[] { "Default", "Support", "Marksman", "Pusher", "Holder", "Assist" },
 
                 statusSound = Entry(
-                    "Report Status Volume",
-                    "Volume of the radio sound when triggering report status"),
+                    "Enemy Location Volume",
+                    "Volume of the ping sound for the enemy location marker during combat"),
                 enemyMarker = Entry(
                     "Enemy Marker",
                     "Show enemy position when reporting status. If disabled, the enemy marker sound will also be disabled"),
@@ -56,13 +56,13 @@ namespace friendlySAIN.Localization
                     "Should PMC bots have armbands (red for BEARs, blue for USECs)"),
                 englishBear = Entry(
                     "BEARs speak English",
-                    "Should BEAR bots speak English or Russian"),
+                    "Should BEAR bots speak English only"),
                 pingSquad = Entry(
                     "Ping Squad",
                     "Shortcut key for triggering the Report call"),
                 pingRadioVolume = Entry(
-                    "Ping Squad Radio Volume",
-                    "Volume for the radio ping sound (when no enemy location ping is played)"),
+                    "Report Status Volume",
+                    "Volume of the radio sound when triggering report status"),
                 pingTime = Entry(
                     "Ping Squad Display Time",
                     "Time in seconds to display the followers status"),
