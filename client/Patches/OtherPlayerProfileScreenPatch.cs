@@ -118,6 +118,18 @@ namespace friendlySAIN.Patches
         public static Vector2? OriginalNicknameAnchoredPosition { get; set; }
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
         private static List<GameObject> HiddenRenameButtonDecorations { get; } = new List<GameObject>();
+        internal static Action PendingBackOverrideAction { get; set; }
+        internal static Action ActiveBackOverrideAction { get; set; }
+
+        internal static void PrepareReturnOverride(Action callback)
+        {
+            PendingBackOverrideAction = callback;
+        }
+
+        internal static void ClearPendingReturnOverride()
+        {
+            PendingBackOverrideAction = null;
+        }
 
         protected override MethodBase GetTargetMethod()
         {
@@ -130,6 +142,8 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(OtherPlayerProfileScreen __instance, ResultProfile profile, InventoryController inventoryController, EItemViewType viewType, ISession session)
         {
+            ConfigureBackOverride(__instance);
+
             InventoryPlayerModelWithStatsWindow playerModelWindow =
                 PlayerModelWindowField?.GetValue(__instance) as InventoryPlayerModelWithStatsWindow;
             if (playerModelWindow == null)
@@ -198,6 +212,25 @@ namespace friendlySAIN.Patches
             ConfigureLoadoutPanel(loadoutPanel, clothingSelectionPanel);
             DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
             ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
+        }
+
+        private static void ConfigureBackOverride(OtherPlayerProfileScreen screen)
+        {
+            if (screen == null)
+            {
+                PendingBackOverrideAction = null;
+                ActiveBackOverrideAction = null;
+                return;
+            }
+
+            Action callback = PendingBackOverrideAction;
+            PendingBackOverrideAction = null;
+            ActiveBackOverrideAction = callback;
+
+            if (callback == null)
+            {
+                return;
+            }
         }
 
         private static bool TryGetClothingPanel(
@@ -1010,6 +1043,10 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(OtherPlayerProfileScreen __instance)
         {
+            Action callback = OtherPlayerProfileScreenPatch.ActiveBackOverrideAction;
+            OtherPlayerProfileScreenPatch.ActiveBackOverrideAction = null;
+            OtherPlayerProfileScreenPatch.PendingBackOverrideAction = null;
+
             InventoryPlayerModelWithStatsWindow playerModelWindow =
                 AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow")?.GetValue(__instance)
                 as InventoryPlayerModelWithStatsWindow;
@@ -1051,6 +1088,25 @@ namespace friendlySAIN.Patches
                 GameObject.Destroy(OtherPlayerProfileScreenPatch.LoadoutSelector.gameObject);
                 OtherPlayerProfileScreenPatch.LoadoutSelector = null;
             }
+
+            if (callback == null)
+            {
+                return;
+            }
+
+            if (friendlySAIN.Instance == null)
+            {
+                callback();
+                return;
+            }
+
+            friendlySAIN.Instance.StartCoroutine(InvokeBackOverrideNextFrame(callback));
+        }
+
+        private static System.Collections.IEnumerator InvokeBackOverrideNextFrame(Action callback)
+        {
+            yield return null;
+            callback?.Invoke();
         }
     }
 }

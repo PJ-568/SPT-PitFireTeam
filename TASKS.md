@@ -154,13 +154,23 @@ Current implementation follow-up:
 - Phase 1 planning is complete:
   - UI investigation doc written
   - trader portrait and settings screen references documented
-- Phase 2 has started with the first FE shell:
-  - main menu now gains a `Squad Control` entry
-  - initial Team screen shell is being introduced with:
+- Phase 2 roster implementation is functionally in place:
+  - main menu now gains a localized `My Squad` entry
+  - dedicated Team screen now includes:
     - `Roaster` tab
     - `Settings` tab
     - back navigation
-  - this phase is shell/layout only; no settings migration or roster management logic yet
+  - roster work now includes:
+    - centered multi-row roster layout
+    - max 5 members per row
+    - scrolling for larger squads
+    - add teammate from the Team screen
+    - remove teammate confirmation flow
+    - teammate profile open from roster tile
+    - return from teammate profile back into the Team screen
+- Next active FE focus:
+  - move friendlySAIN settings out of BepInEx config and into the Team screen `Settings` tab
+  - preserve the completed roster flow while the settings tab is built out
 
 Notes from old plugin / description:
 

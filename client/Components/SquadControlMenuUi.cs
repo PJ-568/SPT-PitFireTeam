@@ -134,6 +134,54 @@ namespace friendlySAIN.Components
             }
         }
 
+        private sealed class TabHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+        {
+            private RectTransform rectTransform;
+            private Vector3 normalScale = Vector3.one;
+            private Vector3 hoverScale = new Vector3(1.025f, 1.025f, 1f);
+            private Vector3 pressedScale = new Vector3(0.99f, 0.99f, 1f);
+            private bool isHovered;
+
+            public void Configure(RectTransform target)
+            {
+                rectTransform = target;
+                if (rectTransform != null)
+                {
+                    normalScale = rectTransform.localScale;
+                }
+            }
+
+            public void OnPointerEnter(PointerEventData eventData)
+            {
+                isHovered = true;
+                Apply(hoverScale);
+            }
+
+            public void OnPointerExit(PointerEventData eventData)
+            {
+                isHovered = false;
+                Apply(normalScale);
+            }
+
+            public void OnPointerDown(PointerEventData eventData)
+            {
+                Apply(pressedScale);
+            }
+
+            public void OnPointerUp(PointerEventData eventData)
+            {
+                Apply(isHovered ? hoverScale : normalScale);
+            }
+
+            private void Apply(Vector3 scale)
+            {
+                if (rectTransform != null)
+                {
+                    rectTransform.localScale = scale;
+                }
+            }
+        }
+
         public static SquadControlMenuUi GetOrCreate(MenuScreen menuScreen)
         {
             SquadControlMenuUi ui = menuScreen.GetComponent<SquadControlMenuUi>();
@@ -143,6 +191,38 @@ namespace friendlySAIN.Components
             }
 
             return ui;
+        }
+
+        internal static void ReturnFromProfileToSquadControl()
+        {
+            if (friendlySAIN.Instance == null)
+            {
+                return;
+            }
+
+            friendlySAIN.Instance.StartCoroutine(ReturnFromProfileCoroutine());
+        }
+
+        private static IEnumerator ReturnFromProfileCoroutine()
+        {
+            const int maxFrames = 180;
+
+            for (int frame = 0; frame < maxFrames; frame++)
+            {
+                MenuScreen menu = Resources.FindObjectsOfTypeAll<MenuScreen>()
+                    .FirstOrDefault(candidate => candidate != null && candidate.gameObject != null);
+
+                if (menu != null && menu.gameObject.activeInHierarchy)
+                {
+                    SquadControlMenuUi ui = GetOrCreate(menu);
+                    ui.OpenScreen();
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            friendlySAIN.Log.LogWarning("[UI] Timed out waiting for MenuScreen to reactivate before returning to Squad Control.");
         }
 
         public void Initialize(MenuScreen screen, DefaultUIButton sourcePlayerButton, DefaultUIButton sourceTradeButton)
@@ -583,6 +663,21 @@ namespace friendlySAIN.Components
                 text.text = label.ToUpperInvariant();
             }
 
+            tab.SetActive(true);
+            spawnableToggle.Interactable = true;
+            if (tab.SpawnedObject != null)
+            {
+                tab.SpawnedObject.interactable = true;
+            }
+
+            TabHoverController hoverController = tab.gameObject.GetComponent<TabHoverController>();
+            if (hoverController == null)
+            {
+                hoverController = tab.gameObject.AddComponent<TabHoverController>();
+            }
+
+            hoverController.Configure(rect);
+
             tab.SpawnedObject.onValueChanged.RemoveAllListeners();
             tab.SpawnedObject.onValueChanged.AddListener(isSelected =>
             {
@@ -836,7 +931,7 @@ namespace friendlySAIN.Components
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(1f, 1f);
             rect.sizeDelta = new Vector2(24f, 22f);
-            rect.anchoredPosition = new Vector2(-8f, -8f);
+            rect.localPosition = new Vector3(95f, 107f, 0f);
 
             Image background = buttonObject.GetComponent<Image>();
             background.color = new Color(0.43f, 0.12f, 0.12f, 1f);
@@ -857,6 +952,7 @@ namespace friendlySAIN.Components
             labelObject.transform.SetParent(buttonObject.transform, false);
             RectTransform labelRect = labelObject.GetComponent<RectTransform>();
             Stretch(labelRect);
+            labelRect.localPosition = new Vector3(-12f, -10f, 0f);
 
             TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
             TextMeshProUGUI templateLabel = ResolveTemplateLabel();
@@ -868,6 +964,7 @@ namespace friendlySAIN.Components
 
             label.text = GetSocialUiText("RenameClose", "x");
             label.fontSize = 16f;
+            label.fontWeight = FontWeight.Medium;
             label.alignment = TextAlignmentOptions.Center;
             label.color = new Color(0.95f, 0.95f, 0.95f, 1f);
             label.raycastTarget = false;
@@ -1161,7 +1258,7 @@ namespace friendlySAIN.Components
             badgeRect.anchoredPosition = new Vector2(0f, 0f);
 
             Image badgeImage = badgeObject.GetComponent<Image>();
-            badgeImage.color = new Color(0.94f, 0.96f, 0.98f, 1f);
+            badgeImage.color = new Color(0f, 0f, 0f, 0f);
             badgeImage.raycastTarget = false;
 
             GameObject labelObject = new GameObject("LevelLabel", typeof(RectTransform), typeof(TextMeshProUGUI));
@@ -1169,6 +1266,7 @@ namespace friendlySAIN.Components
 
             RectTransform labelRect = labelObject.GetComponent<RectTransform>();
             Stretch(labelRect);
+            labelRect.localPosition = new Vector3(17f, -14f, 0f);
 
             TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
             TextMeshProUGUI templateLabel = ResolveTemplateLabel();
@@ -1180,8 +1278,9 @@ namespace friendlySAIN.Components
 
             label.text = level.ToString("D2");
             label.fontSize = 18f;
+            label.fontWeight = FontWeight.SemiBold;
             label.alignment = TextAlignmentOptions.Center;
-            label.color = new Color(0.28f, 0.3f, 0.32f, 1f);
+            label.color = new Color(0.8f, 0.8f, 0.8f, 1f);
             label.raycastTarget = false;
         }
 
@@ -1391,12 +1490,14 @@ namespace friendlySAIN.Components
 
             try
             {
+                OtherPlayerProfileScreenPatch.PrepareReturnOverride(ReturnFromProfileToSquadControl);
                 Task<OtherPlayerProfileScreen.GClass3883> task = ItemUiContext.Instance.ShowPlayerProfileScreen(accountId, EItemViewType.OtherPlayerProfile);
                 task.ContinueWith(
                     continuation =>
                     {
                         if (continuation.IsFaulted)
                         {
+                            OtherPlayerProfileScreenPatch.ClearPendingReturnOverride();
                             friendlySAIN.Log.LogError($"[UI] Failed to open profile for '{accountId}'.");
                             friendlySAIN.Log.LogError(continuation.Exception);
                         }
@@ -1405,6 +1506,7 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
+                OtherPlayerProfileScreenPatch.ClearPendingReturnOverride();
                 friendlySAIN.Log.LogError($"[UI] Failed to start profile open for '{accountId}'.");
                 friendlySAIN.Log.LogError(ex);
             }

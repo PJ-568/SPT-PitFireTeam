@@ -46,7 +46,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-19  
+Last updated: 2026-03-20  
 Scope: runtime behavior currently present in `friendlySAIN/client`, `friendlySAIN/addon`, and the in-progress teammate backend under `friendlySAIN/server` (based on active code paths in `friendlyPlugin.cs`, addon bootstrap/patches, and current server mod routes).
 
 ## BE / Server State (Important)
@@ -86,6 +86,11 @@ Current custom teammate feature state:
     - pre-raid ready screen and loading screen can show player + teammate
     - local/offline raid guard is now enforced late in `TarkovApplication` and `MainMenuController.method_52()`
     - teammate path must preserve the normal PMC insurance screen before the custom ready screen
+- Dedicated Team Management FE is now active:
+    - main menu now has a localized `My Squad` entry
+    - the Team screen currently has `Roaster` and `Settings` tabs plus stock-style back navigation
+    - roster tab currently supports add/remove teammate flows, teammate portrait tiles, teammate profile open/return, and scrolling roster layout for larger squads
+    - old friends-list `Add Teammate` entry has been removed in favor of the Team screen entry point
 - Server teammate routes now also include legacy follower spawn/settings compatibility used by the current client:
     - `/client/game/bot/followergenerate`
     - `/client/game/bot/followerdetails`
@@ -99,6 +104,7 @@ Current custom teammate feature state:
 - Current backend/social/profile/runtime limitations:
     - tactic persistence/UI is not implemented yet (`followerdetails` currently returns `Default`)
     - voice/head customization from profile screen is not implemented yet
+    - Team screen `Settings` tab implementation is the current active FE focus; friendlySAIN settings still live in BepInEx config for now
     - teammate invite/group flow still needs more parity with old plugin around pre-raid screen sequencing and group state handling
     - broader team-management/chatbot behaviors from old `friendlyPMC` are not ported
     - teammate profiles remain mod-owned bot JSON, not full stock `SptProfile` accounts
