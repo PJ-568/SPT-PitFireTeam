@@ -78,7 +78,7 @@ namespace friendlySAIN.Patches
         }
     }
 
-    internal class TeammateTransferLeadershipButtonPatch : ModulePatch
+    internal class TeammateContextMenuButtonsPatch : ModulePatch
     {
         private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
         private static readonly HashSet<string> TeammateAccountIds = new HashSet<string>(StringComparer.Ordinal);
@@ -92,7 +92,7 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static bool PatchPrefix(GClass3785 __instance, EFriendInteractionButton button, ref bool __result)
         {
-            if (button != EFriendInteractionButton.TransferLeadership)
+            if (button == EFriendInteractionButton.WatchProfile)
             {
                 return true;
             }
@@ -298,6 +298,95 @@ namespace friendlySAIN.Patches
             }
 
             return EChatMemberSide.Usec;
+        }
+    }
+
+    internal class TeammateGroupContextMenuButtonsPatch : ModulePatch
+    {
+        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private static readonly HashSet<string> TeammateAccountIds = new HashSet<string>(StringComparer.Ordinal);
+        private static float _nextRefreshTime;
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ContextInteractionsClass), nameof(ContextInteractionsClass.IsActive));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(ContextInteractionsClass __instance, ERaidPlayerButton button, ref bool __result)
+        {
+            if (button == ERaidPlayerButton.RemovePlayer)
+            {
+                return true;
+            }
+
+            GroupPlayerDataClass groupMember = __instance?.GroupPlayerDataClass;
+            IMatchmakerPlayersController controller = __instance?.IMatchmakerPlayersController;
+            if (groupMember == null || controller == null || string.IsNullOrWhiteSpace(groupMember.AccountId))
+            {
+                return true;
+            }
+
+            if (!controller.IsInGroup(groupMember.AccountId))
+            {
+                return true;
+            }
+
+            if (!IsTeammateAccountId(groupMember.AccountId))
+            {
+                return true;
+            }
+
+            __result = false;
+            return false;
+        }
+
+        private static bool IsTeammateAccountId(string accountId)
+        {
+            RefreshTeammateCacheIfNeeded();
+            return TeammateAccountIds.Contains(accountId);
+        }
+
+        private static void RefreshTeammateCacheIfNeeded()
+        {
+            if (Time.time < _nextRefreshTime)
+            {
+                return;
+            }
+
+            _nextRefreshTime = Time.time + 5f;
+
+            try
+            {
+                string response = RequestHandler.GetJson(TeammatesRoute);
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    return;
+                }
+
+                JToken root = JToken.Parse(response);
+                JToken dataToken = root.Type == JTokenType.Array ? root : root["data"];
+
+                if (dataToken is not JArray teammates)
+                {
+                    return;
+                }
+
+                TeammateAccountIds.Clear();
+                foreach (JToken teammate in teammates)
+                {
+                    string accountId = teammate?["Aid"]?.ToString() ?? teammate?["aid"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(accountId))
+                    {
+                        TeammateAccountIds.Add(accountId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo("[UI] Failed to refresh teammate cache for group context actions.");
+                Modules.Logger.LogError(ex);
+            }
         }
     }
 

@@ -299,7 +299,8 @@ namespace friendlySAIN
             // social / teammate management patches
             new SocialNetworkClassPatch().Enable();
             new FriendListInvitePlayerPanelPatch().Enable();
-            new TeammateTransferLeadershipButtonPatch().Enable();
+            new TeammateContextMenuButtonsPatch().Enable();
+            new TeammateGroupContextMenuButtonsPatch().Enable();
             new ChatInvitePlayersPanelRefreshPatch().Enable();
             new ChatCreateDialoguePanelRefreshPatch().Enable();
             // new SocialNetworkClassSendPatch().Enable();
