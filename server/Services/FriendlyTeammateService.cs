@@ -310,8 +310,115 @@ public class FriendlyTeammateService(
 
         var clone = cloner.Clone(teammate!) ?? teammate;
         ApplyTemporaryHealthMultiplier(clone!, healthMultiplier);
+        EnsureFollowerHasMedicalSupply(clone!);
         profile = clone;
         return true;
+    }
+
+    private void EnsureFollowerHasMedicalSupply(BotBase profile)
+    {
+        if (profile?.Inventory?.Items == null)
+        {
+            return;
+        }
+
+        // Find secure container slot in equipment
+        var secureContainer = profile.Inventory.Items
+            .FirstOrDefault(item => item.SlotId == "SecuredContainer");
+
+        if (secureContainer?.Id == null)
+        {
+            return; // No secure container found
+        }
+
+        var secureContainerId = secureContainer.Id.ToString();
+
+        // Check separately for medical and surgical items
+        bool hasMedical = profile.Inventory.Items.Any(item =>
+            IsMedicalItem(item.Template.ToString(), isSurgical: false)
+        );
+
+        bool hasSurgical = profile.Inventory.Items.Any(item =>
+            IsMedicalItem(item.Template.ToString(), isSurgical: true)
+        );
+
+        // Add Grizzly Medical Kit if no medical item exists
+        if (!hasMedical)
+        {
+            var grizzlyId = new MongoId();
+            profile.Inventory.Items.Add(new Item
+            {
+                Id = grizzlyId,
+                Template = new MongoId("60d446124bafe47a209fece4"), // Grizzly Medical Kit
+                ParentId = secureContainerId,
+                SlotId = "main",
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = 1,
+                    SpawnedInSession = false,
+                },
+            });
+        }
+
+        // Add Surv12 Surgical Kit if no surgical item exists
+        if (!hasSurgical)
+        {
+            var surv12Id = new MongoId();
+            profile.Inventory.Items.Add(new Item
+            {
+                Id = surv12Id,
+                Template = new MongoId("5d235b4d86f77443f4309c0e"), // Surv12 Surgical Kit
+                ParentId = secureContainerId,
+                SlotId = "main",
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = 1,
+                    SpawnedInSession = false,
+                },
+            });
+        }
+
+        if (!hasMedical || !hasSurgical)
+        {
+            logger.Info($"Ensured medical supplies for follower '{profile.Info?.Nickname}': Medical={hasMedical}, Surgical={hasSurgical}");
+        }
+    }
+
+    private bool IsMedicalItem(string? templateId, bool isSurgical = false)
+    {
+        if (string.IsNullOrEmpty(templateId))
+        {
+            return false;
+        }
+
+        if (isSurgical)
+        {
+            // Surgical item template IDs
+            var surgicalTemplates = new[]
+            {
+                "5d235b4d86f77443f4309c0e", // Surv12 Surgical Kit
+                "60d4399358ef941a33423dad", // CMS Surgical Kit
+            };
+            return surgicalTemplates.Contains(templateId);
+        }
+        else
+        {
+            // Medical item template IDs (non-surgical)
+            var medicalTemplates = new[]
+            {
+                "60d446124bafe47a209fece4", // Grizzly Medical Kit
+                "544fb3364bdc2dfb738b4567", // Salewa
+                "544fc38949f06fd411383b42", // AI-2 Medkit
+                "5c0e30fa86f77413531e1cd3", // Car First Aid Kit
+                "5e831507ea0a7c419314e497", // Blue Painkillers
+                "5e8488fa988873513c331205", // Morphine Injector
+                "544fb37d4bdc2dee738b4567", // Army Bandage
+                "544fb44d4bdc2dee738b4568", // Regular Bandage
+            };
+            return medicalTemplates.Contains(templateId);
+        }
     }
 
     public bool DeleteTeammate(MongoId sessionId, FriendlyTeammateDeleteRequest request)

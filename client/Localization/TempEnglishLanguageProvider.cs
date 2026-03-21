@@ -18,6 +18,7 @@ namespace friendlySAIN.Localization
             return new LanguageOptions
             {
                 baseSettings = "Base Settings",
+                inputSettings = "Input Settings",
                 miscSettings = "Miscellaneous",
                 testSettings = "Testing",
                 raidSettings = "Raid Settings",
@@ -70,8 +71,8 @@ namespace friendlySAIN.Localization
                     "BEARs speak English",
                     "Should BEAR bots speak English only"),
                 pingSquad = Entry(
-                    "Ping Squad",
-                    "Shortcut key for triggering the Report call"),
+                    "Status Report Shortcut",
+                    "Alternative shortcut key for the Status Report quick phrase"),
                 pingRadioVolume = Entry(
                     "Report Status Volume",
                     "Volume of the radio sound when triggering report status"),
@@ -79,14 +80,17 @@ namespace friendlySAIN.Localization
                     "Report Status Display Time",
                     "Time in seconds to display the followers status"),
                 enemyContact = Entry(
-                    "Enemy Report",
-                    "Shortcut key for triggering the Contact call"),
+                    "Enemy Contact Shortcut",
+                    "Alternative shortcut key for the Contact quick phrase"),
+                overThere = Entry(
+                    "Over There Shortcut",
+                    "Alternative shortcut key for the Over There quick gesture"),
                 botTeleport = Entry(
-                    "Followers Teleport",
+                    "Teleport Followers",
                     "Teleport all followers to the player's position"),
                 botHeal = Entry(
-                    "Followers Heal",
-                    "Heal all followers. This also get's them out of the healing animation or grenade throwing animation"),
+                    "Heal Followers",
+                    "Heal all followers. This will not restore their black limbs to full health."),
                 botPrefetch = Entry(
                     "Prefetch follower data",
                     "Prefetch follower data to reduce the time it takes to spawn them. If you experience problems with followers spawning, disable this option and try again. Take note that this can increase the spawn time."),

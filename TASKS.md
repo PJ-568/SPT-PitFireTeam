@@ -65,121 +65,136 @@ Behavior target:
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
 
+# (NOT STARTED) - Add directional quick-phrase look commands
+
+Goal:
+
+- Enable directional quick phrases such as `Front`, `Left`, `Right`, and similar directional callouts so followers orient and look toward the called direction in the same manner they currently react to `Over There`.
+
+Behavior target:
+
+- Direction resolution must be relative to the player look direction at the time the phrase is issued.
+- Followers should translate the directional phrase into an attention/look target using the same general flow currently used by `Over There`.
+- Keep this behavior consistent with existing boss-to-follower gesture/phrase propagation rules.
+- Avoid inventing a separate movement/command model if the existing `Over There` attention path can be reused safely.
+- Keep the implementation compatible with both vanilla and SAIN runtime paths.
+
 # (IN PROGRESS) - Team management
 
 Goal:
 
 - Replace the old terminal/chatbot-heavy squad management flow with a proper FE + BE teammate management flow that still preserves the core old-plugin experience:
-  - add teammate from social UI
-  - customize/view teammate from profile screen
-  - invite teammate to group
-  - see player + teammates on the pre-raid ready and loading screens
-  - spawn saved teammate bot in raid
+    - add teammate from social UI
+    - customize/view teammate from profile screen
+    - invite teammate to group
+    - see player + teammates on the pre-raid ready and loading screens
+    - spawn saved teammate bot in raid
 
 Implemented so far:
 
 - Friends list:
-  - localized `Add Teammate` entry is injected into the friends list
-  - button opens teammate creation flow
+    - localized `Add Teammate` entry is injected into the friends list
+    - button opens teammate creation flow
 - Creation flow:
-  - uses stock appearance UI
-  - player side is forced automatically
-  - collects nickname, head, and voice
-  - posts data to BE
+    - uses stock appearance UI
+    - player side is forced automatically
+    - collects nickname, head, and voice
+    - posts data to BE
 - Backend:
-  - creates a same-side PMC bot profile
-  - overwrites nickname, voice, and head
-  - saves teammate as mod-owned JSON under `friendlySAIN-ServerMod`
-  - exposes teammate social/profile/delete routes
-  - exposes legacy-compatible `/client/game/bot/followergenerate` and `/client/game/bot/followerdetails`
-  - stores generated default equipment snapshot separately so `Default` can restore the original generated kit
-  - uses stock-style server account-id generation for teammate `aid` allocation instead of custom max-id logic
+    - creates a same-side PMC bot profile
+    - overwrites nickname, voice, and head
+    - saves teammate as mod-owned JSON under `friendlySAIN-ServerMod`
+    - exposes teammate social/profile/delete routes
+    - exposes legacy-compatible `/client/game/bot/followergenerate` and `/client/game/bot/followerdetails`
+    - stores generated default equipment snapshot separately so `Default` can restore the original generated kit
+    - uses stock-style server account-id generation for teammate `aid` allocation instead of custom max-id logic
 - Social/profile:
-  - teammate appears in friends list
-  - teammate can be viewed from profile
-  - teammate can be deleted from friends list
-  - friends list refreshes after teammate create
+    - teammate appears in friends list
+    - teammate can be viewed from profile
+    - teammate can be deleted from friends list
+    - friends list refreshes after teammate create
 - Profile customization:
-  - hideout/report hidden
-  - clothes dropdowns active
-  - loadout dropdown active and persisted
-  - rename teammate overlay works from profile view and persists to backend
+    - hideout/report hidden
+    - clothes dropdowns active
+    - loadout dropdown active and persisted
+    - rename teammate overlay works from profile view and persists to backend
 - Grouping/runtime:
-  - teammate can be invited to group
-  - teammate can appear on ready screen and loading screen
-  - teammate can spawn in raid from saved backend profile
-  - local/offline raid guard exists and has been adjusted to preserve solo flow
-  - insurance screen must still appear before the custom teammate ready screen
-  - 4.x invite popup now uses a filtered teammate-aware list so stock chat-bot `aid` collisions do not break it
+    - teammate can be invited to group
+    - teammate can appear on ready screen and loading screen
+    - teammate can spawn in raid from saved backend profile
+    - local/offline raid guard exists and has been adjusted to preserve solo flow
+    - insurance screen must still appear before the custom teammate ready screen
+    - 4.x invite popup now uses a filtered teammate-aware list so stock chat-bot `aid` collisions do not break it
 
 Still to do:
 
 - Tactic management:
-  - add the second dropdown next to loadout for tactic
-  - persist tactic to BE
-  - restore old plugin tactic meanings where still applicable (`Default`, `Support`, `Marksman`, `Holder`, `Pusher`)
+    - add the second dropdown next to loadout for tactic
+    - persist tactic to BE
+    - restore old plugin tactic meanings where still applicable (`Default`, `Support`, `Marksman`, `Holder`, `Pusher`)
 - Profile customization parity:
-  - add voice and head customization from profile view
-  - verify clothing/loadout/tactic UI layout and iconography
-  - continue polishing rename/profile UI layout
+    - add voice and head customization from profile view
+    - verify clothing/loadout/tactic UI layout and iconography
+    - continue polishing rename/profile UI layout
 - Pre-raid flow parity:
-  - ensure teammate flow matches solo flow exactly up to insurance
-  - ensure only the ready screen and loading screen are customized
-  - keep group state clean across raid end, abort, and solo/follower transitions
+    - ensure teammate flow matches solo flow exactly up to insurance
+    - ensure only the ready screen and loading screen are customized
+    - keep group state clean across raid end, abort, and solo/follower transitions
 - Old plugin investigation still needed:
-  - review old pre-raid/group-state handling in `friendlypmc` to compare against the current alternative implementation
-  - review old team-management behavior from `moddescription.html` and old FE/BE paths for anything user-facing still missing
+    - review old pre-raid/group-state handling in `friendlypmc` to compare against the current alternative implementation
+    - review old team-management behavior from `moddescription.html` and old FE/BE paths for anything user-facing still missing
 - Optional later scope:
-  - evaluate which old `Squad Manager` chat features still matter in the new model (`info`, `restrictions`, `autojoin`, `recruit`, scav-squad variants, static default equipment)
+    - evaluate which old `Squad Manager` chat features still matter in the new model (`info`, `restrictions`, `autojoin`, `recruit`, scav-squad variants, static default equipment)
 
 Next phase plan:
 
 - Phase 1: planning and documentation for a dedicated Team Management screen
-  - document the stock EFT UI surfaces already touched by friendlySAIN:
-    - other profile screen
-    - raid preparation / ready / loading screens
-    - teammate creation flow based on the stock account side/head selection screen
-    - nickname edit overlay pattern
-  - investigate the trader top-right player portrait pattern for a lightweight team portrait/header option
-  - investigate the stock `Settings` screen with focus on:
-    - `Game` tab
-    - `PostFX` tab
-  - use that investigation to plan a dedicated Team screen with:
-    - `Settings` tab for friendlySAIN settings currently living in BepInEx config
-    - `Roster` tab for teammate/member management
-  - keep this phase implementation-free beyond documentation/tracking updates
+    - document the stock EFT UI surfaces already touched by friendlySAIN:
+        - other profile screen
+        - raid preparation / ready / loading screens
+        - teammate creation flow based on the stock account side/head selection screen
+        - nickname edit overlay pattern
+    - investigate the trader top-right player portrait pattern for a lightweight team portrait/header option
+    - investigate the stock `Settings` screen with focus on:
+        - `Game` tab
+        - `PostFX` tab
+    - use that investigation to plan a dedicated Team screen with:
+        - `Settings` tab for friendlySAIN settings currently living in BepInEx config
+        - `Roster` tab for teammate/member management
+    - keep this phase implementation-free beyond documentation/tracking updates
 
 Current implementation follow-up:
 
 - Phase 1 planning is complete:
-  - UI investigation doc written
-  - trader portrait and settings screen references documented
+    - UI investigation doc written
+    - trader portrait and settings screen references documented
 - Phase 2 roster implementation is functionally in place:
-  - main menu now gains a localized `My Squad` entry
-  - dedicated Team screen now includes:
-    - `Roaster` tab
-    - `Settings` tab
-    - back navigation
-  - roster work now includes:
-    - centered multi-row roster layout
-    - max 5 members per row
-    - scrolling for larger squads
-    - add teammate from the Team screen
-    - remove teammate confirmation flow
-    - teammate profile open from roster tile
-    - return from teammate profile back into the Team screen
+    - main menu now gains a localized `My Squad` entry
+    - dedicated Team screen now includes:
+        - `Roaster` tab
+        - `Settings` tab
+        - back navigation
+    - roster work now includes:
+        - centered multi-row roster layout
+        - max 5 members per row
+        - scrolling for larger squads
+        - add teammate from the Team screen
+        - remove teammate confirmation flow
+        - teammate profile open from roster tile
+        - return from teammate profile back into the Team screen
 - Phase 3 settings implementation is functionally in place:
-  - Team screen `Settings` tab now displays the main friendlySAIN config set
-  - settings use a stock-style scrollable layout
-  - checkbox settings use stock EFT toggle controls
-  - ranged settings use stock EFT slider controls
-  - settings have been regrouped/reordered for the current squad UX
-  - duplicated ConfigurationManager entries are hidden from the BepInEx config UI
-  - keybind/input-option rows are still skipped for now
+    - Team screen `Settings` tab now displays the main friendlySAIN config set
+    - settings use a stock-style scrollable layout
+    - checkbox settings use stock EFT toggle controls
+    - ranged settings use stock EFT slider controls
+    - settings have been regrouped/reordered for the current squad UX
+    - duplicated ConfigurationManager entries are hidden from the BepInEx config UI
+    - keybind/input-option rows are still skipped for now
 
 Next active FE focus:
-  - settings tab polish and any later parity gaps, not first-pass implementation
-  - preserve the completed roster/settings flow while remaining teammate profile and pre-raid parity work continues
+
+- settings tab polish and any later parity gaps, not first-pass implementation
+- preserve the completed roster/settings flow while remaining teammate profile and pre-raid parity work continues
 
 Notes from old plugin / description:
 

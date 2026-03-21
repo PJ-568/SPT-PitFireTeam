@@ -1669,6 +1669,16 @@ namespace friendlySAIN.Patches
                     }
                 }
 
+                // Fire lifecycle event for addon integration (cache cleanup, etc).
+                // Broadcast to all followers that raid is ending.
+                foreach (var follower in Modules.BossPlayers.GetFollowers())
+                {
+                    if (follower?.GetBot() != null)
+                    {
+                        Modules.SainAddonBridge.RaiseFollowerLifecycleEvent(follower.GetBot(), FollowerLifecycleEvent.OnRaidEnd);
+                    }
+                }
+
                 Modules.Logger.LogInfo("Raid CleanUp Finished");
 
             }

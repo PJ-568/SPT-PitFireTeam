@@ -44,19 +44,48 @@ When multiple approaches are possible, prefer:
 4. improved clarity or debugging
 5. improved elegance
 
+---
+
 # friendlySAIN: Current Implementation Summary
 
-Last updated: 2026-03-20  
-Scope: runtime behavior currently present in `friendlySAIN/client`, `friendlySAIN/addon`, and the in-progress teammate backend under `friendlySAIN/server` (based on active code paths in `friendlyPlugin.cs`, addon bootstrap/patches, and current server mod routes).
+**Last updated:** 2026-03-21  
+**Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
-## BE / Server State (Important)
+## Project Overview
 
-- A plugin-owned teammate backend is now **in progress** under `friendlySAIN/server`.
-- This backend is currently limited to custom teammate profile creation/storage/social-view flows. It is **not** a general replacement for stock SPT profile generation or runtime bot loading.
-- Do **not** add new runtime paths that depend on plugin-owned/custom BE profile generation/fetch endpoints for debug/runtime follower spawn flows unless the task is explicitly about the teammate system.
-- Using existing game-side profile loading flow (`ISession.LoadBots`) remains the allowed path for debug/runtime spawn helpers.
-- If a spawn flow requires BE profile data and no local/prefetched profile exists, it should fail fast with a clear reason instead of attempting BE fallback.
-- `InteractableObjects` BE return-items endpoint call is currently disabled in client runtime (`/singleplayer/returnitems` is not posted).
+**friendlySAIN** is a three-tier modular architecture:
+
+1. **CLIENT** (`client/`) — Game-side follower control and team UI.
+    - Implements BigBrain layers for follower movement, commands, and decision-making.
+    - Patches game systems (bot recruitment, group handling, loot/door interaction).
+    - Manages UI for team management and teammate creation.
+
+2. **SERVER** (`server/`) — Backend teammate management and social integration.
+    - REST API for teammate CRUD operations.
+    - Social list/profile patching to merge teammates with stock friends.
+    - Group invite and raid-spawning routes.
+    - Post-raid item/escape handling.
+
+3. **SAIN ADDON** (`addon/`) — SAIN-specific combat layer and retention system.
+    - Custom follower combat layer replacing SAIN squad layer.
+    - Decision routing for suppression, search, help, and regroup actions.
+    - Enemy retention gating and forced acquisition assistance.
+    - Follower-specific aim/vision/hearing tuning patches.
+
+---
+
+## Architecture Key Constraint
+
+- Server backend is **limited to teammate profile creation/storage/social flows** and is **not** a general bot profile generator.
+- For debug/runtime follower spawn: use existing game-side `ISession.LoadBots` profile loading (not BE-dependent).
+- If a spawn flow needs BE profile data and local profile is unavailable, fail fast with a clear reason.
+
+---
+
+# CLIENT SIDE: Follower AI & Team Management
+
+**Plugin ID:** `xyz.pit.friendlysain`  
+**Main entry:** `client/friendlyPlugin.cs`
 
 ## 0a) Teammate System Status (In Progress)
 
@@ -135,7 +164,378 @@ Current custom teammate feature state:
         - vanilla regroup path for no-SAIN or out-of-combat,
         - SAIN combat path is handled by addon `SAINFollowerCombatLayer` (custom SAIN squad-layer replacement for followers).
 
-## 2) BigBrain Follower Layer
+## 0b) Follower Core Components
+
+**State & Management:** (`client/Components/`)
+
+- `BotFollowerPlayer.cs` — Per-follower state container (active command, healing status, lifecycle)
+- `AIBossPlayer.cs` — Boss command handler (TeamStatus, gestures, loot/door requests, attention)
+- `BossFollowerPlayer.cs` — Boss-side follower roster management
+- `FollowerCombatManager.cs` — Combat state coordination across followers
+- `SquadControlMenuUi.cs` — Team Management UI (My Squad roster/settings screens)
+
+**Follower Lifecycle:**
+
+- Recruit flow through `BotReceiverFollowMeRecruitPatch`
+- On conversion: brain/layer reset, conflict cleanup, group assignment, enemy/friendly list adjustment
+- Dismiss: trigger `OnFollowerDismiss` event for addon cleanup
+- English voice assignment applied at profile-load time via `SessionLoadBotsEnglishVoicePatch`
+
+## 0c) BigBrain Follower Decision System
+
+**Layer Stack (Priority Order):**
+
+1. **FollowerRequestLayer** (priority 73) — Active command execution (hold/there/come/loot/door)
+2. **FollowerPatrolLayer** (priority 72) — Idle follow patrol toward boss
+3. **FollowerCombatLayer** (priority 71, vanilla only) — Fallback vanilla combat
+
+**Core Files:**
+
+- `client/BigBrain/FollowerPatrolLayer.cs` — Follow logic, state recovery, action selection
+- `client/BigBrain/FollowerRequestLayer.cs` — Command request detection and activation
+- `client/BigBrain/Actions/FollowAction.cs` — Chase and cover-settle movement
+- `client/BigBrain/Actions/GestureCommandAction.cs` — Command execution pipeline (12 action types)
+- `client/BigBrain/Actions/HealAction.cs` — Medical work with timeout safety
+- Additional actions: `PeacefulAction.cs`, `PeaceHardAimAction.cs`, `GoToCoverPointAction.cs`, `EatDrinkAction.cs`
+
+**Patrol Readiness (Post-Combat Handoff):**
+
+- Wait for `BotFollowerPlayer.IsReadyForPatrolAfterCombat()` instead of fixed timeout
+- SAIN-installed: uses addon-registered bridge callback (`SainAddonBridge.IsReadyForPatrolAfterCombat`)
+- Fails closed with explicit error log if SAIN present but bridge unavailable
+- Sprint thrash prevention via `FollowerSprintStateDirectionPatch` (SAIN-aware)
+
+## 0d) Command Execution Pipeline
+
+**Request Layer activates when `BotFollowerPlayer.CurrentCommand != null`**
+
+Supported commands via `GestureCommandAction`:
+
+- **HoldPosition** — Stop, crouch, periodic look-around (no timeout, persists until replaced)
+- **ComeCloser** — Move within ~1m of boss, then resume prior hold
+- **MoveToPoint** ("There") — Walk to NavMesh-validated target, brief arrival look-around
+- **LootGeneric** / **LootWeapon** — Closest eligible follower assigned via `InteractableObjects.SetTaker(...)`, moves + inventory transfer
+- **OpenDoor** — Closest eligible follower assigned via `InteractableObjects.SetOpener(...)`, moves + `DoorOpener.Interact(Open)`
+- **Regroup** — Vanilla: converge to boss-near cover; SAIN: via addon `SAINFollowerCombatRegroupAction`
+- **Attention** (Look) — Clear enemy state, release command, force attention to boss/point
+
+**Visibility Requirements:**
+
+- `HoldGesture` / `ThereGesture` — Follower sees boss gesture target (head or torso visibility sufficient)
+- `ComeWithMeGesture` — Bidirectional visibility (boss sees follower AND follower sees boss)
+
+**Interruption/Clearing:**
+
+- Hit while executing command
+- New command received (replaces prior)
+- Attention/Look command (overrides)
+- `FollowMe` / `Cooperation` phrase (clears request)
+- Timeout or invalid execution state
+- On regroup success: follower says `EPhraseTrigger.OnPosition`
+
+## 0e) Recruit & Group Patching
+
+**Files:**
+
+- `client/Patches/BotGroupRequestPatch.cs` — Recruit phrase -> follower conversion
+- `client/Patches/BotRecruitPatch.cs` — Request interception
+- 35+ patches total across bot/group/follower/UI stability
+
+**Core Bot/Group/Follower Stability Patches:**
+
+- `BotGroupAddEnemyPatch`, `BotGroupReportEnemyPatch`, `BotGroupUsecEnemyPatch` — Enemy propagation safety
+- `BotGroupCalcGoalPatch` — Enemy acquisition assist hook
+- `BotControllerEnemyPropagationSafetyPatch` — Validate player refs before propagation
+- `BotOwnerIsFolowerPatch`, `BotOwnerManualUpdatePatch`, `BotOwnerActivatePatch` — Bot activation/update flow
+- `BotMemoryDamagePatch`, `ExUsecBrainHitPatch` — Damage/hit reaction safety
+- `LootPatrolActiveLayerListPatch`, `LootPatrolDecisionBypassPatch` — Prevent LootPatrol interference
+- `AdvAssaultTargetFollowerGuardPatch`, `PatrolDataFollowerUpdateGuardPatch`, `AvoidDangerFollowerGuardPatch` — Vanilla follower recovery guards
+- `AICoreAgentUpdatePatch` — Log/rethrow update exceptions
+
+**Movement & Sprint Patches:**
+
+- `FollowerSprintPatch` (only when SAIN absent) — Sprint behavior tuning
+- `FollowerSprintStateDirectionPatch` — Prevent sprint/transition thrash during boss chase
+
+**Recruit/Request Patches:**
+
+- `BotReceiverFollowMeRecruitPatch` — Convert recruit requests to follower
+- `FollowRequestPatch`, `HoldRequestPatch`, `OpenDoorRequestPatch` — Request type routing
+- `BotReceiverGestureOverridePatch` — Gesture override handling
+
+**Spawn/Raid Patches:**
+
+- `BotsControllerPatch`, `BotsControllerStopPatch` — Bot controller lifecycle
+- `LocalGameCleanupPatch`, `LocalGameCtorPatch` — Local game init/cleanup
+- `BotsEventsControllerSpawnPatch`, `BossSpawnWaveManagerClassPatch` — Wave/event spawning
+- `RaidStartPatch` — Raid initialization
+
+**UI/Command/Item Patches:**
+
+- `AIDataContructPatch` — AI model data
+- `QuickPanelPatch` — Cooperation UI entry (non-follower AI only)
+- `GestureMenuPatch`, `GestureMenuAvailablePhrasesPatch` — Gesture availability
+- `EPhraseTriggerPatch`, `PlayPhraseOrGesturePatch` — Custom phrase/gesture routing
+- `ItemSpecificationPanelPatch`, `ModRaidModdablePatch`, `UnlootableComponentPatch` — Item interaction
+- `BotTalkTrySayPatch`, `BotTalkSayPatch` — Speech routing
+- `GrenadeThrowPatch`, `GrenadeTryThrowSafetyPatch` — Grenade safety
+- `BulletImpactPatch`, `HearingSensorPatch`, `FootstepSoundPatch`, `PlayerSayPatch` — Sound/reaction flow
+
+**Teammate/Social UI Patches:**
+
+- `AddTeammateCreationFlowPatch`, `AddTeammateHeadSelectionPatch` — Teammate creation screen
+- `SocialPatch`, `ChatFriendsPanelPatch`, `OtherPlayerProfileScreenPatch` — Social UI integration
+- `MenuScreenSquadControlPatch` — Team Management screen activation
+
+## 0f) Utility Modules & bridges
+
+**File:** `client/Modules/`
+
+**Addon Bridge Contract:**
+
+- `SainAddonBridge.cs` — Delegate interface for SAIN addon callbacks
+    - `IsReadyForPatrolAfterCombat(BotOwner)` — Patrol readiness query
+    - `OnFollowerDismiss(BotOwner)` — Lifecycle event for addon cleanup
+
+**Shared Utilities:**
+
+- `BotOwnerUpdateHub.cs` — Centralized bot-owner update coordination
+- `FollowerCalcGoalEnemyAcquire.cs` — Forward-scan enemy acquisition (runtime-neutral, assists vanilla + SAIN)
+- `FollowerEnemyEnforceSuppression.cs` — Attention/Look suppression enforcement
+- `InteractableObjects.cs` — Loot/door interaction state, boss visibility tracking, taker/opener assignment
+- `AddTeammateCreationFlow.cs` — Teammate profile creation form state
+- `BossPlayers.cs` — Boss/player roster management
+- `PingTeamates.cs` — Teammate enemy marker UI & callout system (throttled callouts, radio/visual markers)
+- `FollowerRecovery.cs`, `FollowerAwareness.cs`, `Enemy.cs`, `Utils.cs` — Helper utilities
+
+**Localization:**
+
+- `TempEnglishLanguageProvider.cs` — Custom English text (teammate creation, squad menu, validation)
+
+---
+
+# SERVER SIDE: Teammate Backend & Social Integration
+
+**Plugin ID:** `xyz.pit.friendlysain` (server component)  
+**Main entry:** `server/friendlySAIN.Server.cs`
+
+## Backend Responsibilities
+
+**Core System:**
+
+- PMC armband enforcement: Forces all PMC-type bots to wear side armbands (BLUE for USEC/Assault, RED for BEAR)
+- Plugin priority: `PostDBModLoader + 1` (applies after database loads)
+
+**Profile Management:**
+
+- Create mod-owned teammate profiles (PMC bot + custom nickname/voice/head)
+- Store on disk: `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
+- Fetch full profiles for team UI (roster, profile view)
+- Persistence: clothes, head, voice, loadout per teammate
+- Teammate IDs use stock `HashUtil.GenerateAccountId()` collision-checked allocation
+
+## REST API Routes
+
+**Teammate Management** (`/singleplayer/friendlysain/`):
+
+- `POST /teammate/create` — Create custom teammate (nickname/voice/head from UI) → saves to disk
+- `GET /teammates` — List all teammates for session
+- `GET /teammate/profile` — Fetch full profile for profile view screen
+- `GET /teammate/profile/options` — Available customization options (clothes/loadouts)
+- `POST /teammate/profile/suit` — Update clothes/head selection
+- `POST /teammate/profile/loadout` — Change loadout
+- `POST /teammate/profile/rename` — Rename teammate
+- `POST /teammate/delete` — Delete teammate permanently
+
+**Social List Merging** (`/client/`):
+
+- `GET /friend/list` — **Merge** teammates into stock friend list
+- `GET /friend/request/list/inbox` — **Merge** recruit requests with stock friend requests
+- `GET /profile/view` — **Intercept** teammate profile views (custom UI layout)
+- `POST /friend/request/accept` — Accept friend/recruit request
+- `POST /friend/request/accept-all` — Accept all requests
+- `POST /friend/request/decline` — Decline request
+- `POST /friend/delete` — **Intercept** to also delete teammates
+
+**Group & Raid** (`/client/`):
+
+- `POST /match/group/invite/send` — Send group invite; **auto-accept** for teammates + notify
+- `POST /game/bot/followergenerate` — Generate teammate spawn profile for raid
+- `GET /game/bot/followerdetails` — Fetch follower details (tactic/equipment/voice/head, currently "Default")
+
+**Post-Raid** (`/singleplayer/`):
+
+- `POST /returnitems` — Return teammate items via mail (NOT YET POSTED in client runtime)
+- `POST /teamescaped` — Log escape/death outcome + notify teammates
+- `POST /friendlysain/recruitpickup` — Queue defeated NPC candidates as friend requests
+
+## Backend Services
+
+**`FriendlyTeammateService`** — Core CRUD & Profile
+
+- Create teammate from appearance form (name, voice, head)
+- List/fetch teammates by session
+- Get/set profile (full fetch, clothes/loadout persistence)
+- Rename teammate
+- Delete teammate + remove from social lists
+- Generate spawn profile for raid
+- Save/load disk I/O for mod-owned JSON
+
+**`FriendlyTeammateSocialCallbacks`** — Social List Patching
+
+- Inject teammates into `/client/friend/list` response
+- Patch `/client/profile/view` to detect teammates and apply custom UI
+- Add teammates to `/client/friend/request/list/inbox`
+- Intercept `/client/friend/delete` to clean up teammates too
+
+**`FriendlyTeammateMatchCallbacks`** — Raid & Group Invite
+
+- Auto-accept group invites for teammates
+- Provide follower spawn profiles on demand
+- Support custom health overrides for spawn
+
+**`FriendlyPostRaidService`** — Post-Raid Handling
+
+- Return items via mail system (sends to player, randomized NPC sender)
+- Log raid outcomes (all escaped / partial / death)
+- Send mail notifications to teammates about raid results
+- NPC sender identity, message templates
+
+**`FriendlyRecruitService`** — NPC Recruitment
+
+- Queue defeated NPC candidates as pending friend requests
+- Calculate recruit approval chance based on player level
+- Convert recruit to permanent teammate via `FriendlyTeammateService`
+
+## Key Limitations (Current In-Progress)
+
+- Tactic persistence not yet implemented (`followerdetails` hardcoded to "Default")
+- Voice/head customization from profile screen not yet implemented
+- Invite/group flow still needs parity with pre-raid screen sequencing
+- Teammate profiles remain mod-owned bot JSON, NOT full stock `SptProfile` accounts
+- Post-raid item-return endpoint (`/singleplayer/returnitems`) disabled in client runtime
+
+---
+
+# SAIN ADDON: Combat & Retention System
+
+**Plugin ID:** `xyz.pit.friendlysain.sainaddon`  
+**Main entry:** `addon/SAINAddonPlugin.cs`  
+**Bootstrap:** `addon/SAINRegroupBootstrap.cs`
+
+## SAIN Integration Model
+
+**Conditional Path:**
+
+- Only active when SAIN (`me.sol.sain`) is installed at runtime
+- Core plugin validates SAIN/addon presence and logs explicit error if SAIN present but addon missing
+- Shared bridge contract via `SainAddonBridge.cs` for core → addon communication
+
+**Layer Stack in Combat:**
+
+- Priority 71: `SAINFollowerCombatLayer` (custom SAIN squad replacement for followers, active in combat)
+- Priority 72: `FollowerPatrolLayer` (vanilla follow, active out-of-combat)
+- Mover handoff on layer switch via `SAINLayer.OnLayerChanged(...)`
+
+## Combat Decision Routing
+
+**`SAINFollowerCombatLayer` Evaluation Chain:**
+
+1. **Regroup Command** — If `RegroupNearBoss` request active: → `SAINFollowerCombatRegroupAction` (8s grace post-enemy)
+2. **Squad Calculator** — Dynamic decision scoring: → routing to specific action
+3. **SAIN Fallback** — If available, use native SAIN squad decision (2s enemy grace)
+4. **Default** — Regroup to boss if in combat
+
+**`SAINFollowerSquadDecisionCalculator` Priority Order:**
+
+| Decision           | Condition                                     | Action                   | Constraints                                                  |
+| ------------------ | --------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
+| **PushSuppressed** | Enemy suppressed by ally + vulnerable + close | `RushEnemyAction`        | Path < 75m (100m sprint), ammo > 50%                         |
+| **GroupSearch**    | Ally searching same enemy                     | `FollowBossSearchAction` | Coordinate hunt                                              |
+| **Suppress**       | Ally in retreat from enemy                    | `SuppressAction`         | Distance < 30-50m, ammo > 10-50%, no friendlies in fire lane |
+| **Help**           | Ally engaging visible enemy                   | `SearchAction`           | Distance < 30-45m, seen < 8s                                 |
+| **Search**         | Enemy known but unseen                        | `SearchAction`           | Seen within last 20s                                         |
+| **Regroup**        | In combat, no other decision                  | `RegroupAction`          | Boss-adjacent, avoid stacking                                |
+
+**Action Types:**
+
+- `SAINFollowerCombatRegroupAction` — Converge near boss with spacing
+- `SAINFollowerCombatSuppressAction` — Fire at enemy with friendly-fire checks
+- `SAINFollowerCombatFollowBossSearchAction` — Follow boss while searching
+- SAIN native `SearchAction` / `RushEnemyAction` (resolved once with safe fallback)
+
+## Enemy Retention & Acquisition
+
+**Gate System** (if `EnableForcedEnemyRetention = true`):
+
+- `SAINEnemyAcquireGatePatch` — Patches `SAINEnemyController.CheckAddEnemy`
+- `ShouldAllowAcquire()` — Block attention-suppressed, boss, allied followers
+- `ShouldAllowSameSideAcquire()` — Whitelist only same-side with hostile intent
+
+**Hostile Intent Detection:**
+
+- `FollowerCalcGoalEnemyAcquire.CandidateHasBossOrFollowerAsEnemy()` — Debounced per-bot via `HasDebouncedSameSideHostileIntent()`
+- Prevents friendly-fire escalation
+
+**Suppression Safety:**
+
+- `SAINFollowerSuppressionSafety.IsFriendlyInSuppressionLane()` — Geometry cylinder check (0.55m radius)
+- Blocks suppression if ally in fire path at any body height
+
+**Patrol Readiness (Post-Combat Release):**
+
+Stale Decision Grace Periods:
+
+- Search: 3s
+- SeekCover: 3s
+- Retreat: 4s
+- ShiftCover: 3.5s
+- Solo layer + no decision: 2.5s
+
+On Timeout:
+
+- `ForceReleaseFollowerCombatState()` clears all combat context
+- Clear SAIN search state, expire active enemies, invalidate known places
+- Hard-release layer ownership
+- Post-release grace: 1.5s before patrol activation
+- Apply crouch nudge during grace (prevent sprint-thrash)
+
+## SAIN-Specific Patches (9 Always + 1 Conditional)
+
+**Always Applied:**
+
+1. **`SAINFollowerSquadLayerDisablePatch`** — Disable SAIN native squad layer for followers
+2. **`SAINFollowerAimSwayPatch`** — Aim sway tuning for followers
+3. **`SAINFollowerHitAccuracyPatch`** — Block incoming hits from degrading follower aim (bypass `AimHitEffectClass.GetHit`)
+4. **`SAINFollowerRecoilPatch`** — Recoil behavior tuning + `OnFollowerDismiss` listener for cache cleanup
+5. **`SAINFollowerFriendlyFirePatch`** — Route SAIN shot blocking to vanilla `ShootData.CheckFriendlyFire()` (uses vanilla sphere settings)
+6. **`SAINFollowerGroupTalkDirectionPatch`** — Voice callouts use boss look direction instead of squad leader
+7. **`SAINFollowerPersonalityPatch`** — Clone `followerBigPipe` SAIN template per-follower, apply combat personality (Normal/Chad/GigaChad)
+8. **`SAINFollowerSquadLeaderPatch`** — Force `IAmLeader = false` for all followers
+9. **`SAINFollowerLowLightVisionPatch`** — Reduce low-light vision penalty via `EnemyGainSightClass.CalcTimeModifier`
+
+**Conditional (if `EnableForcedEnemyRetention`):**
+
+10. **`SAINEnemyAcquireGatePatch`** + **`SAINFollowerEnemyRetentionService`** — Gate + assist follower enemy acquisition
+
+## Lifecycle & Bridge Events
+
+**Plugin Initialization:**
+
+- `SAINAddonPlugin` registers callback on load, unregisters on unload
+- `SAINFollowerRuntimeBridge` owns SAIN-typed patrol readiness implementation
+- Bridge exposes: `IsReadyForPatrolAfterCombat(BotOwner)` + stale decision timer management
+
+**Lifecycle Events:**
+
+- `Modules.OnFollowerDismiss` — Fired when follower dismissed; addon hooks for recoil cache cleanup
+- `ForceReleaseFollowerCombatState()` — Clear search state, expire enemies, reset decisions on attention/look
+- `TryResetFollowerDecisionState()` — Soft reset for decision state without full layer release
+
+**Integration Rule:**
+
+- Prefer core → addon bridge calls over new core reflection probes
+- Keep strict fail-fast/fail-closed behavior when SAIN installed but bridge unavailable
 
 Files:
 
@@ -230,44 +630,119 @@ Request/gesture movement:
     - bot being hit,
     - command timeout / invalid execution state.
 
-## 3) Recruit / Group / Boss Model
+## 0) Project Context & References
 
-Main files:
+- Old plugin codebase: `F:/Projects/SPT-Tarkov/friendlypmc`
+- Old client reference (3.11): `F:/Projects/SPT-Tarkov/Client-Decompiled-3.11`
+- New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
+- SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`
 
-- `client/Components/BotFollowerPlayer.cs`
-- `client/Components/AIBossPlayer.cs`
-- `client/Patches/BotRecruitPatch.cs`
-- `client/Patches/BotGroupRequestPatch.cs`
+**Positioning:** `friendlySAIN` is both a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment and an alternative plugin implementation with new BigBrain-native follower layers/actions.
 
-Implemented:
+---
 
-- Recruit flow through phrase/request patching and follower conversion.
-- On conversion:
-    - brain/layer handoff reset,
-    - conflicting state/request cleanup,
-    - move bot into player boss group,
-    - enemy/friendly lists adjusted to group context.
-- Boss command handling:
-    - TeamStatus,
-    - OverThere,
-    - OnRepeatedContact,
-    - `OpenDoor`,
-    - `LootGeneric` / `LootWeapon`,
-    - Look (Attention),
-    - `ComeWithMeGesture`,
-    - `HoldGesture`,
-    - `ThereGesture`.
-- Recruit/spawn follower acknowledgment phrases are now controlled separately:
-    - recruit path uses a forced-phrase gate, cooldown drop, and direct `BotTalk.Say(EPhraseTrigger.Roger, true)` after deferred conversion,
-    - debug-spawn path uses a forced-phrase gate and delayed `TrySay(EPhraseTrigger.Ready, false)`,
-    - recruit `Roger` and spawn `Ready` are the current expected behavior.
-- Attention command now clears follower enemy state more aggressively:
-    - clears memory goal/last enemy,
-    - removes known enemies from bot memory and group cache.
+# Command/Gesture IDs & Practical Entry Points
 
-## 4) Active Patch Set (Enabled in `friendlyPlugin.cs`)
+## Command/Gesture IDs (Current)
 
-Bot/group/follower stability:
+- Custom phrases:
+    - `CustomPhrases.TeamStatus = 10001`
+    - `CustomPhrases.OverThere = 10002`
+- Custom gesture:
+    - `CustomGestures.OverThere = 220` (`EInteraction` is byte-backed, so stay within `0..255`)
+- Vanilla 4.x gestures:
+    - `Rock/Scissor/Paper/AllRight = 200..203`
+- UI visibility note:
+    - gesture buttons are created from `CustomizationSolverClass.GetAvailableGestures(side)`, so visibility is side/template-data dependent (e.g., can differ for PMC vs Savage).
+
+## Practical Entry Points (for next edits)
+
+- Startup patch wiring:
+    - `client/friendlyPlugin.cs`
+- BigBrain core logic:
+    - `client/BigBrain/FollowerPatrolLayer.cs` — Follow patrol out-of-combat
+    - `client/BigBrain/FollowerRequestLayer.cs` — Active command execution
+    - `client/BigBrain/Actions/FollowAction.cs` — Chase and settle movement
+    - `client/BigBrain/Actions/GestureCommandAction.cs` — Command pipeline (hold/there/come/loot/door/regroup)
+- Recruit and follower conversion:
+    - `client/Patches/BotGroupRequestPatch.cs` — Recruit phrase → follower conversion
+    - `client/Components/BotFollowerPlayer.cs` — Follower state container
+- Boss command/event behavior:
+    - `client/Components/AIBossPlayer.cs` — Boss command handling
+- SAIN combat addon (follower combat layer):
+    - `addon/SAINFollowerCombatLayer.cs` — Combat decision routing
+    - `addon/SAINFollowerSquadDecisionCalculator.cs` — Priority-based decision scoring
+    - `addon/SAINFollowerCombatRegroupAction.cs` — Combat regroup execution
+    - `addon/SAINFollowerCombatSuppressAction.cs` — Fire support logic
+    - `addon/SAINFollowerCombatFollowBossSearchAction.cs` — Coordinated search
+
+---
+
+# Known Issues & Tracking
+
+See detailed tracking: `../FOLLOWER-BUGS.md`
+
+**Currently Active Risk Areas:**
+
+- SAIN post-combat idle/freeze behavior for followers
+- Enemy propagation consistency across all followers
+- Reaction-system regression (early detection):
+    - Hard guards in `client/Utils/Enemy.cs` (`Enemy.MakeEnemy`) and `BotGroupReportEnemyPatch` prevent followers from marking boss/followers as enemies
+    - Still active risk area for hearing/voice/bullet reaction paths
+- Follow-up behavior when player is hit out of combat
+- Follower death reaction:
+    - Nearest follower with visibility says `EPhraseTrigger.OnFriendlyDown`
+    - Corpse-position visibility checked up to ~60s if nobody saw death
+
+---
+
+## 7) Status/Debug Notes
+
+- `PingTeamates` enemy marker/status timing corrected:
+    - uses `Time.time - PersonalLastSeenTime` for recency.
+- `PingTeamates` callout throttling:
+    - directional voice callouts are now throttled to once every `15s` across pings,
+    - ping radio/location sound and triangle marker still update every valid ping.
+- TeamStatus/Look command burst handling:
+    - command handling was debounced to reduce repeated heavy work during rapid player phrase spam.
+- SAIN-friendly-fire path:
+    - current follower-only SAIN override no longer uses custom boss/follower geometry checks.
+    - it asks vanilla `ShootData.CheckFriendlyFire(from, to)` directly so SAIN follower fire denial follows vanilla friendly-fire sphere settings (`settings.FileSettings.Aiming.SHPERE_FRIENDY_FIRE_SIZE`) and vanilla ally filtering.
+- SAIN follower combat template:
+    - recruited followers now use a per-bot cloned copy of SAIN `followerBigPipe` settings as their combat template.
+    - the template is applied through addon-owned SAIN info/file-settings injection instead of follower-specific aim-target/random-look/hit-accuracy patching.
+    - `addon/SAINFollowerPersonalityPatch.cs` is the single entry point for future follower SAIN fine-tuning on top of that template (`ApplyFollowerTemplateFineTuning(...)`).
+- SAIN stale search cleanup:
+    - stale `EnemyKnownPlaces` / `SAINSearchClass` state was identified as the source of repeated `EPhraseTrigger.Clear` / `LostVisual` after combat or attention.
+    - addon release/reset bridge now explicitly clears active SAIN search state and invalidates known places during follower combat-state release/reset.
+- `PingTeamates` GUI path optimization:
+    - per-frame draw loops now use index-based iteration instead of delegate-based `List.ForEach`.
+    - bot status text reuses a single `StringBuilder` instance instead of allocating per bot per frame.
+    - tracked body-part iteration uses a static array instead of `Enum.GetValues(...)` allocations.
+- SAIN bridge debug noise reduction:
+    - follower SAIN enemy-bridge debug logs are disabled by default (`EnableSainEnemyBridgeDebugLogs = false`) to reduce runtime string/log overhead.
+- SAIN navigation investigation result:
+    - SAIN does not currently have one broad active non-mover "navigation fix" patch that generically recovers stuck bots.
+    - active navigation-adjacent behavior is split across:
+        - `Patches/MovementPatches.cs` global movement-context patches (`MovementContextIsAIPatch`, `CanBeSnappedPatch`) and mover-manual-update patches,
+        - door handling outside the mover (`Classes/PlayerManager/Doors/DoorHandler.cs`, `Classes/Bot/Doors/DoorOpener.cs`),
+        - `SAINBotUnstuckClass`, which contains vault/teleport unstuck logic but its coroutine body currently has the core unstuck calls commented out.
+    - practical implication: treat SAIN door handling and SAIN layer/mover handoff as active navigation influences first; do not assume SAIN has an active generic unstuck system currently rescuing follower navigation.
+- English BEAR voice assignment is applied at profile-load time:
+    - `SessionLoadBotsEnglishVoicePatch` patches `ProfileEndpointFactoryAbstractClass.LoadBots`
+    - each returned `Profile` is processed by `BotOwnerActivatePatch.ApplyEnglishVoiceForProfile(...)`
+    - this is the active runtime path for voice replacement (instead of late activation-only mutation)
+
+---
+
+## DEBUGGING & INVESTIGATION PRACTICES
+
+- treat bugs tracked separately as SAIN and vanilla categories
+- always spend time checking SAIN and client sources at the beginning of the session to get proper context
+- prefer to check client sources first when some method, class, or property is not clear, rather then making assumptions
+- Debug console command: `fs_spawnfollower` spawns one follower in-raid using game-side `ISession.LoadBots` profile flow (NOT BE-dependent)
+
+## BUGS are tracked in : F:\Projects\SPT-Tarkov\FOLLOWER-BUGS.md
 
 - `BotGroupAddEnemyPatch`
 - `BotGroupReportEnemyPatch`

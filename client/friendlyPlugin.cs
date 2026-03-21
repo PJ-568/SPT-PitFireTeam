@@ -62,6 +62,7 @@ namespace friendlySAIN
     public class LanguageOptions
     {
         public string baseSettings { get; set; }
+        public string inputSettings { get; set; }
         public string miscSettings { get; set; }
         public string testSettings { get; set; }
         public string raidSettings { get; set; }
@@ -98,6 +99,7 @@ namespace friendlySAIN
         public Dictionary<string, string> pingRadioVolume { get; set; }
         public Dictionary<string, string> pingTime { get; set; }
         public Dictionary<string, string> enemyContact { get; set; }
+        public Dictionary<string, string> overThere { get; set; }
 
         public Dictionary<string, string> gestures { get; set; }
 
@@ -173,6 +175,7 @@ namespace friendlySAIN
         public static ConfigEntry<int> pingTime;
 
         public static ConfigEntry<KeyboardShortcut> contactKey;
+        public static ConfigEntry<KeyboardShortcut> overThereKey;
 
         public static ConfigEntry<KeyboardShortcut> teleportKey;
         public static ConfigEntry<KeyboardShortcut> healKey;
@@ -442,14 +445,16 @@ namespace friendlySAIN
 
             contactKey = Config.Bind("", "20 " + optionsLang.enemyContact["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, new ConfigurationManagerAttributes { Order = -1010, Browsable = false }));
 
-            teleportKey = Config.Bind("", "21 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1011, Browsable = false }));
-            healKey = Config.Bind("", "22 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1012, Browsable = false }));
+            overThereKey = Config.Bind("", "21 " + optionsLang.overThere["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.overThere["Description"], null, new ConfigurationManagerAttributes { Order = -1011, Browsable = false }));
 
-            botPrefetch = Config.Bind("", "23 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1013, Browsable = false }));
+            teleportKey = Config.Bind("", "22 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1012, Browsable = false }));
+            healKey = Config.Bind("", "23 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1013, Browsable = false }));
 
-            botTalk = Config.Bind("", "24 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1014, Browsable = false }));
+            botPrefetch = Config.Bind("", "24 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1014, Browsable = false }));
 
-            spawnPoint = Config.Bind("", "25 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1015, Browsable = false }));
+            botTalk = Config.Bind("", "25 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1015, Browsable = false }));
+
+            spawnPoint = Config.Bind("", "26 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1016, Browsable = false }));
 
             Config.SaveOnConfigSet = true;
             Config.Save();
@@ -765,7 +770,7 @@ namespace friendlySAIN
                 return;
             }
 
-            if (pingKey.Value.IsUp() || contactKey.Value.IsUp())
+            if (pingKey.Value.IsUp() || contactKey.Value.IsUp() || overThereKey.Value.IsUp())
             {
 
                 string id = GamePlayerOwner.MyPlayer.ProfileId;
@@ -781,6 +786,8 @@ namespace friendlySAIN
                                 phrase = (EPhraseTrigger)CustomPhrases.TeamStatus,
                                 PlayerRequester = boss.realPlayer
                             });
+                        else if (overThereKey.Value.IsUp())
+                            boss.realPlayer.Say((EPhraseTrigger)CustomPhrases.OverThere, true);
                         else
                             boss.realPlayer.Say(EPhraseTrigger.OnRepeatedContact, true);
                     }

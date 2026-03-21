@@ -48,6 +48,7 @@ namespace friendlySAIN.Components
         private const float SettingsHeaderHeight = 42f;
         private const float SettingsSpacing = 16f;
         private const float SettingsControlRightInset = 50f;
+        private const float SettingsShortcutRightInset = 140f;
         private const float SettingsSliderVerticalOffset = 36f;
 
         private static readonly FieldInfo HeaderLabelField = AccessTools.Field(typeof(DefaultUIButton), "_headerLabel");
@@ -823,6 +824,18 @@ namespace friendlySAIN.Components
             }
 
             foreach (ConfigEntryBase entry in GetSettingsEntries(
+                friendlySAIN.pingKey,
+                friendlySAIN.contactKey,
+                friendlySAIN.overThereKey))
+            {
+                yield return new SquadSettingEntry
+                {
+                    SectionTitle = friendlySAIN.optionsLang?.inputSettings ?? "Input Settings",
+                    Entry = entry
+                };
+            }
+
+            foreach (ConfigEntryBase entry in GetSettingsEntries(
                 friendlySAIN.pickupEnabled,
                 friendlySAIN.tieredPickup,
                 friendlySAIN.maximumPickup,
@@ -840,6 +853,8 @@ namespace friendlySAIN.Components
             }
 
             foreach (ConfigEntryBase entry in GetSettingsEntries(
+                friendlySAIN.teleportKey,
+                friendlySAIN.healKey,
                 friendlySAIN.heatlhMultiplier,
                 friendlySAIN.botPrefetch))
             {
@@ -952,6 +967,10 @@ namespace friendlySAIN.Components
 
             if (entry.SettingType == typeof(KeyboardShortcut))
             {
+                controlRect.anchorMin = new Vector2(1f, 0.5f);
+                controlRect.anchorMax = new Vector2(1f, 0.5f);
+                controlRect.pivot = new Vector2(1f, 0.5f);
+                controlRect.anchoredPosition = new Vector2(-SettingsShortcutRightInset, 0f);
                 CreateShortcutSettingControl(controlRect, entry as ConfigEntry<KeyboardShortcut>);
                 return;
             }
@@ -1773,6 +1792,17 @@ namespace friendlySAIN.Components
         private Tab CreateSimpleFallbackTab(string name, RectTransform parent, Vector2 anchoredPosition, string label)
         {
             GameObject root = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Tab));
+            // Add CanvasGroup component for stock UI compatibility (use reflection to avoid assembly reference)
+            try
+            {
+                Type canvasGroupType = Type.GetType("UnityEngine.CanvasGroup, UnityEngine.UIModule");
+                if (canvasGroupType != null)
+                {
+                    root.AddComponent(canvasGroupType);
+                }
+            }
+            catch { }
+
             root.transform.SetParent(parent, false);
             RectTransform rect = root.GetComponent<RectTransform>();
             rect.anchorMin = new Vector2(0.5f, 1f);

@@ -851,6 +851,9 @@ namespace friendlySAIN.Components
             }
             finally
             {
+                // Fire lifecycle event for addon integration (cleanup, cache removal, etc).
+                Modules.SainAddonBridge.RaiseFollowerLifecycleEvent(_bot, FollowerLifecycleEvent.OnDismiss);
+
                 if (_bot?.GetPlayer != null)
                 {
                     _bot.GetPlayer.BeingHitAction -= OnBeingHit;

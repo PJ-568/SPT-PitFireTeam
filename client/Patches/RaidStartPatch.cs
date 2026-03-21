@@ -68,6 +68,22 @@ namespace friendlySAIN.Patches
         }
     }
 
+    internal static class SyntheticTeammateVisualHealth
+    {
+        public static void Ensure(GroupPlayerViewModelClass teammate, Profile.ProfileHealthClass referenceHealth)
+        {
+            if (teammate?.PlayerVisualRepresentation?.Info == null || referenceHealth == null)
+            {
+                return;
+            }
+
+            if (teammate.PlayerVisualRepresentation.Info.Health == null)
+            {
+                teammate.PlayerVisualRepresentation.Info.Health = referenceHealth.Clone();
+            }
+        }
+    }
+
     /**
      * Patch to set what followers will the player start with (PMC case only)
      */
@@ -335,7 +351,11 @@ namespace friendlySAIN.Patches
         {
             NormalizeTeammateIconCategory(player);
             EnsureTeammateVisualHealth(__instance, player);
-            if (__instance.CurrentPlayer != player && !MainMenuControllerPatch.GroupPlayers.Contains(player)) MainMenuControllerPatch.GroupPlayers.Add(player);
+            if (__instance.CurrentPlayer != player &&
+                MainMenuControllerPatch.GroupPlayers.All(x => x.AccountId != player.AccountId))
+            {
+                MainMenuControllerPatch.GroupPlayers.Add(player);
+            }
         }
 
         private static void NormalizeTeammateIconCategory(GroupPlayerViewModelClass player)
@@ -372,12 +392,12 @@ namespace friendlySAIN.Patches
             }
 
             RefreshTeammateCacheIfNeeded();
-            if (!TeammateAccountIds.Contains(player.AccountId) || player.PlayerVisualRepresentation.Info.Health != null)
+            if (!TeammateAccountIds.Contains(player.AccountId))
             {
                 return;
             }
 
-            player.PlayerVisualRepresentation.Info.Health = controller.CurrentPlayer.Info.Health.Clone();
+            SyntheticTeammateVisualHealth.Ensure(player, controller.CurrentPlayer.Info.Health);
         }
 
         private static void RefreshTeammateCacheIfNeeded()
@@ -512,6 +532,25 @@ namespace friendlySAIN.Patches
     {
         protected override MethodBase GetTargetMethod()
         {
+            // Harmony warning fix: target the declared implementation, not inherited lookup.
+            MethodInfo method = AccessTools.DeclaredMethod(typeof(MatchmakerPlayerControllerClass), "MatchingAbort");
+            if (method != null)
+            {
+                return method;
+            }
+
+            Type baseType = typeof(MatchmakerPlayerControllerClass).BaseType;
+            while (baseType != null)
+            {
+                method = AccessTools.DeclaredMethod(baseType, "MatchingAbort");
+                if (method != null)
+                {
+                    return method;
+                }
+
+                baseType = baseType.BaseType;
+            }
+
             return AccessTools.Method(typeof(MatchmakerPlayerControllerClass), "MatchingAbort");
         }
 
@@ -519,8 +558,6 @@ namespace friendlySAIN.Patches
         private static void PatchPrefix(MatchmakerPlayerControllerClass __instance)
         {
             MainMenuControllerPatch.GroupPlayers.Clear();
-
-            /* RequestHandler.GetJson("/client/raid/pitabort"); */
         }
     }
     /**
@@ -556,7 +593,6 @@ namespace friendlySAIN.Patches
                 controller.GroupPlayers.Remove(item);
             }
 
-            if (MainMenuControllerPatch.GroupPlayers.Count > 0)
             {
                 foreach (var item in MainMenuControllerPatch.GroupPlayers)
                 {
@@ -598,27 +634,78 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MatchmakerTimeHasCome __instance, ISession session, RaidSettings raidSettings, MatchmakerPlayerControllerClass matchmaker)
         {
-
             if (!raidSettings.IsPmc) MainMenuControllerPatch.GroupPlayers.Clear();
 
-
-            foreach (var item in MainMenuControllerPatch.GroupPlayers)
+            if (matchmaker == null)
             {
-                matchmaker.GroupPlayers.Add(item);
+                return;
+            }
+
+            Profile.ProfileHealthClass currentHealth = matchmaker.CurrentPlayer?.Info?.Health;
+
+            try
+            {
+                foreach (var item in MainMenuControllerPatch.GroupPlayers)
+                {
+                    if (currentHealth != null)
+                    {
+                        SyntheticTeammateVisualHealth.Ensure(item, currentHealth);
+                    }
+
+                    try
+                    {
+                        if (matchmaker.GroupPlayers.All(x => x.AccountId != item.AccountId))
+                        {
+                            matchmaker.GroupPlayers.Add(item);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        friendlySAIN.Log.LogWarning($"[Raid] Failed to add teammate {item?.AccountId} to raid group on MatchmakerTimeHasComeShow");
+                        friendlySAIN.Log.LogError(ex);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[Raid] Failed to inject teammates into MatchmakerTimeHasCome");
+                friendlySAIN.Log.LogError(ex);
+                return;
             }
 
             if (MainMenuControllerPatch.TransitPlayers.Count > 0)
             {
-                foreach (var item in MainMenuControllerPatch.TransitPlayers)
+                try
                 {
-                    var player = matchmaker.GroupPlayers.FirstOrDefault(x => x.AccountId == item.AccountId);
-                    if (player == null)
+                    foreach (var item in MainMenuControllerPatch.TransitPlayers)
                     {
-                        matchmaker.GroupPlayers.Add(item);
-                    }
-                }
+                        var player = matchmaker.GroupPlayers.FirstOrDefault(x => x.AccountId == item.AccountId);
+                        if (player == null)
+                        {
+                            if (currentHealth != null)
+                            {
+                                SyntheticTeammateVisualHealth.Ensure(item, currentHealth);
+                            }
 
-                MainMenuControllerPatch.TransitPlayers.Clear();
+                            try
+                            {
+                                matchmaker.GroupPlayers.Add(item);
+                            }
+                            catch (Exception ex)
+                            {
+                                friendlySAIN.Log.LogWarning($"[Raid] Failed to add transit player {item?.AccountId} to raid group");
+                                friendlySAIN.Log.LogError(ex);
+                            }
+                        }
+                    }
+
+                    MainMenuControllerPatch.TransitPlayers.Clear();
+                }
+                catch (Exception ex)
+                {
+                    friendlySAIN.Log.LogWarning("[Raid] Failed to process transit players on MatchmakerTimeHasCome");
+                    friendlySAIN.Log.LogError(ex);
+                }
             }
         }
     }
@@ -640,95 +727,57 @@ namespace friendlySAIN.Patches
             }
 
             raidSettings.RaidMode = ERaidMode.Local;
+
+            // CRITICAL: Add teammates to controller BEFORE the game populates previews
+            try
+            {
+                MatchmakerPlayerControllerClass controller = AccessTools.Field(typeof(MatchMakerAcceptScreen), "MatchmakerPlayersController").GetValue(__instance) as MatchmakerPlayerControllerClass;
+                if (controller != null && MainMenuControllerPatch.GroupPlayers.Count > 0)
+                {
+                    foreach (var teammate in MainMenuControllerPatch.GroupPlayers)
+                    {
+                        if (controller.GroupPlayers.All(x => x.AccountId != teammate.AccountId))
+                        {
+                            controller.GroupPlayers.Add(teammate);
+                            friendlySAIN.Log.LogInfo($"[UI] Added teammate {teammate.AccountId} to controller before preview population");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to inject teammates in MatchMakerAcceptScreenPatch prefix");
+                friendlySAIN.Log.LogError(ex);
+            }
         }
+
         [PatchPostfix]
         private static void PatchPostfix(MatchMakerAcceptScreen __instance, ISession session, RaidSettings raidSettings, RaidSettings offlineRaidSettings)
         {
-            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
+            try
             {
-                return;
-            }
+                // Teammates are injected into controller via Prefix.
+                // Now rebuild the preview group to use updated controller.GroupPlayers
+                MatchmakerPlayerControllerClass controller = AccessTools.Field(typeof(MatchMakerAcceptScreen), "MatchmakerPlayersController").GetValue(__instance) as MatchmakerPlayerControllerClass;
+                MatchMakerGroupPreview groupPreview = AccessTools.Field(typeof(MatchMakerAcceptScreen), "_groupPreview").GetValue(__instance) as MatchMakerGroupPreview;
+                RaidSettings raidSettings_0 = AccessTools.Field(typeof(MatchMakerAcceptScreen), "raidSettings_0").GetValue(__instance) as RaidSettings;
+                string string_2 = AccessTools.Field(typeof(MatchMakerAcceptScreen), "string_2").GetValue(__instance) as string;
 
-            if (!raidSettings.IsPmc) return;
-
-            AddViewListClass UI = AccessTools.Field(typeof(MatchMakerAcceptScreen), "UI").GetValue(__instance) as AddViewListClass;
-            MatchMakerGroupPreview _groupPreview = AccessTools.Field(typeof(MatchMakerAcceptScreen), "_groupPreview").GetValue(__instance) as MatchMakerGroupPreview;
-            MatchmakerPlayerControllerClass MatchmakerPlayersController = AccessTools.Field(typeof(MatchMakerAcceptScreen), "MatchmakerPlayersController").GetValue(__instance) as MatchmakerPlayerControllerClass;
-            RaidSettings raidSettings_0 = AccessTools.Field(typeof(MatchMakerAcceptScreen), "raidSettings_0").GetValue(__instance) as RaidSettings;
-            string string_2 = AccessTools.Field(typeof(MatchMakerAcceptScreen), "string_2").GetValue(__instance) as string;
-
-            _groupPreview.Show(string_2, MatchmakerPlayersController, raidSettings_0, new Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass>(MatchmakerPlayersController.GetContextInteractions));
-            UI.AddDisposable<MatchMakerGroupPreview>(_groupPreview);
-
-            // fetch current player visual representation for all bots part of the group
-            Task.Run(async () =>
-            {
-                playerGroup groupPlayers = new playerGroup();
-                foreach (var teamer in MainMenuControllerPatch.GroupPlayers)
+                if (controller == null || groupPreview == null || raidSettings_0 == null)
                 {
-                    var result = await session.GetOtherPlayerProfile(teamer.AccountId);
-                    if (result.Succeed)
-                    {
-                        groupPlayers.Add(teamer);
-                        var health = teamer.PlayerVisualRepresentation.Info.Health ?? MatchmakerPlayersController.CurrentPlayer.Info.Health.Clone();
-                        var preview = new GClass1416(result.Value);
-                        preview.PlayerVisualRepresentation.Info.Health = health;
-                        teamer.IsReady = true;
-                        teamer.Info.SavageNickname = teamer.Info.Nickname;
-
-                        teamer.method_2(preview.PlayerVisualRepresentation);
-                    }
-                }
-
-                return groupPlayers;
-
-            }).ContinueWith(r =>
-            {
-                // MatchMakerPlayerPreview.method_0 replication so we do not turn on Online RaidMode
-
-                playerGroup groupPlayers = r.Result;
-
-                if (groupPlayers.Count < 1)
-                {
-                    _groupPreview.Close();
                     return;
                 }
 
-                List<MatchMakerPlayerPreview> list_0 = AccessTools.Field(typeof(MatchMakerGroupPreview), "list_0").GetValue(_groupPreview) as List<MatchMakerPlayerPreview>;
-                List<ComradeView> _comradesPositions = AccessTools.Field(typeof(MatchMakerGroupPreview), "_comradesPositions").GetValue(_groupPreview) as List<ComradeView>;
-                Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass> func_0 = AccessTools.Field(typeof(MatchMakerGroupPreview), "func_0").GetValue(_groupPreview) as Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass>;
+                // Rebuild the entire group preview with updated controller.GroupPlayers
+                groupPreview.Show(string_2, controller, raidSettings_0, new Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass>(controller.GetContextInteractions));
 
-                List<GroupPlayerViewModelClass> list = Enumerable.ToList<GroupPlayerViewModelClass>(Enumerable.Where<GroupPlayerViewModelClass>(groupPlayers, new Func<GroupPlayerViewModelClass, bool>(_groupPreview.method_3)));
-                for (int i = list_0.Count - 1; i >= list.Count; i--)
-                {
-                    _groupPreview.method_2(i);
-                }
-                int num = 0;
-                while (num < list.Count && num < _comradesPositions.Count)
-                {
-                    MatchMakerPlayerPreview matchMakerPlayerPreview = _groupPreview.method_1(num);
-                    GroupPlayerViewModelClass gclass = list[num];
-                    if (matchMakerPlayerPreview.PlayerAid != gclass.AccountId)
-                    {
-                        matchMakerPlayerPreview.Show(MatchmakerPlayersController, raidSettings, gclass, func_0.Invoke(gclass, false, true))
-                        .ContinueWith(t =>
-                        {
-                            TextMeshProUGUI _groupStatusField = AccessTools.Field(typeof(MatchMakerPlayerPreview), "_groupStatusField").GetValue(matchMakerPlayerPreview) as TextMeshProUGUI;
-                            _groupStatusField.text = string.Empty;
-                        })
-                        .HandleExceptions();
-
-                        _comradesPositions[num].TogglePlaceholder(false);
-                    }
-                    else
-                    {
-                        _comradesPositions[num].TogglePlaceholder(false);
-                    }
-                    num++;
-                }
-
-            }, TaskScheduler.FromCurrentSynchronizationContext()).HandleExceptions();
-
+                friendlySAIN.Log.LogInfo($"[UI] Rebuilt group preview with {controller.GroupPlayers.Count} players");
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to rebuild group preview in postfix");
+                friendlySAIN.Log.LogError(ex);
+            }
         }
     }
 

@@ -19,5 +19,31 @@ namespace friendlySAIN.Modules
 
         // Addon-owned SAIN runtime diagnostics for follower debug logging from core command paths.
         public static Func<BotOwner, string>? GetFollowerDebugState { get; set; }
+
+        // Generic event that addon can hook into for follower lifecycle changes.
+        public static event Action<BotOwner, FollowerLifecycleEvent>? OnFollowerLifecycleEvent;
+
+        /// <summary>
+        /// Raise the follower lifecycle event (called from core plugin paths).
+        /// </summary>
+        public static void RaiseFollowerLifecycleEvent(BotOwner bot, FollowerLifecycleEvent eventType)
+        {
+            OnFollowerLifecycleEvent?.Invoke(bot, eventType);
+        }
+    }
+
+    /// <summary>
+    /// Follower lifecycle events that addons can subscribe to for custom cleanup/setup.
+    /// </summary>
+    public enum FollowerLifecycleEvent
+    {
+        /// <summary>Fired when a bot is recruited as a follower (after Init).</summary>
+        OnRecruited,
+
+        /// <summary>Fired when a follower is dismissed/converted back to regular bot.</summary>
+        OnDismiss,
+
+        /// <summary>Fired when raid cleanup occurs (all followers cleared).</summary>
+        OnRaidEnd,
     }
 }

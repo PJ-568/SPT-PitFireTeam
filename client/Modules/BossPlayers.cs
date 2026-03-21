@@ -259,6 +259,9 @@ namespace friendlySAIN.Modules
                 _followersByProfileId[bot.ProfileId] = _follower;
             }
 
+            // Fire lifecycle event for addon integration (cache registration, etc).
+            SainAddonBridge.RaiseFollowerLifecycleEvent(bot, FollowerLifecycleEvent.OnRecruited);
+
             return _follower;
         }
 

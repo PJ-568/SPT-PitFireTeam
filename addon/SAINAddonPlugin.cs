@@ -25,6 +25,9 @@ namespace friendlySAIN.SAINAddon
             SainAddonBridge.TryResetFollowerDecisionState = SAINFollowerRuntimeBridge.TryResetFollowerDecisionState;
             SainAddonBridge.GetFollowerDebugState = SAINFollowerRuntimeBridge.GetFollowerDebugState;
 
+            // Register lifecycle event handler for follower cache management.
+            SainAddonBridge.OnFollowerLifecycleEvent += SAINFollowerRecoilPatch.OnFollowerLifecycleEvent;
+
             // Placeholder bootstrap for future SAIN regroup layer/action registration.
             // Keep this as the dedicated integration point so core plugin can remain vanilla-safe.
             SAINRegroupBootstrap.Initialize(harmony, Logger);
@@ -56,6 +59,9 @@ namespace friendlySAIN.SAINAddon
             {
                 SainAddonBridge.GetFollowerDebugState = null;
             }
+
+            // Unsubscribe from lifecycle event.
+            SainAddonBridge.OnFollowerLifecycleEvent -= SAINFollowerRecoilPatch.OnFollowerLifecycleEvent;
         }
     }
 }
