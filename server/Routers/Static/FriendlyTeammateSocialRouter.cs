@@ -17,9 +17,25 @@ public class FriendlyTeammateSocialRouter(JsonUtil jsonUtil, FriendlyTeammateSoc
                 "/client/friend/list",
                 async (url, info, sessionId, output) => await callbacks.MergeFriendList(url, info, sessionId, output)
             ),
+            new RouteAction<EmptyRequestData>(
+                "/client/friend/request/list/inbox",
+                async (url, info, sessionId, output) => await callbacks.MergeFriendRequestInbox(url, info, sessionId, output)
+            ),
             new RouteAction<GetOtherProfileRequest>(
                 "/client/profile/view",
                 async (url, info, sessionId, output) => await callbacks.MergeProfileView(url, info, sessionId, output)
+            ),
+            new RouteAction<AcceptFriendRequestData>(
+                "/client/friend/request/accept",
+                async (url, info, sessionId, output) => await callbacks.AcceptFriendRequest(url, info, sessionId, output)
+            ),
+            new RouteAction<EmptyRequestData>(
+                "/client/friend/request/accept-all",
+                async (url, info, sessionId, output) => await callbacks.AcceptAllFriendRequests(url, info, sessionId, output)
+            ),
+            new RouteAction<DeclineFriendRequestData>(
+                "/client/friend/request/decline",
+                async (url, info, sessionId, output) => await callbacks.DeclineFriendRequest(url, info, sessionId, output)
             ),
             new RouteAction<DeleteFriendRequest>(
                 "/client/friend/delete",

@@ -70,7 +70,13 @@ namespace friendlySAIN.Patches
                         return false;
                     }
 
-                    Utils.SpawnHelper.EnsureRecruitDefaults();
+                    if (!friendlySAIN.pickupEnabled.Value)
+                    {
+                        posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Negative);
+                        posibleExecuter.Gesture.TryGestus(EInteraction.NoGesture, true);
+                        __result = false;
+                        return false;
+                    }
 
                     bool canPickup = false;
                     List<Components.BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(player.ProfileId);
@@ -85,12 +91,11 @@ namespace friendlySAIN.Patches
                                bot.GetPlayer.HealthController != null &&
                                bot.GetPlayer.HealthController.IsAlive;
                     });
-                    int configuredPickups = Math.Max(1, Utils.SpawnHelper.Pickups);
-                    int pickLimit = configuredPickups + activeFollowers.FindAll(f => f.IsSquadMate).Count;
+                    int configuredPickups = Math.Max(0, friendlySAIN.maximumPickup.Value);
                     int hardPickupLimit = Math.Min(10, configuredPickups);
                     int currentPickups = activeFollowers.FindAll(f => !f.IsSquadMate).Count;
-                    // if restrictions are enabled
-                    if (Utils.SpawnHelper.Restrictions && pickLimit > 0)
+                    // Tiered pickup uses the old player-vs-bot acceptance rules.
+                    if (friendlySAIN.tieredPickup.Value)
                     {
                         // - SCAV : based on fence level
                         if (player.Side == EPlayerSide.Savage)
@@ -166,7 +171,6 @@ namespace friendlySAIN.Patches
 
                                 // Re-check pickup cap at execution time because this runs deferred and
                                 // multiple recruit requests can be queued in the same window.
-                                Utils.SpawnHelper.EnsureRecruitDefaults();
                                 List<Components.BotFollowerPlayer> deferredFollowers = BossPlayers.GetFollowersByBoss(player.ProfileId);
                                 List<Components.BotFollowerPlayer> deferredActiveFollowers = deferredFollowers.FindAll(f =>
                                 {
@@ -179,7 +183,7 @@ namespace friendlySAIN.Patches
                                            bot.GetPlayer.HealthController != null &&
                                            bot.GetPlayer.HealthController.IsAlive;
                                 });
-                                int deferredConfiguredPickups = Math.Max(1, Utils.SpawnHelper.Pickups);
+                                int deferredConfiguredPickups = Math.Max(0, friendlySAIN.maximumPickup.Value);
                                 int deferredHardPickupLimit = Math.Min(10, deferredConfiguredPickups);
                                 int deferredCurrentPickups = deferredActiveFollowers.FindAll(f => !f.IsSquadMate).Count;
                                 if (deferredCurrentPickups >= deferredHardPickupLimit)

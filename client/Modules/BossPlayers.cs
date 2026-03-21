@@ -14,6 +14,21 @@ using friendlySAIN.Utils;
 
 namespace friendlySAIN.Modules
 {
+    internal class RecruitPickupCandidateRequest
+    {
+        public string ProfileId { get; set; } = string.Empty;
+        public string Nickname { get; set; } = string.Empty;
+        public int Level { get; set; }
+        public string Side { get; set; } = string.Empty;
+        public string Voice { get; set; } = string.Empty;
+        public string Head { get; set; } = string.Empty;
+    }
+
+    internal class RecruitPickupRequest
+    {
+        public List<RecruitPickupCandidateRequest> Candidates { get; set; } = new List<RecruitPickupCandidateRequest>();
+    }
+
     /**
      *  Helper class to manage Boss Players and their followers
      */
@@ -269,7 +284,7 @@ namespace friendlySAIN.Modules
         {
             if (Instance._followers.Count == 0 && (followers == null || followers.Count < 1)) return;
 
-            List<string> toRecruit = new List<string>();
+            List<RecruitPickupCandidateRequest> recruitCandidates = new List<RecruitPickupCandidateRequest>();
 
             var converterClass = typeof(AbstractGame).Assembly.GetTypes()
                    .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
@@ -293,7 +308,28 @@ namespace friendlySAIN.Modules
 
                     if (!item.IsSquadMate)
                     {
-                        toRecruit.Add(pr.Id);
+                        if (friendlySAIN.recruitPickup.Value && item.GetBoss()?.realPlayer?.Side != EPlayerSide.Savage)
+                        {
+                            string voiceId = pr.Customization != null && pr.Customization.TryGetValue(EBodyModelPart.Voice, out MongoID voice) ? voice.ToString() : string.Empty;
+                            string headId = pr.Customization != null && pr.Customization.TryGetValue(EBodyModelPart.Head, out MongoID head) ? head.ToString() : string.Empty;
+
+                            if (!string.IsNullOrWhiteSpace(pr.Id) &&
+                                !string.IsNullOrWhiteSpace(pr.Nickname) &&
+                                !string.IsNullOrWhiteSpace(voiceId) &&
+                                !string.IsNullOrWhiteSpace(headId))
+                            {
+                                recruitCandidates.Add(new RecruitPickupCandidateRequest
+                                {
+                                    ProfileId = pr.Id,
+                                    Nickname = pr.Nickname,
+                                    Level = pr.Info?.Level ?? 1,
+                                    Side = pr.Info?.Side.ToString() ?? string.Empty,
+                                    Voice = voiceId,
+                                    Head = headId,
+                                });
+                            }
+                        }
+
                         continue;
                     }
 
@@ -341,13 +377,12 @@ namespace friendlySAIN.Modules
                 Modules.Logger.LogError(ex);
             }
 
-            if (toRecruit.Count > 0)
+            if (recruitCandidates.Count > 0)
             {
-                /* RequestHandler.PostJson("/client/game/bot/recruit", new
+                RequestHandler.PostJson("/singleplayer/friendlysain/recruitpickup", new RecruitPickupRequest
                 {
-                    Ids = toRecruit.ToArray()
-                }.ToJson(_defaultJsonConverters)); */
-
+                    Candidates = recruitCandidates
+                }.ToJson(_defaultJsonConverters));
             }
         }
         private bool IsBotFollower(BotOwner bot, AIBossPlayer boss = null)

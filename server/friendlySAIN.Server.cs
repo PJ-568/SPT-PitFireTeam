@@ -1,6 +1,9 @@
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
+using SPTarkov.Server.Core.Models.Common;
+using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Mod;
+using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Models.Utils;
 using Range = SemanticVersioning.Range;
 using Version = SemanticVersioning.Version;
@@ -23,11 +26,43 @@ public record FriendlySainServerMetadata : AbstractModMetadata
 }
 
 [Injectable(TypePriority = OnLoadOrder.PostDBModLoader + 1)]
-public class FriendlySainServerPlugin(ISptLogger<FriendlySainServerPlugin> logger) : IOnLoad
+public class FriendlySainServerPlugin(
+    ISptLogger<FriendlySainServerPlugin> logger,
+    DatabaseService databaseService
+) : IOnLoad
 {
     public Task OnLoad()
     {
+        EnforcePmcArmbands();
         logger.Info("friendlySAIN.Server loaded");
         return Task.CompletedTask;
+    }
+
+    private void EnforcePmcArmbands()
+    {
+        var botTypes = databaseService.GetBots().Types;
+
+        ApplyForcedArmband(botTypes, "assaultgroup", ItemTpl.ARMBAND_BLUE);
+        ApplyForcedArmband(botTypes, "usec", ItemTpl.ARMBAND_BLUE);
+        ApplyForcedArmband(botTypes, "bear", ItemTpl.ARMBAND_RED);
+    }
+
+    private void ApplyForcedArmband(
+        Dictionary<string, SPTarkov.Server.Core.Models.Eft.Common.Tables.BotType?> botTypes,
+        string botType,
+        MongoId armbandTpl
+    )
+    {
+        if (!botTypes.TryGetValue(botType, out var bot) || bot is null)
+        {
+            logger.Warning($"Unable to enforce armband for missing bot type '{botType}'");
+            return;
+        }
+
+        bot.BotChances.EquipmentChances["Armband"] = 100;
+        bot.BotInventory.Equipment[EquipmentSlots.ArmBand] = new Dictionary<MongoId, double>
+        {
+            [armbandTpl] = 1,
+        };
     }
 }

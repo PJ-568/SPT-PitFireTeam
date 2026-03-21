@@ -88,6 +88,53 @@ public class FriendlyTeammateService(
         return ToFriendSummary(teammate);
     }
 
+    public SearchFriendResponse CreateTeammateFromRecruitCandidate(MongoId sessionId, FriendlyRecruitPickupCandidate candidate)
+    {
+        var playerPmc = GetPlayerProfile(sessionId);
+        var nickname = EnsureUniqueRecruitNickname(sessionId, NormalizeRequiredValue(candidate.Nickname, "nickname"));
+        var voice = NormalizeRequiredValue(candidate.Voice, "voice");
+        var head = NormalizeRequiredValue(candidate.Head, "head");
+        var targetLevel = Math.Max(1, candidate.Level);
+
+        var teammate = botGenerator.PrepareAndGenerateBot(
+            sessionId,
+            new BotGenerationDetails
+            {
+                IsPmc = true,
+                Side = playerPmc.Info!.Side!,
+                Role = GetPmcRole(playerPmc.Info.Side),
+                PlayerLevel = targetLevel,
+                PlayerName = playerPmc.Info.Nickname,
+                BotRelativeLevelDeltaMax = 0,
+                BotRelativeLevelDeltaMin = 0,
+                BotCountToGenerate = 1,
+                BotDifficulty = "hard",
+                LocationSpecificPmcLevelOverride = new MinMax<int>
+                {
+                    Min = targetLevel,
+                    Max = targetLevel,
+                },
+                IsPlayerScav = false,
+                AllPmcsHaveSameNameAsPlayer = false,
+            }
+        );
+
+        teammate.Info!.Nickname = nickname;
+        teammate.Info.LowerNickname = nickname.ToLowerInvariant();
+        teammate.Customization!.Voice = voice;
+        teammate.Customization.Head = head;
+        teammate.Aid = GetUniqueAccountId(sessionId);
+
+        NormalizeTeammateProfile(teammate, playerPmc);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+        SaveTeammate(sessionId, teammate);
+        SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
+
+        logger.Info($"Accepted recruit pickup '{nickname}' for session '{sessionId}' with aid '{teammate.Aid}'");
+
+        return ToFriendSummary(teammate);
+    }
+
     public List<SearchFriendResponse> ListTeammates(MongoId sessionId)
     {
         return LoadTeammates(sessionId).Select(ToFriendSummary).ToList();
@@ -330,6 +377,25 @@ public class FriendlyTeammateService(
         {
             throw new FriendlyTeammateException($"Teammate nickname '{nickname}' already exists");
         }
+    }
+
+    private string EnsureUniqueRecruitNickname(MongoId sessionId, string nickname)
+    {
+        if (!LoadTeammates(sessionId).Any(profile => string.Equals(profile.Info?.Nickname, nickname, StringComparison.OrdinalIgnoreCase)))
+        {
+            return nickname;
+        }
+
+        var suffix = 1;
+        string candidate;
+        do
+        {
+            candidate = $"{nickname}{suffix}";
+            suffix++;
+        }
+        while (LoadTeammates(sessionId).Any(profile => string.Equals(profile.Info?.Nickname, candidate, StringComparison.OrdinalIgnoreCase)));
+
+        return candidate;
     }
 
     private void NormalizeTeammateProfile(BotBase teammate, PmcData playerPmc)

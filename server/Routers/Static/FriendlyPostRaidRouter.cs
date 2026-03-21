@@ -19,6 +19,10 @@ public class FriendlyPostRaidRouter(JsonUtil jsonUtil, FriendlyPostRaidCallbacks
                 "/singleplayer/teamescaped",
                 async (url, info, sessionId, output) => await callbacks.TeamEscaped(url, info, sessionId)
             ),
+            new RouteAction<FriendlyRecruitPickupRequest>(
+                "/singleplayer/friendlysain/recruitpickup",
+                async (url, info, sessionId, output) => await callbacks.RecruitPickup(url, info, sessionId)
+            ),
         ]
     )
 { }

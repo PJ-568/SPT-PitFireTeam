@@ -103,6 +103,13 @@ namespace friendlySAIN.Patches
         private static readonly FieldInfo BackButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_backButton");
         private static readonly FieldInfo HideoutButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_hideoutButton");
         private static readonly FieldInfo ReportPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_reportPanel");
+        private static readonly FieldInfo OverallStatsPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_overallStatsPanel");
+        private static readonly FieldInfo AchievementsProgressBlockField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_achievementsProgressBlock");
+        private static readonly FieldInfo AchievementsBlockPlaceholderField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_achievementsBlockPlaceholder");
+        private static readonly FieldInfo WeaponsBlockPlaceholderField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_weaponsBlockPlaceholder");
+        private static readonly FieldInfo NonWeaponItemsBlockPlaceholderField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_nonWeaponItemsBlockPlaceholder");
+        private static readonly FieldInfo WeaponsGridLayoutGroupField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_weaponsGridLayoutGroup");
+        private static readonly FieldInfo NonWeaponItemsGridLayoutGroupField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_nonWeaponItemsGridLayoutGroup");
         private static readonly FieldInfo UiField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "UI");
         private static readonly FieldInfo UpperDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_upperButtonDropDown");
         private static readonly FieldInfo LowerDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_lowerButtonDropDown");
@@ -118,6 +125,7 @@ namespace friendlySAIN.Patches
         public static Vector2? OriginalNicknameAnchoredPosition { get; set; }
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
         private static List<GameObject> HiddenRenameButtonDecorations { get; } = new List<GameObject>();
+        private static Dictionary<GameObject, bool> HiddenRightSideRoots { get; } = new Dictionary<GameObject, bool>();
         internal static Action PendingBackOverrideAction { get; set; }
         internal static Action ActiveBackOverrideAction { get; set; }
 
@@ -151,6 +159,8 @@ namespace friendlySAIN.Patches
                 return;
             }
 
+            RestoreProfileRightSideContent(__instance);
+
             if (session?.Profile != null
                 && session.Profile.AccountId == profile.AccountId)
             {
@@ -179,6 +189,7 @@ namespace friendlySAIN.Patches
             playerModelWindow.OnCustomizationChanged += PlayerModelWithStatsWindow_OnCustomizationChanged;
 
             HideProfileActions(__instance);
+            ClearProfileRightSideContent(__instance);
             ConfigureNicknameRenameUi(__instance, playerModelWindow, profile);
 
             clothingPanel.gameObject.SetActive(true);
@@ -396,6 +407,19 @@ namespace friendlySAIN.Patches
             }
 
             HiddenRenameButtonDecorations.Clear();
+        }
+
+        internal static void RestoreProfileRightSideContent(OtherPlayerProfileScreen screen)
+        {
+            foreach (KeyValuePair<GameObject, bool> pair in HiddenRightSideRoots)
+            {
+                if (pair.Key != null)
+                {
+                    pair.Key.SetActive(pair.Value);
+                }
+            }
+
+            HiddenRightSideRoots.Clear();
         }
 
         private static void ShowRenameOverlay(OtherPlayerProfileScreen screen, ResultProfile profile)
@@ -800,6 +824,55 @@ namespace friendlySAIN.Patches
             }
         }
 
+        private static void ClearProfileRightSideContent(OtherPlayerProfileScreen screen)
+        {
+            HideProfileRightSideRoot(screen, OverallStatsPanelField?.GetValue(screen) as Component);
+            HideProfileRightSideRoot(screen, AchievementsProgressBlockField?.GetValue(screen) as Component);
+            HideProfileRightSideRoot(screen, AchievementsBlockPlaceholderField?.GetValue(screen) as GameObject);
+            HideProfileRightSideRoot(screen, WeaponsBlockPlaceholderField?.GetValue(screen) as GameObject);
+            HideProfileRightSideRoot(screen, NonWeaponItemsBlockPlaceholderField?.GetValue(screen) as GameObject);
+            HideProfileRightSideRoot(screen, WeaponsGridLayoutGroupField?.GetValue(screen) as Component);
+            HideProfileRightSideRoot(screen, NonWeaponItemsGridLayoutGroupField?.GetValue(screen) as Component);
+        }
+
+        private static void HideProfileRightSideRoot(OtherPlayerProfileScreen screen, Component component)
+        {
+            HideProfileRightSideRoot(screen, component?.gameObject);
+        }
+
+        private static void HideProfileRightSideRoot(OtherPlayerProfileScreen screen, GameObject target)
+        {
+            if (screen == null || target == null)
+            {
+                return;
+            }
+
+            GameObject root = ResolveProfileSectionRoot(screen.transform, target.transform);
+            if (root == null || HiddenRightSideRoots.ContainsKey(root))
+            {
+                return;
+            }
+
+            HiddenRightSideRoots[root] = root.activeSelf;
+            root.SetActive(false);
+        }
+
+        private static GameObject ResolveProfileSectionRoot(Transform screenRoot, Transform target)
+        {
+            if (screenRoot == null || target == null)
+            {
+                return null;
+            }
+
+            Transform current = target;
+            while (current.parent != null && current.parent != screenRoot)
+            {
+                current = current.parent;
+            }
+
+            return current == screenRoot ? null : current.gameObject;
+        }
+
         private static void ConfigureLoadoutPanel(InventoryClothingSelectionPanel panel, InventoryClothingSelectionPanel sourcePanel)
         {
             DropDownBox upperDropdown = UpperDropdownField?.GetValue(panel) as DropDownBox;
@@ -1082,6 +1155,7 @@ namespace friendlySAIN.Patches
             }
 
             OtherPlayerProfileScreenPatch.RestoreHideoutButtonVisuals(__instance);
+            OtherPlayerProfileScreenPatch.RestoreProfileRightSideContent(__instance);
 
             if (OtherPlayerProfileScreenPatch.LoadoutSelector != null)
             {

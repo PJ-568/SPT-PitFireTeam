@@ -5,6 +5,7 @@ using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using HarmonyLib;
+using Newtonsoft.Json.Linq;
 using SPT.Common.Http;
 using SPT.Common.Utils;
 using SPT.Reflection.Patching;
@@ -63,6 +64,30 @@ namespace friendlySAIN.Patches
             followerCreationTask = new Dictionary<string, Task<Dictionary<string, Profile>>>();
             alliesCreationTask = new Dictionary<string, Task<BotCreationDataClass>>();
             bossCreationTask = new Dictionary<WildSpawnType, Task<BotCreationDataClass>>();
+        }
+
+        private static List<BotDetails> DeserializeFollowerDetails(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return new List<BotDetails>();
+            }
+
+            var token = JToken.Parse(json);
+            if (token.Type == JTokenType.Array)
+            {
+                return token.ToObject<List<BotDetails>>() ?? new List<BotDetails>();
+            }
+
+            var response = token.ToObject<FriendlyTeammateBodyResponse<List<BotDetails>>>();
+            if (response?.err != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Follower details request failed with err={response?.err}: {response?.errmsg}"
+                );
+            }
+
+            return response?.data ?? new List<BotDetails>();
         }
 
         private AICorePoint GetClosestCorePoint(BotsController _botsController, Vector3 position)
@@ -815,7 +840,7 @@ namespace friendlySAIN.Patches
                 {
                     string tacticsBE = RequestHandler.GetJson("/client/game/bot/followerdetails");
 
-                    List<BotDetails> BETactics = Json.Deserialize<List<BotDetails>>(tacticsBE);
+                    List<BotDetails> BETactics = DeserializeFollowerDetails(tacticsBE);
                     foreach (var item in BETactics)
                     {
                         botsTactic[item.Aid] = item.Tactic;

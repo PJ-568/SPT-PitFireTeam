@@ -90,6 +90,8 @@ Current custom teammate feature state:
     - main menu now has a localized `My Squad` entry
     - the Team screen currently has `Roaster` and `Settings` tabs plus stock-style back navigation
     - roster tab currently supports add/remove teammate flows, teammate portrait tiles, teammate profile open/return, and scrolling roster layout for larger squads
+    - settings tab now exposes the main friendlySAIN config set in a stock-style scrollable UI using EFT toggle/slider controls for checkbox and ranged settings
+    - settings entries are grouped/reordered for the current squad-management UX and the duplicated BepInEx ConfigurationManager view is hidden for those settings
     - old friends-list `Add Teammate` entry has been removed in favor of the Team screen entry point
 - Server teammate routes now also include legacy follower spawn/settings compatibility used by the current client:
     - `/client/game/bot/followergenerate`
@@ -104,7 +106,7 @@ Current custom teammate feature state:
 - Current backend/social/profile/runtime limitations:
     - tactic persistence/UI is not implemented yet (`followerdetails` currently returns `Default`)
     - voice/head customization from profile screen is not implemented yet
-    - Team screen `Settings` tab implementation is the current active FE focus; friendlySAIN settings still live in BepInEx config for now
+    - Team screen `Settings` tab is functionally in place for checkbox/ranged friendlySAIN settings; keybind/input-option parity is still pending if needed later
     - teammate invite/group flow still needs more parity with old plugin around pre-raid screen sequencing and group state handling
     - broader team-management/chatbot behaviors from old `friendlyPMC` are not ported
     - teammate profiles remain mod-owned bot JSON, not full stock `SptProfile` accounts

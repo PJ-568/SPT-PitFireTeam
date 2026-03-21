@@ -37,6 +37,9 @@ namespace friendlySAIN.SAINAddon
             try
             {
                 SAINFollowerSquadLayerDisablePatch.Apply(harmony);
+                SAINFollowerAimSwayPatch.Apply(harmony);
+                SAINFollowerHitAccuracyPatch.Apply(harmony);
+                SAINFollowerRecoilPatch.Apply(harmony);
                 SAINFollowerFriendlyFirePatch.Apply(harmony);
                 SAINFollowerGroupTalkDirectionPatch.Apply(harmony);
 

@@ -168,9 +168,18 @@ Current implementation follow-up:
     - remove teammate confirmation flow
     - teammate profile open from roster tile
     - return from teammate profile back into the Team screen
-- Next active FE focus:
-  - move friendlySAIN settings out of BepInEx config and into the Team screen `Settings` tab
-  - preserve the completed roster flow while the settings tab is built out
+- Phase 3 settings implementation is functionally in place:
+  - Team screen `Settings` tab now displays the main friendlySAIN config set
+  - settings use a stock-style scrollable layout
+  - checkbox settings use stock EFT toggle controls
+  - ranged settings use stock EFT slider controls
+  - settings have been regrouped/reordered for the current squad UX
+  - duplicated ConfigurationManager entries are hidden from the BepInEx config UI
+  - keybind/input-option rows are still skipped for now
+
+Next active FE focus:
+  - settings tab polish and any later parity gaps, not first-pass implementation
+  - preserve the completed roster/settings flow while remaining teammate profile and pre-raid parity work continues
 
 Notes from old plugin / description:
 

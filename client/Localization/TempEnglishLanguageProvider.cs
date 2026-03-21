@@ -42,6 +42,18 @@ namespace friendlySAIN.Localization
                 healthMultiplier = Entry(
                     "Squad Health Multiplier",
                     "Health multiplier for the followers you spawn with. This is applied per each body part."),
+                pickup = Entry(
+                    "Pickup",
+                    "Enable or disable the ability to recruit same-side bots during a raid."),
+                tieredPickup = Entry(
+                    "Tiered Pickup",
+                    "Use the player-vs-bot level difference rules when deciding whether a bot accepts a pickup request."),
+                maximumPickup = Entry(
+                    "Maximum Pickup",
+                    "Maximum number of non-squad same-side bots you can pick up during a raid."),
+                recruitPickup = Entry(
+                    "Recruit Pickup",
+                    "Allow picked-up followers that were successfully extracted with to send friend requests. This uses player-vs-bot level difference rules when deciding."),
                 npcSendMessage = Entry(
                     "Raid End Messages",
                     "Followers will send message at the end of the raid based on conditions such as if all made it out or if you picked up a follower and kept him alive. Return items messages are excluded"),
@@ -64,7 +76,7 @@ namespace friendlySAIN.Localization
                     "Report Status Volume",
                     "Volume of the radio sound when triggering report status"),
                 pingTime = Entry(
-                    "Ping Squad Display Time",
+                    "Report Status Display Time",
                     "Time in seconds to display the followers status"),
                 enemyContact = Entry(
                     "Enemy Report",

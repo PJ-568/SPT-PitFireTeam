@@ -76,6 +76,7 @@ namespace friendlySAIN.Components
         private Tab settingsTab;
         private UIAnimatedToggleSpawner rosterAnimatedTab;
         private UIAnimatedToggleSpawner settingsAnimatedTab;
+        private ToggleGroup tabToggleGroup;
         private RectTransform stockCardsContainer;
         private RectTransform rosterPanelRect;
         private ScrollRectNoDrag rosterScrollRect;
@@ -400,6 +401,7 @@ namespace friendlySAIN.Components
         private void CreateScreenChrome()
         {
             RectTransform rootRect = screenRoot.GetComponent<RectTransform>();
+            EnsureTabToggleGroup();
             CreateHeader(rootRect);
 
             if (!TryCreateStockTraderChrome(rootRect))
@@ -821,10 +823,23 @@ namespace friendlySAIN.Components
             }
 
             foreach (ConfigEntryBase entry in GetSettingsEntries(
-                friendlySAIN.friendlySAINFLAG,
-                friendlySAIN.pmcArmbands,
-                friendlySAIN.badGuy,
+                friendlySAIN.pickupEnabled,
+                friendlySAIN.tieredPickup,
+                friendlySAIN.maximumPickup,
+                friendlySAIN.recruitPickup,
                 friendlySAIN.npcSendMessage,
+                friendlySAIN.friendlySAINFLAG,
+                friendlySAIN.badGuy,
+                friendlySAIN.pmcArmbands))
+            {
+                yield return new SquadSettingEntry
+                {
+                    SectionTitle = friendlySAIN.optionsLang?.raidSettings ?? "Raid Settings",
+                    Entry = entry
+                };
+            }
+
+            foreach (ConfigEntryBase entry in GetSettingsEntries(
                 friendlySAIN.heatlhMultiplier,
                 friendlySAIN.botPrefetch))
             {
@@ -1807,6 +1822,11 @@ namespace friendlySAIN.Components
             rect.localScale = Vector3.one;
 
             UISpawnableToggle spawnableToggle = tab.SpawnableToggle;
+            if (tabToggleGroup != null)
+            {
+                spawnableToggle.method_1(tabToggleGroup);
+            }
+
             if (SpawnableToggleHeaderLabelField?.GetValue(spawnableToggle) is TextMeshProUGUI headerLabel)
             {
                 headerLabel.text = label.ToUpperInvariant();
@@ -1826,6 +1846,7 @@ namespace friendlySAIN.Components
             spawnableToggle.Interactable = true;
             if (tab.SpawnedObject != null)
             {
+                tab.SpawnedObject.group = tabToggleGroup;
                 tab.SpawnedObject.interactable = true;
             }
 
@@ -1847,6 +1868,22 @@ namespace friendlySAIN.Components
             });
 
             tab.ToggleSilently(selected);
+        }
+
+        private void EnsureTabToggleGroup()
+        {
+            if (screenRoot == null)
+            {
+                return;
+            }
+
+            tabToggleGroup = screenRoot.GetComponent<ToggleGroup>();
+            if (tabToggleGroup == null)
+            {
+                tabToggleGroup = screenRoot.AddComponent<ToggleGroup>();
+            }
+
+            tabToggleGroup.allowSwitchOff = false;
         }
 
         private UIAnimatedToggleSpawner ResolveRagfairToggleTemplate(bool primary)

@@ -26,6 +26,9 @@ namespace friendlySAIN.Patches
     {
         private static SocialNetworkClass? socialNetworkClass;
         private static IChatInteractions? iChatInteractions;
+        private static readonly MethodInfo RefreshFriendsCallbackMethod = AccessTools.Method(typeof(SocialNetworkClass), "method_13");
+        private static readonly MethodInfo RefreshInputRequestsCallbackMethod = AccessTools.Method(typeof(SocialNetworkClass), "method_14");
+        private static readonly MethodInfo RefreshOutputRequestsCallbackMethod = AccessTools.Method(typeof(SocialNetworkClass), "method_15");
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(SocialNetworkClass), "method_1");
@@ -45,7 +48,20 @@ namespace friendlySAIN.Patches
             if (socialNetworkClass != null && iChatInteractions != null && delay < Time.time)
             {
                 delay = Time.time + 2;
-                iChatInteractions.GetFriendsList(new Callback<GClass1055>(socialNetworkClass.method_13));
+                iChatInteractions.GetFriendsList(new Callback<GClass1055>(result =>
+                {
+                    RefreshFriendsCallbackMethod?.Invoke(socialNetworkClass, new object[] { result });
+                }));
+
+                iChatInteractions.GetInputFriendsRequests(new Callback<GClass1056[]>(result =>
+                {
+                    RefreshInputRequestsCallbackMethod?.Invoke(socialNetworkClass, new object[] { result });
+                }));
+
+                iChatInteractions.GetOutputFriendsRequests(new Callback<GClass1056[]>(result =>
+                {
+                    RefreshOutputRequestsCallbackMethod?.Invoke(socialNetworkClass, new object[] { result });
+                }));
             }
         }
     }
@@ -69,6 +85,20 @@ namespace friendlySAIN.Patches
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(ChatCreateDialoguePanel), "Show");
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix()
+        {
+            SocialNetworkClassPatch.RefreshFriendsList();
+        }
+    }
+
+    internal class ChatFriendsRequestsPanelRefreshPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ChatFriendsRequestsPanel), "Show");
         }
 
         [PatchPrefix]
@@ -170,6 +200,15 @@ namespace friendlySAIN.Patches
     {
         private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
 
+        private sealed class TeammateInviteEntry
+        {
+            public string AccountId;
+            public string Id;
+            public string Nickname;
+            public int Level;
+            public EChatMemberSide Side;
+        }
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(FriendListInvitePlayerPanel), nameof(FriendListInvitePlayerPanel.Show));
@@ -185,6 +224,7 @@ namespace friendlySAIN.Patches
         {
             List<UpdatableChatMember> filtered = new List<UpdatableChatMember>();
             HashSet<string> seenAccountIds = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<string, TeammateInviteEntry> teammatesByAccountId = LoadTeammateInviteEntries();
 
             if (source != null)
             {
@@ -196,6 +236,11 @@ namespace friendlySAIN.Patches
                     }
 
                     string accountId = GetStableAccountId(member);
+                    if (teammatesByAccountId.ContainsKey(accountId))
+                    {
+                        NormalizeInviteTeammateMember(member);
+                    }
+
                     if (!seenAccountIds.Add(accountId))
                     {
                         continue;
@@ -205,19 +250,42 @@ namespace friendlySAIN.Patches
                 }
             }
 
+            foreach (TeammateInviteEntry teammate in teammatesByAccountId.Values)
+            {
+                if (!seenAccountIds.Add(teammate.AccountId))
+                {
+                    continue;
+                }
+
+                UpdatableChatMember teammateMember = UpdatableChatMember.FindOrCreate(teammate.Id, static memberId => new UpdatableChatMember(memberId));
+                teammateMember.AccountId = teammate.AccountId;
+                teammateMember.Info.Nickname = teammate.Nickname;
+                teammateMember.Info.Level = teammate.Level;
+                teammateMember.Info.Side = teammate.Side;
+                NormalizeInviteTeammateMember(teammateMember);
+                filtered.Add(teammateMember);
+            }
+
+            return new GClass1628<UpdatableChatMember>(filtered);
+        }
+
+        private static Dictionary<string, TeammateInviteEntry> LoadTeammateInviteEntries()
+        {
+            Dictionary<string, TeammateInviteEntry> teammatesByAccountId = new Dictionary<string, TeammateInviteEntry>(StringComparer.Ordinal);
+
             try
             {
                 string response = RequestHandler.GetJson(TeammatesRoute);
                 if (string.IsNullOrWhiteSpace(response))
                 {
-                    return new GClass1628<UpdatableChatMember>(filtered);
+                    return teammatesByAccountId;
                 }
 
                 JToken root = JToken.Parse(response);
                 JToken dataToken = root.Type == JTokenType.Array ? root : root["data"];
                 if (dataToken is not JArray teammates)
                 {
-                    return new GClass1628<UpdatableChatMember>(filtered);
+                    return teammatesByAccountId;
                 }
 
                 foreach (JToken teammate in teammates)
@@ -231,19 +299,14 @@ namespace friendlySAIN.Patches
                         continue;
                     }
 
-                    if (!seenAccountIds.Add(accountId))
+                    teammatesByAccountId[accountId] = new TeammateInviteEntry
                     {
-                        continue;
-                    }
-
-                    UpdatableChatMember teammateMember = UpdatableChatMember.FindOrCreate(id, static memberId => new UpdatableChatMember(memberId));
-                    teammateMember.AccountId = accountId;
-                    teammateMember.Info.Nickname = nickname;
-                    teammateMember.Info.Level = ParseInt(teammate?["Info"]?["Level"]?.ToString() ?? teammate?["info"]?["level"]?.ToString());
-                    teammateMember.Info.MemberCategory = EMemberCategory.Unheard;
-                    teammateMember.Info.SelectedMemberCategory = EMemberCategory.Unheard;
-                    teammateMember.Info.Side = ParseSide(teammate?["Info"]?["Side"]?.ToString() ?? teammate?["info"]?["side"]?.ToString());
-                    filtered.Add(teammateMember);
+                        AccountId = accountId,
+                        Id = id,
+                        Nickname = nickname,
+                        Level = ParseInt(teammate?["Info"]?["Level"]?.ToString() ?? teammate?["info"]?["level"]?.ToString()),
+                        Side = ParseSide(teammate?["Info"]?["Side"]?.ToString() ?? teammate?["info"]?["side"]?.ToString())
+                    };
                 }
             }
             catch (Exception ex)
@@ -252,7 +315,18 @@ namespace friendlySAIN.Patches
                 Modules.Logger.LogError(ex);
             }
 
-            return new GClass1628<UpdatableChatMember>(filtered);
+            return teammatesByAccountId;
+        }
+
+        private static void NormalizeInviteTeammateMember(UpdatableChatMember member)
+        {
+            if (member?.Info == null)
+            {
+                return;
+            }
+
+            member.Info.MemberCategory = EMemberCategory.Unheard;
+            member.Info.SelectedMemberCategory = EMemberCategory.Unheard;
         }
 
         private static bool ShouldIncludeInviteMember(UpdatableChatMember member)

@@ -4,6 +4,7 @@ using EFT.UI.Matchmaker;
 using friendlySAIN.Utils;
 using HarmonyLib;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SPT.Common.Http;
 using SPT.Common.Utils;
 using SPT.Reflection.Patching;
@@ -13,6 +14,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using TMPro;
+using UnityEngine;
 using playerGroup = System.Collections.Generic.List<GroupPlayerViewModelClass>;
 
 namespace friendlySAIN.Patches
@@ -319,6 +321,10 @@ namespace friendlySAIN.Patches
      */
     internal class MatchmakerPlayerControllerClassAddMemberPatch : ModulePatch
     {
+        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private static readonly HashSet<string> TeammateAccountIds = new HashSet<string>(StringComparer.Ordinal);
+        private static float _nextRefreshTime;
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(GClass3926<RaidSettings>), "method_39");
@@ -327,7 +333,92 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(MatchmakerPlayerControllerClass __instance, GroupPlayerViewModelClass player)
         {
+            NormalizeTeammateIconCategory(player);
+            EnsureTeammateVisualHealth(__instance, player);
             if (__instance.CurrentPlayer != player && !MainMenuControllerPatch.GroupPlayers.Contains(player)) MainMenuControllerPatch.GroupPlayers.Add(player);
+        }
+
+        private static void NormalizeTeammateIconCategory(GroupPlayerViewModelClass player)
+        {
+            if (player == null || string.IsNullOrWhiteSpace(player.AccountId))
+            {
+                return;
+            }
+
+            RefreshTeammateCacheIfNeeded();
+            if (!TeammateAccountIds.Contains(player.AccountId))
+            {
+                return;
+            }
+
+            if (player.Info != null)
+            {
+                player.Info.MemberCategory = EMemberCategory.Unheard;
+                player.Info.SelectedMemberCategory = EMemberCategory.Unheard;
+            }
+
+            if (player.PlayerVisualRepresentation?.Info != null)
+            {
+                player.PlayerVisualRepresentation.Info.MemberCategory = EMemberCategory.Unheard;
+                player.PlayerVisualRepresentation.Info.SelectedMemberCategory = EMemberCategory.Unheard;
+            }
+        }
+
+        private static void EnsureTeammateVisualHealth(MatchmakerPlayerControllerClass controller, GroupPlayerViewModelClass player)
+        {
+            if (controller?.CurrentPlayer?.Info?.Health == null || player?.PlayerVisualRepresentation?.Info == null)
+            {
+                return;
+            }
+
+            RefreshTeammateCacheIfNeeded();
+            if (!TeammateAccountIds.Contains(player.AccountId) || player.PlayerVisualRepresentation.Info.Health != null)
+            {
+                return;
+            }
+
+            player.PlayerVisualRepresentation.Info.Health = controller.CurrentPlayer.Info.Health.Clone();
+        }
+
+        private static void RefreshTeammateCacheIfNeeded()
+        {
+            if (Time.time < _nextRefreshTime)
+            {
+                return;
+            }
+
+            _nextRefreshTime = Time.time + 5f;
+
+            try
+            {
+                string response = RequestHandler.GetJson(TeammatesRoute);
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    return;
+                }
+
+                JToken root = JToken.Parse(response);
+                JToken dataToken = root.Type == JTokenType.Array ? root : root["data"];
+                if (dataToken is not JArray teammates)
+                {
+                    return;
+                }
+
+                TeammateAccountIds.Clear();
+                foreach (JToken teammate in teammates)
+                {
+                    string? accountId = teammate?["Aid"]?.ToString() ?? teammate?["aid"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(accountId))
+                    {
+                        TeammateAccountIds.Add(accountId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to refresh teammate cache for matchmaker icon normalization.");
+                friendlySAIN.Log.LogError(ex);
+            }
         }
     }
     /**

@@ -75,10 +75,16 @@ namespace friendlySAIN.Patches
                 // Show cooperation for any alive non-follower AI target.
                 try
                 {
+                    if (!friendlySAIN.pickupEnabled.Value)
+                    {
+                        __instance.method_7(EPhraseTrigger.Cooperation, false);
+                        return false;
+                    }
+
                     if (player.InteractablePlayer != null && player.InteractablePlayer.IsAI && player.InteractablePlayer.HealthController.IsAlive)
                     {
                         BotOwner targetBot = player.InteractablePlayer.AIData?.BotOwner;
-                        if (targetBot == null || BossPlayers.IsFollower(targetBot))
+                        if (targetBot == null || BossPlayers.IsFollower(targetBot) || player.InteractablePlayer.Side != player.Side)
                         {
                             __instance.method_7(EPhraseTrigger.Cooperation, false);
 

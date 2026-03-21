@@ -6,12 +6,14 @@ using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Dialog;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Utils;
+using System;
 
 namespace friendlySAIN.Server.Callbacks;
 
 [Injectable]
 public class FriendlyTeammateSocialCallbacks(
     FriendlyTeammateService teammateService,
+    FriendlyRecruitService recruitService,
     HttpResponseUtil httpResponseUtil,
     JsonUtil jsonUtil
 )
@@ -42,6 +44,24 @@ public class FriendlyTeammateSocialCallbacks(
         return new ValueTask<string>(httpResponseUtil.GetBody(response, body?.Err ?? 0, body?.ErrMsg));
     }
 
+    public ValueTask<string> MergeFriendRequestInbox(string url, EmptyRequestData _, MongoId sessionId, string? previousOutput)
+    {
+        var body = DeserializeBody<List<FriendlySocialFriendRequestEntry>>(previousOutput);
+        var response = body?.Data ?? [];
+
+        foreach (var request in recruitService.ListRecruitFriendRequests(sessionId))
+        {
+            if (response.Any(existing => string.Equals(existing.From, request.From, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            response.Add(request);
+        }
+
+        return new ValueTask<string>(httpResponseUtil.GetBody(response, body?.Err ?? 0, body?.ErrMsg));
+    }
+
     public ValueTask<string> MergeProfileView(string url, GetOtherProfileRequest request, MongoId sessionId, string? previousOutput)
     {
         if (!teammateService.TryGetTeammateProfile(sessionId, request.AccountId, out var teammateProfile))
@@ -55,6 +75,32 @@ public class FriendlyTeammateSocialCallbacks(
     public ValueTask<string> DeleteFriend(string url, DeleteFriendRequest request, MongoId sessionId, string? previousOutput)
     {
         teammateService.DeleteTeammateByProfileId(sessionId, request.FriendId);
+        return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
+    }
+
+    public ValueTask<string> AcceptFriendRequest(string url, AcceptFriendRequestData request, MongoId sessionId, string? previousOutput)
+    {
+        if (recruitService.AcceptRecruitRequest(sessionId, request.ProfileId))
+        {
+            return new ValueTask<string>(httpResponseUtil.NullResponse());
+        }
+
+        return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
+    }
+
+    public ValueTask<string> AcceptAllFriendRequests(string url, EmptyRequestData request, MongoId sessionId, string? previousOutput)
+    {
+        recruitService.AcceptAllRecruitRequests(sessionId);
+        return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
+    }
+
+    public ValueTask<string> DeclineFriendRequest(string url, DeclineFriendRequestData request, MongoId sessionId, string? previousOutput)
+    {
+        if (recruitService.DeclineRecruitRequest(sessionId, request.ProfileId))
+        {
+            return new ValueTask<string>(httpResponseUtil.NullResponse());
+        }
+
         return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
     }
 
