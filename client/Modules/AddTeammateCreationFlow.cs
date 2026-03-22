@@ -75,6 +75,24 @@ namespace friendlySAIN.Modules
 
         public static void ReturnToMainScreen()
         {
+            if (pendingReturnAction != null)
+            {
+                if (friendlySAIN.Instance == null)
+                {
+                    InvokePendingReturnAction();
+                    return;
+                }
+
+                if (returnCoroutine != null)
+                {
+                    friendlySAIN.Instance.StopCoroutine(returnCoroutine);
+                }
+
+                returnInProgress = true;
+                returnCoroutine = friendlySAIN.Instance.StartCoroutine(ReturnToPendingScreen());
+                return;
+            }
+
             if (friendlySAIN.Instance == null)
             {
                 CurrentScreenSingletonClass.Instance.TryReturnToRootScreen().HandleExceptions();
@@ -429,6 +447,16 @@ namespace friendlySAIN.Modules
             returnInProgress = false;
         }
 
+        private static IEnumerator ReturnToPendingScreen()
+        {
+            yield return null;
+
+            InvokePendingReturnAction();
+
+            returnCoroutine = null;
+            returnInProgress = false;
+        }
+
         private static void HideSkippedSideSelectionVisuals(EftAccountSideSelectionScreen screen)
         {
             try
@@ -573,6 +601,7 @@ namespace friendlySAIN.Modules
                 back.onClick.AddListener(backButtonAction);
                 wiredBackButton = back;
             }
+
         }
 
         private static void OnNextButtonPressed()
@@ -635,6 +664,7 @@ namespace friendlySAIN.Modules
             string messageTemplate = GetLocalizedSocialUi("AddTeammateInProgress", DefaultAddTeammateToast);
             ShowToast(string.Format(messageTemplate, nickname ?? string.Empty));
             SocialNetworkClassPatch.RefreshFriendsList();
+            Components.SquadControlMenuUi.RequestRosterRefreshOnNextInject();
             yield return null;
             ReturnToMainScreen();
         }
@@ -650,6 +680,9 @@ namespace friendlySAIN.Modules
 
             try
             {
+                // Returning from the add-teammate flow should reopen squad side-selection
+                // on the first back press. Clear squad-mode guard before invoking callback.
+                SquadSideSelectionFlow.Deactivate("return-from-add-teammate");
                 callback();
             }
             catch (Exception ex)

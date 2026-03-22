@@ -202,3 +202,7 @@ Notes from old plugin / description:
 - Right-click `Invite to group` was the main way to bring a saved member into the next raid.
 - Profile view supported clothes, tactic, equipment, voice, and head.
 - The intended user experience is that teammate raids feel like the normal solo pre-raid flow, except the ready/loading screens show the squad instead of only the player.
+
+# FUTURE IDEAS
+
+- Hide the main menu bottom navigation bar when `My Squad` screen is open (same as it is hidden when the Add Teammate character creation screen opens).

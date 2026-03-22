@@ -4,6 +4,7 @@ using EFT.UI.Ragfair;
 using friendlySAIN.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
+using SPT.Reflection.Utils;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -33,7 +34,11 @@ namespace friendlySAIN.Patches
         private static readonly FieldInfo SpawnableToggleHeaderLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_headerLabel");
         private static readonly FieldInfo SpawnableToggleSizeLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_sizeLabel");
         private static readonly FieldInfo BackButtonField = AccessTools.Field(typeof(MatchMakerSideSelectionScreen), "_backButton");
-        private static readonly UnityAction BackExitAction = () => SquadSideSelectionFlow.Deactivate("side-selection-back");
+        private static readonly UnityAction BackExitAction = () =>
+        {
+            SquadSideSelectionFlow.Deactivate("side-selection-back");
+            CurrentScreenSingletonClass.Instance.TryReturnToRootScreen().HandleExceptions();
+        };
 
         // Serialized fields to hide via reflection (elements not covered by named containers below)
         private static readonly string[] NativeHideFields =
@@ -297,7 +302,8 @@ namespace friendlySAIN.Patches
                 return;
             }
 
-            backButton.OnClick.RemoveListener(BackExitAction);
+            // Override stock back history behavior so squad-mode back always returns to main menu.
+            backButton.OnClick.RemoveAllListeners();
             backButton.OnClick.AddListener(BackExitAction);
         }
 

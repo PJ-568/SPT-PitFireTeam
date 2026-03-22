@@ -48,7 +48,7 @@ namespace friendlySAIN.Components
         private const float SettingsHeaderHeight = 36f;
         private const float SettingsSpacing = 12f;
         private const float SettingsControlRightInset = 52f;
-        private const float SettingsShortcutRightInset = 148f;
+        private const float SettingsShortcutRightInset = 128f;
         private const float SettingsSliderVerticalOffset = 36f;
 
         private static readonly FieldInfo HeaderLabelField = AccessTools.Field(typeof(DefaultUIButton), "_headerLabel");
@@ -93,6 +93,12 @@ namespace friendlySAIN.Components
         private readonly Dictionary<RectTransform, Vector2> originalButtonPositions = new Dictionary<RectTransform, Vector2>();
         private readonly StringBuilder shortcutBuilder = new StringBuilder();
         private int rosterBuildVersion;
+        private static bool forceRosterRefreshOnNextInject;
+
+        internal static void RequestRosterRefreshOnNextInject()
+        {
+            forceRosterRefreshOnNextInject = true;
+        }
 
         private sealed class SquadRosterEntry
         {
@@ -355,10 +361,10 @@ namespace friendlySAIN.Components
 
             ShowTab(true);
 
-            // Only rebuild on first open (no tiles yet).
-            // On subsequent opens the existing tiles are still alive (panels were just reparented, not destroyed).
-            // Add/remove flows call RebuildRosterTiles() directly, so cached tiles stay correct.
-            bool needsRoster = rosterGridRoot != null && rosterGridRoot.childCount == 0;
+            // Rebuild roster only on first open or when explicitly requested by add-teammate flow.
+            bool shouldForceRosterRefresh = forceRosterRefreshOnNextInject;
+            forceRosterRefreshOnNextInject = false;
+            bool needsRoster = rosterGridRoot != null && (rosterGridRoot.childCount == 0 || shouldForceRosterRefresh);
             bool needsSettings = settingsContentRoot != null && settingsContentRoot.childCount == 0;
 
             if (needsRoster || needsSettings)
@@ -2061,13 +2067,14 @@ namespace friendlySAIN.Components
         {
             CloseRemoveConfirmOverlay();
 
-            if (screenRoot == null || entry == null)
+            Transform? overlayParent = rosterPanel?.transform.parent;
+            if (overlayParent == null || entry == null)
             {
                 return;
             }
 
             GameObject overlayRoot = new GameObject("friendlySAIN_RemoveOverlay", typeof(RectTransform), typeof(Image));
-            overlayRoot.transform.SetParent(screenRoot.transform, false);
+            overlayRoot.transform.SetParent(overlayParent, false);
             RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
             Stretch(overlayRect);
             overlayRect.SetAsLastSibling();

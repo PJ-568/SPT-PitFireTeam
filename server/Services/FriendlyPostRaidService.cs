@@ -137,8 +137,8 @@ public class FriendlyPostRaidService(
                 Nickname = "Squadmate Courier",
                 Side = "Usec",
                 Level = 50,
-                MemberCategory = MemberCategory.Trader,
-                SelectedMemberCategory = MemberCategory.Trader,
+                MemberCategory = MemberCategory.System,
+                SelectedMemberCategory = MemberCategory.System,
             },
         };
     }
