@@ -44,11 +44,11 @@ namespace friendlySAIN.Components
         private const float SettingsViewportTopInset = 34f;
         private const float SettingsViewportBottomInset = 28f;
         private const float SettingsViewportSideInset = 24f;
-        private const float SettingsRowHeight = 112f;
-        private const float SettingsHeaderHeight = 42f;
-        private const float SettingsSpacing = 16f;
-        private const float SettingsControlRightInset = 50f;
-        private const float SettingsShortcutRightInset = 140f;
+        private const float SettingsRowHeight = 104f;
+        private const float SettingsHeaderHeight = 36f;
+        private const float SettingsSpacing = 12f;
+        private const float SettingsControlRightInset = 52f;
+        private const float SettingsShortcutRightInset = 148f;
         private const float SettingsSliderVerticalOffset = 36f;
 
         private static readonly FieldInfo HeaderLabelField = AccessTools.Field(typeof(DefaultUIButton), "_headerLabel");
@@ -66,6 +66,7 @@ namespace friendlySAIN.Components
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
         private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
         private static Sprite squadIconSprite;
+        private static Sprite rosterTileDiagonalSprite;
 
         private MenuScreen menuScreen;
         private DefaultUIButton playerButton;
@@ -883,11 +884,28 @@ namespace friendlySAIN.Components
             GameObject labelObject = CreateText("Label", title.ToUpperInvariant(), 22f, TextAlignmentOptions.MidlineLeft);
             labelObject.transform.SetParent(headerObject.transform, false);
             RectTransform labelRect = labelObject.GetComponent<RectTransform>();
-            Stretch(labelRect);
+            labelRect.anchorMin = new Vector2(0f, 0f);
+            labelRect.anchorMax = new Vector2(1f, 1f);
+            labelRect.offsetMin = new Vector2(6f, 0f);
+            labelRect.offsetMax = new Vector2(0f, -6f);
 
             TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
             label.color = new Color(0.92f, 0.82f, 0.63f, 1f);
             label.fontWeight = FontWeight.Bold;
+            label.fontSize = 20f;
+
+            GameObject dividerObject = new GameObject("Divider", typeof(RectTransform), typeof(Image));
+            dividerObject.transform.SetParent(headerObject.transform, false);
+            RectTransform dividerRect = dividerObject.GetComponent<RectTransform>();
+            dividerRect.anchorMin = new Vector2(0f, 0f);
+            dividerRect.anchorMax = new Vector2(1f, 0f);
+            dividerRect.pivot = new Vector2(0.5f, 0f);
+            dividerRect.offsetMin = new Vector2(6f, 0f);
+            dividerRect.offsetMax = new Vector2(-6f, 1f);
+
+            Image divider = dividerObject.GetComponent<Image>();
+            divider.color = new Color(0.54f, 0.45f, 0.29f, 0.45f);
+            divider.raycastTarget = false;
         }
 
         private void CreateSettingsEntryRow(ConfigEntryBase entry)
@@ -909,11 +927,13 @@ namespace friendlySAIN.Components
             layout.flexibleWidth = 1f;
 
             Image background = rowObject.GetComponent<Image>();
-            background.color = new Color(0.08f, 0.08f, 0.08f, 0.94f);
+            background.color = new Color(0.07f, 0.07f, 0.07f, 0.84f);
             background.raycastTarget = true;
 
             RectTransform rowRect = rowObject.GetComponent<RectTransform>();
             rowRect.sizeDelta = new Vector2(0f, SettingsRowHeight);
+
+            CreateSettingsRowChrome(rowObject.transform);
 
             GameObject nameObject = CreateText("Name", GetSettingDisplayName(entry), 22f, TextAlignmentOptions.MidlineLeft);
             nameObject.transform.SetParent(rowObject.transform, false);
@@ -921,11 +941,12 @@ namespace friendlySAIN.Components
             nameRect.anchorMin = new Vector2(0f, 1f);
             nameRect.anchorMax = new Vector2(1f, 1f);
             nameRect.pivot = new Vector2(0f, 1f);
-            nameRect.offsetMin = new Vector2(18f, -38f);
-            nameRect.offsetMax = new Vector2(-402f, -8f);
+            nameRect.offsetMin = new Vector2(22f, -34f);
+            nameRect.offsetMax = new Vector2(-418f, -8f);
 
             TextMeshProUGUI nameLabel = nameObject.GetComponent<TextMeshProUGUI>();
             nameLabel.fontWeight = FontWeight.SemiBold;
+            nameLabel.fontSize = 20f;
 
             GameObject descriptionObject = CreateText("Description", entry.Description?.Description ?? string.Empty, 16f, TextAlignmentOptions.TopLeft);
             descriptionObject.transform.SetParent(rowObject.transform, false);
@@ -933,12 +954,12 @@ namespace friendlySAIN.Components
             descriptionRect.anchorMin = new Vector2(0f, 0f);
             descriptionRect.anchorMax = new Vector2(1f, 1f);
             descriptionRect.pivot = new Vector2(0f, 1f);
-            descriptionRect.offsetMin = new Vector2(18f, 14f);
-            descriptionRect.offsetMax = new Vector2(-402f, -42f);
+            descriptionRect.offsetMin = new Vector2(22f, 16f);
+            descriptionRect.offsetMax = new Vector2(-418f, -38f);
 
             TextMeshProUGUI descriptionLabel = descriptionObject.GetComponent<TextMeshProUGUI>();
-            descriptionLabel.fontSize = 15f;
-            descriptionLabel.color = new Color(0.74f, 0.74f, 0.74f, 1f);
+            descriptionLabel.fontSize = 14f;
+            descriptionLabel.color = new Color(0.72f, 0.72f, 0.72f, 1f);
             descriptionLabel.enableWordWrapping = true;
             descriptionLabel.overflowMode = TextOverflowModes.Ellipsis;
 
@@ -976,6 +997,37 @@ namespace friendlySAIN.Components
             }
 
             CreateReadOnlySettingControl(controlRect, entry.BoxedValue?.ToString() ?? string.Empty);
+        }
+
+        private static void CreateSettingsRowChrome(Transform rowTransform)
+        {
+            GameObject topLineObject = new GameObject("TopLine", typeof(RectTransform), typeof(Image));
+            topLineObject.transform.SetParent(rowTransform, false);
+
+            RectTransform topLineRect = topLineObject.GetComponent<RectTransform>();
+            topLineRect.anchorMin = new Vector2(0f, 1f);
+            topLineRect.anchorMax = new Vector2(1f, 1f);
+            topLineRect.pivot = new Vector2(0.5f, 1f);
+            topLineRect.offsetMin = new Vector2(12f, -1f);
+            topLineRect.offsetMax = new Vector2(-12f, 0f);
+
+            Image topLine = topLineObject.GetComponent<Image>();
+            topLine.color = new Color(0.68f, 0.58f, 0.38f, 0.14f);
+            topLine.raycastTarget = false;
+
+            GameObject bottomLineObject = new GameObject("BottomLine", typeof(RectTransform), typeof(Image));
+            bottomLineObject.transform.SetParent(rowTransform, false);
+
+            RectTransform bottomLineRect = bottomLineObject.GetComponent<RectTransform>();
+            bottomLineRect.anchorMin = new Vector2(0f, 0f);
+            bottomLineRect.anchorMax = new Vector2(1f, 0f);
+            bottomLineRect.pivot = new Vector2(0.5f, 0f);
+            bottomLineRect.offsetMin = new Vector2(12f, 0f);
+            bottomLineRect.offsetMax = new Vector2(-12f, 1f);
+
+            Image bottomLine = bottomLineObject.GetComponent<Image>();
+            bottomLine.color = new Color(0f, 0f, 0f, 0.42f);
+            bottomLine.raycastTarget = false;
         }
 
         private void CreateBoolSettingControl(RectTransform parent, ConfigEntryBase entry)
@@ -1560,21 +1612,33 @@ namespace friendlySAIN.Components
             buttonRect.anchorMin = new Vector2(1f, 0.5f);
             buttonRect.anchorMax = new Vector2(1f, 0.5f);
             buttonRect.pivot = new Vector2(1f, 0.5f);
-            buttonRect.sizeDelta = new Vector2(244f, 42f);
+            buttonRect.sizeDelta = new Vector2(232f, 36f);
             buttonRect.anchoredPosition = Vector2.zero;
 
             Image background = buttonObject.GetComponent<Image>();
-            background.color = new Color(0.18f, 0.18f, 0.18f, 1f);
+            background.color = new Color(0.52f, 0.43f, 0.27f, 0.88f);
             background.raycastTarget = true;
+
+            GameObject fillObject = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+            fillObject.transform.SetParent(buttonObject.transform, false);
+            RectTransform fillRect = fillObject.GetComponent<RectTransform>();
+            fillRect.anchorMin = Vector2.zero;
+            fillRect.anchorMax = Vector2.one;
+            fillRect.offsetMin = new Vector2(1f, 1f);
+            fillRect.offsetMax = new Vector2(-1f, -1f);
+
+            Image fill = fillObject.GetComponent<Image>();
+            fill.color = new Color(0.12f, 0.12f, 0.12f, 0.96f);
+            fill.raycastTarget = true;
 
             Button button = buttonObject.GetComponent<Button>();
             button.transition = Selectable.Transition.ColorTint;
-            button.targetGraphic = background;
+            button.targetGraphic = fill;
 
             ColorBlock colors = button.colors;
             colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(1f, 0.96f, 0.9f, 1f);
-            colors.pressedColor = new Color(0.92f, 0.92f, 0.92f, 1f);
+            colors.highlightedColor = new Color(1f, 0.97f, 0.92f, 1f);
+            colors.pressedColor = new Color(0.86f, 0.86f, 0.86f, 1f);
             colors.selectedColor = Color.white;
             colors.disabledColor = new Color(1f, 1f, 1f, 0.55f);
             button.colors = colors;
@@ -1582,8 +1646,14 @@ namespace friendlySAIN.Components
             GameObject labelObject = CreateText("Label", string.Empty, 18f, TextAlignmentOptions.Center);
             labelObject.transform.SetParent(buttonObject.transform, false);
             RectTransform labelRect = labelObject.GetComponent<RectTransform>();
-            Stretch(labelRect);
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = new Vector2(12f, 0f);
+            labelRect.offsetMax = new Vector2(-12f, 0f);
             label = labelObject.GetComponent<TextMeshProUGUI>();
+            label.fontSize = 17f;
+            label.fontWeight = FontWeight.SemiBold;
+            label.color = new Color(0.93f, 0.88f, 0.77f, 1f);
             label.enableWordWrapping = false;
             label.overflowMode = TextOverflowModes.Ellipsis;
             return button;
@@ -2128,10 +2198,34 @@ namespace friendlySAIN.Components
             layoutElement.flexibleHeight = 0f;
 
             Image tileBackground = tileObject.GetComponent<Image>();
-            Color normalColor = new Color(0.08f, 0.08f, 0.08f, 0.96f);
-            Color hoverColor = new Color(0.16f, 0.16f, 0.16f, 0.98f);
-            Color pressedColor = new Color(0.24f, 0.24f, 0.24f, 0.98f);
+            Color normalColor = new Color(0.045f, 0.045f, 0.045f, 0.97f);
+            Color hoverColor = new Color(0.10f, 0.10f, 0.10f, 0.98f);
+            Color pressedColor = new Color(0.16f, 0.16f, 0.16f, 0.99f);
             tileBackground.color = normalColor;
+
+            GameObject tileOverlayObject = new GameObject("BackgroundOverlay", typeof(RectTransform), typeof(Image));
+            tileOverlayObject.transform.SetParent(tileRect, false);
+            RectTransform tileOverlayRect = tileOverlayObject.GetComponent<RectTransform>();
+            tileOverlayRect.anchorMin = new Vector2(0f, 1f);
+            tileOverlayRect.anchorMax = new Vector2(0f, 1f);
+            tileOverlayRect.pivot = new Vector2(0f, 1f);
+            tileOverlayRect.sizeDelta = new Vector2(58f, 58f);
+            tileOverlayRect.anchoredPosition = Vector2.zero;
+
+            Image tileOverlay = tileOverlayObject.GetComponent<Image>();
+            Sprite diagonalSprite = LoadRosterTileDiagonalSprite();
+            if (diagonalSprite != null)
+            {
+                tileOverlay.sprite = diagonalSprite;
+                tileOverlay.type = Image.Type.Simple;
+                tileOverlay.color = Color.white;
+            }
+            else
+            {
+                tileOverlay.color = new Color(1f, 1f, 1f, 0.06f);
+            }
+
+            tileOverlay.raycastTarget = false;
 
             Button button = tileObject.GetComponent<Button>();
             button.transition = Selectable.Transition.None;
@@ -2444,17 +2538,75 @@ namespace friendlySAIN.Components
             Transform background = clonedRoot.Find("Background");
             if (background != null)
             {
-                background.gameObject.SetActive(false);
+                background.gameObject.SetActive(true);
             }
+
+            SetNamedPortraitChildActive(clonedRoot, "Shadow_L", false);
+            SetNamedPortraitChildActive(clonedRoot, "Shadow_R", false);
 
             Transform levelRoot = clonedRoot.Find("Level");
             if (levelRoot != null)
             {
-                levelRoot.gameObject.SetActive(false);
+                //
+                TextMeshProUGUI? label = levelRoot.GetComponentInChildren<TextMeshProUGUI>();
+                if (label != null)
+                {
+                    label.text = level.ToString("D2");
+                }
+                else
+                {
+                    levelRoot.gameObject.SetActive(false);
+
+                    CreatePortraitLevelBadge(clonedRoot, level);
+                }
             }
 
+            RemoveStockPortraitBorderChrome(clonedRoot);
             CreatePortraitBackground(clonedRoot);
-            CreatePortraitLevelBadge(clonedRoot, level);
+        }
+
+        private static void SetNamedPortraitChildActive(Transform root, string childName, bool isActive)
+        {
+            if (root == null || string.IsNullOrEmpty(childName))
+            {
+                return;
+            }
+
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
+            {
+                Transform child = descendants[i];
+                if (child != null && string.Equals(child.name, childName, StringComparison.Ordinal))
+                {
+                    child.gameObject.SetActive(isActive);
+                }
+            }
+        }
+
+        private static void RemoveStockPortraitBorderChrome(Transform clonedRoot)
+        {
+            if (clonedRoot == null)
+            {
+                return;
+            }
+
+            Image[] images = clonedRoot.GetComponentsInChildren<Image>(true);
+            for (int i = 0; i < images.Length; i++)
+            {
+                Image image = images[i];
+                if (image == null)
+                {
+                    continue;
+                }
+
+                string name = image.name;
+                if (name.IndexOf("frame", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("border", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("outline", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    image.gameObject.SetActive(false);
+                }
+            }
         }
 
         private static void CreatePortraitBackground(Transform clonedRoot)
@@ -3234,6 +3386,50 @@ namespace friendlySAIN.Components
             squadIconSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
             squadIconSprite.name = "friendlySAIN_SquadControlIcon";
             return squadIconSprite;
+        }
+
+        private Sprite LoadRosterTileDiagonalSprite()
+        {
+            if (rosterTileDiagonalSprite != null)
+            {
+                return rosterTileDiagonalSprite;
+            }
+
+            string[] candidates =
+            {
+                Path.Combine(PluginDirectory, "diagonal_lines.png"),
+                Path.Combine(PluginDirectory, "resources", "diagonal_lines.png"),
+                Path.Combine(Directory.GetParent(PluginDirectory)?.FullName ?? PluginDirectory, "resources", "diagonal_lines.png")
+            };
+
+            string iconPath = candidates.FirstOrDefault(File.Exists);
+            if (string.IsNullOrEmpty(iconPath))
+            {
+                friendlySAIN.Log.LogWarning("[UI] Roster tile diagonal overlay image could not be found.");
+                return null;
+            }
+
+            byte[] fileData = File.ReadAllBytes(iconPath);
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+            if (!texture.LoadImage(fileData))
+            {
+                Destroy(texture);
+                friendlySAIN.Log.LogWarning($"[UI] Failed to decode roster tile diagonal overlay '{iconPath}'.");
+                return null;
+            }
+
+            texture.name = "friendlySAIN_RosterTileDiagonal";
+            texture.wrapMode = TextureWrapMode.Repeat;
+            texture.filterMode = FilterMode.Bilinear;
+            rosterTileDiagonalSprite = Sprite.Create(
+                texture,
+                new Rect(0f, 0f, texture.width, texture.height),
+                new Vector2(0.5f, 0.5f),
+                200f,
+                0u,
+                SpriteMeshType.FullRect);
+            rosterTileDiagonalSprite.name = "friendlySAIN_RosterTileDiagonal";
+            return rosterTileDiagonalSprite;
         }
 
         private static string GetSocialUiText(string key, string fallback)
