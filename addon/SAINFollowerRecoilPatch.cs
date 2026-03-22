@@ -16,7 +16,7 @@ namespace friendlySAIN.SAINAddon
     {
         // Tuning knob for follower recoil after matching BossKnight(hard).
         // 1.0 = exact BossKnight(hard), <1.0 = tighter (less recoil), >1.0 = looser (more recoil).
-        private const float FollowerRecoilTuningMultiplier = 0.5f;
+        private const float FollowerRecoilTuningMultiplier = 0.15f;
         private static readonly BotDifficulty BossKnightBaselineDifficulty = BotDifficulty.hard;
 
         private static FieldInfo? _currentRecoilHorizAngleField;

@@ -474,6 +474,11 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MainMenuControllerClass __instance)
         {
+            if (Modules.SquadSideSelectionFlow.SquadModeActive)
+            {
+                Modules.SquadSideSelectionFlow.Deactivate("play-ready-screen");
+            }
+
             RemovedPlayers.Clear();
 
             MatchmakerPlayerControllerClass controller = __instance.MatchmakerPlayerControllerClass;

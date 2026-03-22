@@ -304,6 +304,11 @@ namespace friendlySAIN
             new MenuScreenShowSquadControlPatch().Enable();
             new MenuScreenReconnectVisibilitySquadControlPatch().Enable();
             new MenuScreenMinimizedVisibilitySquadControlPatch().Enable();
+            new MatchMakerSideSelectionScreenShowPatch().Enable();
+            new MatchMakerSideSelectionScreenClosePatch().Enable();
+            new CurrentScreenTryReturnToRootScreenPatch().Enable();
+            new PlayerModelViewShowProfilePatch().Enable();
+            new PlayerModelViewShowLastStatePatch().Enable();
 
             //new ConditionCounterPatch().Enable();
 

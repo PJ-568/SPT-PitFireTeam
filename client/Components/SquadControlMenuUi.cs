@@ -52,12 +52,7 @@ namespace friendlySAIN.Components
         private const float SettingsSliderVerticalOffset = 36f;
 
         private static readonly FieldInfo HeaderLabelField = AccessTools.Field(typeof(DefaultUIButton), "_headerLabel");
-        private static readonly FieldInfo TraderCloseButtonField = AccessTools.Field(typeof(TraderScreensGroup), "_closeButton");
         private static readonly FieldInfo TraderCardsContainerField = AccessTools.Field(typeof(TraderScreensGroup), "_traderCardsContainer");
-        private static readonly FieldInfo RagfairAllOffersToggleField = AccessTools.Field(typeof(EFT.UI.Ragfair.RagfairScreen), "_allOffersToggle");
-        private static readonly FieldInfo RagfairWishListToggleField = AccessTools.Field(typeof(EFT.UI.Ragfair.RagfairScreen), "_wishListToggle");
-        private static readonly FieldInfo SpawnableToggleHeaderLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_headerLabel");
-        private static readonly FieldInfo SpawnableToggleSizeLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_sizeLabel");
         private static readonly FieldInfo TradingPlayerPanelIconField = AccessTools.Field(typeof(TradingPlayerPanel), "_playerIconImage");
         private static readonly FieldInfo SettingsScreenGameTabField = AccessTools.Field(typeof(SettingsScreen), "_gameSettingsScreen");
         private static readonly FieldInfo GameSettingsToggleTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_enableBlockInvites");
@@ -73,12 +68,6 @@ namespace friendlySAIN.Components
         private DefaultUIButton tradeButton;
         private DefaultUIButton squadButton;
         private GameObject screenRoot;
-        private DefaultUIButton backButton;
-        private Tab rosterTab;
-        private Tab settingsTab;
-        private UIAnimatedToggleSpawner rosterAnimatedTab;
-        private UIAnimatedToggleSpawner settingsAnimatedTab;
-        private ToggleGroup tabToggleGroup;
         private RectTransform stockCardsContainer;
         private RectTransform rosterPanelRect;
         private ScrollRectNoDrag rosterScrollRect;
@@ -167,7 +156,7 @@ namespace friendlySAIN.Components
             }
         }
 
-        private sealed class TabHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+        internal sealed class TabHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
         {
             private RectTransform rectTransform;
             private Vector3 normalScale = Vector3.one;
@@ -228,34 +217,7 @@ namespace friendlySAIN.Components
 
         internal static void ReturnFromProfileToSquadControl()
         {
-            if (friendlySAIN.Instance == null)
-            {
-                return;
-            }
-
-            friendlySAIN.Instance.StartCoroutine(ReturnFromProfileCoroutine());
-        }
-
-        private static IEnumerator ReturnFromProfileCoroutine()
-        {
-            const int maxFrames = 180;
-
-            for (int frame = 0; frame < maxFrames; frame++)
-            {
-                MenuScreen menu = Resources.FindObjectsOfTypeAll<MenuScreen>()
-                    .FirstOrDefault(candidate => candidate != null && candidate.gameObject != null);
-
-                if (menu != null && menu.gameObject.activeInHierarchy)
-                {
-                    SquadControlMenuUi ui = GetOrCreate(menu);
-                    ui.OpenScreen();
-                    yield break;
-                }
-
-                yield return null;
-            }
-
-            friendlySAIN.Log.LogWarning("[UI] Timed out waiting for MenuScreen to reactivate before returning to Squad Control.");
+            SquadSideSelectionFlow.Open();
         }
 
         public void Initialize(MenuScreen screen, DefaultUIButton sourcePlayerButton, DefaultUIButton sourceTradeButton)
@@ -364,7 +326,75 @@ namespace friendlySAIN.Components
             squadButton.SetRawText(GetSocialUiText("SquadControlButton", "Squad Control"), playerButton.HeaderSize);
             squadButton.SetIcon(LoadSquadIcon());
             squadButton.OnClick.RemoveAllListeners();
-            squadButton.OnClick.AddListener(OpenScreen);
+            squadButton.OnClick.AddListener(Modules.SquadSideSelectionFlow.Open);
+        }
+
+        internal static SquadControlMenuUi FindInstance()
+        {
+            return Resources.FindObjectsOfTypeAll<SquadControlMenuUi>().FirstOrDefault(ui => ui != null);
+        }
+
+        internal void InjectPanelsIntoScreen(Transform newParent)
+        {
+            EnsureScreen();
+            if (screenRoot == null)
+            {
+                return;
+            }
+
+            RectTransform rootRect = screenRoot.GetComponent<RectTransform>();
+            if (rosterPanel != null && rosterPanel.transform.parent == rootRect)
+            {
+                rosterPanel.transform.SetParent(newParent, false);
+            }
+
+            if (settingsPanel != null && settingsPanel.transform.parent == rootRect)
+            {
+                settingsPanel.transform.SetParent(newParent, false);
+            }
+
+            ShowTab(true);
+
+            // Only rebuild on first open (no tiles yet).
+            // On subsequent opens the existing tiles are still alive (panels were just reparented, not destroyed).
+            // Add/remove flows call RebuildRosterTiles() directly, so cached tiles stay correct.
+            bool needsRoster = rosterGridRoot != null && rosterGridRoot.childCount == 0;
+            bool needsSettings = settingsContentRoot != null && settingsContentRoot.childCount == 0;
+
+            if (needsRoster || needsSettings)
+            {
+                friendlySAIN.Instance.StartCoroutine(RebuildAfterTransitionCoroutine(needsRoster, needsSettings));
+            }
+        }
+
+        private IEnumerator RebuildAfterTransitionCoroutine(bool roster, bool settings)
+        {
+            // Wait for the matchmaker screen open animation to finish before doing any heavy work.
+            // Time-based is more reliable than frame-counting across different frame rates.
+            yield return new WaitForSeconds(1.2f);
+
+            if (settings) RebuildSettingsEntries();
+
+            if (roster) RebuildRosterTiles();
+        }
+
+        internal void RetractPanels()
+        {
+            if (screenRoot == null)
+            {
+                return;
+            }
+
+            RectTransform rootRect = screenRoot.GetComponent<RectTransform>();
+            if (rosterPanel != null && rosterPanel.transform.parent != rootRect)
+            {
+                rosterPanel.transform.SetParent(rootRect, false);
+            }
+
+            if (settingsPanel != null && settingsPanel.transform.parent != rootRect)
+            {
+                settingsPanel.transform.SetParent(rootRect, false);
+            }
         }
 
         private void EnsureScreen()
@@ -403,18 +433,15 @@ namespace friendlySAIN.Components
         private void CreateScreenChrome()
         {
             RectTransform rootRect = screenRoot.GetComponent<RectTransform>();
-            EnsureTabToggleGroup();
             CreateHeader(rootRect);
 
             if (!TryCreateStockTraderChrome(rootRect))
             {
-                CreateFallbackTabs(rootRect);
                 rosterPanel = CreateFallbackContentPanel("friendlySAIN_SquadControlRosterPanel", GetSocialUiText("SquadControlRosterTab", "Roaster"));
                 settingsPanel = CreateFallbackContentPanel("friendlySAIN_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
                 BuildSettingsPanel();
             }
 
-            BringInteractiveChromeToFront();
             ShowTab(true);
         }
 
@@ -442,37 +469,12 @@ namespace friendlySAIN.Components
                 return false;
             }
 
-            DefaultUIButton closeTemplate = TraderCloseButtonField?.GetValue(templateGroup) as DefaultUIButton;
             Transform cardsContainerTemplate = TraderCardsContainerField?.GetValue(templateGroup) as Transform;
-            UIAnimatedToggleSpawner rosterTabTemplate = ResolveRagfairToggleTemplate(true);
-            UIAnimatedToggleSpawner settingsTabTemplate = ResolveRagfairToggleTemplate(false);
 
-            if (closeTemplate == null || rosterTabTemplate == null || settingsTabTemplate == null || cardsContainerTemplate == null)
+            if (cardsContainerTemplate == null)
             {
                 return false;
             }
-
-            backButton = Instantiate(closeTemplate, rootRect, false);
-            backButton.name = "friendlySAIN_SquadControlBackButton";
-            RectTransform backRect = backButton.transform as RectTransform;
-            if (backRect != null)
-            {
-                backRect.anchorMin = new Vector2(1f, 1f);
-                backRect.anchorMax = new Vector2(1f, 1f);
-                backRect.pivot = new Vector2(1f, 1f);
-                backRect.anchoredPosition = new Vector2(-48f, -34f);
-            }
-
-            backButton.OnClick.RemoveAllListeners();
-            backButton.OnClick.AddListener(CloseScreen);
-
-            rosterAnimatedTab = Instantiate(rosterTabTemplate, rootRect, false);
-            rosterAnimatedTab.name = "friendlySAIN_SquadControlRosterTab";
-            settingsAnimatedTab = Instantiate(settingsTabTemplate, rootRect, false);
-            settingsAnimatedTab.name = "friendlySAIN_SquadControlSettingsTab";
-
-            ConfigureAnimatedTab(rosterAnimatedTab, new Vector2(-135f, -112f), GetSocialUiText("SquadControlRosterTab", "Roaster"), true, () => ShowTab(true));
-            ConfigureAnimatedTab(settingsAnimatedTab, new Vector2(135f, -112f), GetSocialUiText("SquadControlSettingsTab", "Settings"), false, () => ShowTab(false));
 
             stockCardsContainer = Instantiate(cardsContainerTemplate as RectTransform, rootRect, false);
             stockCardsContainer.name = "friendlySAIN_SquadControlCardsContainer";
@@ -516,34 +518,7 @@ namespace friendlySAIN.Components
             return true;
         }
 
-        private void OpenScreen()
-        {
-            if (screenRoot == null)
-            {
-                return;
-            }
-
-            screenRoot.transform.SetAsLastSibling();
-            screenRoot.SetActive(true);
-            RebuildRosterTiles();
-            RebuildSettingsEntries();
-            SyncButtonVisibility();
-        }
-
-        private void CloseScreen()
-        {
-            if (screenRoot == null)
-            {
-                return;
-            }
-
-            CloseRemoveConfirmOverlay();
-            CancelShortcutCapture(false);
-            screenRoot.SetActive(false);
-            SyncButtonVisibility();
-        }
-
-        private void ShowTab(bool showRoster)
+        internal void ShowTab(bool showRoster)
         {
             if (rosterPanel != null)
             {
@@ -553,26 +528,6 @@ namespace friendlySAIN.Components
             if (settingsPanel != null)
             {
                 settingsPanel.SetActive(!showRoster);
-            }
-
-            if (rosterTab != null)
-            {
-                rosterTab.UpdateVisual(showRoster, false);
-            }
-
-            if (settingsTab != null)
-            {
-                settingsTab.UpdateVisual(!showRoster, false);
-            }
-
-            if (rosterAnimatedTab != null)
-            {
-                rosterAnimatedTab.ToggleSilently(showRoster);
-            }
-
-            if (settingsAnimatedTab != null)
-            {
-                settingsAnimatedTab.ToggleSilently(!showRoster);
             }
 
             if (showRoster)
@@ -606,39 +561,6 @@ namespace friendlySAIN.Components
             labelRect.anchoredPosition = Vector2.zero;
 
             return panel;
-        }
-
-        private void CreateFallbackTabs(RectTransform rootRect)
-        {
-            backButton = CloneMenuButton("friendlySAIN_SquadControlBackButton", GetSocialUiText("SquadControlBack", "Back"));
-            RectTransform backRect = backButton.transform as RectTransform;
-            backRect.SetParent(rootRect, false);
-            backRect.anchorMin = new Vector2(1f, 1f);
-            backRect.anchorMax = new Vector2(1f, 1f);
-            backRect.pivot = new Vector2(1f, 1f);
-            backRect.anchoredPosition = new Vector2(-48f, -36f);
-            backButton.OnClick.RemoveAllListeners();
-            backButton.OnClick.AddListener(CloseScreen);
-
-            Tab fallbackRosterTab = CreateSimpleFallbackTab("friendlySAIN_SquadControlRosterTab", rootRect, new Vector2(-190f, -132f), GetSocialUiText("SquadControlRosterTab", "Roaster"));
-            Tab fallbackSettingsTab = CreateSimpleFallbackTab("friendlySAIN_SquadControlSettingsTab", rootRect, new Vector2(30f, -132f), GetSocialUiText("SquadControlSettingsTab", "Settings"));
-            rosterTab = fallbackRosterTab;
-            settingsTab = fallbackSettingsTab;
-
-            rosterTab.OnSelectionChanged += (_, selected) =>
-            {
-                if (selected)
-                {
-                    ShowTab(true);
-                }
-            };
-            settingsTab.OnSelectionChanged += (_, selected) =>
-            {
-                if (selected)
-                {
-                    ShowTab(false);
-                }
-            };
         }
 
         private GameObject CreateText(string name, string text, float fontSize, TextAlignmentOptions alignment)
@@ -1840,161 +1762,6 @@ namespace friendlySAIN.Components
             return new string(buffer);
         }
 
-        private DefaultUIButton CloneMenuButton(string name, string text)
-        {
-            DefaultUIButton button = Instantiate(playerButton, screenRoot.transform, false);
-            button.name = name;
-            button.SetRawText(text, playerButton.HeaderSize);
-            button.SetIcon(null);
-            button.Interactable = true;
-            return button;
-        }
-
-        private void BringInteractiveChromeToFront()
-        {
-            backButton?.transform.SetAsLastSibling();
-            rosterAnimatedTab?.transform.SetAsLastSibling();
-            settingsAnimatedTab?.transform.SetAsLastSibling();
-            rosterTab?.transform.SetAsLastSibling();
-            settingsTab?.transform.SetAsLastSibling();
-        }
-
-        private Tab CreateSimpleFallbackTab(string name, RectTransform parent, Vector2 anchoredPosition, string label)
-        {
-            GameObject root = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Tab));
-            // Add CanvasGroup component for stock UI compatibility (use reflection to avoid assembly reference)
-            try
-            {
-                Type canvasGroupType = Type.GetType("UnityEngine.CanvasGroup, UnityEngine.UIModule");
-                if (canvasGroupType != null)
-                {
-                    root.AddComponent(canvasGroupType);
-                }
-            }
-            catch { }
-
-            root.transform.SetParent(parent, false);
-            RectTransform rect = root.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 1f);
-            rect.anchorMax = new Vector2(0.5f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = anchoredPosition;
-            rect.sizeDelta = new Vector2(160f, 40f);
-
-            Image image = root.GetComponent<Image>();
-            image.color = new Color(0.14f, 0.14f, 0.14f, 1f);
-
-            GameObject normal = new GameObject("Normal", typeof(RectTransform));
-            normal.transform.SetParent(root.transform, false);
-            Stretch(normal.GetComponent<RectTransform>());
-
-            GameObject selected = new GameObject("Selected", typeof(RectTransform), typeof(Image));
-            selected.transform.SetParent(root.transform, false);
-            Stretch(selected.GetComponent<RectTransform>());
-            selected.GetComponent<Image>().color = new Color(0.35f, 0.21f, 0.08f, 1f);
-
-            TextMeshProUGUI normalText = CreateTabText(normal.transform, label);
-            TextMeshProUGUI selectedText = CreateTabText(selected.transform, label);
-            selectedText.color = new Color(0.95f, 0.88f, 0.74f, 1f);
-
-            Traverse.Create(root.GetComponent<Tab>()).Field("_normalVersion").SetValue(normal);
-            Traverse.Create(root.GetComponent<Tab>()).Field("_selectedVersion").SetValue(selected);
-            Traverse.Create(root.GetComponent<Tab>()).Field("_targetImage").SetValue(image);
-            root.GetComponent<Tab>().OnAwake();
-            return root.GetComponent<Tab>();
-        }
-
-        private TextMeshProUGUI CreateTabText(Transform parent, string label)
-        {
-            GameObject textObject = CreateText("Label", label.ToUpperInvariant(), 18f, TextAlignmentOptions.Center);
-            textObject.transform.SetParent(parent, false);
-            Stretch(textObject.GetComponent<RectTransform>());
-            return textObject.GetComponent<TextMeshProUGUI>();
-        }
-
-        private void ConfigureAnimatedTab(UIAnimatedToggleSpawner tab, Vector2 anchoredPosition, string label, bool selected, Action onSelected)
-        {
-            RectTransform rect = tab.transform as RectTransform;
-            rect.anchorMin = new Vector2(0.5f, 1f);
-            rect.anchorMax = new Vector2(0.5f, 1f);
-            rect.pivot = new Vector2(0.5f, 1f);
-            rect.anchoredPosition = anchoredPosition;
-            rect.localScale = Vector3.one;
-
-            UISpawnableToggle spawnableToggle = tab.SpawnableToggle;
-            if (tabToggleGroup != null)
-            {
-                spawnableToggle.method_1(tabToggleGroup);
-            }
-
-            if (SpawnableToggleHeaderLabelField?.GetValue(spawnableToggle) is TextMeshProUGUI headerLabel)
-            {
-                headerLabel.text = label.ToUpperInvariant();
-            }
-
-            if (SpawnableToggleSizeLabelField?.GetValue(spawnableToggle) is TextMeshProUGUI sizeLabel)
-            {
-                sizeLabel.text = label.ToUpperInvariant();
-            }
-
-            foreach (TextMeshProUGUI text in tab.GetComponentsInChildren<TextMeshProUGUI>(true))
-            {
-                text.text = label.ToUpperInvariant();
-            }
-
-            tab.SetActive(true);
-            spawnableToggle.Interactable = true;
-            if (tab.SpawnedObject != null)
-            {
-                tab.SpawnedObject.group = tabToggleGroup;
-                tab.SpawnedObject.interactable = true;
-            }
-
-            TabHoverController hoverController = tab.gameObject.GetComponent<TabHoverController>();
-            if (hoverController == null)
-            {
-                hoverController = tab.gameObject.AddComponent<TabHoverController>();
-            }
-
-            hoverController.Configure(rect);
-
-            tab.SpawnedObject.onValueChanged.RemoveAllListeners();
-            tab.SpawnedObject.onValueChanged.AddListener(isSelected =>
-            {
-                if (isSelected)
-                {
-                    onSelected();
-                }
-            });
-
-            tab.ToggleSilently(selected);
-        }
-
-        private void EnsureTabToggleGroup()
-        {
-            if (screenRoot == null)
-            {
-                return;
-            }
-
-            tabToggleGroup = screenRoot.GetComponent<ToggleGroup>();
-            if (tabToggleGroup == null)
-            {
-                tabToggleGroup = screenRoot.AddComponent<ToggleGroup>();
-            }
-
-            tabToggleGroup.allowSwitchOff = false;
-        }
-
-        private UIAnimatedToggleSpawner ResolveRagfairToggleTemplate(bool primary)
-        {
-            return Resources.FindObjectsOfTypeAll<EFT.UI.Ragfair.RagfairScreen>()
-                .Select(screen => primary
-                    ? RagfairAllOffersToggleField?.GetValue(screen) as UIAnimatedToggleSpawner
-                    : RagfairWishListToggleField?.GetValue(screen) as UIAnimatedToggleSpawner)
-                .FirstOrDefault(toggle => toggle != null);
-        }
-
         private void RebuildRosterTiles()
         {
             if (rosterGridRoot == null)
@@ -2003,6 +1770,7 @@ namespace friendlySAIN.Components
             }
 
             CloseRemoveConfirmOverlay();
+            CancelPortraitQueue();
             rosterBuildVersion++;
 
             for (int i = rosterGridRoot.childCount - 1; i >= 0; i--)
@@ -2126,8 +1894,7 @@ namespace friendlySAIN.Components
 
         private void OnAddTeammateClicked()
         {
-            CloseScreen();
-            AddTeammateCreationFlow.Start(OpenScreen);
+            AddTeammateCreationFlow.Start(SquadSideSelectionFlow.Open);
         }
 
         private void CreateEmptyRosterLabel(RectTransform rosterRect)
@@ -2238,7 +2005,7 @@ namespace friendlySAIN.Components
             RectTransform portraitHost = CreatePortraitHost(tileRect, entry.Level, out PlayerIconImage iconImage);
             CreateRemoveButton(tileRect, entry);
             CreateRosterNameLabel(tileRect, entry.Nickname);
-            StartCoroutine(LoadTeammatePortraitCoroutine(entry.AccountId, iconImage, portraitHost, buildVersion));
+            EnqueuePortrait(entry.AccountId, iconImage, portraitHost, buildVersion);
         }
 
         private void CreateRemoveButton(RectTransform tileRect, SquadRosterEntry entry)
@@ -2824,6 +2591,44 @@ namespace friendlySAIN.Components
             return buttonObject.GetComponent<Button>();
         }
 
+        // Sequential portrait load queue — one SetPresetIcon per entry, processed in order.
+        private static readonly Queue<(string accountId, PlayerIconImage iconImage, RectTransform portraitRoot, int buildVersion)> _portraitQueue
+            = new Queue<(string, PlayerIconImage, RectTransform, int)>();
+        private static Coroutine _portraitQueueCoroutine;
+
+        private void EnqueuePortrait(string accountId, PlayerIconImage iconImage, RectTransform portraitRoot, int buildVersion)
+        {
+            _portraitQueue.Enqueue((accountId, iconImage, portraitRoot, buildVersion));
+
+            if (_portraitQueueCoroutine == null)
+            {
+                _portraitQueueCoroutine = friendlySAIN.Instance.StartCoroutine(DrainPortraitQueueCoroutine());
+            }
+        }
+
+        private void CancelPortraitQueue()
+        {
+            _portraitQueue.Clear();
+
+            if (_portraitQueueCoroutine != null)
+            {
+                friendlySAIN.Instance.StopCoroutine(_portraitQueueCoroutine);
+                _portraitQueueCoroutine = null;
+            }
+        }
+
+        private IEnumerator DrainPortraitQueueCoroutine()
+        {
+            while (_portraitQueue.Count > 0)
+            {
+                var (accountId, iconImage, portraitRoot, buildVersion) = _portraitQueue.Dequeue();
+                yield return LoadTeammatePortraitCoroutine(accountId, iconImage, portraitRoot, buildVersion);
+                yield return new WaitForSeconds(0.3f);
+            }
+
+            _portraitQueueCoroutine = null;
+        }
+
         private IEnumerator LoadTeammatePortraitCoroutine(string accountId, PlayerIconImage iconImage, RectTransform portraitRoot, int buildVersion)
         {
             if (string.IsNullOrWhiteSpace(accountId) || iconImage == null || ItemUiContext.Instance?.Session == null)
@@ -2953,7 +2758,6 @@ namespace friendlySAIN.Components
             return Resources.FindObjectsOfTypeAll<TraderScreensGroup>()
                 .FirstOrDefault(group =>
                     group != null &&
-                    TraderCloseButtonField?.GetValue(group) is DefaultUIButton &&
                     TraderCardsContainerField?.GetValue(group) is Transform);
         }
 

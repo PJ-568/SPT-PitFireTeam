@@ -116,12 +116,13 @@ Current custom teammate feature state:
     - local/offline raid guard is now enforced late in `TarkovApplication` and `MainMenuController.method_52()`
     - teammate path must preserve the normal PMC insurance screen before the custom ready screen
 - Dedicated Team Management FE is now active:
-    - main menu now has a localized `My Squad` entry
-    - the Team screen currently has `Roaster` and `Settings` tabs plus stock-style back navigation
-    - roster tab currently supports add/remove teammate flows, teammate portrait tiles, teammate profile open/return, and scrolling roster layout for larger squads
-    - settings tab now exposes the main friendlySAIN config set in a stock-style scrollable UI using EFT toggle/slider controls for checkbox and ranged settings
+    - main menu now has a localized `My Squad` entry that opens the real `MatchMakerSideSelectionScreen` in squad mode (not the legacy standalone overlay)
+    - roster/settings panels from `SquadControlMenuUi` are injected into side-selection and controlled by EFT-style animated tabs (`Roaster` / `Settings`)
+    - roster tab supports add/remove teammate flows, delayed sequential portrait loading, teammate profile open/return, and scrolling layout for larger squads
+    - settings tab exposes the main friendlySAIN config set in a stock-style scrollable UI using EFT toggle/slider controls for checkbox and ranged settings
     - settings entries are grouped/reordered for the current squad-management UX and the duplicated BepInEx ConfigurationManager view is hidden for those settings
     - old friends-list `Add Teammate` entry has been removed in favor of the Team screen entry point
+    - squad-mode lifecycle is explicit-action based: mode is cleared on side-selection `Back`, bottom-bar `MainMenu` root return, and `Play` transition, not on generic screen close/destroy
 - Server teammate routes now also include legacy follower spawn/settings compatibility used by the current client:
     - `/client/game/bot/followergenerate`
     - `/client/game/bot/followerdetails`
@@ -285,7 +286,10 @@ Supported commands via `GestureCommandAction`:
 
 - `AddTeammateCreationFlowPatch`, `AddTeammateHeadSelectionPatch` — Teammate creation screen
 - `SocialPatch`, `ChatFriendsPanelPatch`, `OtherPlayerProfileScreenPatch` — Social UI integration
-- `MenuScreenSquadControlPatch` — Team Management screen activation
+- `MenuScreenSquadControlPatch` — Main-menu `My Squad` entry/button wiring
+- `MatchMakerSideSelectionScreenPatch` — squad-mode side-selection screen takeover, tab injection, and teardown/restore
+- `CurrentScreenTryReturnToRootScreenPatch` — clears squad-mode on explicit root return (`MainMenu` bottom tab)
+- `MainMenuControllerReadyScreenGatePatch` — clears squad-mode on `Play` transition
 
 ## 0f) Utility Modules & bridges
 
