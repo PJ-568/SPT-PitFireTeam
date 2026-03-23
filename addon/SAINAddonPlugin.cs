@@ -10,7 +10,7 @@ namespace friendlySAIN.SAINAddon
     [BepInDependency("xyz.drakia.bigbrain", BepInDependency.DependencyFlags.HardDependency)]
     public class SAINAddonPlugin : BaseUnityPlugin
     {
-        internal static SAINAddonPlugin Instance { get; private set; }
+        internal static SAINAddonPlugin? Instance { get; private set; }
 
         private void Awake()
         {
@@ -35,27 +35,27 @@ namespace friendlySAIN.SAINAddon
 
         private void OnDestroy()
         {
-            if (ReferenceEquals(SainAddonBridge.IsReadyForPatrolAfterCombat, SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat))
+            if (SainAddonBridge.IsReadyForPatrolAfterCombat == (System.Func<EFT.BotOwner, bool>)SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat)
             {
                 SainAddonBridge.IsReadyForPatrolAfterCombat = null;
             }
 
-            if (ReferenceEquals(SainAddonBridge.ForceReleaseFollowerCombatState, SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState))
+            if (SainAddonBridge.ForceReleaseFollowerCombatState == (System.Action<EFT.BotOwner>)SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState)
             {
                 SainAddonBridge.ForceReleaseFollowerCombatState = null;
             }
 
-            if (ReferenceEquals(SainAddonBridge.TrySyncFollowerEnemyState, SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState))
+            if (SainAddonBridge.TrySyncFollowerEnemyState == (System.Func<EFT.BotOwner, EFT.Player, bool>)SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState)
             {
                 SainAddonBridge.TrySyncFollowerEnemyState = null;
             }
 
-            if (ReferenceEquals(SainAddonBridge.TryResetFollowerDecisionState, SAINFollowerRuntimeBridge.TryResetFollowerDecisionState))
+            if (SainAddonBridge.TryResetFollowerDecisionState == (System.Func<EFT.BotOwner, bool>)SAINFollowerRuntimeBridge.TryResetFollowerDecisionState)
             {
                 SainAddonBridge.TryResetFollowerDecisionState = null;
             }
 
-            if (ReferenceEquals(SainAddonBridge.GetFollowerDebugState, SAINFollowerRuntimeBridge.GetFollowerDebugState))
+            if (SainAddonBridge.GetFollowerDebugState == (System.Func<EFT.BotOwner, string>)SAINFollowerRuntimeBridge.GetFollowerDebugState)
             {
                 SainAddonBridge.GetFollowerDebugState = null;
             }

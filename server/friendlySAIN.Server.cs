@@ -42,7 +42,6 @@ public class FriendlySainServerPlugin(
     {
         var botTypes = databaseService.GetBots().Types;
 
-        ApplyForcedArmband(botTypes, "assaultgroup", ItemTpl.ARMBAND_BLUE);
         ApplyForcedArmband(botTypes, "usec", ItemTpl.ARMBAND_BLUE);
         ApplyForcedArmband(botTypes, "bear", ItemTpl.ARMBAND_RED);
     }
