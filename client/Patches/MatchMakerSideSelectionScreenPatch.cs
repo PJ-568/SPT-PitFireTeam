@@ -382,11 +382,6 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(MatchMakerSideSelectionScreen __instance)
         {
-            if (!SquadSideSelectionFlow.SquadModeActive)
-            {
-                return;
-            }
-
             // Restore hidden fields
             foreach (string fieldName in NativeHideFields)
             {
@@ -421,6 +416,25 @@ namespace friendlySAIN.Patches
             MatchMakerSideSelectionScreenShowPatch.CleanupTabsOverlay();
             SquadSideSelectionFlow.EndPlayerModelViewSuppression();
             SquadSideSelectionFlow.OnScreenClosed();
+        }
+    }
+
+    internal class MainMenuControllerOpenSideSelectionGuardPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(MainMenuControllerClass), "method_44");
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix()
+        {
+            // If stock flow opens side-selection while squad mode is still set,
+            // clear squad mode so Play opens the normal screen, not My Squad UI.
+            if (SquadSideSelectionFlow.SquadModeActive && !SquadSideSelectionFlow.IsOpeningSquadModeScreen)
+            {
+                SquadSideSelectionFlow.Deactivate("stock-side-selection-open");
+            }
         }
     }
 
