@@ -16,6 +16,7 @@ namespace friendlySAIN.Modules
 
         public static bool SquadModeActive { get; private set; }
         public static bool SuppressPlayerModelViewShow { get; private set; }
+        public static bool IsOpeningSquadModeScreen { get; private set; }
 
         public static void Open()
         {
@@ -45,6 +46,7 @@ namespace friendlySAIN.Modules
             }
 
             SquadModeActive = true;
+            IsOpeningSquadModeScreen = true;
 
             try
             {
@@ -55,6 +57,10 @@ namespace friendlySAIN.Modules
                 SquadModeActive = false;
                 friendlySAIN.Log.LogError("[SquadFlow] Failed to open MatchMakerSideSelectionScreen.");
                 friendlySAIN.Log.LogError(ex);
+            }
+            finally
+            {
+                IsOpeningSquadModeScreen = false;
             }
         }
 
@@ -67,6 +73,7 @@ namespace friendlySAIN.Modules
         {
             SuppressPlayerModelViewShow = false;
             SquadModeActive = false;
+            IsOpeningSquadModeScreen = false;
 
             if (!string.IsNullOrWhiteSpace(reason))
             {
