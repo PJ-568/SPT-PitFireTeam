@@ -14,9 +14,8 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINFollowerRecoilPatch
     {
-        // Tuning knob for follower recoil after matching BossKnight(hard).
-        // 1.0 = exact BossKnight(hard), <1.0 = tighter (less recoil), >1.0 = looser (more recoil).
-        private const float FollowerRecoilTuningMultiplier = 0.15f;
+        private const float FollowerRecoilTuningMultiplier = 4f;
+        private const float FollowerSniperTuningMultiplier = 6f;
         private static readonly BotDifficulty BossKnightBaselineDifficulty = BotDifficulty.hard;
 
         private static FieldInfo? _currentRecoilHorizAngleField;
@@ -66,7 +65,7 @@ namespace friendlySAIN.SAINAddon
             }
         }
 
-        private static void Postfix_CalculateRecoil(Recoil __instance)
+        private static void Postfix_CalculateRecoil(Recoil __instance, Weapon __0)
         {
             try
             {
@@ -82,13 +81,9 @@ namespace friendlySAIN.SAINAddon
                     return;
                 }
 
-                float currentMultiplier = __instance.Bot?.Info?.FileSettings?.Shoot?.RecoilMultiplier ?? 1f;
                 float bossKnightMultiplier = GetBossKnightRecoilMultiplier(BossKnightBaselineDifficulty);
 
-                if (currentMultiplier <= 0.001f || bossKnightMultiplier <= 0.001f || Math.Abs(currentMultiplier - bossKnightMultiplier) < 0.0001f)
-                {
-                    return;
-                }
+
 
                 _currentRecoilHorizAngleField ??= AccessTools.Field(typeof(Recoil), "_currentRecoilHorizAngle");
                 _currentRecoilVertAngleField ??= AccessTools.Field(typeof(Recoil), "_currentRecoilVertAngle");
@@ -98,7 +93,9 @@ namespace friendlySAIN.SAINAddon
                     return;
                 }
 
-                float multiplierRatio = (bossKnightMultiplier / currentMultiplier) * FollowerRecoilTuningMultiplier;
+                bool isSingleFire = __0?.SelectedFireMode == Weapon.EFireMode.single || __0?.SelectedFireMode == Weapon.EFireMode.semiauto;
+                float tuningMultiplier = isSingleFire ? FollowerSniperTuningMultiplier : FollowerRecoilTuningMultiplier;
+                float multiplierRatio = bossKnightMultiplier / tuningMultiplier;
                 float currentHorizontal = (float)_currentRecoilHorizAngleField.GetValue(__instance);
                 float currentVertical = (float)_currentRecoilVertAngleField.GetValue(__instance);
 
