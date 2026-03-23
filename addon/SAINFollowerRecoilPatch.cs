@@ -14,8 +14,8 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINFollowerRecoilPatch
     {
-        private const float FollowerRecoilTuningMultiplier = 4f;
-        private const float FollowerSniperTuningMultiplier = 6f;
+        private const float FollowerRecoilTuningMultiplier = 5f;
+        private const float FollowerSniperTuningMultiplier = 7f;
         private static readonly BotDifficulty BossKnightBaselineDifficulty = BotDifficulty.hard;
 
         private static FieldInfo? _currentRecoilHorizAngleField;
