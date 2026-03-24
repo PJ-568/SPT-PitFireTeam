@@ -321,7 +321,7 @@ namespace friendlySAIN.BigBrain
             foreach (var part in GClass3058.RealBodyParts)
             {
                 if (player.ActiveHealthController.IsBodyPartBroken(part)) player.ActiveHealthController.RemoveNegativeEffects(part);
-                if (player.ActiveHealthController.IsBodyPartDestroyed(part)) player.ActiveHealthController.RestoreBodyPart(part, 0);
+                if (player.ActiveHealthController.IsBodyPartDestroyed(part)) player.ActiveHealthController.FullRestoreBodyPart(part);
             }
 
             BotOwner.AIData.Player.ActiveHealthController.RestoreFullHealth();
