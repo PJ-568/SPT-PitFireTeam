@@ -21,8 +21,6 @@ namespace friendlySAIN.Components
     public class pitAIBossPlayer : AIBossPlayer
     {
         private AIBossPlayerLogic aBossLogic;
-        private readonly FollowerCombatManager _followerCombatManager;
-        private FollowerCombatManagerTicker? _combatTicker;
 
         private BotsGroup _group = null;
 
@@ -68,42 +66,12 @@ namespace friendlySAIN.Components
         private GClass641.IBotTimer _friendlyDownTimer;
         private static bool _sainAddonDecisionResetBridgeErrorLogged;
 
-        internal FollowerCombatManager FollowerCombatManager => _followerCombatManager;
-
-        /// <summary>Returns true if <paramref name="bot"/> is the designated search-party leader for its current goal enemy.</summary>
-        public bool IsSearchPartyLeader(BotOwner? bot)
-        {
-            string? enemyProfileId = bot?.Memory?.GoalEnemy?.ProfileId;
-            if (string.IsNullOrEmpty(enemyProfileId)) return false;
-            return _followerCombatManager.IsPartyLeader(bot, enemyProfileId!);
-        }
-
-        /// <summary>
-        /// Returns true and sets <paramref name="position"/> to the party leader's position when a different leader
-        /// is assigned for <paramref name="follower"/>'s current goal enemy.  Returns false to fall back to boss.
-        /// </summary>
-        public bool TryGetSearchPartyLeaderPosition(BotOwner follower, out Vector3 position)
-        {
-            position = default;
-            string? enemyProfileId = follower?.Memory?.GoalEnemy?.ProfileId;
-            if (string.IsNullOrEmpty(enemyProfileId)) return false;
-            if (!_followerCombatManager.TryGetPartyLeader(enemyProfileId!, out BotOwner? leader)) return false;
-            if (leader == null || leader.IsDead || leader.ProfileId == follower?.ProfileId) return false;
-            position = leader.Position;
-            return true;
-        }
-
-        public void LockSearchPartyLeader(string enemyId) => _followerCombatManager.LockPartyLeader(enemyId);
-        public void UnlockSearchPartyLeader(string enemyId) => _followerCombatManager.UnlockPartyLeader(enemyId);
-
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
             realPlayer = player;
 
             aBossLogic = new AIBossPlayerLogic(player, this);
             _botsController = botsController;
-            _followerCombatManager = new FollowerCombatManager(this);
-            _combatTicker = _followerCombatManager.AttachTicker(player);
 
             player.HealthController.DiedEvent += OnDead;
 
@@ -1542,11 +1510,6 @@ namespace friendlySAIN.Components
         public void DisposeBoss()
         {
             realPlayer.HealthController.DiedEvent -= OnDead;
-            if (_combatTicker != null)
-            {
-                UnityEngine.Object.Destroy(_combatTicker);
-                _combatTicker = null;
-            }
 
             Singleton<BotEventHandler>.Instance.OnPhraseSay -= PhraseSaid;
             Singleton<BotEventHandler>.Instance.OnGestusShow -= GestusShown;
