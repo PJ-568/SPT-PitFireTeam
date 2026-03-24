@@ -6,11 +6,6 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINFollowerSuppressionSafety
     {
-        private const float LaneRadius = 0.55f;
-        private const float CloseFrontDistance = 2.5f;
-        private const float CloseFrontDot = 0.25f;
-        private const float DistancePadding = 1.0f;
-
         public static bool IsFriendlyInSuppressionLane(BotOwner shooter, Vector3 targetPosition)
         {
             if (shooter?.BotFollower?.BossToFollow is not pitAIBossPlayer boss || boss.realPlayer == null)
@@ -118,5 +113,10 @@ namespace friendlySAIN.SAINAddon
 
             return false;
         }
+
+        private const float LaneRadius = 0.55f;
+        private const float CloseFrontDistance = 2.5f;
+        private const float CloseFrontDot = 0.25f;
+        private const float DistancePadding = 1.0f;
     }
 }

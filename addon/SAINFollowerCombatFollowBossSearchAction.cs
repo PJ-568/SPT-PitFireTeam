@@ -147,13 +147,6 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
-            // Follow the designated search-party leader when one is assigned for the current enemy.
-            if (boss.TryGetSearchPartyLeaderPosition(BotOwner, out Vector3 leaderPos))
-            {
-                position = leaderPos;
-                return true;
-            }
-
             position = boss.realPlayer.Transform.position;
             return true;
         }

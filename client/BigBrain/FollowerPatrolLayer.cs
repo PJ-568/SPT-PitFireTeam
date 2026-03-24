@@ -304,23 +304,13 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            if (isHealAction && ShouldInterruptHealingForThreat())
+            if (!IsActive() && isHealAction)
             {
                 CancelCurrentHeal();
                 isHealing = false;
                 return true;
             }
             return false;
-        }
-
-        private bool ShouldInterruptHealingForThreat()
-        {
-            if (BotOwner?.Memory?.HaveEnemy == true)
-            {
-                return true;
-            }
-
-            return HasVisibleKnownEnemy();
         }
 
         private void HealBot()
@@ -331,7 +321,7 @@ namespace friendlySAIN.BigBrain
             foreach (var part in GClass3058.RealBodyParts)
             {
                 if (player.ActiveHealthController.IsBodyPartBroken(part)) player.ActiveHealthController.RemoveNegativeEffects(part);
-                if (player.ActiveHealthController.IsBodyPartDestroyed(part)) player.ActiveHealthController.FullRestoreBodyPart(part);
+                if (player.ActiveHealthController.IsBodyPartDestroyed(part)) player.ActiveHealthController.RestoreBodyPart(part, 0);
             }
 
             BotOwner.AIData.Player.ActiveHealthController.RestoreFullHealth();
