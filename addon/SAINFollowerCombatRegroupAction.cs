@@ -10,7 +10,7 @@ using UnityEngine.AI;
 
 namespace friendlySAIN.SAINAddon
 {
-    internal sealed class SAINFollowerCombatRegroupAction : BotAction
+    internal class SAINFollowerCombatRegroupAction : BotAction
     {
         private const float MoveIssueInterval = 0.75f;
         private const float TargetRefreshInterval = 0.8f;
@@ -18,8 +18,14 @@ namespace friendlySAIN.SAINAddon
         private const float DesiredBossBuffer = 4f;
         private const float MinBossBuffer = 3f;
         private const float MaxBossBuffer = 7f;
+        private const float CloseBossDistance = 10f;
+        private const float BossPointRadius = 5f;
+        private const float BossOffsetMin = 0.5f;
+        private const float BossOffsetMax = 2.5f;
+        private const float HoldInCoverSeconds = 4f;
         private const float FollowerSpacing = 3f;
         private const float ArriveDistance = 1.5f;
+        private const float AttackMoveEnemyFrontDot = 0.1f;
         private const float DestinationClaimStaleSeconds = 4f;
         private static readonly Dictionary<string, Dictionary<string, DestinationClaim>> DestinationClaimsByBossId =
             new Dictionary<string, Dictionary<string, DestinationClaim>>(StringComparer.Ordinal);
@@ -33,11 +39,16 @@ namespace friendlySAIN.SAINAddon
         private float _nextMoveIssueTime;
         private float _nextRefreshTargetTime;
         private bool _haveTarget;
+        private bool _retreatRunLocked;
         private Vector3 _targetPosition;
         private Vector3 _lastBossPosition;
+        private float _holdInCoverUntil;
+        private float _lastFallbackPointEndedAt;
         private string? _claimBossId;
         private readonly NavMeshPath _path = new NavMeshPath();
         private readonly List<BotOwner> _aliveFollowers = new List<BotOwner>(8);
+
+        protected virtual bool UseVanillaBossFallbackMode => false;
 
         public SAINFollowerCombatRegroupAction(BotOwner botOwner)
             : base(botOwner, nameof(SAINFollowerCombatRegroupAction))
@@ -50,8 +61,11 @@ namespace friendlySAIN.SAINAddon
             _nextMoveIssueTime = 0f;
             _nextRefreshTargetTime = 0f;
             _haveTarget = false;
+            _retreatRunLocked = false;
             _targetPosition = Vector3.zero;
             _lastBossPosition = Vector3.zero;
+            _holdInCoverUntil = 0f;
+            _lastFallbackPointEndedAt = 0f;
             _claimBossId = null;
         }
 
@@ -73,30 +87,85 @@ namespace friendlySAIN.SAINAddon
                 return;
             }
 
+            if (!UseVanillaBossFallbackMode && IsAlreadyInRegroupRange(bossPosition))
+            {
+                Bot.Mover.Stop();
+                _retreatRunLocked = false;
+                return;
+            }
+
+            if (UseVanillaBossFallbackMode && _holdInCoverUntil > Time.time)
+            {
+                Bot.Mover.Stop();
+                _retreatRunLocked = false;
+                return;
+            }
+
             if (NeedRetarget(bossPosition) || !HasCompletePath(_targetPosition))
             {
-                if (TrySelectRegroupTarget(boss, bossPosition, out Vector3 target))
+                if (_haveTarget)
                 {
-                    _targetPosition = target;
-                    _haveTarget = true;
+                    _lastFallbackPointEndedAt = Time.time;
+                }
+
+                bool foundTarget = UseVanillaBossFallbackMode
+                    ? TrySelectDefaultBossTarget(boss, bossPosition, out Vector3 target, out bool holdInCover)
+                    : TrySelectRegroupTarget(boss, bossPosition, out target, out holdInCover);
+
+                if (foundTarget)
+                {
+                    if (holdInCover)
+                    {
+                        _haveTarget = false;
+                        _targetPosition = BotOwner.Position;
+                        _holdInCoverUntil = Time.time + HoldInCoverSeconds;
+                        Bot.Mover.Stop();
+                    }
+                    else
+                    {
+                        _targetPosition = target;
+                        _haveTarget = true;
+                        _holdInCoverUntil = 0f;
+                        RegisterDestinationClaim(boss, _targetPosition);
+                    }
                 }
                 else
                 {
                     _targetPosition = bossPosition;
                     _haveTarget = true;
+                    _holdInCoverUntil = 0f;
+                    RegisterDestinationClaim(boss, _targetPosition);
                 }
 
                 _lastBossPosition = bossPosition;
                 _nextRefreshTargetTime = Time.time + TargetRefreshInterval;
-                RegisterDestinationClaim(boss, _targetPosition);
+            }
+
+            if (!_haveTarget)
+            {
+                Bot.Mover.Stop();
+                _retreatRunLocked = false;
+                return;
             }
 
             Enemy enemy = Bot.GoalEnemy;
-            bool hasEnemy = enemy != null;
-            bool enemyLOS = enemy?.InLineOfSight == true;
             float leadDist = (_targetPosition - BotOwner.Position).magnitude;
-            float enemyDist = hasEnemy ? enemy.KnownPlaces.BotDistanceFromLastKnown : 999f;
-            bool sprint = hasEnemy && leadDist > 20f && !enemyLOS && enemyDist > 50f;
+            bool canAttackMove = CanAttackMoveWhileRetreating(enemy);
+            bool enemyInFront = IsEnemyInFrontOfRetreat(enemy);
+
+            if (_retreatRunLocked)
+            {
+                if (leadDist <= ArriveDistance || (canAttackMove && enemyInFront))
+                {
+                    _retreatRunLocked = false;
+                }
+            }
+
+            bool sprint = leadDist > 20f && (_retreatRunLocked || !canAttackMove);
+            if (sprint)
+            {
+                _retreatRunLocked = true;
+            }
 
             if (_nextMoveIssueTime <= Time.time)
             {
@@ -125,6 +194,16 @@ namespace friendlySAIN.SAINAddon
         public override void OnSteeringTicked()
         {
             Enemy enemy = Bot.GoalEnemy;
+            bool canAttackMove = CanAttackMoveWhileRetreating(enemy);
+            bool enemyInFront = IsEnemyInFrontOfRetreat(enemy);
+            bool keepRunning = _retreatRunLocked && (!canAttackMove || !enemyInFront);
+
+            if (keepRunning)
+            {
+                Bot.Steering.LookToMovingDirection();
+                return;
+            }
+
             if (!Shoot.ShootAnyVisibleEnemies(enemy))
             {
                 Bot.Suppression.TrySuppressAnyEnemy(enemy, Bot.EnemyController.KnownEnemies);
@@ -151,6 +230,44 @@ namespace friendlySAIN.SAINAddon
             return (_targetPosition - BotOwner.Position).sqrMagnitude <= ArriveDistance * ArriveDistance;
         }
 
+        private bool CanAttackMoveWhileRetreating(Enemy enemy)
+        {
+            return enemy != null &&
+                   enemy.InLineOfSight &&
+                   enemy.EnemyPlayer != null &&
+                   enemy.EnemyPlayer.HealthController.IsAlive;
+        }
+
+        private bool IsEnemyInFrontOfRetreat(Enemy enemy)
+        {
+            if (enemy == null)
+            {
+                return false;
+            }
+
+            Vector3 moveDirection = _targetPosition - BotOwner.Position;
+            moveDirection.y = 0f;
+            if (moveDirection.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            Vector3 enemyDirection = enemy.EnemyPosition - BotOwner.Position;
+            enemyDirection.y = 0f;
+            if (enemyDirection.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            return Vector3.Dot(moveDirection.normalized, enemyDirection.normalized) > AttackMoveEnemyFrontDot;
+        }
+
+        private bool IsAlreadyInRegroupRange(Vector3 bossPosition)
+        {
+            float bossDistance = (bossPosition - BotOwner.Position).magnitude;
+            return bossDistance >= MinBossBuffer && bossDistance <= MaxBossBuffer;
+        }
+
         private bool TryGetBoss(out pitAIBossPlayer boss, out Vector3 position)
         {
             boss = default!;
@@ -165,9 +282,15 @@ namespace friendlySAIN.SAINAddon
             return true;
         }
 
-        private bool TrySelectRegroupTarget(pitAIBossPlayer boss, Vector3 bossPosition, out Vector3 target)
+        private bool TrySelectRegroupTarget(pitAIBossPlayer boss, Vector3 bossPosition, out Vector3 target, out bool holdInCover)
         {
             target = default;
+            holdInCover = false;
+            if (TrySelectClosestCoverTarget(boss, bossPosition, MinBossBuffer, MaxBossBuffer + 1.5f, out target))
+            {
+                return true;
+            }
+
             BuildAliveFollowerSnapshot(boss);
             int slotIndex = GetFollowerSlotIndex();
             int aliveCount = _aliveFollowers.Count;
@@ -201,6 +324,126 @@ namespace friendlySAIN.SAINAddon
             }
 
             return found;
+        }
+
+        private bool TrySelectDefaultBossTarget(pitAIBossPlayer boss, Vector3 bossPosition, out Vector3 target, out bool holdInCover)
+        {
+            target = default;
+            holdInCover = false;
+
+            if (TrySelectClosestCoverTarget(boss, bossPosition, 0f, CloseBossDistance, out target))
+            {
+                return true;
+            }
+
+            if (TrySelectBossOffsetCoverTarget(boss, bossPosition, out target))
+            {
+                return true;
+            }
+
+            if (TrySelectBossOffsetPoint(boss, bossPosition, out target))
+            {
+                return true;
+            }
+
+            if (BotOwner.Memory?.IsInCover == true)
+            {
+                holdInCover = true;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TrySelectClosestCoverTarget(pitAIBossPlayer boss, Vector3 bossPosition, float minBossDistance, float maxBossDistance, out Vector3 target)
+        {
+            target = default;
+            CustomNavigationPoint point = global::friendlySAIN.Utils.Covers.GetClosestCoverPoint(
+                BotOwner,
+                bossPosition,
+                maxBossDistance,
+                cover =>
+                {
+                    if (cover == null || cover.IsSpotted)
+                    {
+                        return false;
+                    }
+
+                    float bossDistance = (cover.Position - bossPosition).magnitude;
+                    if (bossDistance < minBossDistance || bossDistance > maxBossDistance)
+                    {
+                        return false;
+                    }
+
+                    if (IsCrowded(boss, cover.Position))
+                    {
+                        return false;
+                    }
+
+                    return TryGetPathLength(cover.Position, out _);
+                });
+
+            if (point == null)
+            {
+                return false;
+            }
+
+            target = point.Position;
+            return true;
+        }
+
+        private bool TrySelectBossOffsetCoverTarget(pitAIBossPlayer boss, Vector3 bossPosition, out Vector3 target)
+        {
+            target = default;
+            Vector3 sampledBossOffset = SampleBossOffsetPoint(bossPosition);
+            CustomNavigationPoint closestPoint = BotOwner.Covers?.GetClosestPoint(sampledBossOffset, null, false, 1000);
+            if (closestPoint == null || closestPoint.IsSpotted)
+            {
+                return false;
+            }
+
+            if ((closestPoint.Position - bossPosition).sqrMagnitude > CloseBossDistance * CloseBossDistance)
+            {
+                return false;
+            }
+
+            if (IsCrowded(boss, closestPoint.Position) || !TryGetPathLength(closestPoint.Position, out _))
+            {
+                return false;
+            }
+
+            target = closestPoint.Position;
+            return true;
+        }
+
+        private bool TrySelectBossOffsetPoint(pitAIBossPlayer boss, Vector3 bossPosition, out Vector3 target)
+        {
+            target = default;
+            if (Time.time - _lastFallbackPointEndedAt <= 10f)
+            {
+                return false;
+            }
+
+            Vector3 sampledBossOffset = SampleBossOffsetPoint(bossPosition);
+            if (!NavMesh.SamplePosition(sampledBossOffset, out NavMeshHit navMeshHit, BossPointRadius, NavMesh.AllAreas))
+            {
+                return false;
+            }
+
+            if (IsCrowded(boss, navMeshHit.position) || !TryGetPathLength(navMeshHit.position, out _))
+            {
+                return false;
+            }
+
+            target = navMeshHit.position;
+            return true;
+        }
+
+        private static Vector3 SampleBossOffsetPoint(Vector3 bossPosition)
+        {
+            float x = UnityEngine.Random.Range(BossOffsetMin, BossOffsetMax) * (UnityEngine.Random.value < 0.5f ? -1f : 1f);
+            float z = UnityEngine.Random.Range(BossOffsetMin, BossOffsetMax) * (UnityEngine.Random.value < 0.5f ? -1f : 1f);
+            return bossPosition + new Vector3(x, 0f, z);
         }
 
         private bool TryEvaluateCandidate(pitAIBossPlayer boss, Vector3 bossPosition, float angleDeg, float radius, ref float bestScore, ref Vector3 bestTarget)

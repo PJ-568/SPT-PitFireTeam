@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Collections.Generic;
+using System.Linq;
 using EFT;
+using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using SAIN;
 using SAIN.Components;
@@ -25,8 +27,366 @@ namespace friendlySAIN.SAINAddon
         private static readonly Dictionary<string, ECombatDecision> StaleDecisionTypeByBot = new Dictionary<string, ECombatDecision>(System.StringComparer.Ordinal);
         private static readonly Dictionary<string, float> SoloLayerNoDecisionStartedAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
         private static readonly Dictionary<string, float> NextCooldownCrouchSetAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
+        private static readonly Dictionary<string, float> NextGroupSyncLogAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
+        private static readonly Dictionary<string, Dictionary<string, BotOwner>> SearchPartyLeaderByBossAndEnemy =
+            new Dictionary<string, Dictionary<string, BotOwner>>(System.StringComparer.Ordinal);
+        private static readonly Dictionary<string, Dictionary<string, HashSet<string>>> SearchPartyLeaderLocksByBossAndEnemy =
+            new Dictionary<string, Dictionary<string, HashSet<string>>>(System.StringComparer.Ordinal);
         private static readonly FieldInfo TimeLastKnownUpdatedField = typeof(SAIN.SAINComponent.Classes.EnemyClasses.EnemyKnownPlaces)
             .GetField("<TimeLastKnownUpdated>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        public static void OnBossGroupStaticUpdate(pitAIBossPlayer boss)
+        {
+            if (boss?.realPlayer == null || string.IsNullOrEmpty(boss.realPlayer.ProfileId))
+            {
+                return;
+            }
+
+            string bossProfileId = boss.realPlayer.ProfileId;
+            if (!boss.realPlayer.HealthController.IsAlive)
+            {
+                SearchPartyLeaderByBossAndEnemy.Remove(bossProfileId);
+                SearchPartyLeaderLocksByBossAndEnemy.Remove(bossProfileId);
+                return;
+            }
+
+            try
+            {
+                Dictionary<string, (BotOwner leader, float sqrDistance)> bestLeaderByEnemy =
+                    new Dictionary<string, (BotOwner leader, float sqrDistance)>(System.StringComparer.Ordinal);
+                HashSet<string> activeEnemyIds = new HashSet<string>(System.StringComparer.Ordinal);
+                HashSet<string> activeFollowerIds = new HashSet<string>(System.StringComparer.Ordinal);
+
+                foreach (BotFollowerPlayer followerData in BossPlayers.GetFollowersByBoss(bossProfileId))
+                {
+                    BotOwner owner = followerData?.GetBot();
+                    if (owner == null || owner.IsDead)
+                    {
+                        continue;
+                    }
+
+                    activeFollowerIds.Add(owner.ProfileId);
+
+                    if (!TryGetFollowerEnemyForGroupSearch(owner, out Player enemyPlayer, out string enemyProfileId))
+                    {
+                        continue;
+                    }
+
+                    if (enemyPlayer == null || string.IsNullOrEmpty(enemyProfileId))
+                    {
+                        continue;
+                    }
+
+                    activeEnemyIds.Add(enemyProfileId);
+                    TrySyncFollowerEnemyState(owner, enemyPlayer);
+                    TryLogGroupSync(owner, enemyPlayer);
+
+                    float sqrDistance = (owner.Position - enemyPlayer.Position).sqrMagnitude;
+                    if (!bestLeaderByEnemy.TryGetValue(enemyProfileId, out var existing) || sqrDistance < existing.sqrDistance)
+                    {
+                        bestLeaderByEnemy[enemyProfileId] = (owner, sqrDistance);
+                    }
+                }
+
+                if (!SearchPartyLeaderByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, BotOwner> leaders) || leaders == null)
+                {
+                    leaders = new Dictionary<string, BotOwner>(System.StringComparer.Ordinal);
+                    SearchPartyLeaderByBossAndEnemy[bossProfileId] = leaders;
+                }
+
+                if (!SearchPartyLeaderLocksByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, HashSet<string>> locksByEnemy) || locksByEnemy == null)
+                {
+                    locksByEnemy = new Dictionary<string, HashSet<string>>(System.StringComparer.Ordinal);
+                    SearchPartyLeaderLocksByBossAndEnemy[bossProfileId] = locksByEnemy;
+                }
+
+                foreach (string enemyId in leaders.Keys.ToList())
+                {
+                    bool hasLocks = false;
+                    if (locksByEnemy.TryGetValue(enemyId, out HashSet<string> lockOwners) && lockOwners != null)
+                    {
+                        lockOwners.RemoveWhere(id => !activeFollowerIds.Contains(id));
+                        hasLocks = lockOwners.Count > 0;
+                    }
+
+                    if (lockOwners != null && lockOwners.Count == 0)
+                    {
+                        locksByEnemy.Remove(enemyId);
+                        hasLocks = false;
+                    }
+
+                    BotOwner leader = leaders[enemyId];
+                    bool validLeader = leader != null &&
+                                       !leader.IsDead &&
+                                       activeFollowerIds.Contains(leader.ProfileId);
+
+                    if (!validLeader)
+                    {
+                        leaders.Remove(enemyId);
+                        if (!hasLocks)
+                        {
+                            locksByEnemy.Remove(enemyId);
+                        }
+                        continue;
+                    }
+
+                    if (!hasLocks && !activeEnemyIds.Contains(enemyId))
+                    {
+                        leaders.Remove(enemyId);
+                        locksByEnemy.Remove(enemyId);
+                    }
+                }
+
+                foreach (KeyValuePair<string, (BotOwner leader, float sqrDistance)> kvp in bestLeaderByEnemy)
+                {
+                    if (!leaders.ContainsKey(kvp.Key))
+                    {
+                        leaders[kvp.Key] = kvp.Value.leader;
+                    }
+                }
+
+                if (leaders.Count == 0)
+                {
+                    SearchPartyLeaderByBossAndEnemy.Remove(bossProfileId);
+                }
+
+                if (locksByEnemy.Count == 0)
+                {
+                    SearchPartyLeaderLocksByBossAndEnemy.Remove(bossProfileId);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Modules.Logger.LogError($"[SAIN] Boss group static update failed for {boss.realPlayer.Profile?.Nickname ?? boss.realPlayer.name}");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        public static bool HasSearchPartyLeader(pitAIBossPlayer boss, string enemyProfileId)
+        {
+            return TryGetSearchPartyLeader(boss, enemyProfileId, out _);
+        }
+
+        public static bool TryLockSearchPartyLeader(pitAIBossPlayer boss, string enemyProfileId, string followerProfileId)
+        {
+            if (!TryGetSearchPartyLeader(boss, enemyProfileId, out _) ||
+                boss?.realPlayer == null ||
+                string.IsNullOrEmpty(boss.realPlayer.ProfileId) ||
+                string.IsNullOrEmpty(enemyProfileId) ||
+                string.IsNullOrEmpty(followerProfileId))
+            {
+                return false;
+            }
+
+            string bossProfileId = boss.realPlayer.ProfileId;
+            if (!SearchPartyLeaderLocksByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, HashSet<string>> locksByEnemy) || locksByEnemy == null)
+            {
+                locksByEnemy = new Dictionary<string, HashSet<string>>(System.StringComparer.Ordinal);
+                SearchPartyLeaderLocksByBossAndEnemy[bossProfileId] = locksByEnemy;
+            }
+
+            if (!locksByEnemy.TryGetValue(enemyProfileId, out HashSet<string> lockOwners) || lockOwners == null)
+            {
+                lockOwners = new HashSet<string>(System.StringComparer.Ordinal);
+                locksByEnemy[enemyProfileId] = lockOwners;
+            }
+
+            lockOwners.Add(followerProfileId);
+            return true;
+        }
+
+        public static void UnlockSearchPartyLeader(pitAIBossPlayer boss, string enemyProfileId, string followerProfileId)
+        {
+            if (boss?.realPlayer == null ||
+                string.IsNullOrEmpty(boss.realPlayer.ProfileId) ||
+                string.IsNullOrEmpty(enemyProfileId) ||
+                string.IsNullOrEmpty(followerProfileId))
+            {
+                return;
+            }
+
+            string bossProfileId = boss.realPlayer.ProfileId;
+            if (!SearchPartyLeaderLocksByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, HashSet<string>> locksByEnemy) ||
+                locksByEnemy == null ||
+                !locksByEnemy.TryGetValue(enemyProfileId, out HashSet<string> lockOwners) ||
+                lockOwners == null)
+            {
+                return;
+            }
+
+            lockOwners.Remove(followerProfileId);
+            if (lockOwners.Count == 0)
+            {
+                locksByEnemy.Remove(enemyProfileId);
+
+                if (SearchPartyLeaderByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, BotOwner> leaders) &&
+                    leaders != null)
+                {
+                    leaders.Remove(enemyProfileId);
+                    if (leaders.Count == 0)
+                    {
+                        SearchPartyLeaderByBossAndEnemy.Remove(bossProfileId);
+                    }
+                }
+            }
+
+            if (locksByEnemy.Count == 0)
+            {
+                SearchPartyLeaderLocksByBossAndEnemy.Remove(bossProfileId);
+            }
+        }
+
+        public static bool IsSearchPartyLeader(pitAIBossPlayer boss, BotOwner bot, string enemyProfileId)
+        {
+            return boss != null &&
+                   bot != null &&
+                   !string.IsNullOrEmpty(enemyProfileId) &&
+                   TryGetSearchPartyLeader(boss, enemyProfileId, out BotOwner leader) &&
+                   leader != null &&
+                   !leader.IsDead &&
+                   leader.ProfileId == bot.ProfileId;
+        }
+
+        public static bool TryGetSearchPartyLeaderPosition(pitAIBossPlayer boss, string enemyProfileId, string? followerProfileId, out Vector3 position)
+        {
+            position = default;
+            if (!TryGetSearchPartyLeader(boss, enemyProfileId, out BotOwner leader) || leader == null || leader.IsDead)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(followerProfileId) && string.Equals(leader.ProfileId, followerProfileId, System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            position = leader.Position;
+            return true;
+        }
+
+        private static bool TryGetSearchPartyLeader(pitAIBossPlayer boss, string enemyProfileId, out BotOwner leader)
+        {
+            leader = null!;
+            if (boss?.realPlayer == null || string.IsNullOrEmpty(boss.realPlayer.ProfileId) || string.IsNullOrEmpty(enemyProfileId))
+            {
+                return false;
+            }
+
+            return SearchPartyLeaderByBossAndEnemy.TryGetValue(boss.realPlayer.ProfileId, out Dictionary<string, BotOwner> leaders) &&
+                   leaders != null &&
+                   leaders.TryGetValue(enemyProfileId, out leader) &&
+                   leader != null;
+        }
+
+        internal static void OnFollowerLifecycleEvent(BotOwner bot, FollowerLifecycleEvent eventType)
+        {
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return;
+            }
+
+            if (eventType != FollowerLifecycleEvent.OnDismiss && eventType != FollowerLifecycleEvent.OnRaidEnd)
+            {
+                return;
+            }
+
+            RemoveFollowerFromSearchPartyCache(bot.ProfileId);
+        }
+
+        private static void RemoveFollowerFromSearchPartyCache(string followerProfileId)
+        {
+            foreach (string bossId in SearchPartyLeaderByBossAndEnemy.Keys.ToList())
+            {
+                if (SearchPartyLeaderByBossAndEnemy.TryGetValue(bossId, out Dictionary<string, BotOwner> leaders) && leaders != null)
+                {
+                    foreach (string enemyId in leaders.Keys.ToList())
+                    {
+                        BotOwner leader = leaders[enemyId];
+                        if (leader != null && string.Equals(leader.ProfileId, followerProfileId, System.StringComparison.Ordinal))
+                        {
+                            leaders.Remove(enemyId);
+                        }
+                    }
+
+                    if (leaders.Count == 0)
+                    {
+                        SearchPartyLeaderByBossAndEnemy.Remove(bossId);
+                    }
+                }
+
+                if (SearchPartyLeaderLocksByBossAndEnemy.TryGetValue(bossId, out Dictionary<string, HashSet<string>> locksByEnemy) && locksByEnemy != null)
+                {
+                    foreach (string enemyId in locksByEnemy.Keys.ToList())
+                    {
+                        HashSet<string> owners = locksByEnemy[enemyId];
+                        owners?.Remove(followerProfileId);
+                        if (owners == null || owners.Count == 0)
+                        {
+                            locksByEnemy.Remove(enemyId);
+                        }
+                    }
+
+                    if (locksByEnemy.Count == 0)
+                    {
+                        SearchPartyLeaderLocksByBossAndEnemy.Remove(bossId);
+                    }
+                }
+            }
+        }
+
+        private static bool TryGetFollowerEnemyForGroupSearch(BotOwner owner, out Player enemyPlayer, out string enemyProfileId)
+        {
+            enemyPlayer = null!;
+            enemyProfileId = string.Empty;
+            if (owner == null || owner.IsDead)
+            {
+                return false;
+            }
+
+            if (SAINEnableClass.GetSAIN(owner.ProfileId, out BotComponent sainBot) &&
+                sainBot?.GoalEnemy?.EnemyPlayer is Player sainEnemyPlayer &&
+                !string.IsNullOrEmpty(sainEnemyPlayer.ProfileId))
+            {
+                enemyPlayer = sainEnemyPlayer;
+                enemyProfileId = sainEnemyPlayer.ProfileId;
+                return true;
+            }
+
+            if (owner.Memory?.GoalEnemy?.Person is Player memoryEnemyPlayer &&
+                !string.IsNullOrEmpty(owner.Memory.GoalEnemy.ProfileId))
+            {
+                enemyPlayer = memoryEnemyPlayer;
+                enemyProfileId = owner.Memory.GoalEnemy.ProfileId;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void TryLogGroupSync(BotOwner owner, Player enemyPlayer)
+        {
+            if (owner == null || enemyPlayer == null || string.IsNullOrEmpty(owner.ProfileId))
+            {
+                return;
+            }
+
+            if (NextGroupSyncLogAtByBot.TryGetValue(owner.ProfileId, out float nextAt) && Time.time < nextAt)
+            {
+                return;
+            }
+
+            NextGroupSyncLogAtByBot[owner.ProfileId] = Time.time + 1f;
+
+            bool sainFound = SAINEnableClass.GetSAIN(owner.ProfileId, out BotComponent bot) && bot != null;
+            Modules.Logger.LogInfo(
+                $"[GroupSyncDebug] follower={owner.Profile?.Nickname ?? owner.name}[{owner.ProfileId}] " +
+                $"enemy={enemyPlayer.Profile?.Nickname ?? enemyPlayer.name}[{enemyPlayer.ProfileId}] " +
+                $"memoryHaveEnemy={owner.Memory?.HaveEnemy == true} " +
+                $"memoryGoalEnemy={owner.Memory?.GoalEnemy?.ProfileId ?? "<null>"} " +
+                $"sainFound={sainFound} " +
+                $"sainGoalEnemy={bot?.GoalEnemy?.EnemyPlayer?.ProfileId ?? "<null>"} " +
+                $"knownEnemies={bot?.EnemyController?.KnownEnemies?.Count ?? -1}");
+        }
 
         // Core plugin calls this bridge when SAIN is installed so SAIN-specific runtime gating stays addon-owned.
         public static bool IsReadyForPatrolAfterCombat(BotOwner owner)
@@ -395,6 +755,8 @@ namespace friendlySAIN.SAINAddon
             var decision = bot.Decision;
             var enemyController = bot.EnemyController;
             Enemy goalEnemy = bot.GoalEnemy;
+            bool memoryHaveEnemy = owner.Memory?.HaveEnemy == true;
+            string memoryGoalEnemy = owner.Memory?.GoalEnemy?.ProfileId ?? "<null>";
             string combatDecision = decision?.CurrentCombatDecision.ToString() ?? "<null>";
             string squadDecision = decision?.CurrentSquadDecision.ToString() ?? "<null>";
             string selfDecision = decision?.CurrentSelfDecision.ToString() ?? "<null>";
@@ -403,9 +765,13 @@ namespace friendlySAIN.SAINAddon
             bool hasGoalEnemy = goalEnemy != null;
             bool goalVisible = goalEnemy?.IsVisible == true;
             float goalSeenAgo = hasGoalEnemy ? goalEnemy.TimeSinceSeen : -1f;
+            bool botInCombat = bot.BotActivation?.BotInCombat == true;
+            string activeLayer = bot.ActiveLayer.ToString();
 
             return
-                $"layerActive={layerActive} combat={combatDecision} squad={squadDecision} self={selfDecision} " +
+                $"layerActive={layerActive} activeLayer={activeLayer} botInCombat={botInCombat} " +
+                $"memoryHaveEnemy={memoryHaveEnemy} memoryGoalEnemy={memoryGoalEnemy} " +
+                $"combat={combatDecision} squad={squadDecision} self={selfDecision} " +
                 $"knownEnemies={knownEnemies} enemiesArray={enemiesArray} " +
                 $"goalEnemy={hasGoalEnemy} goalVisible={goalVisible} goalSeenAgo={goalSeenAgo:0.00}";
         }

@@ -1,5 +1,6 @@
 using System;
 using EFT;
+using friendlySAIN.Components;
 
 namespace friendlySAIN.Modules
 {
@@ -23,12 +24,23 @@ namespace friendlySAIN.Modules
         // Generic event that addon can hook into for follower lifecycle changes.
         public static event Action<BotOwner, FollowerLifecycleEvent>? OnFollowerLifecycleEvent;
 
+        // Boss-group static update event so addon-owned SAIN sync can run on shared group context.
+        public static event Action<pitAIBossPlayer>? OnBossGroupStaticUpdate;
+
         /// <summary>
         /// Raise the follower lifecycle event (called from core plugin paths).
         /// </summary>
         public static void RaiseFollowerLifecycleEvent(BotOwner bot, FollowerLifecycleEvent eventType)
         {
             OnFollowerLifecycleEvent?.Invoke(bot, eventType);
+        }
+
+        /// <summary>
+        /// Raise the boss-group static update event (called from core boss-group paths).
+        /// </summary>
+        public static void RaiseBossGroupStaticUpdate(pitAIBossPlayer boss)
+        {
+            OnBossGroupStaticUpdate?.Invoke(boss);
         }
     }
 

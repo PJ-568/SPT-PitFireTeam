@@ -147,6 +147,13 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
+            string enemyProfileId = Bot.GoalEnemy?.EnemyPlayer?.ProfileId;
+            if (!string.IsNullOrEmpty(enemyProfileId) &&
+                SAINFollowerRuntimeBridge.TryGetSearchPartyLeaderPosition(boss, enemyProfileId, BotOwner?.ProfileId, out position))
+            {
+                return true;
+            }
+
             position = boss.realPlayer.Transform.position;
             return true;
         }

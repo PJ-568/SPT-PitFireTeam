@@ -34,9 +34,14 @@ namespace friendlySAIN.Components
                 if (_group != null)
                 {
                     _group.OnReportEnemy -= OnReportEnemy;
+                    UnsubscribeBossGroupStaticUpdate();
                 }
                 _group = value;
-                _group.OnReportEnemy += OnReportEnemy;
+                if (_group != null)
+                {
+                    _group.OnReportEnemy += OnReportEnemy;
+                    SubscribeBossGroupStaticUpdate();
+                }
             }
         }
 
@@ -65,6 +70,8 @@ namespace friendlySAIN.Components
         private readonly Dictionary<string, FallenFollowerInfo> _pendingFriendlyDown = new Dictionary<string, FallenFollowerInfo>();
         private GClass641.IBotTimer _friendlyDownTimer;
         private static bool _sainAddonDecisionResetBridgeErrorLogged;
+        private bool _bossGroupStaticUpdateSubscribed;
+        private float _nextBossGroupStaticUpdateAt;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -396,6 +403,12 @@ namespace friendlySAIN.Components
             {
                 PromoteEnemyAsGoal(follower, enemy.ProfileId);
             }
+
+            Modules.Logger.LogInfo(
+                $"[ContactDebug] follower={follower.Profile?.Nickname ?? follower.name}[{follower.ProfileId}] " +
+                $"enemy={enemy.Profile?.Nickname ?? enemy.name}[{enemy.ProfileId}] " +
+                $"haveEnemy={follower.Memory?.HaveEnemy == true} " +
+                $"goalEnemy={follower.Memory?.GoalEnemy?.ProfileId ?? "<null>"}");
 
             BotOwner? enemyBot = enemy.AIData?.BotOwner;
             if (enemyBot != null)
@@ -1509,6 +1522,7 @@ namespace friendlySAIN.Components
 
         public void DisposeBoss()
         {
+            UnsubscribeBossGroupStaticUpdate();
             realPlayer.HealthController.DiedEvent -= OnDead;
 
             Singleton<BotEventHandler>.Instance.OnPhraseSay -= PhraseSaid;
@@ -1531,6 +1545,45 @@ namespace friendlySAIN.Components
 
             Modules.Logger.LogInfo("Player Boss Disposed");
         }
+
+        private void SubscribeBossGroupStaticUpdate()
+        {
+            if (_bossGroupStaticUpdateSubscribed || _group == null || StaticManager.Instance == null)
+            {
+                return;
+            }
+
+            StaticManager.Instance.StaticUpdate += OnBossGroupStaticUpdate;
+            _bossGroupStaticUpdateSubscribed = true;
+        }
+
+        private void UnsubscribeBossGroupStaticUpdate()
+        {
+            if (!_bossGroupStaticUpdateSubscribed || StaticManager.Instance == null)
+            {
+                return;
+            }
+
+            StaticManager.Instance.StaticUpdate -= OnBossGroupStaticUpdate;
+            _bossGroupStaticUpdateSubscribed = false;
+        }
+
+        private void OnBossGroupStaticUpdate()
+        {
+            if (realPlayer == null || !realPlayer.HealthController.IsAlive)
+            {
+                return;
+            }
+
+            if (Time.time < _nextBossGroupStaticUpdateAt)
+            {
+                return;
+            }
+
+            _nextBossGroupStaticUpdateAt = Time.time + 0.5f;
+            SainAddonBridge.RaiseBossGroupStaticUpdate(this);
+        }
+
         public void AddFollower(BotOwner bot)
         {
             Followers.Add(bot);

@@ -196,7 +196,16 @@ namespace friendlySAIN.SAINAddon
 
         private static bool ShallGroupSearch(BotComponent bot, BotOwner owner, pitAIBossPlayer boss)
         {
-            if (bot.GoalEnemy == null)
+            if (bot.GoalEnemy == null ||
+                bot.GoalEnemy.IsVisible ||
+                !bot.GoalEnemy.Seen ||
+                bot.GoalEnemy.TimeSinceSeen > SearchEnemySeenRecentTime)
+            {
+                return false;
+            }
+
+            string enemyProfileId = bot.GoalEnemy.EnemyPlayer?.ProfileId;
+            if (string.IsNullOrEmpty(enemyProfileId) || !SAINFollowerRuntimeBridge.HasSearchPartyLeader(boss, enemyProfileId))
             {
                 return false;
             }
@@ -205,7 +214,7 @@ namespace friendlySAIN.SAINAddon
             {
                 if (member.Decision.CurrentCombatDecision == SAIN.ECombatDecision.Search && DoesMemberShareEnemy(bot, member))
                 {
-                    return true;
+                    return SAINFollowerRuntimeBridge.TryLockSearchPartyLeader(boss, enemyProfileId, owner.ProfileId);
                 }
             }
 
