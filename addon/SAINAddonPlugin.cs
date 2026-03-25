@@ -18,12 +18,11 @@ namespace friendlySAIN.SAINAddon
             var harmony = new Harmony("xyz.pit.friendlysain.sainaddon");
             Logger.LogInfo("[Init] friendlySAIN SAIN addon loaded.");
 
-            // Register direct core->addon runtime bridge callbacks.
-            SainAddonBridge.IsReadyForPatrolAfterCombat = SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat;
-            SainAddonBridge.ForceReleaseFollowerCombatState = SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState;
-            SainAddonBridge.TrySyncFollowerEnemyState = SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState;
-            SainAddonBridge.TryResetFollowerDecisionState = SAINFollowerRuntimeBridge.TryResetFollowerDecisionState;
-            SainAddonBridge.GetFollowerDebugState = SAINFollowerRuntimeBridge.GetFollowerDebugState;
+            SainAddonBridge.RegisterRuntimeCallbacks(
+                SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat,
+                SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState,
+                SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState,
+                SAINFollowerRuntimeBridge.TryResetFollowerDecisionState);
 
             // Register lifecycle event handler for follower cache management.
             SainAddonBridge.OnFollowerLifecycleEvent += SAINFollowerRecoilPatch.OnFollowerLifecycleEvent;
@@ -37,32 +36,12 @@ namespace friendlySAIN.SAINAddon
 
         private void OnDestroy()
         {
-            if (SainAddonBridge.IsReadyForPatrolAfterCombat == (System.Func<EFT.BotOwner, bool>)SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat)
-            {
-                SainAddonBridge.IsReadyForPatrolAfterCombat = null;
-            }
+            SainAddonBridge.UnregisterRuntimeCallbacks(
+                SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat,
+                SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState,
+                SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState,
+                SAINFollowerRuntimeBridge.TryResetFollowerDecisionState);
 
-            if (SainAddonBridge.ForceReleaseFollowerCombatState == (System.Action<EFT.BotOwner>)SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState)
-            {
-                SainAddonBridge.ForceReleaseFollowerCombatState = null;
-            }
-
-            if (SainAddonBridge.TrySyncFollowerEnemyState == (System.Func<EFT.BotOwner, EFT.Player, bool>)SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState)
-            {
-                SainAddonBridge.TrySyncFollowerEnemyState = null;
-            }
-
-            if (SainAddonBridge.TryResetFollowerDecisionState == (System.Func<EFT.BotOwner, bool>)SAINFollowerRuntimeBridge.TryResetFollowerDecisionState)
-            {
-                SainAddonBridge.TryResetFollowerDecisionState = null;
-            }
-
-            if (SainAddonBridge.GetFollowerDebugState == (System.Func<EFT.BotOwner, string>)SAINFollowerRuntimeBridge.GetFollowerDebugState)
-            {
-                SainAddonBridge.GetFollowerDebugState = null;
-            }
-
-            // Unsubscribe from lifecycle event.
             SainAddonBridge.OnFollowerLifecycleEvent -= SAINFollowerRecoilPatch.OnFollowerLifecycleEvent;
             SainAddonBridge.OnFollowerLifecycleEvent -= SAINFollowerRuntimeBridge.OnFollowerLifecycleEvent;
             SainAddonBridge.OnBossGroupStaticUpdate -= SAINFollowerRuntimeBridge.OnBossGroupStaticUpdate;

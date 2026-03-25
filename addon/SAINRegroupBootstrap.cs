@@ -42,6 +42,8 @@ namespace friendlySAIN.SAINAddon
                 SAINFollowerRecoilPatch.Apply(harmony);
                 SAINFollowerFriendlyFirePatch.Apply(harmony);
                 SAINFollowerGroupTalkDirectionPatch.Apply(harmony);
+                SAINFollowerTalkMutePatch.Apply(harmony);
+                SAINFollowerSearchCurrentEnemyLookPatch.Apply(harmony);
 
                 if (SAINAddonToggles.EnableForcedEnemyRetention)
                 {

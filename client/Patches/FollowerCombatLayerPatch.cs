@@ -10,7 +10,7 @@ namespace friendlySAIN.Patches
     {
         public static bool Prefix(BotOwner botOwner, ref bool result)
         {
-            if (friendlySAIN.IsSAINInstalled)
+            if (friendlySAIN.UseSainFollowerCombat)
             {
                 return true;
             }

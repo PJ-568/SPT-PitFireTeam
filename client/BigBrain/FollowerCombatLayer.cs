@@ -34,7 +34,7 @@ namespace friendlySAIN.BigBrain
 
         public override bool IsActive()
         {
-            if (friendlySAIN.IsSAINInstalled || BotOwner == null || combatLogic == null)
+            if (friendlySAIN.UseSainFollowerCombat || BotOwner == null || combatLogic == null)
             {
                 return false;
             }

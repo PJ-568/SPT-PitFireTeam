@@ -191,7 +191,9 @@ namespace friendlySAIN
         // Final behavior should set this to false so SAIN regroup only handles combat regroup.
         public static bool EnableSainRegroupOutOfCombatTest { get; } = false;
 
-        public static bool HasSainRegroupAddon => IsSAINInstalled && IsSAINAddonInstalled;
+        public static bool UseSainFollowerCombat => IsSAINInstalled && IsSAINAddonInstalled;
+        public static bool HasSainRegroupAddon => UseSainFollowerCombat;
+        public static bool ShouldDisableSainForFollowers => IsSAINInstalled && !UseSainFollowerCombat;
 
         private void Awake()
         {
@@ -343,8 +345,8 @@ namespace friendlySAIN
             RefreshPluginFlags();
             if (IsSAINInstalled && !IsSAINAddonInstalled)
             {
-                Logger.LogError("[Init] SAIN detected but friendlySAIN SAIN addon is missing.");
-                Logger.LogError($"[Init] Install plugin '{SainAddonPluginId}' or remove SAIN. SAIN combat regroup integration is disabled.");
+                Logger.LogWarning("[Init] SAIN detected but friendlySAIN SAIN addon is missing.");
+                Logger.LogWarning($"[Init] Followers will fall back to core vanilla combat behavior. Install plugin '{SainAddonPluginId}' to enable SAIN follower combat.");
             }
         }
 

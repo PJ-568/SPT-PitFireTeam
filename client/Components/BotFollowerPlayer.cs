@@ -82,9 +82,6 @@ namespace friendlySAIN.Components
         private static MethodInfo? _getSainByBotOwnerMethod;
         private static MethodInfo? _getSainByProfileMethod;
         private static bool _sainAddonPatrolBridgeErrorLogged;
-        private const bool EnableSainEnemyBridgeDebugLogs = false;
-        private const bool EnableTeamEnemyAdoptDebugLogs = true;
-
         public bool CanPatrol
         {
             get
@@ -147,7 +144,6 @@ namespace friendlySAIN.Components
             ForceEndCurrentDecision(_bot);
             HookPeaceChange();
             HookManualUpdate();
-            //LogBrainState("after init");
 
 
 
@@ -1141,7 +1137,7 @@ namespace friendlySAIN.Components
                 return false;
             }
 
-            if (!friendlySAIN.IsSAINInstalled)
+            if (!friendlySAIN.UseSainFollowerCombat)
             {
                 return true;
             }
@@ -1151,11 +1147,10 @@ namespace friendlySAIN.Components
 
             try
             {
-                Func<BotOwner, bool>? bridge = SainAddonBridge.IsReadyForPatrolAfterCombat;
-                if (bridge != null)
+                bridgeAvailable = SainAddonBridge.HasRuntimeCallbacks;
+                if (SainAddonBridge.TryIsReadyForPatrolAfterCombat(owner, out bool ready))
                 {
-                    bridgeAvailable = true;
-                    bridgeReady = bridge(owner);
+                    bridgeReady = ready;
                 }
             }
             catch
@@ -1269,10 +1264,10 @@ namespace friendlySAIN.Components
                     _bot.Mover.Sprint(false, false);
                 }
 
-                if (friendlySAIN.IsSAINInstalled)
+                if (friendlySAIN.UseSainFollowerCombat)
                 {
-                    SainAddonBridge.TryResetFollowerDecisionState?.Invoke(_bot);
-                    SainAddonBridge.ForceReleaseFollowerCombatState?.Invoke(_bot);
+                    SainAddonBridge.TryResetDecisionState(_bot);
+                    SainAddonBridge.TryForceReleaseFollowerCombatState(_bot);
                 }
 
                 Modules.Logger.LogInfo($"[Follower Pickup Reset] follower={_bot.Profile?.Nickname ?? _bot.name}");
@@ -1567,16 +1562,7 @@ namespace friendlySAIN.Components
                 {
                     _lastCommittedEnemyId = sourceGoal.ProfileId;
                     _lastCommittedAt = Time.time;
-                    if (EnableTeamEnemyAdoptDebugLogs)
-                    {
-                        Modules.Logger.LogInfo($"[TeamAdopt] ok receiver={owner.Profile?.Nickname ?? owner.name} source={source.Profile?.Nickname ?? source.name} enemy={sourceGoal.ProfileId}");
-                    }
                     break;
-                }
-
-                if (EnableTeamEnemyAdoptDebugLogs)
-                {
-                    Modules.Logger.LogInfo($"[TeamAdopt] miss receiver={owner.Profile?.Nickname ?? owner.name} source={source.Profile?.Nickname ?? source.name} enemy={sourceGoal.ProfileId}");
                 }
             }
         }
@@ -1701,7 +1687,7 @@ namespace friendlySAIN.Components
 
         private void TrySyncEnemyToOtherFollowers(BotOwner source, EnemyInfo goal)
         {
-            if (!friendlySAIN.IsSAINInstalled) return;
+            if (!friendlySAIN.UseSainFollowerCombat) return;
             if (source == null || goal == null) return;
             if (_player?.realPlayer == null) return;
 
@@ -1757,7 +1743,7 @@ namespace friendlySAIN.Components
 
         private void TrySyncGoalEnemyToSain(BotOwner owner, EnemyInfo goal)
         {
-            if (!friendlySAIN.IsSAINInstalled) return;
+            if (!friendlySAIN.UseSainFollowerCombat) return;
             if (owner == null || goal == null || goal.Person == null) return;
 
             string goalId = goal.ProfileId;
@@ -1772,48 +1758,18 @@ namespace friendlySAIN.Components
                 Player enemyPlayer = goal.Person as Player;
                 if (enemyPlayer == null)
                 {
-                    if (EnableSainEnemyBridgeDebugLogs)
-                    {
-                        Modules.Logger.LogInfo(
-                            $"[SAIN Bridge] bot={owner.Profile?.Nickname ?? owner.name} enemy={goalId} " +
-                            "result=skip reason=enemyPlayer_invalid");
-                    }
                     return;
                 }
 
-                Func<BotOwner, Player, bool> syncEnemyState = SainAddonBridge.TrySyncFollowerEnemyState;
-                if (syncEnemyState == null)
-                {
-                    if (EnableSainEnemyBridgeDebugLogs)
-                    {
-                        Modules.Logger.LogInfo(
-                            $"[SAIN Bridge] bot={owner.Profile?.Nickname ?? owner.name} enemy={goalId} " +
-                            "result=skip reason=bridge_missing");
-                    }
-                    return;
-                }
-
-                bool synced = syncEnemyState(owner, enemyPlayer);
+                bool synced = SainAddonBridge.TrySyncEnemyState(owner, enemyPlayer);
                 if (synced)
                 {
                     _lastSainSyncedEnemyId = goalId;
                 }
-
-                if (EnableSainEnemyBridgeDebugLogs)
-                {
-                    Modules.Logger.LogInfo(
-                        $"[SAIN Bridge] bot={owner.Profile?.Nickname ?? owner.name} enemy={goalId} " +
-                        $"result={(synced ? "ok" : "retry")}");
-                }
             }
-            catch (Exception ex)
+            catch
             {
-                if (EnableSainEnemyBridgeDebugLogs)
-                {
-                    Modules.Logger.LogError(
-                        $"[SAIN Bridge] bot={owner?.Profile?.Nickname ?? owner?.name} enemy={goalId} result=error");
-                    Modules.Logger.LogError(ex);
-                }
+                // keep follower update path resilient
             }
         }
 
@@ -1864,7 +1820,7 @@ namespace friendlySAIN.Components
 
         private void EnsureSainBossAndFollowersFriendly()
         {
-            if (!friendlySAIN.IsSAINInstalled) return;
+            if (!friendlySAIN.UseSainFollowerCombat) return;
             if (_bot == null || _player?.realPlayer == null) return;
 
             try
@@ -2120,47 +2076,9 @@ namespace friendlySAIN.Components
             }
         }
 
-        private void LogBrainState(string tag)
-        {
-            try
-            {
-                var brain = _bot?.Brain?.BaseBrain;
-                var agent = _bot?.Brain?.Agent;
-                if (brain == null || agent == null) return;
-
-                string shortName = brain.ShortName();
-                string curLayer = brain.CurLayerInfo?.Name() ?? "<null>";
-                string agentLayer = agent.UsingLayer ?? "<null>";
-                string agentNode = agent.GetActiveNodeName() ?? "<null>";
-
-                List<string> listNames = new List<string>();
-                foreach (var layer in brain.List_0)
-                {
-                    if (layer == null) continue;
-                    listNames.Add($"{layer.Name()}:{layer.Priority}");
-                }
-
-                List<string> dictNames = new List<string>();
-                foreach (var kvp in brain.Dictionary_0)
-                {
-                    if (kvp.Value == null) continue;
-                    dictNames.Add($"{kvp.Key}:{kvp.Value.Name()}:{kvp.Value.Priority}");
-                }
-
-                Modules.Logger.LogInfo($"Follower brain dump [{tag}] bot={_bot.Profile.Nickname} brain={shortName} curLayer={curLayer} agentLayer={agentLayer} agentNode={agentNode}");
-                Modules.Logger.LogInfo($"Follower brain dump [{tag}] list={string.Join(", ", listNames)}");
-                Modules.Logger.LogInfo($"Follower brain dump [{tag}] dict={string.Join(", ", dictNames)}");
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError("Failed to log brain state");
-                Modules.Logger.LogError(ex);
-            }
-        }
-
         private void RefreshSainEnemyListAfterGroupReassign()
         {
-            if (!friendlySAIN.IsSAINInstalled) return;
+            if (!friendlySAIN.UseSainFollowerCombat) return;
             if (_bot == null) return;
 
             try

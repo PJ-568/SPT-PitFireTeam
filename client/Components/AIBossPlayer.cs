@@ -396,7 +396,6 @@ namespace friendlySAIN.Components
             // Contact is an explicit combat cue from boss; force follower out of peaceful state.
             follower.Memory.IsPeace = false;
             follower.Memory.AddEnemy(enemy, botSettings, false);
-            TrySyncSainEnemyState(follower, enemy);
 
             // If memory did not auto-select goal enemy, promote the injected enemy manually.
             if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
@@ -404,18 +403,16 @@ namespace friendlySAIN.Components
                 PromoteEnemyAsGoal(follower, enemy.ProfileId);
             }
 
-            Modules.Logger.LogInfo(
-                $"[ContactDebug] follower={follower.Profile?.Nickname ?? follower.name}[{follower.ProfileId}] " +
-                $"enemy={enemy.Profile?.Nickname ?? enemy.name}[{enemy.ProfileId}] " +
-                $"haveEnemy={follower.Memory?.HaveEnemy == true} " +
-                $"goalEnemy={follower.Memory?.GoalEnemy?.ProfileId ?? "<null>"}");
-
             BotOwner? enemyBot = enemy.AIData?.BotOwner;
+
             if (enemyBot != null)
             {
                 PrioritizeEnemy(follower, enemyBot);
-                TrySyncSainEnemyState(follower, enemy);
             }
+
+
+            TrySyncSainEnemyState(follower, enemy);
+
 
             // Entering combat should break request commands
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
@@ -428,19 +425,12 @@ namespace friendlySAIN.Components
 
         private static bool TrySyncSainEnemyState(BotOwner follower, Player enemyPlayer)
         {
-            if (!friendlySAIN.IsSAINInstalled) return false;
+            if (!friendlySAIN.UseSainFollowerCombat) return false;
             if (follower == null || enemyPlayer == null) return false;
 
             try
             {
-                Func<BotOwner, Player, bool>? bridge = SainAddonBridge.TrySyncFollowerEnemyState;
-                if (bridge == null)
-                {
-
-                    return false;
-                }
-
-                return bridge(follower, enemyPlayer);
+                return SainAddonBridge.TrySyncEnemyState(follower, enemyPlayer);
             }
             catch (Exception ex)
             {
@@ -451,24 +441,24 @@ namespace friendlySAIN.Components
 
         private static bool TryResetSainDecisionState(BotOwner follower)
         {
-            if (!friendlySAIN.IsSAINInstalled) return false;
+            if (!friendlySAIN.UseSainFollowerCombat) return false;
             if (follower == null) return false;
 
             try
             {
-                Func<BotOwner, bool>? bridge = SainAddonBridge.TryResetFollowerDecisionState;
-                if (bridge == null)
+                if (!SainAddonBridge.IsFollowerCombatEnabled)
                 {
-                    if (!_sainAddonDecisionResetBridgeErrorLogged)
-                    {
-                        _sainAddonDecisionResetBridgeErrorLogged = true;
-                        Modules.Logger.LogError("[SAIN] Decision reset bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
-                    }
-
                     return false;
                 }
 
-                return bridge(follower);
+                bool reset = SainAddonBridge.TryResetDecisionState(follower);
+                if (!reset && !SainAddonBridge.HasRuntimeCallbacks && !_sainAddonDecisionResetBridgeErrorLogged)
+                {
+                    _sainAddonDecisionResetBridgeErrorLogged = true;
+                    Modules.Logger.LogError("[SAIN] Decision reset bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
+                }
+
+                return reset;
             }
             catch (Exception ex)
             {
@@ -671,21 +661,17 @@ namespace friendlySAIN.Components
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ResetCombatCommitState();
-                LogAttentionDiagnostics("pre", follower);
 
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
                 ClearEnemyStateForAttention(follower, clearedGroupIds);
-                LogAttentionDiagnostics("after_clear", follower);
 
-                if (friendlySAIN.IsSAINInstalled)
+                if (friendlySAIN.UseSainFollowerCombat)
                 {
                     try
                     {
-                        SainAddonBridge.ForceReleaseFollowerCombatState?.Invoke(follower);
-                        bool resetOk = TryResetSainDecisionState(follower);
-                        Modules.Logger.LogInfo($"[AttentionDiag] stage=after_decision_reset bot={follower.Profile?.Nickname ?? "<unknown>"}[{follower.ProfileId}] resetOk={resetOk}");
-                        LogAttentionDiagnostics("after_sain_release", follower);
+                        SainAddonBridge.TryForceReleaseFollowerCombatState(follower);
+                        TryResetSainDecisionState(follower);
                     }
                     catch (Exception ex)
                     {
@@ -695,66 +681,8 @@ namespace friendlySAIN.Components
                 }
 
                 FollowerRecovery.SoftReset(follower);
-                LogAttentionDiagnostics("after_soft_reset", follower);
 
                 follower?.BotTalk.TrySay(EPhraseTrigger.Roger, true);
-            }
-        }
-
-        private static void LogAttentionDiagnostics(string stage, BotOwner follower)
-        {
-            if (follower == null)
-            {
-                return;
-            }
-
-            try
-            {
-                bool moverPaused = follower.Mover?.Pause == true;
-                bool moverSprinting = follower.Mover?.Sprinting == true;
-                bool haveEnemy = follower.Memory?.HaveEnemy == true;
-                EnemyInfo goalEnemy = follower.Memory?.GoalEnemy;
-                string goalEnemyId = goalEnemy?.ProfileId ?? "<null>";
-                bool goalVisible = goalEnemy?.IsVisible == true;
-                int enemyInfosCount = follower.EnemiesController?.EnemyInfos?.Count ?? -1;
-                int groupEnemiesCount = follower.BotsGroup?.Enemies?.Count ?? -1;
-                bool suppressed = FollowerEnemyEnforceSuppression.IsSuppressed(follower);
-                string sainState = GetSainAttentionDebugState(follower);
-
-                Modules.Logger.LogInfo(
-                    $"[AttentionDiag] stage={stage} bot={follower.Profile?.Nickname ?? "<unknown>"}[{follower.ProfileId}] " +
-                    $"moverPaused={moverPaused} moverSprinting={moverSprinting} " +
-                    $"haveEnemy={haveEnemy} goalEnemy={goalEnemyId} goalVisible={goalVisible} " +
-                    $"enemyInfos={enemyInfosCount} groupEnemies={groupEnemiesCount} suppressed={suppressed} " +
-                    $"sain={sainState}");
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError("[AttentionDiag] Failed to collect attention diagnostics.");
-                Modules.Logger.LogError(ex);
-            }
-        }
-
-        private static string GetSainAttentionDebugState(BotOwner follower)
-        {
-            if (!friendlySAIN.IsSAINInstalled)
-            {
-                return "not_installed";
-            }
-
-            try
-            {
-                Func<BotOwner, string>? bridge = SainAddonBridge.GetFollowerDebugState;
-                if (bridge == null)
-                {
-                    return "bridge_missing";
-                }
-
-                return bridge(follower) ?? "<null>";
-            }
-            catch (Exception ex)
-            {
-                return $"bridge_error:{ex.GetType().Name}";
             }
         }
 
@@ -1548,7 +1476,7 @@ namespace friendlySAIN.Components
 
         private void SubscribeBossGroupStaticUpdate()
         {
-            if (_bossGroupStaticUpdateSubscribed || _group == null || StaticManager.Instance == null)
+            if (!friendlySAIN.UseSainFollowerCombat || _bossGroupStaticUpdateSubscribed || _group == null || StaticManager.Instance == null)
             {
                 return;
             }

@@ -346,7 +346,9 @@ namespace friendlySAIN.SAINAddon
                 return true;
             }
 
-            if (BotOwner.Memory?.IsInCover == true)
+            if (BotOwner.Memory?.IsInCover == true &&
+                TryGetPathLength(bossPosition, out float bossPathLength) &&
+                bossPathLength <= CloseBossDistance)
             {
                 holdInCover = true;
                 return true;

@@ -17,8 +17,6 @@ namespace friendlySAIN.SAINAddon
         public static readonly string Name = BuildLayerName("Follower Combat Layer");
         private static readonly HashSet<string> ActiveFollowerCombatBots = new HashSet<string>(System.StringComparer.Ordinal);
         private static readonly Dictionary<string, float> ActiveFollowerCombatSeenAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
-        private static readonly Dictionary<string, float> NextDecisionFallthroughLogAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
-        private static readonly Dictionary<string, float> NextDecisionBranchLogAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
         private const float ActiveFollowerCombatStaleSeconds = 2f;
         private static readonly System.Type SearchActionType = ResolveSainActionType("SAIN.Layers.Combat.Solo.SearchAction");
         private static readonly System.Type RushEnemyActionType = ResolveSainActionType("SAIN.Layers.Combat.Solo.RushEnemyAction");
@@ -47,6 +45,7 @@ namespace friendlySAIN.SAINAddon
             }
             MarkActive(active);
             CheckActiveChanged(active);
+
             return active;
         }
 
@@ -54,38 +53,47 @@ namespace friendlySAIN.SAINAddon
         {
             _lastActionDecision = _currentDecision;
             _lastActionUsedDefaultBossAction = _currentUsesDefaultBossAction;
+            Action nextAction;
             switch (_lastActionDecision)
             {
                 case ESquadDecision.Regroup:
                     if (_currentUsesDefaultBossAction)
-
-                        return new Action(typeof(SAINFollowerCombatDefaultBossAction), "PROTECTDELTA");
+                        nextAction = new Action(typeof(SAINFollowerCombatDefaultBossAction), "PROTECTDELTA");
                     else
-                        return new Action(typeof(SAINFollowerCombatRegroupAction), $"{_lastActionDecision}");
+                        nextAction = new Action(typeof(SAINFollowerCombatRegroupAction), $"{_lastActionDecision}");
+                    break;
 
                 case ESquadDecision.Suppress:
-                    return new Action(typeof(SAINFollowerCombatSuppressAction), $"{_lastActionDecision}");
+                    nextAction = new Action(typeof(SAINFollowerCombatSuppressAction), $"{_lastActionDecision}");
+                    break;
 
                 case ESquadDecision.Search:
                 case ESquadDecision.Help:
-                    return new Action(ResolveSearchActionType(), $"{_lastActionDecision}");
+                    nextAction = new Action(ResolveSearchActionType(), $"{_lastActionDecision}");
+                    break;
 
                 case ESquadDecision.GroupSearch:
                     if (BotOwner?.BotFollower?.BossToFollow is pitAIBossPlayer boss &&
                         Bot?.GoalEnemy?.EnemyPlayer?.ProfileId is string enemyProfileId &&
                         SAINFollowerRuntimeBridge.IsSearchPartyLeader(boss, BotOwner, enemyProfileId))
                     {
-                        return new Action(ResolveSearchActionType(), $"{_lastActionDecision} : Party Leader Search");
+                        nextAction = new Action(ResolveSearchActionType(), $"{_lastActionDecision} : Party Leader Search");
+                        break;
                     }
 
-                    return new Action(typeof(SAINFollowerCombatFollowBossSearchAction), $"{_lastActionDecision} : Follow Boss Search");
+                    nextAction = new Action(typeof(SAINFollowerCombatFollowBossSearchAction), $"{_lastActionDecision} : Follow Boss Search");
+                    break;
 
                 case ESquadDecision.PushSuppressedEnemy:
-                    return new Action(ResolveRushEnemyActionType(), $"{_lastActionDecision}");
+                    nextAction = new Action(ResolveRushEnemyActionType(), $"{_lastActionDecision}");
+                    break;
 
                 default:
-                    return new Action(typeof(SAINFollowerCombatDefaultBossAction), "PROTECTDELTA");
+                    nextAction = new Action(typeof(SAINFollowerCombatDefaultBossAction), "PROTECTDELTA");
+                    break;
             }
+
+            return nextAction;
         }
 
         public override bool IsCurrentActionEnding()
@@ -151,11 +159,6 @@ namespace friendlySAIN.SAINAddon
         {
             decision = ESquadDecision.None;
             _currentUsesDefaultBossAction = false;
-            if (!BotOwner.IsBotActive())
-            {
-                return false;
-            }
-
             if (!BossPlayers.IsFollower(BotOwner))
             {
                 return false;
@@ -175,21 +178,11 @@ namespace friendlySAIN.SAINAddon
             SAINDecisionClass decisions = bot.Decision;
             if (decisions.CurrentSelfDecision != ESelfActionType.None || decisions.CurrentCombatDecision == ECombatDecision.DogFight)
             {
-                TryLogDecisionBranch(
-                    "EarlyExit:SelfOrDogFight",
-                    bot,
-                    decisions,
-                    $"self={decisions.CurrentSelfDecision} combat={decisions.CurrentCombatDecision}");
                 return false;
             }
 
             if (ShouldDeferToSoloSelfAction(bot, decisions))
             {
-                TryLogDecisionBranch(
-                    "EarlyExit:SoloSelfDefer",
-                    bot,
-                    decisions,
-                    $"self={decisions.CurrentSelfDecision} prevSelf={decisions.PreviousSelfDecision} combat={decisions.CurrentCombatDecision} prevCombat={decisions.PreviousCombatDecision}");
                 return false;
             }
 
@@ -202,6 +195,11 @@ namespace friendlySAIN.SAINAddon
                 bot.BotActivation?.BotInCombat == true ||
                 bot.ActiveLayer == ESAINLayer.Squad ||
                 bot.ActiveLayer == ESAINLayer.Combat;
+
+            if (!haveSainCombatContext)
+            {
+                return false;
+            }
 
             if (haveSainCombatContext)
             {
@@ -224,7 +222,6 @@ namespace friendlySAIN.SAINAddon
                 {
                     _currentUsesDefaultBossAction = true;
                 }
-
                 return true;
             }
 
@@ -243,18 +240,8 @@ namespace friendlySAIN.SAINAddon
                 return true;
             }
 
-            if (haveSainCombatContext)
-            {
-                decision = ESquadDecision.Regroup;
-                _currentUsesDefaultBossAction = true;
-                return true;
-            }
-
-            TryLogDecisionFallthrough(bot, decisions);
-
             return false;
         }
-
         private void ReleaseGroupSearchLock()
         {
             if (string.IsNullOrEmpty(_groupSearchLockEnemyProfileId) ||
@@ -267,75 +254,6 @@ namespace friendlySAIN.SAINAddon
 
             SAINFollowerRuntimeBridge.UnlockSearchPartyLeader(boss, _groupSearchLockEnemyProfileId, BotOwner.ProfileId);
             _groupSearchLockEnemyProfileId = null;
-        }
-
-        private void TryLogDecisionFallthrough(BotComponent bot, SAINDecisionClass decisions)
-        {
-            string profileId = BotOwner?.ProfileId;
-            if (string.IsNullOrEmpty(profileId))
-            {
-                return;
-            }
-
-            if (NextDecisionFallthroughLogAtByBot.TryGetValue(profileId, out float nextAt) && Time.time < nextAt)
-            {
-                return;
-            }
-
-            NextDecisionFallthroughLogAtByBot[profileId] = Time.time + 1f;
-
-            int knownEnemyCount = bot?.EnemyController?.KnownEnemies?.Count ?? -1;
-            int enemiesArrayCount = bot?.EnemyController?.EnemiesArray?.Count ?? -1;
-            Modules.Logger.LogInfo(
-                $"[CombatLayerDebug] follower={BotOwner.Profile?.Nickname ?? BotOwner.name}[{profileId}] " +
-                $"haveEnemy={BotOwner.Memory?.HaveEnemy == true} " +
-                $"memoryGoalEnemy={BotOwner.Memory?.GoalEnemy?.ProfileId ?? "<null>"} " +
-                $"botActive={bot?.BotActive == true} " +
-                $"botInCombat={bot?.BotActivation?.BotInCombat == true} " +
-                $"activeLayer={bot?.ActiveLayer.ToString() ?? "<null>"} " +
-                $"combat={decisions?.CurrentCombatDecision.ToString() ?? "<null>"} " +
-                $"squad={decisions?.CurrentSquadDecision.ToString() ?? "<null>"} " +
-                $"self={decisions?.CurrentSelfDecision.ToString() ?? "<null>"} " +
-                $"goalEnemy={bot?.GoalEnemy?.EnemyPlayer?.ProfileId ?? "<null>"} " +
-                $"goalVisible={bot?.GoalEnemy?.IsVisible == true} " +
-                $"knownEnemies={knownEnemyCount} enemiesArray={enemiesArrayCount} " +
-                $"lastEnemySeenAgo={(Time.time - _lastEnemySeenAt):0.00}");
-        }
-
-        private void TryLogDecisionBranch(string branch, BotComponent bot, SAINDecisionClass decisions, string extra)
-        {
-            string profileId = BotOwner?.ProfileId;
-            if (string.IsNullOrEmpty(profileId))
-            {
-                return;
-            }
-
-            if (NextDecisionBranchLogAtByBot.TryGetValue(profileId, out float nextAt) && Time.time < nextAt)
-            {
-                return;
-            }
-
-            NextDecisionBranchLogAtByBot[profileId] = Time.time + 1f;
-
-            int knownEnemyCount = bot?.EnemyController?.KnownEnemies?.Count ?? -1;
-            int enemiesArrayCount = bot?.EnemyController?.EnemiesArray?.Count ?? -1;
-            Modules.Logger.LogInfo(
-                $"[CombatLayerBranchDebug] branch={branch} follower={BotOwner.Profile?.Nickname ?? BotOwner.name}[{profileId}] " +
-                $"haveEnemy={BotOwner.Memory?.HaveEnemy == true} " +
-                $"memoryGoalEnemy={BotOwner.Memory?.GoalEnemy?.ProfileId ?? "<null>"} " +
-                $"botActive={bot?.BotActive == true} " +
-                $"botInCombat={bot?.BotActivation?.BotInCombat == true} " +
-                $"activeLayer={bot?.ActiveLayer.ToString() ?? "<null>"} " +
-                $"combat={decisions?.CurrentCombatDecision.ToString() ?? "<null>"} " +
-                $"squad={decisions?.CurrentSquadDecision.ToString() ?? "<null>"} " +
-                $"self={decisions?.CurrentSelfDecision.ToString() ?? "<null>"} " +
-                $"prevSelf={decisions?.PreviousSelfDecision.ToString() ?? "<null>"} " +
-                $"prevCombat={decisions?.PreviousCombatDecision.ToString() ?? "<null>"} " +
-                $"goalEnemy={bot?.GoalEnemy?.EnemyPlayer?.ProfileId ?? "<null>"} " +
-                $"goalVisible={bot?.GoalEnemy?.IsVisible == true} " +
-                $"knownEnemies={knownEnemyCount} enemiesArray={enemiesArrayCount} " +
-                $"lastEnemySeenAgo={(Time.time - _lastEnemySeenAt):0.00} " +
-                $"{extra}");
         }
 
         private bool TryHandleRegroupCommand(out ESquadDecision decision)
@@ -414,6 +332,11 @@ namespace friendlySAIN.SAINAddon
                 || decisions.PreviousCombatDecision == ECombatDecision.Retreat
                 || bot.Cover?.CoverInUse != null
                 || bot.Cover?.CoverPoint_MovingTo != null;
+        }
+
+        private static bool IsMeaningfulCombatDecision(ECombatDecision decision)
+        {
+            return decision != ECombatDecision.None && decision != ECombatDecision.DebugNoDecision;
         }
 
         private void MarkActive(bool active)

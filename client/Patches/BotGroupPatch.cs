@@ -408,7 +408,7 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(BotsGroup __instance, IPlayer enemy, EEnemyPartVisibleType isVisibleOnlyBySence, BotOwner reporter)
         {
-            if (!friendlySAIN.IsSAINInstalled) return;
+            if (!friendlySAIN.UseSainFollowerCombat) return;
             if (__instance is not BotsGroupPlayer) return;
             if (enemy == null || reporter == null) return;
             if (BossPlayers.IsPlayerBoss(enemy.ProfileId)) return;

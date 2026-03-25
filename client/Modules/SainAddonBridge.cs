@@ -6,20 +6,100 @@ namespace friendlySAIN.Modules
 {
     public static class SainAddonBridge
     {
-        // Addon registers SAIN-specific readiness callback here during startup.
-        public static Func<BotOwner, bool>? IsReadyForPatrolAfterCombat { get; set; }
+        private static Func<BotOwner, bool>? _isReadyForPatrolAfterCombat;
+        private static Action<BotOwner>? _forceReleaseFollowerCombatState;
+        private static Func<BotOwner, Player, bool>? _trySyncFollowerEnemyState;
+        private static Func<BotOwner, bool>? _tryResetFollowerDecisionState;
 
-        // Addon can expose a hard recovery hook to clear follower SAIN combat-layer latch state.
-        public static Action<BotOwner>? ForceReleaseFollowerCombatState { get; set; }
+        public static bool IsFollowerCombatEnabled => friendlySAIN.UseSainFollowerCombat;
 
-        // Addon owns SAIN enemy-controller sync so core contact paths stay reflection-free.
-        public static Func<BotOwner, Player, bool>? TrySyncFollowerEnemyState { get; set; }
+        public static bool HasRuntimeCallbacks =>
+            _isReadyForPatrolAfterCombat != null &&
+            _forceReleaseFollowerCombatState != null &&
+            _trySyncFollowerEnemyState != null &&
+            _tryResetFollowerDecisionState != null;
 
-        // Addon owns SAIN decision resets so core command paths stay reflection-free.
-        public static Func<BotOwner, bool>? TryResetFollowerDecisionState { get; set; }
+        public static void RegisterRuntimeCallbacks(
+            Func<BotOwner, bool> isReadyForPatrolAfterCombat,
+            Action<BotOwner> forceReleaseFollowerCombatState,
+            Func<BotOwner, Player, bool> trySyncFollowerEnemyState,
+            Func<BotOwner, bool> tryResetFollowerDecisionState)
+        {
+            _isReadyForPatrolAfterCombat = isReadyForPatrolAfterCombat;
+            _forceReleaseFollowerCombatState = forceReleaseFollowerCombatState;
+            _trySyncFollowerEnemyState = trySyncFollowerEnemyState;
+            _tryResetFollowerDecisionState = tryResetFollowerDecisionState;
+        }
 
-        // Addon-owned SAIN runtime diagnostics for follower debug logging from core command paths.
-        public static Func<BotOwner, string>? GetFollowerDebugState { get; set; }
+        public static void UnregisterRuntimeCallbacks(
+            Func<BotOwner, bool> isReadyForPatrolAfterCombat,
+            Action<BotOwner> forceReleaseFollowerCombatState,
+            Func<BotOwner, Player, bool> trySyncFollowerEnemyState,
+            Func<BotOwner, bool> tryResetFollowerDecisionState)
+        {
+            if (_isReadyForPatrolAfterCombat == isReadyForPatrolAfterCombat)
+            {
+                _isReadyForPatrolAfterCombat = null;
+            }
+
+            if (_forceReleaseFollowerCombatState == forceReleaseFollowerCombatState)
+            {
+                _forceReleaseFollowerCombatState = null;
+            }
+
+            if (_trySyncFollowerEnemyState == trySyncFollowerEnemyState)
+            {
+                _trySyncFollowerEnemyState = null;
+            }
+
+            if (_tryResetFollowerDecisionState == tryResetFollowerDecisionState)
+            {
+                _tryResetFollowerDecisionState = null;
+            }
+        }
+
+        public static bool TryIsReadyForPatrolAfterCombat(BotOwner botOwner, out bool ready)
+        {
+            ready = false;
+            if (!IsFollowerCombatEnabled || _isReadyForPatrolAfterCombat == null)
+            {
+                return false;
+            }
+
+            ready = _isReadyForPatrolAfterCombat(botOwner);
+            return true;
+        }
+
+        public static bool TryForceReleaseFollowerCombatState(BotOwner botOwner)
+        {
+            if (!IsFollowerCombatEnabled || _forceReleaseFollowerCombatState == null)
+            {
+                return false;
+            }
+
+            _forceReleaseFollowerCombatState(botOwner);
+            return true;
+        }
+
+        public static bool TrySyncEnemyState(BotOwner botOwner, Player enemyPlayer)
+        {
+            if (!IsFollowerCombatEnabled || _trySyncFollowerEnemyState == null)
+            {
+                return false;
+            }
+
+            return _trySyncFollowerEnemyState(botOwner, enemyPlayer);
+        }
+
+        public static bool TryResetDecisionState(BotOwner botOwner)
+        {
+            if (!IsFollowerCombatEnabled || _tryResetFollowerDecisionState == null)
+            {
+                return false;
+            }
+
+            return _tryResetFollowerDecisionState(botOwner);
+        }
 
         // Generic event that addon can hook into for follower lifecycle changes.
         public static event Action<BotOwner, FollowerLifecycleEvent>? OnFollowerLifecycleEvent;
@@ -40,6 +120,11 @@ namespace friendlySAIN.Modules
         /// </summary>
         public static void RaiseBossGroupStaticUpdate(pitAIBossPlayer boss)
         {
+            if (!IsFollowerCombatEnabled)
+            {
+                return;
+            }
+
             OnBossGroupStaticUpdate?.Invoke(boss);
         }
     }

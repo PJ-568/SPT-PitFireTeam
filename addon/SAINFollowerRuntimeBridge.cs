@@ -9,6 +9,7 @@ using SAIN.Components;
 using SAIN.Models.Enums;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using UnityEngine;
+using HarmonyLib;
 
 namespace friendlySAIN.SAINAddon
 {
@@ -27,7 +28,6 @@ namespace friendlySAIN.SAINAddon
         private static readonly Dictionary<string, ECombatDecision> StaleDecisionTypeByBot = new Dictionary<string, ECombatDecision>(System.StringComparer.Ordinal);
         private static readonly Dictionary<string, float> SoloLayerNoDecisionStartedAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
         private static readonly Dictionary<string, float> NextCooldownCrouchSetAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
-        private static readonly Dictionary<string, float> NextGroupSyncLogAtByBot = new Dictionary<string, float>(System.StringComparer.Ordinal);
         private static readonly Dictionary<string, Dictionary<string, BotOwner>> SearchPartyLeaderByBossAndEnemy =
             new Dictionary<string, Dictionary<string, BotOwner>>(System.StringComparer.Ordinal);
         private static readonly Dictionary<string, Dictionary<string, HashSet<string>>> SearchPartyLeaderLocksByBossAndEnemy =
@@ -67,6 +67,17 @@ namespace friendlySAIN.SAINAddon
 
                     activeFollowerIds.Add(owner.ProfileId);
 
+
+                    // keep SAIN in sync if bot has enemy but SAIN says otherwise
+                    if (owner.Memory.HaveEnemy && SAINEnableClass.GetSAIN(owner.ProfileId, out BotComponent bot) && bot != null && bot.EnemyController?.GoalEnemy == null)
+                    {
+                        Player? enemy = owner.Memory.GoalEnemy?.Person as Player;
+                        if (enemy != null)
+                        {
+                            TrySyncFollowerEnemyState(owner, enemy);
+                        }
+                    }
+
                     if (!TryGetFollowerEnemyForGroupSearch(owner, out Player enemyPlayer, out string enemyProfileId))
                     {
                         continue;
@@ -78,8 +89,6 @@ namespace friendlySAIN.SAINAddon
                     }
 
                     activeEnemyIds.Add(enemyProfileId);
-                    TrySyncFollowerEnemyState(owner, enemyPlayer);
-                    TryLogGroupSync(owner, enemyPlayer);
 
                     float sqrDistance = (owner.Position - enemyPlayer.Position).sqrMagnitude;
                     if (!bestLeaderByEnemy.TryGetValue(enemyProfileId, out var existing) || sqrDistance < existing.sqrDistance)
@@ -363,31 +372,6 @@ namespace friendlySAIN.SAINAddon
             return false;
         }
 
-        private static void TryLogGroupSync(BotOwner owner, Player enemyPlayer)
-        {
-            if (owner == null || enemyPlayer == null || string.IsNullOrEmpty(owner.ProfileId))
-            {
-                return;
-            }
-
-            if (NextGroupSyncLogAtByBot.TryGetValue(owner.ProfileId, out float nextAt) && Time.time < nextAt)
-            {
-                return;
-            }
-
-            NextGroupSyncLogAtByBot[owner.ProfileId] = Time.time + 1f;
-
-            bool sainFound = SAINEnableClass.GetSAIN(owner.ProfileId, out BotComponent bot) && bot != null;
-            Modules.Logger.LogInfo(
-                $"[GroupSyncDebug] follower={owner.Profile?.Nickname ?? owner.name}[{owner.ProfileId}] " +
-                $"enemy={enemyPlayer.Profile?.Nickname ?? enemyPlayer.name}[{enemyPlayer.ProfileId}] " +
-                $"memoryHaveEnemy={owner.Memory?.HaveEnemy == true} " +
-                $"memoryGoalEnemy={owner.Memory?.GoalEnemy?.ProfileId ?? "<null>"} " +
-                $"sainFound={sainFound} " +
-                $"sainGoalEnemy={bot?.GoalEnemy?.EnemyPlayer?.ProfileId ?? "<null>"} " +
-                $"knownEnemies={bot?.EnemyController?.KnownEnemies?.Count ?? -1}");
-        }
-
         // Core plugin calls this bridge when SAIN is installed so SAIN-specific runtime gating stays addon-owned.
         public static bool IsReadyForPatrolAfterCombat(BotOwner owner)
         {
@@ -397,6 +381,11 @@ namespace friendlySAIN.SAINAddon
             }
 
             if (!SAINEnableClass.GetSAIN(owner.ProfileId, out BotComponent bot) || bot == null)
+            {
+                return false;
+            }
+
+            if (SAINFollowerCombatLayer.IsFollowerCombatLayerActive(owner))
             {
                 return false;
             }
@@ -665,12 +654,30 @@ namespace friendlySAIN.SAINAddon
             }
 
             var sainEnemy = enemyController.CheckAddEnemy(enemyPlayer);
+            var setGoalEnemy = AccessTools.Method(typeof(SAINEnemyController), "setGoalEnemy", new[] { typeof(EnemyInfo) });
             if (sainEnemy != null)
             {
                 sainEnemy.UpdateLastSeenPosition(enemyPlayer.Position, Time.time);
+                if (enemyController.KnownEnemies.Count == 0)
+                {
+                    setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
+                }
+                else
+                {
+
+                    enemyController.ChooseEnemy();
+                    if (enemyController.GoalEnemy == null)
+                    {
+                        setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
+                    }
+                }
+
+                if (!bot.IsInCombat)
+                {
+                    bot.BotActivation.SetInCombat(true);
+                }
             }
 
-            enemyController.ChooseEnemy();
             return true;
         }
 
@@ -737,43 +744,5 @@ namespace friendlySAIN.SAINAddon
             }
         }
 
-        public static string GetFollowerDebugState(BotOwner owner)
-        {
-            if (owner == null)
-            {
-                return "owner=null";
-            }
-
-            string profileId = owner.ProfileId ?? "<null>";
-            bool layerActive = SAINFollowerCombatLayer.IsFollowerCombatLayerActive(owner);
-            bool sainFound = SAINEnableClass.GetSAIN(profileId, out BotComponent bot) && bot != null;
-            if (!sainFound)
-            {
-                return $"sainBot=missing layerActive={layerActive}";
-            }
-
-            var decision = bot.Decision;
-            var enemyController = bot.EnemyController;
-            Enemy goalEnemy = bot.GoalEnemy;
-            bool memoryHaveEnemy = owner.Memory?.HaveEnemy == true;
-            string memoryGoalEnemy = owner.Memory?.GoalEnemy?.ProfileId ?? "<null>";
-            string combatDecision = decision?.CurrentCombatDecision.ToString() ?? "<null>";
-            string squadDecision = decision?.CurrentSquadDecision.ToString() ?? "<null>";
-            string selfDecision = decision?.CurrentSelfDecision.ToString() ?? "<null>";
-            int knownEnemies = enemyController?.KnownEnemies?.Count ?? -1;
-            int enemiesArray = enemyController?.EnemiesArray?.Count ?? -1;
-            bool hasGoalEnemy = goalEnemy != null;
-            bool goalVisible = goalEnemy?.IsVisible == true;
-            float goalSeenAgo = hasGoalEnemy ? goalEnemy.TimeSinceSeen : -1f;
-            bool botInCombat = bot.BotActivation?.BotInCombat == true;
-            string activeLayer = bot.ActiveLayer.ToString();
-
-            return
-                $"layerActive={layerActive} activeLayer={activeLayer} botInCombat={botInCombat} " +
-                $"memoryHaveEnemy={memoryHaveEnemy} memoryGoalEnemy={memoryGoalEnemy} " +
-                $"combat={combatDecision} squad={squadDecision} self={selfDecision} " +
-                $"knownEnemies={knownEnemies} enemiesArray={enemiesArray} " +
-                $"goalEnemy={hasGoalEnemy} goalVisible={goalVisible} goalSeenAgo={goalSeenAgo:0.00}";
-        }
     }
 }

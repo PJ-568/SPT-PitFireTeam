@@ -4,20 +4,21 @@ using friendlySAIN;
 using friendlySAIN.Modules;
 using HarmonyLib;
 using System;
-using System.Linq;
 using System.Reflection;
 
 namespace friendlySAIN.Patches
 {
     internal class SAINPatch
     {
-        public static bool IsSAINInstalled()
-        {
-            return AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "SAIN");
-        }
-
         private static Type? squadType = null;
         private static Type? SAINEnableClass = null;
+        private static Type? combatSoloLayerType = null;
+        private static Type? combatSquadLayerType = null;
+        private static Type? peacefulLayerType = null;
+        private static Type? avoidThreatLayerType = null;
+        private static Type? extractLayerType = null;
+        private static Type? flashBangedLayerType = null;
+        private static Type? debugLayerType = null;
 
         private static Type? enemyTalk = null;
         private static Type? GroupClass = null;
@@ -26,7 +27,7 @@ namespace friendlySAIN.Patches
         private static Type? sainBotTalkManualUpdatePatch = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
-            if (!IsSAINInstalled()) return;
+            if (!friendlySAIN.IsSAINInstalled) return;
 
             if (squadType == null)
             {
@@ -75,6 +76,7 @@ namespace friendlySAIN.Patches
                 harmony.Patch(AccessTools.Method(GroupClass, "EnemyConversation"), new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchEnemyConvesation), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
             }
 
+            PatchFollowerLayerFallbackIfAddonMissing(harmony);
             PatchSainTalkPrefixesForFollowers(harmony);
 
 
@@ -86,6 +88,36 @@ namespace friendlySAIN.Patches
                     harmony.Patch(assignLeader, new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchAssignSquadLeader), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
                 }
                 Logger.LogInfo("SAIN Patched");
+            }
+        }
+
+        private static void PatchFollowerLayerFallbackIfAddonMissing(Harmony harmony)
+        {
+            combatSoloLayerType ??= Type.GetType("SAIN.Layers.Combat.Solo.CombatSoloLayer, SAIN");
+            combatSquadLayerType ??= Type.GetType("SAIN.Layers.Combat.Squad.CombatSquadLayer, SAIN");
+            peacefulLayerType ??= Type.GetType("SAIN.Layers.Peace.PeacefulLayer, SAIN");
+            avoidThreatLayerType ??= Type.GetType("SAIN.Layers.SAINAvoidThreatLayer, SAIN");
+            extractLayerType ??= Type.GetType("SAIN.Layers.ExtractLayer, SAIN");
+            flashBangedLayerType ??= Type.GetType("SAIN.Layers.Peace.FlashBangedLayer, SAIN");
+            debugLayerType ??= Type.GetType("SAIN.Layers.Combat.Run.DebugLayer, SAIN");
+
+            var disablePrefix = new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(DisableSainLayerForFollowersWithoutAddon), BindingFlags.NonPublic | BindingFlags.Static));
+
+            PatchLayerIsActive(harmony, combatSoloLayerType, disablePrefix);
+            PatchLayerIsActive(harmony, combatSquadLayerType, disablePrefix);
+            PatchLayerIsActive(harmony, peacefulLayerType, disablePrefix);
+            PatchLayerIsActive(harmony, avoidThreatLayerType, disablePrefix);
+            PatchLayerIsActive(harmony, extractLayerType, disablePrefix);
+            PatchLayerIsActive(harmony, flashBangedLayerType, disablePrefix);
+            PatchLayerIsActive(harmony, debugLayerType, disablePrefix);
+        }
+
+        private static void PatchLayerIsActive(Harmony harmony, Type? layerType, HarmonyMethod disablePrefix)
+        {
+            MethodInfo? isActive = layerType != null ? AccessTools.Method(layerType, "IsActive") : null;
+            if (isActive != null)
+            {
+                harmony.Patch(isActive, prefix: disablePrefix);
             }
         }
 
@@ -193,6 +225,31 @@ namespace friendlySAIN.Patches
                 return true;
             }
             return true;
+        }
+
+        [HarmonyPrefix]
+        private static bool DisableSainLayerForFollowersWithoutAddon(object __instance, ref bool __result)
+        {
+            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            {
+                return true;
+            }
+
+            try
+            {
+                BotOwner? botOwner = AccessTools.Property(__instance.GetType(), "BotOwner")?.GetValue(__instance) as BotOwner;
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return true;
+                }
+
+                __result = false;
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
         }
     }
 }

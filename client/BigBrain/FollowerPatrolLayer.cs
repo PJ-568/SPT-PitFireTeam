@@ -103,6 +103,11 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (!BossPlayers.IsFollower(BotOwner))
+            {
+                return false;
+            }
+
             bool isHealAction = selectedAction?.Type == typeof(HealAction);
             bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
 

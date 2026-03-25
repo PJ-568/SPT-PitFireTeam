@@ -35,6 +35,20 @@ Description:
 
 - Implement combat tactics such as Marksman, Default, Holder, and Pusher that can be assigned to followers and influence their combat behavior in ways similar to the old plugin's tactics system.
 
+# (NOT STARTED) - Surround combat decision
+
+Description:
+
+- Reuse SAIN `ESquadDecision.Surround` for followers.
+- One bot starts the surround sequence, picks a valid cover spot first, then signals the others to allocate in sequence rather than all at once.
+- Each bot should try to take a different direction around the enemy (`front`, `back`, `left`, `right`) from a cover point it can shoot from.
+- If the ideal direction is not available, fallback to another direction is allowed, including duplicate directions, but not the same exact spot.
+- Candidate spots must be validated by navigation path distance, not straight-line distance alone. A geometrically near point with a long path detour is not a valid surround point.
+- If a bot in sequence cannot find any acceptable cover point, surround allocation ends there:
+- bots that already got assignments continue to them
+- remaining bots fall back to boss default/regroup behavior
+- Surround must be interruption-safe because combat decisions can break at any time due to visibility, hits, enemy death, bot death, self-actions, or other SAIN combat changes.
+
 # (NOT STARTED) - Implement follower run-ahead feature
 
 Goal:

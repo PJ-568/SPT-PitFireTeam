@@ -68,7 +68,7 @@ namespace friendlySAIN.BigBrain
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
             bool allowVanillaCombatRegroup = hasCommand &&
                                             command == FollowerCommandType.RegroupNearBoss &&
-                                            !friendlySAIN.IsSAINInstalled;
+                                            !friendlySAIN.UseSainFollowerCombat;
 
             if (!allowVanillaCombatRegroup && !followerData.IsReadyForPatrolAfterCombat())
             {
