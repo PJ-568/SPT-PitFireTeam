@@ -537,26 +537,7 @@ namespace friendlySAIN.Patches
     {
         protected override MethodBase GetTargetMethod()
         {
-            // Harmony warning fix: target the declared implementation, not inherited lookup.
-            MethodInfo method = AccessTools.DeclaredMethod(typeof(MatchmakerPlayerControllerClass), "MatchingAbort");
-            if (method != null)
-            {
-                return method;
-            }
-
-            Type baseType = typeof(MatchmakerPlayerControllerClass).BaseType;
-            while (baseType != null)
-            {
-                method = AccessTools.DeclaredMethod(baseType, "MatchingAbort");
-                if (method != null)
-                {
-                    return method;
-                }
-
-                baseType = baseType.BaseType;
-            }
-
-            return AccessTools.Method(typeof(MatchmakerPlayerControllerClass), "MatchingAbort");
+            return AccessTools.Method(typeof(GClass3926<RaidSettings>), "MatchingAbort");
         }
 
         [PatchPrefix]

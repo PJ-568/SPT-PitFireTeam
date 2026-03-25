@@ -514,7 +514,7 @@ namespace friendlySAIN.Patches
     {
         protected override MethodBase GetTargetMethod()
         {
-            return AccessTools.Method(typeof(CurrentScreenSingletonClass), "TryReturnToRootScreen");
+            return AccessTools.DeclaredMethod(typeof(CurrentScreenSingletonClass).BaseType, "TryReturnToRootScreen");
         }
 
         [PatchPrefix]
