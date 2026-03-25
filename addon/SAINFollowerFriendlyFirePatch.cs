@@ -11,61 +11,101 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINFollowerFriendlyFirePatch
     {
+        private static readonly FieldInfo? FriendlyFireStatusField =
+            AccessTools.Field(typeof(SAINFriendlyFireClass), "<FriendlyFireStatus>k__BackingField");
+
         public static void Apply(Harmony harmony)
         {
-            MethodInfo? target = AccessTools.Method(
+            MethodInfo? targetByPoint = AccessTools.Method(
                 typeof(SAINFriendlyFireClass),
-                nameof(SAINFriendlyFireClass.CheckFriendlyFire),
-                new[] { typeof(Vector3), typeof(float), typeof(Vector3), typeof(BotComponent) });
-            if (target == null)
+                nameof(SAINFriendlyFireClass.UpdateFriendlyFireStatus),
+                new[] { typeof(Vector3), typeof(Vector3), typeof(Vector3), typeof(BotComponent) });
+            MethodInfo? targetByDistance = AccessTools.Method(
+                typeof(SAINFriendlyFireClass),
+                nameof(SAINFriendlyFireClass.UpdateFriendlyFireStatus),
+                new[] { typeof(float), typeof(Vector3), typeof(Vector3), typeof(BotComponent) });
+            if (targetByPoint == null || targetByDistance == null)
             {
-                Modules.Logger.LogError("[Init] Failed to find SAINFriendlyFireClass.CheckFriendlyFire for follower FF patch.");
+                Modules.Logger.LogError("[Init] Failed to find SAINFriendlyFireClass.UpdateFriendlyFireStatus overloads for follower FF patch.");
                 return;
             }
 
-            harmony.Patch(target, postfix: new HarmonyMethod(typeof(SAINFollowerFriendlyFirePatch), nameof(Postfix_CheckFriendlyFire)));
-            Modules.Logger.LogInfo("[Init] SAIN follower friendly-fire patch applied.");
+            harmony.Patch(targetByPoint, postfix: new HarmonyMethod(typeof(SAINFollowerFriendlyFirePatch), nameof(Postfix_UpdateFriendlyFireStatusByPoint)));
+            harmony.Patch(targetByDistance, postfix: new HarmonyMethod(typeof(SAINFollowerFriendlyFirePatch), nameof(Postfix_UpdateFriendlyFireStatusByDistance)));
+            Modules.Logger.LogInfo("[Init] SAIN follower shot-lane friendly-fire patch applied.");
         }
 
-        private static void Postfix_CheckFriendlyFire(
+        private static void Postfix_UpdateFriendlyFireStatusByPoint(
+            SAINFriendlyFireClass __instance,
+            Vector3 target,
             Vector3 weaponFirePort,
-            float distance,
             Vector3 weaponPointDirection,
             BotComponent bot,
-            ref FriendlyFireStatus __result)
+            ref bool __result)
         {
-            if (__result == FriendlyFireStatus.FriendlyBlock)
+            if (!ShouldBlockFollowerShot(bot, weaponFirePort, weaponPointDirection, target, null))
             {
                 return;
             }
 
+            ForceFriendlyBlock(__instance, ref __result);
+        }
+
+        private static void Postfix_UpdateFriendlyFireStatusByDistance(
+            SAINFriendlyFireClass __instance,
+            float distance,
+            Vector3 weaponFirePort,
+            Vector3 weaponPointDirection,
+            BotComponent bot,
+            ref bool __result)
+        {
+            if (!ShouldBlockFollowerShot(bot, weaponFirePort, weaponPointDirection, null, distance))
+            {
+                return;
+            }
+
+            ForceFriendlyBlock(__instance, ref __result);
+        }
+
+        private static bool ShouldBlockFollowerShot(
+            BotComponent bot,
+            Vector3 weaponFirePort,
+            Vector3 weaponPointDirection,
+            Vector3? target,
+            float? distance)
+        {
             if (bot?.BotOwner == null || !BossPlayers.IsFollower(bot.BotOwner))
             {
-                return;
-            }
-
-            if (distance <= 0.05f || weaponPointDirection.sqrMagnitude <= 0.0001f)
-            {
-                return;
+                return false;
             }
 
             BotOwner shooter = bot.BotOwner;
             IBotAiming? currentAiming = shooter.AimingManager?.CurrentAiming;
-            if (currentAiming == null || shooter.GetPlayer?.PlayerBones?.WeaponRoot == null)
+            Vector3 realTargetPoint = currentAiming?.RealTargetPoint ?? Vector3.zero;
+            if (realTargetPoint != Vector3.zero)
             {
-                return;
+                return SAINFollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, realTargetPoint);
             }
 
-            Vector3 from = shooter.GetPlayer.PlayerBones.WeaponRoot.position;
-            Vector3 to = currentAiming.RealTargetPoint;
-            if (to == Vector3.zero)
+            if (target.HasValue && target.Value != Vector3.zero)
             {
-                return;
+                return SAINFollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, target.Value);
             }
 
-            if (shooter.ShootData != null && shooter.ShootData.CheckFriendlyFire(from, to))
+            if (distance.HasValue)
             {
-                __result = FriendlyFireStatus.FriendlyBlock;
+                return SAINFollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, weaponPointDirection, distance.Value);
+            }
+
+            return false;
+        }
+
+        private static void ForceFriendlyBlock(SAINFriendlyFireClass? instance, ref bool result)
+        {
+            result = false;
+            if (instance != null && FriendlyFireStatusField != null)
+            {
+                FriendlyFireStatusField.SetValue(instance, FriendlyFireStatus.FriendlyBlock);
             }
         }
     }
