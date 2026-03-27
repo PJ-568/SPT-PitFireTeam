@@ -21,6 +21,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/friendlysain/teammates",
                 async (url, info, sessionId, output) => await callbacks.List(url, info, sessionId)
             ),
+            new RouteAction<EmptyRequestData>(
+                "/singleplayer/autoteam",
+                async (url, info, sessionId, output) => await callbacks.ListAutoJoin(url, info, sessionId)
+            ),
             new RouteAction<GetOtherProfileRequest>(
                 "/singleplayer/friendlysain/teammate/profile",
                 async (url, info, sessionId, output) => await callbacks.GetProfile(url, info, sessionId)
@@ -40,6 +44,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
             new RouteAction<FriendlyTeammateLoadoutRequest>(
                 "/singleplayer/friendlysain/teammate/profile/loadout",
                 async (url, info, sessionId, output) => await callbacks.SetLoadout(url, info, sessionId)
+            ),
+            new RouteAction<FriendlyTeammateAutoJoinRequest>(
+                "/singleplayer/friendlysain/teammate/autojoin",
+                async (url, info, sessionId, output) => await callbacks.SetAutoJoin(url, info, sessionId)
             ),
             new RouteAction<FriendlyTeammateDeleteRequest>(
                 "/singleplayer/friendlysain/teammate/delete",

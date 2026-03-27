@@ -48,7 +48,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-03-27  
+**Last updated:** 2026-03-28  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
 ## Project Overview
@@ -113,6 +113,10 @@ Current custom teammate feature state:
     - teammate appears in right-click invite/group flows
     - teammate can accept group invite
     - pre-raid ready screen and loading screen can show player + teammate
+    - persisted `Auto Join` can preload selected teammates into the next PMC ready flow
+    - teammate portrait right-click now exposes `Invite to group`, `View profile`, and `Auto join on/off`
+    - removing a teammate from the ready/group flow suppresses that teammate for the current auto-join cycle until re-added or reset
+    - ready-screen preview now rehydrates teammate visual health and shows a secure-container contents summary under the portrait preview
     - local/offline raid guard is now enforced late in `TarkovApplication` and `MainMenuController.method_52()`
     - teammate path must preserve the normal PMC insurance screen before the custom ready screen
 - Dedicated Team Management FE is now active:
@@ -130,6 +134,7 @@ Current custom teammate feature state:
     - hideout/report are hidden,
     - stock clothes dropdowns are reused,
     - custom loadout dropdown is injected below,
+    - stock `SkillsScreen` is now cloned into teammate profile view with filtered follower-relevant skills,
     - clothes/loadout persistence routes exist on the server,
     - teammate rename from profile view is implemented through a custom overlay + backend rename route,
     - UI layout tuning is still active.
@@ -138,7 +143,7 @@ Current custom teammate feature state:
     - voice/head customization from profile screen is not implemented yet
     - Team screen `Settings` tab is functionally in place for checkbox/ranged friendlySAIN settings; keybind/input-option parity is still pending if needed later
     - teammate invite/group flow still needs more parity with old plugin around pre-raid screen sequencing and group state handling
-    - broader team-management/chatbot behaviors from old `friendlyPMC` are not ported
+    - old chatbot-style teammate management is still not ported; current management path is the roster/context-menu flow
     - teammate profiles remain mod-owned bot JSON, not full stock `SptProfile` accounts
 
 ## 0) Project Context
@@ -187,6 +192,9 @@ Current custom teammate feature state:
 - On conversion: brain/layer reset, conflict cleanup, group assignment, enemy/friendly list adjustment
 - Dismiss: trigger `OnFollowerDismiss` event for addon cleanup
 - English voice assignment applied at profile-load time via `SessionLoadBotsEnglishVoicePatch`
+- Followers now persist raid-earned experience and common-skill progression through the backend follower-progress route
+- Follower kills now contribute to player kill-quest progress and legacy-style raid XP counters when eligibility checks pass
+- Transit-ready teammates are carried forward through the synthetic raid group path between raids/maps
 
 ## 0c) BigBrain Follower Decision System
 
@@ -226,7 +234,12 @@ Current custom teammate feature state:
 - `CombatGoToEnemyAction` is now the custom old-plugin-style advance action:
     - cover-aware advance,
     - periodic path refresh,
-    - short committed approach point to reduce wall-side dithering.
+    - short committed approach point to reduce wall-side dithering,
+    - progress-stall detection to force repath when the bot is not actually advancing.
+- `CombatRunToEnemyAction` is now also custom-owned on the core path:
+    - no longer delegates directly to vanilla `GClass227`,
+    - keeps a committed run target,
+    - refreshes pathing when stair/vertical pushes stop making progress.
 - `runToEnemy` remains the decisive sprint path and is still allowed to end when the bot reaches a valid firing state.
 - Core combat style now distinguishes `HangBack` vs `MoveForward`:
     - default is boss-anchored protection,
@@ -237,6 +250,7 @@ Current custom teammate feature state:
 - Dedicated regular grenade use is now explicit on the core path:
     - no hidden opportunistic grenade throw inside dogfight,
     - grenade throw goes through `throwGrenadeFromPlace` with a dedicated safety gate.
+- Combat talk frequency is now gated by the `botTalk` config on both vanilla `BotTalk` and SAIN `PlayerComponent.PlayVoiceLine` follower paths.
 
 **Patrol Readiness (Post-Combat Handoff):**
 
@@ -329,6 +343,7 @@ Supported commands via `GestureCommandAction`:
 - `MatchMakerSideSelectionScreenPatch` — squad-mode side-selection screen takeover, tab injection, and teardown/restore
 - `CurrentScreenTryReturnToRootScreenPatch` — clears squad-mode on explicit root return (`MainMenu` bottom tab)
 - `MainMenuControllerReadyScreenGatePatch` — clears squad-mode on `Play` transition
+- `MatchMakerAcceptScreenPatch` / related raid-start patches — synthetic teammate injection, preview rebuild, auto-join preload, transit re-add, and ready-screen parity guards
 
 **Current Group Enemy Sync Model:**
 
@@ -359,7 +374,9 @@ Supported commands via `GestureCommandAction`:
 - `InteractableObjects.cs` — Loot/door interaction state, boss visibility tracking, taker/opener assignment
 - `AddTeammateCreationFlow.cs` — Teammate profile creation form state
 - `BossPlayers.cs` — Boss/player roster management
+- `FollowerTalkFrequencyGate.cs` — Follower-only combat talk throttling shared by vanilla and SAIN talk hooks
 - `PingTeamates.cs` — Teammate enemy marker UI & callout system (throttled callouts, radio/visual markers)
+- `TeammateAutoJoinRuntime.cs` — Per-ready-cycle suppression tracking for persisted auto-join teammates
 - `FollowerRecovery.cs`, `FollowerAwareness.cs`, `Enemy.cs`, `Utils.cs` — Helper utilities
 
 **Localization:**
@@ -385,7 +402,7 @@ Supported commands via `GestureCommandAction`:
 - Create mod-owned teammate profiles (PMC bot + custom nickname/voice/head)
 - Store on disk: `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
 - Fetch full profiles for team UI (roster, profile view)
-- Persistence: clothes, head, voice, loadout per teammate
+- Persistence: clothes, head, voice, loadout, auto-join flag, raid-earned XP, and common skills per teammate
 - Teammate IDs use stock `HashUtil.GenerateAccountId()` collision-checked allocation
 
 ## REST API Routes
@@ -399,7 +416,12 @@ Supported commands via `GestureCommandAction`:
 - `POST /teammate/profile/suit` — Update clothes/head selection
 - `POST /teammate/profile/loadout` — Change loadout
 - `POST /teammate/profile/rename` — Rename teammate
+- `POST /teammate/autojoin` — Persist teammate auto-join enabled/disabled state
 - `POST /teammate/delete` — Delete teammate permanently
+
+**Synthetic Team Ready Flow** (`/singleplayer/`):
+
+- `GET /autoteam` — List teammate account ids currently flagged for persisted auto-join in the next PMC ready flow
 
 **Social List Merging** (`/client/`):
 
@@ -416,6 +438,7 @@ Supported commands via `GestureCommandAction`:
 - `POST /match/group/invite/send` — Send group invite; **auto-accept** for teammates + notify
 - `POST /game/bot/followergenerate` — Generate teammate spawn profile for raid
 - `GET /game/bot/followerdetails` — Fetch follower details (tactic/equipment/voice/head, currently "Default")
+- `POST /game/bot/followerprogress` — Persist follower raid-earned XP/common skill progress to teammate storage
 
 **Post-Raid** (`/singleplayer/`):
 
@@ -430,9 +453,11 @@ Supported commands via `GestureCommandAction`:
 - Create teammate from appearance form (name, voice, head)
 - List/fetch teammates by session
 - Get/set profile (full fetch, clothes/loadout persistence)
+- Persist teammate auto-join flag in sidecar settings JSON
 - Rename teammate
 - Delete teammate + remove from social lists
 - Generate spawn profile for raid
+- Persist follower raid-earned XP and common skill progression
 - Save/load disk I/O for mod-owned JSON
 
 **`FriendlyTeammateSocialCallbacks`** — Social List Patching
@@ -447,6 +472,7 @@ Supported commands via `GestureCommandAction`:
 - Auto-accept group invites for teammates
 - Provide follower spawn profiles on demand
 - Support custom health overrides for spawn
+- Accept follower-progress persistence payloads using an `IRequestData` wrapper batch body for 4.x static-router compatibility
 
 **`FriendlyPostRaidService`** — Post-Raid Handling
 
@@ -468,6 +494,7 @@ Supported commands via `GestureCommandAction`:
 - Invite/group flow still needs parity with pre-raid screen sequencing
 - Teammate profiles remain mod-owned bot JSON, NOT full stock `SptProfile` accounts
 - Post-raid item-return endpoint (`/singleplayer/returnitems`) disabled in client runtime
+- Auto-join currently targets the PMC synthetic ready flow; scav/other flows are not treated as full teammate-managed entry points
 
 ---
 

@@ -9,13 +9,19 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatGoToEnemyAction : FollowerCombatActionBase
     {
-        private const float AdvanceCommitSeconds = 3f;
+        private const float VerticalTolerance = 1.25f;
+        private const float ProgressCheckInterval = 1.25f;
+        private const float MinimumProgressDistance = 0.75f;
+        private const int StalledRefreshThreshold = 2;
+
         private readonly GClass183 shootLogic;
         private bool shouldSprint;
         private float nextMoveRefreshTime;
         private Vector3 committedAdvancePoint;
-        private float committedAdvanceUntil;
         private bool hasCommittedAdvancePoint;
+        private Vector3 lastProgressPosition;
+        private float nextProgressCheckTime;
+        private int stalledProgressChecks;
 
         public CombatGoToEnemyAction(BotOwner botOwner) : base(botOwner)
         {
@@ -28,8 +34,10 @@ namespace friendlySAIN.BigBrain.Actions
             shouldSprint = false;
             nextMoveRefreshTime = 0f;
             committedAdvancePoint = Vector3.zero;
-            committedAdvanceUntil = 0f;
             hasCommittedAdvancePoint = false;
+            lastProgressPosition = BotOwner.Position;
+            nextProgressCheckTime = 0f;
+            stalledProgressChecks = 0;
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -37,22 +45,19 @@ namespace friendlySAIN.BigBrain.Actions
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
             {
-                BotOwner.StopMove();
-                BotOwner.LookData.SetLookPointByHearing(null);
-                BotOwner.SetPose(0f);
+                StopAdvance();
                 return;
             }
 
             BotOwner.Sprint(shouldSprint, true);
+            RefreshProgressState();
             NotMovingCheck();
 
-            bool trackingEnemy = false;
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
-                trackingEnemy = true;
-                BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition + Vector3.up);
+                BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
                 BotOwner.StopMove();
-                shootLogic.UpdateNodeByBrain(GetData<GClass27>(data));
+                AimingAndShoot(data);
                 return;
             }
 
@@ -62,8 +67,7 @@ namespace friendlySAIN.BigBrain.Actions
             }
             else
             {
-                trackingEnemy = true;
-                BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition);
+                BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
             }
 
             if (BotOwner.Mover.HasPathAndNoComplete)
@@ -76,6 +80,7 @@ namespace friendlySAIN.BigBrain.Actions
 
                 if (reached && goalEnemy.IsVisible && goalEnemy.CanShoot)
                 {
+                    ClearCommittedAdvancePoint();
                     AimAndMove(data);
                     return;
                 }
@@ -84,7 +89,7 @@ namespace friendlySAIN.BigBrain.Actions
                 {
                     ClearCommittedAdvancePoint();
                     BotOwner.StopMove();
-                    BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition + Vector3.up);
+                    BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
                     return;
                 }
 
@@ -94,11 +99,6 @@ namespace friendlySAIN.BigBrain.Actions
                 }
 
                 return;
-            }
-
-            if (!trackingEnemy)
-            {
-                BotOwner.LookData.SetLookPointByHearing(null);
             }
 
             BotOwner.StopMove();
@@ -114,7 +114,12 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void NotMovingCheck()
         {
-            if (nextMoveRefreshTime > Time.time || BotOwner.Memory.GoalEnemy == null)
+            if (BotOwner.Memory.GoalEnemy == null)
+            {
+                return;
+            }
+
+            if (nextMoveRefreshTime > Time.time)
             {
                 return;
             }
@@ -177,21 +182,19 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (Covers.IsPointBetween(corner, botPos, goalEnemy.CurrPosition))
             {
-                BotOwner.Steering.LookToPoint(corner - BotOwner.Position + Vector3.up * 0.5f);
+                BotOwner.Steering.LookToDirection(corner - BotOwner.Position + Vector3.up * 0.5f);
             }
             else
             {
-                BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition + Vector3.up);
+                BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
             }
         }
 
         private bool TryMoveToEnemy(Vector3 targetPoint)
         {
-            if (BotOwner.MoveToEnemyData.method_0(targetPoint, out Vector3 position) &&
-                BotOwner.GoToPoint(position, true, -1f, false, false) == NavMeshPathStatus.PathComplete)
+            if (BotOwner.MoveToEnemyData.method_0(targetPoint, out Vector3 currentTargetPos) &&
+                TryGoToPoint(currentTargetPos, true))
             {
-                CommitAdvancePoint(position);
-                shouldSprint = !Utils.Utils.IsWithinDistance(position, BotOwner.GetPlayer.Transform.position, 20f);
                 return true;
             }
 
@@ -201,22 +204,18 @@ namespace friendlySAIN.BigBrain.Actions
                 return true;
             }
 
-            if (BotOwner.GoToPoint(targetPoint, true, -1f, false, false) == NavMeshPathStatus.PathComplete)
+            if (BotOwner.GoToPoint(targetPoint, true, -1f, false, false) == NavMeshPathStatus.PathComplete &&
+                BotOwner.Mover.TargetPoint is Vector3 curPathLastPoint &&
+                (targetPoint - curPathLastPoint).magnitude < 2f)
             {
-                Vector3 curPathLastPoint = BotOwner.Mover.TargetPoint.Value;
-                if ((targetPoint - curPathLastPoint).magnitude < 2f)
-                {
-                    CommitAdvancePoint(curPathLastPoint);
-                    shouldSprint = !Utils.Utils.IsWithinDistance(curPathLastPoint, BotOwner.GetPlayer.Transform.position, 20f);
-                    return true;
-                }
+                CommitAdvancePoint(curPathLastPoint);
+                shouldSprint = !Utils.Utils.IsWithinDistance(curPathLastPoint, BotOwner.GetPlayer.Transform.position, 20f);
+                return true;
             }
 
             if (NavMesh.SamplePosition(targetPoint, out NavMeshHit navMeshHit, 2.6f, -1) &&
-                BotOwner.GoToPoint(navMeshHit.position, false, -1f, false, false) == NavMeshPathStatus.PathComplete)
+                TryGoToPoint(navMeshHit.position, false))
             {
-                CommitAdvancePoint(navMeshHit.position);
-                shouldSprint = !Utils.Utils.IsWithinDistance(navMeshHit.position, BotOwner.GetPlayer.Transform.position, 20f);
                 return true;
             }
 
@@ -233,27 +232,87 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             if (customNavigationPoint != null &&
-                Mathf.Abs(customNavigationPoint.Position.y - targetPoint.y) < 1f &&
-                BotOwner.GoToPoint(customNavigationPoint.Position, true, -1f, false, false) == NavMeshPathStatus.PathComplete)
+                Mathf.Abs(customNavigationPoint.Position.y - targetPoint.y) <= VerticalTolerance &&
+                TryGoToPoint(customNavigationPoint.Position, true))
             {
-                CommitAdvancePoint(customNavigationPoint.Position);
-                shouldSprint = !Utils.Utils.IsWithinDistance(customNavigationPoint.Position, BotOwner.GetPlayer.Transform.position, 20f);
                 return true;
             }
 
             return false;
         }
 
+        private bool TryGoToPoint(Vector3 targetPoint, bool withAttack)
+        {
+            if (BotOwner.GoToPoint(targetPoint, withAttack, -1f, false, false) != NavMeshPathStatus.PathComplete)
+            {
+                return false;
+            }
+
+            CommitAdvancePoint(targetPoint);
+            shouldSprint = !Utils.Utils.IsWithinDistance(targetPoint, BotOwner.GetPlayer.Transform.position, 20f);
+            return true;
+        }
+
+        private void RefreshProgressState()
+        {
+            if (!BotOwner.Mover.HasPathAndNoComplete)
+            {
+                stalledProgressChecks = 0;
+                lastProgressPosition = BotOwner.Position;
+                nextProgressCheckTime = Time.time + ProgressCheckInterval;
+                return;
+            }
+
+            if (nextProgressCheckTime > Time.time)
+            {
+                return;
+            }
+
+            float minProgressSqr = MinimumProgressDistance * MinimumProgressDistance;
+            if ((BotOwner.Position - lastProgressPosition).sqrMagnitude >= minProgressSqr)
+            {
+                stalledProgressChecks = 0;
+            }
+            else
+            {
+                stalledProgressChecks++;
+                if (stalledProgressChecks >= StalledRefreshThreshold)
+                {
+                    ClearCommittedAdvancePoint();
+                    nextMoveRefreshTime = 0f;
+                    BotOwner.StopMove();
+                    stalledProgressChecks = 0;
+                }
+            }
+
+            lastProgressPosition = BotOwner.Position;
+            nextProgressCheckTime = Time.time + ProgressCheckInterval;
+        }
+
         private void CommitAdvancePoint(Vector3 point)
         {
             committedAdvancePoint = point;
-            committedAdvanceUntil = Time.time + AdvanceCommitSeconds;
             hasCommittedAdvancePoint = true;
+            stalledProgressChecks = 0;
+            lastProgressPosition = BotOwner.Position;
+            nextProgressCheckTime = Time.time + ProgressCheckInterval;
         }
 
         private bool HasCommittedAdvancePoint()
         {
-            if (!hasCommittedAdvancePoint || committedAdvanceUntil < Time.time)
+            if (!hasCommittedAdvancePoint)
+            {
+                return false;
+            }
+
+            if (!BotOwner.Mover.TargetPoint.HasValue)
+            {
+                hasCommittedAdvancePoint = false;
+                return false;
+            }
+
+            Vector3 targetPoint = BotOwner.Mover.TargetPoint.Value;
+            if ((targetPoint - committedAdvancePoint).sqrMagnitude > 1f)
             {
                 hasCommittedAdvancePoint = false;
                 return false;
@@ -265,8 +324,15 @@ namespace friendlySAIN.BigBrain.Actions
         private void ClearCommittedAdvancePoint()
         {
             hasCommittedAdvancePoint = false;
-            committedAdvanceUntil = 0f;
             committedAdvancePoint = Vector3.zero;
+        }
+
+        private void StopAdvance()
+        {
+            ClearCommittedAdvancePoint();
+            BotOwner.StopMove();
+            BotOwner.LookData.SetLookPointByHearing(null);
+            BotOwner.SetPose(0f);
         }
     }
 }

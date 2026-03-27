@@ -29,17 +29,24 @@ Description:
 
 - Add support for boss commands during combat such as `GoForward` (Push), `Suppress`, `On your own` (stop regrouping near the boss), `Regroup` (cancel on your own), and other combat commands supported by the old plugin.
 
+# NON-COMBAT COMMANDS
+
+The "Stop" phrase should stop the bot from roaming around near the boss. It is similar to "hold" gesture, except the bot does not go into crouch. If boss gets out of range (25f) he should discard the command and resume following.
+
 # (NOT STARTED) - Combat Tactics
 
 Description:
 
 - Implement combat tactics such as Marksman, Default, Holder, and Pusher that can be assigned to followers and influence their combat behavior in ways similar to the old plugin's tactics system.
 
-# (NOT STARTED) - Surround combat decision
+# (NOT STARTED) - Vanilla Group Search combat decision
+
+- SAIN has a search log, but so does vanilla. Yet SAIN also can group the bots to do group search instead of individual search. I would like to replicate the search party we tried with SAIN
+
+# (NOT STARTED) - Vanilla Surround combat decision
 
 Description:
 
-- Reuse SAIN `ESquadDecision.Surround` for followers.
 - One bot starts the surround sequence, picks a valid cover spot first, then signals the others to allocate in sequence rather than all at once.
 - Each bot should try to take a different direction around the enemy (`front`, `back`, `left`, `right`) from a cover point it can shoot from.
 - If the ideal direction is not available, fallback to another direction is allowed, including duplicate directions, but not the same exact spot.
@@ -125,9 +132,7 @@ Implemented so far:
 
 Still to do:
 
-- Other profile skills panel:
-    - show bot skills in the right side of `OtherPlayerProfileScreen` (reuse stock InventoryScreen skills list path).
-    - apply this when viewing teammate/bot profiles.
+- Add right-click context for protrait where you can invite to group, view profile or toggle "auto join" on/off. Auto joins was implemented in the old plugin making follower automatically join the next raid. They would show up in the "match maker ready" screen. If player kicked them out, they would not join until either manually added again, raid finished or game restarted.
 - Bot tactic implementation (runtime/brain):
     - implement tactic behavior in follower AI/brain logic (not only team-management UI).
     - keep tactic persistence wiring aligned with runtime behavior (`Default`, `Support`, `Marksman`, `Holder`, `Pusher`).
@@ -144,13 +149,25 @@ Notes from old plugin / description:
 - Old plugin had a few other commands available through the chatbot, biggest being the restriction mode that will also need to be implemented in the new plugin
 - The intended user experience is that teammate raids feel like the normal solo pre-raid flow, except the ready/loading screens show the squad instead of only the player.
 
+# (DONE) FOLLOWER LEVEL PROGRESS
+
+Old plugin had follower level up his skills and level experience during raids. Needs to be implemented in the new plugin as well, with the same persistence and progression logic.
+
+# (DONE) FOLLOWER QUESTS PROGRESS
+
+Old plugin allowwed followers kills to be counted as progress for kill quest of the player, granted they meet the requirements. Needs to be implemented in the new plugin as well.
+
+# (DONE) FOLLOWER TRANSIT
+
+Old plugin made it possible for followers to transit with the user between maps. Needs to be implemented in the new plugin as well.
+
 # LANGUAGE SUPPORT
 
 - ensure new plugin gets all it's text from the language
 - following the old plugin add language support for various language
 - observe game language setting and update according to the changes of it
 
-# ADD THE GOONS
+# ADD THE GOONS (AFTER INITIAL RELEASE)
 
 Description:
 

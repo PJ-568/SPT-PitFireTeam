@@ -2,12 +2,15 @@ using ChatShared;
 using BepInEx.Configuration;
 using Comfort.Common;
 using EFT;
+using EFT.Communications;
 using EFT.InventoryLogic;
 using EFT.UI;
+using EFT.UI.Matchmaker;
 using EFT.UI.Settings;
 using friendlySAIN.Modules;
 using friendlySAIN.Patches;
 using HarmonyLib;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PlayerIcons;
 using SPT.Common.Http;
@@ -58,10 +61,15 @@ namespace friendlySAIN.Components
         private static readonly FieldInfo GameSettingsToggleTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_enableBlockInvites");
         private static readonly FieldInfo GameSettingsSliderTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_fov");
         private static readonly FieldInfo NumberSliderValueInputField = AccessTools.Field(typeof(NumberSlider), "_valueInput");
+        private static readonly FieldInfo PlayersInviteWindowContextMenuField = AccessTools.Field(typeof(PlayersInviteWindow), "_contextMenu");
+        private static readonly FieldInfo SimpleContextMenuButtonsContainerField = AccessTools.Field(typeof(SimpleContextMenu), "_interactionButtonsContainer");
+        private static readonly FieldInfo InteractionButtonsContainerTemplateField = AccessTools.Field(typeof(InteractionButtonsContainer), "_buttonTemplate");
+        private static readonly FieldInfo InteractionButtonsContainerButtonsRootField = AccessTools.Field(typeof(InteractionButtonsContainer), "_buttonsContainer");
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
         private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
         private static Sprite squadIconSprite;
         private static Sprite rosterTileDiagonalSprite;
+        private static Sprite autoJoinBadgeSprite;
 
         private MenuScreen menuScreen;
         private DefaultUIButton playerButton;
@@ -86,11 +94,14 @@ namespace friendlySAIN.Components
         private DefaultUIButton addTeammateButton;
         private TextMeshProUGUI emptyRosterLabel;
         private GameObject removeConfirmOverlay;
+        private GameObject portraitContextMenuOverlay;
         private float currentRosterShellHeight;
         private Button activeShortcutCaptureButton;
         private TextMeshProUGUI activeShortcutCaptureLabel;
         private ConfigEntry<KeyboardShortcut> activeShortcutCaptureEntry;
         private readonly Dictionary<RectTransform, Vector2> originalButtonPositions = new Dictionary<RectTransform, Vector2>();
+        private readonly Dictionary<string, GameObject> portraitLoadingIndicators = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+        private readonly HashSet<string> autoJoinRequestsInFlight = new HashSet<string>(StringComparer.Ordinal);
         private readonly StringBuilder shortcutBuilder = new StringBuilder();
         private int rosterBuildVersion;
         private static bool forceRosterRefreshOnNextInject;
@@ -106,12 +117,20 @@ namespace friendlySAIN.Components
             public string SocialMemberId { get; set; } = string.Empty;
             public string Nickname { get; set; } = string.Empty;
             public int Level { get; set; }
+            public bool AutoJoinEnabled { get; set; }
         }
 
         private sealed class SquadSettingEntry
         {
             public string SectionTitle { get; set; } = string.Empty;
             public ConfigEntryBase Entry { get; set; }
+        }
+
+        private sealed class BackendBodyResponse
+        {
+            public int err;
+            public string errmsg;
+            public object data;
         }
 
         private sealed class RosterTileHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
@@ -224,6 +243,24 @@ namespace friendlySAIN.Components
         internal static void ReturnFromProfileToSquadControl()
         {
             SquadSideSelectionFlow.Open();
+        }
+
+        private sealed class PortraitContextClickController : MonoBehaviour, IPointerClickHandler
+        {
+            public Action<PointerEventData> OnLeftClick { get; set; }
+            public Action<PointerEventData> OnRightClick { get; set; }
+
+            public void OnPointerClick(PointerEventData eventData)
+            {
+                if (eventData.button == PointerEventData.InputButton.Left)
+                {
+                    OnLeftClick?.Invoke(eventData);
+                }
+                else if (eventData.button == PointerEventData.InputButton.Right)
+                {
+                    OnRightClick?.Invoke(eventData);
+                }
+            }
         }
 
         public void Initialize(MenuScreen screen, DefaultUIButton sourcePlayerButton, DefaultUIButton sourceTradeButton)
@@ -777,8 +814,7 @@ namespace friendlySAIN.Components
                 friendlySAIN.recruitPickup,
                 friendlySAIN.npcSendMessage,
                 friendlySAIN.friendlySAINFLAG,
-                friendlySAIN.badGuy,
-                friendlySAIN.pmcArmbands))
+                friendlySAIN.badGuy))
             {
                 yield return new SquadSettingEntry
                 {
@@ -1782,7 +1818,10 @@ namespace friendlySAIN.Components
             }
 
             CloseRemoveConfirmOverlay();
+            ClosePortraitContextMenu();
             CancelPortraitQueue();
+            portraitLoadingIndicators.Clear();
+            autoJoinRequestsInFlight.Clear();
             rosterBuildVersion++;
 
             for (int i = rosterGridRoot.childCount - 1; i >= 0; i--)
@@ -1850,7 +1889,8 @@ namespace friendlySAIN.Components
                                 AccountId = accountId,
                                 SocialMemberId = socialMemberId,
                                 Nickname = nickname,
-                                Level = level
+                                Level = level,
+                                AutoJoinEnabled = ParseBool(teammate?["AutoJoinEnabled"]?.ToString() ?? teammate?["autoJoinEnabled"]?.ToString())
                             });
                         }
                     }
@@ -1870,6 +1910,11 @@ namespace friendlySAIN.Components
         private static int ParseLevel(string value)
         {
             return int.TryParse(value, out int level) ? Mathf.Max(1, level) : 1;
+        }
+
+        private static bool ParseBool(string value)
+        {
+            return bool.TryParse(value, out bool parsed) && parsed;
         }
 
         private void CreateAddTeammateButton(RectTransform rosterRect)
@@ -2014,8 +2059,14 @@ namespace friendlySAIN.Components
             RosterTileHoverController hoverController = tileObject.AddComponent<RosterTileHoverController>();
             hoverController.Configure(tileBackground, normalColor, hoverColor, pressedColor);
 
+            PortraitContextClickController tileContextController = tileObject.AddComponent<PortraitContextClickController>();
+            tileContextController.OnRightClick = eventData => ShowPortraitContextMenu(entry, eventData);
+
             RectTransform portraitHost = CreatePortraitHost(tileRect, entry.Level, out PlayerIconImage iconImage);
+            RegisterPortraitLoadingIndicator(entry.AccountId, iconImage?._progress);
+            AttachPortraitProfileTrigger(portraitHost, entry);
             CreateRemoveButton(tileRect, entry);
+            CreateAutoJoinBadge(tileRect, entry);
             CreateRosterNameLabel(tileRect, entry.Nickname);
             EnqueuePortrait(entry.AccountId, iconImage, portraitHost, buildVersion);
         }
@@ -2067,6 +2118,58 @@ namespace friendlySAIN.Components
             label.alignment = TextAlignmentOptions.Center;
             label.color = new Color(0.95f, 0.95f, 0.95f, 1f);
             label.raycastTarget = false;
+        }
+
+        private void CreateAutoJoinBadge(RectTransform tileRect, SquadRosterEntry entry)
+        {
+            if (tileRect == null || entry == null)
+            {
+                return;
+            }
+
+            Sprite badgeSprite = LoadAutoJoinBadgeSprite();
+            if (badgeSprite == null)
+            {
+                return;
+            }
+
+            GameObject badgeObject = new GameObject("friendlySAIN_AutoJoinBadge", typeof(RectTransform), typeof(Image));
+            badgeObject.transform.SetParent(tileRect, false);
+
+            RectTransform rect = badgeObject.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(1f, 0f);
+            rect.sizeDelta = new Vector2(22f, 22f);
+            rect.localPosition = new Vector3(95f, -107f, 0f);
+
+            Image badgeImage = badgeObject.GetComponent<Image>();
+            badgeImage.sprite = badgeSprite;
+            badgeImage.type = Image.Type.Simple;
+            badgeImage.preserveAspect = true;
+            badgeImage.color = new Color(0.92f, 0.92f, 0.9f, 0.95f);
+            badgeImage.raycastTarget = false;
+            badgeObject.SetActive(entry.AutoJoinEnabled);
+        }
+
+        private void UpdateAutoJoinBadge(string accountId, bool enabled)
+        {
+            if (rosterGridRoot == null || string.IsNullOrWhiteSpace(accountId))
+            {
+                return;
+            }
+
+            Transform tile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{accountId}");
+            if (tile == null)
+            {
+                return;
+            }
+
+            Transform badge = tile.Find("friendlySAIN_AutoJoinBadge");
+            if (badge != null)
+            {
+                badge.gameObject.SetActive(enabled);
+            }
         }
 
         private void ShowRemoveConfirmOverlay(SquadRosterEntry entry)
@@ -2548,6 +2651,530 @@ namespace friendlySAIN.Components
             label.color = new Color(0.86f, 0.86f, 0.84f, 1f);
         }
 
+        private void AttachPortraitProfileTrigger(RectTransform portraitHost, SquadRosterEntry entry)
+        {
+            if (portraitHost == null || entry == null)
+            {
+                return;
+            }
+
+            GameObject triggerObject = new GameObject("friendlySAIN_PortraitProfileTrigger", typeof(RectTransform), typeof(Image));
+            triggerObject.transform.SetParent(portraitHost, false);
+
+            RectTransform triggerRect = triggerObject.GetComponent<RectTransform>();
+            Stretch(triggerRect);
+            triggerRect.SetAsLastSibling();
+
+            Image triggerImage = triggerObject.GetComponent<Image>();
+            triggerImage.color = new Color(0f, 0f, 0f, 0.001f);
+            triggerImage.raycastTarget = true;
+
+            PortraitContextClickController controller = triggerObject.AddComponent<PortraitContextClickController>();
+            controller.OnLeftClick = _ => OpenProfile(entry.AccountId);
+            controller.OnRightClick = eventData => ShowPortraitContextMenu(entry, eventData);
+        }
+
+        private void ShowPortraitContextMenu(SquadRosterEntry entry, PointerEventData eventData)
+        {
+            ClosePortraitContextMenu();
+
+            if (entry == null)
+            {
+                return;
+            }
+
+            Transform overlayParent = rosterPanel?.transform.parent;
+            if (overlayParent == null)
+            {
+                return;
+            }
+
+            GameObject overlayRoot = new GameObject("friendlySAIN_PortraitContextMenuOverlay", typeof(RectTransform), typeof(Image), typeof(Button));
+            overlayRoot.transform.SetParent(overlayParent, false);
+            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
+            Stretch(overlayRect);
+            overlayRect.SetAsLastSibling();
+
+            Image overlayImage = overlayRoot.GetComponent<Image>();
+            overlayImage.color = new Color(0f, 0f, 0f, 0.001f);
+            overlayImage.raycastTarget = true;
+
+            Button overlayButton = overlayRoot.GetComponent<Button>();
+            overlayButton.transition = Selectable.Transition.None;
+            overlayButton.onClick.AddListener(ClosePortraitContextMenu);
+
+            if (TryCreateStockPortraitContextMenu(overlayRoot.transform, overlayRect, entry, eventData))
+            {
+                portraitContextMenuOverlay = overlayRoot;
+                return;
+            }
+
+            GameObject menuObject = new GameObject("friendlySAIN_PortraitContextMenu", typeof(RectTransform), typeof(Image), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            menuObject.transform.SetParent(overlayRoot.transform, false);
+            RectTransform menuRect = menuObject.GetComponent<RectTransform>();
+            menuRect.anchorMin = new Vector2(0.5f, 0.5f);
+            menuRect.anchorMax = new Vector2(0.5f, 0.5f);
+            menuRect.pivot = new Vector2(0f, 1f);
+            menuRect.sizeDelta = new Vector2(228f, 0f);
+
+            Vector2 localPoint = eventData.position - new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            menuRect.anchoredPosition = ClampContextMenuPosition(overlayRect.rect, localPoint, 228f, 126f);
+
+            Image menuBackground = menuObject.GetComponent<Image>();
+            menuBackground.color = new Color(0.045f, 0.045f, 0.045f, 0.98f);
+            menuBackground.raycastTarget = true;
+
+            VerticalLayoutGroup layout = menuObject.GetComponent<VerticalLayoutGroup>();
+            layout.padding = new RectOffset(6, 6, 6, 6);
+            layout.spacing = 4;
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+
+            ContentSizeFitter sizeFitter = menuObject.GetComponent<ContentSizeFitter>();
+            sizeFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            sizeFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            CreateContextMenuButton(
+                menuObject.transform,
+                GetSocialUiText("SquadControlInviteToGroup", "Invite to group"),
+                () => InviteTeammateToGroup(entry));
+            CreateContextMenuButton(
+                menuObject.transform,
+                GetSocialUiText("SquadControlViewProfile", "View profile"),
+                () =>
+                {
+                    ClosePortraitContextMenu();
+                    OpenProfile(entry.AccountId);
+                });
+            CreateContextMenuButton(
+                menuObject.transform,
+                GetSocialUiText(
+                    entry.AutoJoinEnabled ? "SquadControlAutoJoinOn" : "SquadControlAutoJoinOff",
+                    entry.AutoJoinEnabled ? "Auto join: On" : "Auto join: Off"),
+                () => ToggleTeammateAutoJoin(entry));
+
+            portraitContextMenuOverlay = overlayRoot;
+        }
+
+        private bool TryCreateStockPortraitContextMenu(Transform overlayParent, RectTransform overlayRect, SquadRosterEntry entry, PointerEventData eventData)
+        {
+            if (overlayParent == null || overlayRect == null || entry == null)
+            {
+                return false;
+            }
+
+            SimpleContextMenu template = ResolveMatchmakerContextMenuTemplate();
+            if (template == null)
+            {
+                return false;
+            }
+
+            SimpleContextMenu menu = Instantiate(template, overlayParent, false);
+            menu.name = "friendlySAIN_PortraitContextMenu";
+            menu.gameObject.SetActive(true);
+            menu.enabled = false;
+
+            RectTransform menuRect = menu.transform as RectTransform;
+            if (menuRect == null)
+            {
+                Destroy(menu.gameObject);
+                return false;
+            }
+
+            menuRect.anchorMin = new Vector2(0.5f, 0.5f);
+            menuRect.anchorMax = new Vector2(0.5f, 0.5f);
+            menuRect.pivot = new Vector2(0f, 1f);
+            menuRect.SetAsLastSibling();
+
+            InteractionButtonsContainer container = SimpleContextMenuButtonsContainerField?.GetValue(menu) as InteractionButtonsContainer;
+            SimpleContextMenuButton buttonTemplate = InteractionButtonsContainerTemplateField?.GetValue(container) as SimpleContextMenuButton;
+            RectTransform buttonsRoot = InteractionButtonsContainerButtonsRootField?.GetValue(container) as RectTransform;
+            if (container == null || buttonTemplate == null || buttonsRoot == null)
+            {
+                Destroy(menu.gameObject);
+                return false;
+            }
+
+            CreateStockContextMenuButton(
+                container,
+                buttonTemplate,
+                buttonsRoot,
+                "InviteInGroup",
+                GetSocialUiText("SquadControlInviteToGroup", "Invite to group"),
+                () =>
+                {
+                    ClosePortraitContextMenu();
+                    InviteTeammateToGroup(entry);
+                });
+            CreateStockContextMenuButton(
+                container,
+                buttonTemplate,
+                buttonsRoot,
+                "WatchProfile",
+                GetSocialUiText("SquadControlViewProfile", "View profile"),
+                () =>
+                {
+                    ClosePortraitContextMenu();
+                    OpenProfile(entry.AccountId);
+                });
+            CreateStockContextMenuButton(
+                container,
+                buttonTemplate,
+                buttonsRoot,
+                "AutoJoin",
+                GetSocialUiText(
+                    entry.AutoJoinEnabled ? "SquadControlAutoJoinOn" : "SquadControlAutoJoinOff",
+                    entry.AutoJoinEnabled ? "Auto join: On" : "Auto join: Off"),
+                () =>
+                {
+                    ClosePortraitContextMenu();
+                    ToggleTeammateAutoJoin(entry);
+                });
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(menuRect);
+
+            Vector2 localPoint = eventData.position - new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            Vector2 menuSize = menuRect.rect.size;
+            menuRect.anchoredPosition = ClampContextMenuPosition(
+                overlayRect.rect,
+                localPoint,
+                Mathf.Max(menuSize.x, 228f),
+                Mathf.Max(menuSize.y, 36f * 3f));
+
+            return true;
+        }
+
+        private Vector2 ClampContextMenuPosition(Rect overlayRect, Vector2 desiredPosition, float menuWidth, float menuHeight)
+        {
+            float minX = -overlayRect.width * 0.5f;
+            float maxX = overlayRect.width * 0.5f - menuWidth;
+            float minY = -overlayRect.height * 0.5f + menuHeight;
+            float maxY = overlayRect.height * 0.5f;
+
+            return new Vector2(
+                Mathf.Clamp(desiredPosition.x, minX, maxX),
+                Mathf.Clamp(desiredPosition.y, minY, maxY));
+        }
+
+        private void CreateStockContextMenuButton(
+            InteractionButtonsContainer container,
+            SimpleContextMenuButton template,
+            RectTransform buttonsRoot,
+            string key,
+            string label,
+            Action onClick)
+        {
+            if (container == null || template == null || buttonsRoot == null)
+            {
+                return;
+            }
+
+            container.method_1(
+                key,
+                label,
+                template,
+                buttonsRoot,
+                null,
+                onClick,
+                null,
+                false,
+                false);
+        }
+
+        private void CreateContextMenuButton(Transform parent, string label, Action onClick)
+        {
+            GameObject buttonObject = new GameObject("friendlySAIN_ContextMenuButton", typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
+            buttonObject.transform.SetParent(parent, false);
+
+            LayoutElement layout = buttonObject.GetComponent<LayoutElement>();
+            layout.preferredHeight = 36f;
+            layout.flexibleWidth = 1f;
+
+            Image background = buttonObject.GetComponent<Image>();
+            background.color = new Color(0.11f, 0.11f, 0.11f, 1f);
+            background.raycastTarget = true;
+
+            Button button = buttonObject.GetComponent<Button>();
+            button.transition = Selectable.Transition.ColorTint;
+            ColorBlock colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(0.88f, 0.88f, 0.88f, 1f);
+            colors.pressedColor = new Color(0.72f, 0.72f, 0.72f, 1f);
+            colors.selectedColor = Color.white;
+            colors.disabledColor = new Color(0.8f, 0.8f, 0.8f, 1f);
+            button.colors = colors;
+            button.onClick.AddListener(() => onClick?.Invoke());
+
+            GameObject labelObject = CreateText("Label", label, 18f, TextAlignmentOptions.MidlineLeft);
+            labelObject.transform.SetParent(buttonObject.transform, false);
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            Stretch(labelRect);
+            labelRect.offsetMin = new Vector2(12f, 0f);
+            labelRect.offsetMax = new Vector2(-12f, 0f);
+
+            TextMeshProUGUI text = labelObject.GetComponent<TextMeshProUGUI>();
+            text.fontSize = 18f;
+            text.color = new Color(0.92f, 0.92f, 0.90f, 1f);
+            text.raycastTarget = false;
+        }
+
+        private void InviteTeammateToGroup(SquadRosterEntry entry)
+        {
+            ClosePortraitContextMenu();
+
+            if (entry == null || string.IsNullOrWhiteSpace(entry.AccountId))
+            {
+                return;
+            }
+
+            if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller == null)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Could not invite teammate '{entry.AccountId}': matchmaker controller unavailable.");
+                return;
+            }
+
+            TeammateAutoJoinRuntime.ClearSuppression(entry.AccountId);
+
+            if (controller.GroupPlayers != null && controller.GroupPlayers.Any(player => player?.AccountId == entry.AccountId))
+            {
+                return;
+            }
+
+            controller.SendInvite(entry.AccountId, true, null);
+        }
+
+        private void ToggleTeammateAutoJoin(SquadRosterEntry entry)
+        {
+            ClosePortraitContextMenu();
+
+            if (entry == null || string.IsNullOrWhiteSpace(entry.AccountId))
+            {
+                return;
+            }
+
+            bool nextState = !entry.AutoJoinEnabled;
+            if (!autoJoinRequestsInFlight.Add(entry.AccountId))
+            {
+                return;
+            }
+
+            SetPortraitLoading(entry.AccountId, true);
+            friendlySAIN.Instance.StartCoroutine(ToggleTeammateAutoJoinCoroutine(entry, nextState));
+        }
+
+        private IEnumerator ToggleTeammateAutoJoinCoroutine(SquadRosterEntry entry, bool nextState)
+        {
+            string accountId = entry?.AccountId ?? string.Empty;
+            string nickname = entry?.Nickname ?? string.Empty;
+            Task<string> requestTask = null;
+            string requestBody = JsonConvert.SerializeObject(new
+            {
+                aid = accountId,
+                enabled = nextState
+            });
+
+            try
+            {
+                requestTask = Task.Run(() => RequestHandler.PostJson("/singleplayer/friendlysain/teammate/autojoin", requestBody));
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError($"[UI] Failed to start auto join toggle request for teammate '{accountId}'.");
+                friendlySAIN.Log.LogError(ex);
+            }
+
+            if (requestTask != null)
+            {
+                yield return new WaitUntil(() => requestTask.IsCompleted);
+            }
+
+            bool success = false;
+            string backendError = null;
+
+            if (requestTask == null)
+            {
+                backendError = "Request did not start.";
+            }
+            else if (requestTask.IsFaulted)
+            {
+                backendError = requestTask.Exception?.GetBaseException().Message;
+                friendlySAIN.Log.LogError($"[UI] Failed to toggle auto join for teammate '{accountId}'.");
+                friendlySAIN.Log.LogError(requestTask.Exception);
+            }
+            else
+            {
+                success = TryValidateBackendSuccess(requestTask.Result, out backendError);
+                if (!success && !string.IsNullOrWhiteSpace(backendError))
+                {
+                    friendlySAIN.Log.LogWarning($"[UI] Auto join toggle rejected for teammate '{accountId}': {backendError}");
+                }
+            }
+
+            SetPortraitLoading(accountId, false);
+            autoJoinRequestsInFlight.Remove(accountId);
+
+            if (success)
+            {
+                if (nextState)
+                {
+                    TeammateAutoJoinRuntime.ClearSuppression(accountId);
+                }
+
+                entry.AutoJoinEnabled = nextState;
+                UpdateAutoJoinBadge(accountId, nextState);
+                string successTemplate = GetSocialUiText(
+                    nextState ? "SquadControlAutoJoinEnabledToast" : "SquadControlAutoJoinDisabledToast",
+                    nextState ? "Enabled PMC raid auto-join for {0}." : "Disabled PMC raid auto-join for {0}.");
+                AddTeammateCreationFlow.ShowToast(string.Format(successTemplate, nickname ?? string.Empty));
+                yield break;
+            }
+
+            string failureTemplate = GetSocialUiText(
+                nextState ? "SquadControlAutoJoinEnableFailedToast" : "SquadControlAutoJoinDisableFailedToast",
+                nextState ? "Failed to enable auto-join for {0}" : "Failed to disable auto-join for {0}");
+            AddTeammateCreationFlow.ShowToast(string.Format(failureTemplate, nickname ?? string.Empty));
+        }
+
+        private static bool TryValidateBackendSuccess(string responseJson, out string backendError)
+        {
+            backendError = null;
+
+            if (string.IsNullOrWhiteSpace(responseJson))
+            {
+                return true;
+            }
+
+            try
+            {
+                BackendBodyResponse response = JsonConvert.DeserializeObject<BackendBodyResponse>(responseJson);
+                if (response == null)
+                {
+                    backendError = "Backend returned an empty response body.";
+                    return false;
+                }
+
+                if (response.err != 0)
+                {
+                    backendError = string.IsNullOrWhiteSpace(response.errmsg)
+                        ? $"Backend returned err={response.err}."
+                        : response.errmsg;
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                backendError = $"Failed to parse backend response: {ex.Message}";
+                return false;
+            }
+        }
+
+        private void RegisterPortraitLoadingIndicator(string accountId, GameObject progressObject)
+        {
+            if (string.IsNullOrWhiteSpace(accountId) || progressObject == null)
+            {
+                return;
+            }
+
+            portraitLoadingIndicators[accountId] = progressObject;
+            progressObject.SetActive(false);
+        }
+
+        private void SetPortraitLoading(string accountId, bool loading)
+        {
+            if (TryGetPortraitLoadingIndicator(accountId, out GameObject progressObject))
+            {
+                progressObject.SetActive(loading);
+            }
+        }
+
+        private bool TryGetPortraitLoadingIndicator(string accountId, out GameObject progressObject)
+        {
+            progressObject = null;
+
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return false;
+            }
+
+            if (portraitLoadingIndicators.TryGetValue(accountId, out progressObject) && progressObject != null)
+            {
+                return true;
+            }
+
+            Transform tile = rosterGridRoot?.Find($"friendlySAIN_RosterTile_{accountId}");
+            Transform progressTransform = FindChildRecursive(tile, "Progress");
+            if (progressTransform == null)
+            {
+                return false;
+            }
+
+            progressObject = progressTransform.gameObject;
+            portraitLoadingIndicators[accountId] = progressObject;
+            return true;
+        }
+
+        private static Transform FindChildRecursive(Transform parent, string childName)
+        {
+            if (parent == null || string.IsNullOrWhiteSpace(childName))
+            {
+                return null;
+            }
+
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                Transform child = parent.GetChild(i);
+                if (string.Equals(child.name, childName, StringComparison.Ordinal))
+                {
+                    return child;
+                }
+
+                Transform descendant = FindChildRecursive(child, childName);
+                if (descendant != null)
+                {
+                    return descendant;
+                }
+            }
+
+            return null;
+        }
+
+        private bool TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller)
+        {
+            controller = null;
+
+            if (friendlySAIN.application == null)
+            {
+                try
+                {
+                    friendlySAIN.application = SPT.Reflection.Utils.ClientAppUtils.GetMainApp();
+                }
+                catch (Exception ex)
+                {
+                    friendlySAIN.Log.LogError("[UI] Failed to resolve main application for teammate invite.");
+                    friendlySAIN.Log.LogError(ex);
+                }
+            }
+
+            controller = friendlySAIN.application?.MatchmakerPlayerControllerClass;
+            return controller != null;
+        }
+
+        private void ClosePortraitContextMenu()
+        {
+            if (portraitContextMenuOverlay == null)
+            {
+                return;
+            }
+
+            Destroy(portraitContextMenuOverlay);
+            portraitContextMenuOverlay = null;
+        }
+
         private DefaultUIButton CreateOverlayActionButton(Transform parent, Vector2 anchoredPosition, Vector2 size)
         {
             DefaultUIButton button = Instantiate(playerButton, parent, false);
@@ -2567,6 +3194,13 @@ namespace friendlySAIN.Components
             button.Interactable = true;
             button.SetIcon(null);
             return button;
+        }
+
+        private SimpleContextMenu ResolveMatchmakerContextMenuTemplate()
+        {
+            return Resources.FindObjectsOfTypeAll<PlayersInviteWindow>()
+                .Select(window => PlayersInviteWindowContextMenuField?.GetValue(window) as SimpleContextMenu)
+                .FirstOrDefault(menu => menu != null && SimpleContextMenuButtonsContainerField?.GetValue(menu) is InteractionButtonsContainer);
         }
 
         private Button CreateWindowCloseButton(Transform parent, string name)
@@ -3247,6 +3881,44 @@ namespace friendlySAIN.Components
                 SpriteMeshType.FullRect);
             rosterTileDiagonalSprite.name = "friendlySAIN_RosterTileDiagonal";
             return rosterTileDiagonalSprite;
+        }
+
+        private Sprite LoadAutoJoinBadgeSprite()
+        {
+            if (autoJoinBadgeSprite != null)
+            {
+                return autoJoinBadgeSprite;
+            }
+
+            string[] candidates =
+            {
+                Path.Combine(PluginDirectory, "auto-join.png"),
+                Path.Combine(PluginDirectory, "resources", "auto-join.png"),
+                Path.Combine(Directory.GetParent(PluginDirectory)?.FullName ?? PluginDirectory, "resources", "auto-join.png"),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "auto-join.png"),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "resources", "auto-join.png")
+            };
+
+            string iconPath = candidates.FirstOrDefault(File.Exists);
+            if (string.IsNullOrEmpty(iconPath))
+            {
+                friendlySAIN.Log.LogWarning("[UI] Auto-join badge icon could not be found.");
+                return null;
+            }
+
+            byte[] fileData = File.ReadAllBytes(iconPath);
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+            if (!texture.LoadImage(fileData))
+            {
+                Destroy(texture);
+                friendlySAIN.Log.LogWarning($"[UI] Failed to decode auto-join badge icon '{iconPath}'.");
+                return null;
+            }
+
+            texture.name = "friendlySAIN_AutoJoinBadge";
+            autoJoinBadgeSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
+            autoJoinBadgeSprite.name = "friendlySAIN_AutoJoinBadge";
+            return autoJoinBadgeSprite;
         }
 
         private static string GetSocialUiText(string key, string fallback)

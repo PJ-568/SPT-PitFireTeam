@@ -1,6 +1,12 @@
 using System.Text.Json;
+using SPTarkov.Server.Core.Models.Utils;
 
 namespace friendlySAIN.Server.Models;
+
+public record FriendlyTeammateFollowerProgressBatchRequest : IRequestData
+{
+    public List<FriendlyTeammateFollowerProgressRequest> Entries { get; set; } = [];
+}
 
 public record FriendlyTeammateFollowerProgressRequest
 {

@@ -21,7 +21,7 @@ public class FriendlyTeammateMatchRouter(JsonUtil jsonUtil, FriendlyTeammateMatc
                 "/client/game/bot/followerdetails",
                 async (url, info, sessionId, output) => await callbacks.GetFollowerDetails(url, info, sessionId)
             ),
-            new RouteAction<List<FriendlyTeammateFollowerProgressRequest>>(
+            new RouteAction<FriendlyTeammateFollowerProgressBatchRequest>(
                 "/client/game/bot/followerprogress",
                 async (url, info, sessionId, output) => await callbacks.PersistFollowerProgress(url, info, sessionId)
             ),

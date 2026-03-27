@@ -66,7 +66,7 @@ namespace friendlySAIN.Localization
                     "Should the player be hostile to all PMC bots, regardless of faction"),
                 pmcArmbands = Entry(
                     "PMC Arm Bands",
-                    "Should PMC bots have armbands (red for BEARs, blue for USECs)"),
+                    "Should PMC bots have armbands (red for BEARs, blue for USECs). (Can conflict with mods that modify bot equipment, rendering this setting ineffective.)"),
                 englishBear = Entry(
                     "BEARs speak English",
                     "Should BEAR bots speak English only"),
@@ -137,6 +137,14 @@ namespace friendlySAIN.Localization
                     ["RemoveTeammateTitle"] = "Remove teammate",
                     ["RemoveTeammatePrompt"] = "Are you sure you want to delete member {0}? Process cannot be undone.",
                     ["RemoveTeammateConfirm"] = "Remove",
+                    ["SquadControlInviteToGroup"] = "Invite to group",
+                    ["SquadControlViewProfile"] = "View profile",
+                    ["SquadControlAutoJoinOn"] = "Auto join: On",
+                    ["SquadControlAutoJoinOff"] = "Auto join: Off",
+                    ["SquadControlAutoJoinEnabledToast"] = "Enabled PMC raid auto-join for {0}.",
+                    ["SquadControlAutoJoinDisabledToast"] = "Disabled PMC raid auto-join for {0}.",
+                    ["SquadControlAutoJoinEnableFailedToast"] = "Failed to enable auto-join for {0}",
+                    ["SquadControlAutoJoinDisableFailedToast"] = "Failed to disable auto-join for {0}",
                     ["SquadControlButton"] = "My Squad",
                     ["SquadControlTitle"] = "My Squad",
                     ["SquadControlBack"] = "Back",

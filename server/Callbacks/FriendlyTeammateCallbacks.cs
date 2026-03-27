@@ -32,6 +32,11 @@ public class FriendlyTeammateCallbacks(
         return new ValueTask<string>(httpResponse.GetBody(teammateService.ListTeammates(sessionId)));
     }
 
+    public ValueTask<string> ListAutoJoin(string url, EmptyRequestData _, MongoId sessionId)
+    {
+        return new ValueTask<string>(httpResponse.GetBody(teammateService.GetAutoJoinTeammateAccountIds(sessionId)));
+    }
+
     public ValueTask<string> GetProfile(string url, GetOtherProfileRequest request, MongoId sessionId)
     {
         try
@@ -87,6 +92,19 @@ public class FriendlyTeammateCallbacks(
         try
         {
             teammateService.SetTeammateLoadout(sessionId, request);
+            return new ValueTask<string>(httpResponse.NullResponse());
+        }
+        catch (FriendlyTeammateException ex)
+        {
+            return new ValueTask<string>(httpResponse.GetBody<object?>(null, err: BackendErrorCodes.UnknownTradingError, errmsg: ex.Message));
+        }
+    }
+
+    public ValueTask<string> SetAutoJoin(string url, FriendlyTeammateAutoJoinRequest request, MongoId sessionId)
+    {
+        try
+        {
+            teammateService.SetTeammateAutoJoin(sessionId, request);
             return new ValueTask<string>(httpResponse.NullResponse());
         }
         catch (FriendlyTeammateException ex)

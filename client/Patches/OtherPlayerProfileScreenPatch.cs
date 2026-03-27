@@ -295,9 +295,14 @@ namespace friendlySAIN.Patches
             RestoreHideoutButtonVisuals(__instance);
 
             FriendlyTeammateProfileOptions options = TryLoadProfileOptions(profile.AccountId);
-            if (options == null || options.Loadouts == null || options.Loadouts.Count == 0)
+            if (options == null)
             {
-                DisplaySkillsPanel(__instance, profile, session);
+                return;
+            }
+
+            if (options.Loadouts == null || options.Loadouts.Count == 0)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Teammate profile patch aborted: no loadout options returned for '{profile.AccountId}'.");
                 return;
             }
 

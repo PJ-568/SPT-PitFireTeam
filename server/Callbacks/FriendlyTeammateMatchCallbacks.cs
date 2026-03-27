@@ -75,10 +75,10 @@ public class FriendlyTeammateMatchCallbacks(
 
     public ValueTask<string> PersistFollowerProgress(
         string url,
-        List<FriendlyTeammateFollowerProgressRequest> request,
+        FriendlyTeammateFollowerProgressBatchRequest request,
         MongoId sessionId)
     {
-        teammateService.PersistFollowerProgress(sessionId, request);
+        teammateService.PersistFollowerProgress(sessionId, request.Entries);
         return new ValueTask<string>(httpResponseUtil.EmptyResponse());
     }
 }

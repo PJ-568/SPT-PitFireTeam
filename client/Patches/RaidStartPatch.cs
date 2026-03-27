@@ -3,6 +3,7 @@ using EFT.Game.Spawning;
 using Comfort.Common;
 using EFT.InventoryLogic;
 using EFT.UI.Matchmaker;
+using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using HarmonyLib;
 using Newtonsoft.Json;
@@ -19,6 +20,8 @@ using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using playerGroup = System.Collections.Generic.List<GroupPlayerViewModelClass>;
+using OtherProfileResult = GClass2213;
+using ResultProfile = GClass1416;
 
 namespace friendlySAIN.Patches
 {
@@ -83,6 +86,141 @@ namespace friendlySAIN.Patches
             if (teammate.PlayerVisualRepresentation.Info.Health == null)
             {
                 teammate.PlayerVisualRepresentation.Info.Health = referenceHealth.Clone();
+            }
+        }
+    }
+
+    internal static class SyntheticTeammateAutoJoinLoader
+    {
+        private const string AutoJoinRoute = "/singleplayer/autoteam";
+        private const string ProfileRoute = "/singleplayer/friendlysain/teammate/profile";
+
+        public static void EnsureLoaded(MatchmakerPlayerControllerClass controller)
+        {
+            if (controller?.CurrentPlayer?.Info == null)
+            {
+                return;
+            }
+
+            foreach (string accountId in LoadAutoJoinAccountIds())
+            {
+                if (MainMenuControllerPatch.GroupPlayers.Any(player => player?.AccountId == accountId))
+                {
+                    continue;
+                }
+
+                GroupPlayerViewModelClass teammate = BuildGroupPlayer(accountId, controller.CurrentPlayer);
+                if (teammate != null)
+                {
+                    MainMenuControllerPatch.GroupPlayers.Add(teammate);
+                }
+            }
+        }
+
+        private static IReadOnlyList<string> LoadAutoJoinAccountIds()
+        {
+            try
+            {
+                string response = RequestHandler.GetJson(AutoJoinRoute);
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    return Array.Empty<string>();
+                }
+
+                JToken root = JToken.Parse(response);
+                JToken dataToken = root.Type == JTokenType.Array ? root : root["data"];
+                if (dataToken is not JArray ids)
+                {
+                    return Array.Empty<string>();
+                }
+
+                return TeammateAutoJoinRuntime.FilterInviteCandidates(ids.Values<string>());
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to load persisted auto-join teammate ids.");
+                friendlySAIN.Log.LogError(ex);
+                return Array.Empty<string>();
+            }
+        }
+
+        private static GroupPlayerViewModelClass BuildGroupPlayer(string accountId, GroupPlayerViewModelClass currentPlayer)
+        {
+            if (string.IsNullOrWhiteSpace(accountId) || currentPlayer?.Info == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                string responseJson = RequestHandler.PostJson(ProfileRoute, JsonConvert.SerializeObject(new { accountId }));
+                FriendlyTeammateBodyResponse<OtherProfileResult> body =
+                    JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<OtherProfileResult>>(responseJson);
+
+                if (body?.err != 0)
+                {
+                    friendlySAIN.Log.LogWarning($"[UI] Failed to build auto-join teammate '{accountId}': {body?.errmsg}");
+                    return null;
+                }
+
+                OtherProfileResult profileResult = body?.data;
+                if (profileResult == null)
+                {
+                    return null;
+                }
+
+                ResultProfile profile = new ResultProfile(profileResult);
+                LastPlayerStateClass playerVisualization = profile.PlayerVisualRepresentation;
+                if (playerVisualization?.Info == null)
+                {
+                    return null;
+                }
+
+                playerVisualization.Info.Health ??= currentPlayer.Info.Health?.Clone();
+
+                GClass1410 previewInfo = new GClass1410
+                {
+                    Level = playerVisualization.Info.Level,
+                    PrestigeLevel = playerVisualization.Info.PrestigeLevel,
+                    MemberCategory = EMemberCategory.Unheard,
+                    SelectedMemberCategory = EMemberCategory.Unheard,
+                    Nickname = playerVisualization.Info.Nickname ?? accountId,
+                    Side = playerVisualization.Info.Side,
+                    SavageLockTime = currentPlayer.Info.SavageLockTime,
+                    SavageNickname = currentPlayer.Info.Nickname,
+                    GameVersion = currentPlayer.Info.GameVersion,
+                    HasCoopExtension = currentPlayer.Info.HasCoopExtension,
+                    Health = playerVisualization.Info.Health
+                };
+                playerVisualization.Info.MemberCategory = EMemberCategory.Unheard;
+                playerVisualization.Info.SelectedMemberCategory = EMemberCategory.Unheard;
+
+                return new GroupPlayerViewModelClass(new GroupPlayerDataClass
+                {
+                    AccountId = accountId,
+                    Id = accountId,
+                    Info = new GClass1410
+                    {
+                        Level = previewInfo.Level,
+                        PrestigeLevel = previewInfo.PrestigeLevel,
+                        MemberCategory = previewInfo.MemberCategory,
+                        SelectedMemberCategory = previewInfo.SelectedMemberCategory,
+                        Nickname = previewInfo.Nickname,
+                        Side = previewInfo.Side,
+                        SavageLockTime = currentPlayer.Info.SavageLockTime,
+                        SavageNickname = currentPlayer.Info.Nickname,
+                        GameVersion = currentPlayer.Info.GameVersion,
+                        HasCoopExtension = currentPlayer.Info.HasCoopExtension,
+                        Health = previewInfo.Health
+                    },
+                    PlayerVisualRepresentation = playerVisualization
+                });
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Failed to materialize auto-join teammate '{accountId}' for matchmaker.");
+                friendlySAIN.Log.LogError(ex);
+                return null;
             }
         }
     }
@@ -623,6 +761,7 @@ namespace friendlySAIN.Patches
         {
             NormalizeTeammateIconCategory(player);
             EnsureTeammateVisualHealth(__instance, player);
+            TeammateAutoJoinRuntime.ClearSuppression(player?.AccountId);
             if (__instance.CurrentPlayer != player &&
                 MainMenuControllerPatch.GroupPlayers.All(x => x.AccountId != player.AccountId))
             {
@@ -850,13 +989,6 @@ namespace friendlySAIN.Patches
             {
                 controller.GroupPlayers.Remove(item);
             }
-
-            {
-                foreach (var item in MainMenuControllerPatch.GroupPlayers)
-                {
-                    controller.GroupPlayers.Add(item);
-                }
-            }
         }
     }
     /**
@@ -873,6 +1005,7 @@ namespace friendlySAIN.Patches
         private static void PatchPrefix(ContextInteractionsClass __instance)
         {
             string id = __instance.GroupPlayerDataClass.AccountId;
+            TeammateAutoJoinRuntime.MarkSuppressed(id);
             MainMenuControllerPatch.GroupPlayers.RemoveFirst(x => x.AccountId == id);
         }
     }
@@ -979,17 +1112,19 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MatchMakerAcceptScreen __instance, ISession session, RaidSettings raidSettings, RaidSettings offlineRaidSettings)
         {
-            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
-            {
-                return;
-            }
-
-            raidSettings.RaidMode = ERaidMode.Local;
-
-            // CRITICAL: Add teammates to controller BEFORE the game populates previews
             try
             {
                 MatchmakerPlayerControllerClass controller = AccessTools.Field(typeof(MatchMakerAcceptScreen), "MatchmakerPlayersController").GetValue(__instance) as MatchmakerPlayerControllerClass;
+                SyntheticTeammateAutoJoinLoader.EnsureLoaded(controller);
+
+                if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
+                {
+                    return;
+                }
+
+                raidSettings.RaidMode = ERaidMode.Local;
+
+                // CRITICAL: Add teammates to controller BEFORE the game populates previews
                 if (controller != null && MainMenuControllerPatch.GroupPlayers.Count > 0)
                 {
                     foreach (var teammate in MainMenuControllerPatch.GroupPlayers)

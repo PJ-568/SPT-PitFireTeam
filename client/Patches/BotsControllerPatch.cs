@@ -1532,11 +1532,15 @@ namespace friendlySAIN.Patches
             Utils.Utils.FlagsClear();
             Utils.Utils.ValuesClear();
 
-            MainMenuControllerPatch.GroupPlayers.Clear();
-            MainMenuControllerPatch.TransitPlayers.Clear();
-            SpawnHelper.spawnMemberIds.Clear();
-            SpawnHelper.spawnMemberIdsScav.Clear();
-            SpawnHelper.spawnMemberIdsBoss.Clear();
+            if (!raidTransit)
+            {
+                TeammateAutoJoinRuntime.ClearAllSuppression();
+                MainMenuControllerPatch.GroupPlayers.Clear();
+                MainMenuControllerPatch.TransitPlayers.Clear();
+                SpawnHelper.spawnMemberIds.Clear();
+                SpawnHelper.spawnMemberIdsScav.Clear();
+                SpawnHelper.spawnMemberIdsBoss.Clear();
+            }
 
 
             BotsEventsControllerSpawnPatch.squadSpawned = false;
@@ -1546,7 +1550,7 @@ namespace friendlySAIN.Patches
 
             Modules.Logger.LogInfo("Raid Ended");
 
-            /* try
+            try
             {
                 if (!raidTransit) RequestHandler.GetJson("/singleplayer/pitraidend");
                 else
@@ -1559,7 +1563,7 @@ namespace friendlySAIN.Patches
             catch (Exception ex)
             {
                 Modules.Logger.LogError(ex);
-            } */
+            }
 
             return true;
         }

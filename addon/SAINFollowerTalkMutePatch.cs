@@ -15,7 +15,6 @@ namespace friendlySAIN.SAINAddon
     {
         private const bool EnableFollowerTalkMuteDebugLogs = false;
         private const float LogThrottleSeconds = 2f;
-
         private static readonly HashSet<EPhraseTrigger> MutedFollowerTriggers = new HashSet<EPhraseTrigger>
         {
             EPhraseTrigger.OnFirstContact,
@@ -111,13 +110,25 @@ namespace friendlySAIN.SAINAddon
 
         private static bool Prefix_PlayVoiceLine(object __instance, EPhraseTrigger phrase, ETagStatus mask, bool aggressive, ref bool __result)
         {
-            if (!MutedFollowerTriggers.Contains(phrase))
+            Player? player = PlayerComponentPlayerProperty?.GetValue(__instance) as Player;
+            if (!TryGetFollowerOwner(player?.AIData?.BotOwner, out BotOwner? owner))
             {
                 return true;
             }
 
-            Player? player = PlayerComponentPlayerProperty?.GetValue(__instance) as Player;
-            if (!TryGetFollowerOwner(player?.AIData?.BotOwner, out BotOwner? owner))
+            if (FollowerTalkFrequencyGate.ShouldBlockCombatTalk(owner!, phrase))
+            {
+                __result = false;
+                LogBlockedPhrase(
+                    owner!,
+                    enemy: null,
+                    "PlayerComponent.PlayVoiceLine",
+                    phrase.ToString(),
+                    $"reason=botTalkThrottle value={friendlySAIN.botTalk.Value} mask={mask} aggressive={aggressive}");
+                return false;
+            }
+
+            if (!MutedFollowerTriggers.Contains(phrase))
             {
                 return true;
             }

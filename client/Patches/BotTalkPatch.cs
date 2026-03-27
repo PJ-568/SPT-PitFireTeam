@@ -162,25 +162,9 @@ namespace friendlySAIN.Patches
                 }
             }
 
-            if (
-                (
-                    type == EPhraseTrigger.OnFight || type == EPhraseTrigger.OnRepeatedContact ||
-                    (__instance.BotOwner_0.Memory.HaveEnemy && (type == EPhraseTrigger.MumblePhrase || type == EPhraseTrigger.OnMutter))
-                ) &&
-                    BossPlayers.IsFollower(__instance.BotOwner_0)
-                )
+            if (FollowerTalkFrequencyGate.ShouldBlockCombatTalk(__instance.BotOwner_0, type))
             {
-                int freq = friendlySAIN.botTalk.Value;
-
-                if (freq == 0) return false;
-
-                if (freq < 100)
-                {
-                    if (new Random().Next(1, 101) > freq)
-                    {
-                        return false;
-                    }
-                }
+                return false;
             }
 
             return true;

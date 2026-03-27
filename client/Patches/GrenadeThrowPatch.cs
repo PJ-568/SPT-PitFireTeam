@@ -1,5 +1,6 @@
 ﻿using Comfort.Common;
 using EFT;
+using friendlySAIN.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -13,6 +14,9 @@ namespace friendlySAIN.Patches
     internal class GrenadeThrowPatch : ModulePatch
     {
         private static readonly FieldInfo BotOwnerField = AccessTools.Field(typeof(GClass274), "BotOwner_0");
+        private const float MinEffectiveGrenadeDistance = 15f;
+        private const float MaxEffectiveGrenadeDistance = 28f;
+        private const float MinThrowClearanceDistance = 2.5f;
 
         protected override MethodBase GetTargetMethod()
         {
@@ -28,6 +32,12 @@ namespace friendlySAIN.Patches
                 if (bot == null)
                 {
                     return true;
+                }
+
+                if (IsFollowerGrenadeUseDisabled(bot))
+                {
+                    __result = false;
+                    return false;
                 }
 
                 BotGrenadeController grenades = bot.WeaponManager?.Grenades;
@@ -53,6 +63,13 @@ namespace friendlySAIN.Patches
                 if (grenades.ReadyToThrow)
                 {
                     if (grenades.AIGreanageThrowData == null || !grenades.AIGreanageThrowData.IsUpToDate())
+                    {
+                        __result = false;
+                        return false;
+                    }
+
+                    if (!HasEffectiveThrowDistance(grenades.AIGreanageThrowData) ||
+                        IsThrowObstructed(grenades.AIGreanageThrowData))
                     {
                         __result = false;
                         return false;
@@ -103,6 +120,44 @@ namespace friendlySAIN.Patches
                 __result = false;
                 return false;
             }
+        }
+
+        private static bool IsFollowerGrenadeUseDisabled(BotOwner bot)
+        {
+            if (bot == null || friendlySAIN.botGrenades.Value)
+            {
+                return false;
+            }
+
+            if (bot.BotFollower == null || bot.IsDead || bot.BotState != EBotState.Active)
+            {
+                return false;
+            }
+
+            return BossPlayers.Instance?.GetFollower(bot) != null;
+        }
+
+        private static bool HasEffectiveThrowDistance(AIGreanageThrowData throwData)
+        {
+            float throwDistance = (throwData.Target - throwData.Position).magnitude;
+            return throwDistance >= MinEffectiveGrenadeDistance &&
+                   throwDistance <= MaxEffectiveGrenadeDistance;
+        }
+
+        private static bool IsThrowObstructed(AIGreanageThrowData throwData)
+        {
+            Vector3 direction = throwData.Direction;
+            if (direction.sqrMagnitude < 0.001f)
+            {
+                return true;
+            }
+
+            return Physics.Raycast(
+                throwData.Position,
+                direction.normalized,
+                out _,
+                MinThrowClearanceDistance,
+                LayerMaskClass.HighPolyWithTerrainMask);
         }
     }
 }

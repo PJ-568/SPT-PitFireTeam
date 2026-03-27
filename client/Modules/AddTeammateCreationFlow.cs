@@ -386,7 +386,7 @@ namespace friendlySAIN.Modules
             return friendlySAIN.application;
         }
 
-        private static void ShowToast(string message)
+        internal static void ShowToast(string message)
         {
             NotificationManagerClass.DisplayMessageNotification(
                 message,

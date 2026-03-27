@@ -60,7 +60,7 @@ namespace friendlySAIN.BigBrain.Actions
                     BotOwner.DogFight.Fight();
                 }
 
-                BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition);
+                BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
                 shootLogic.UpdateNodeByBrain(GetData<GClass27>(data));
                 return;
             }
@@ -71,7 +71,7 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             BotOwner.DogFight.Fight();
-            BotOwner.LookData.SetLookPointByHearing(null);
+            BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
         }
 
         private void FightMovementClose(EnemyInfo goalEnemy)

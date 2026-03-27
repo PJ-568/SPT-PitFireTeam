@@ -213,19 +213,24 @@ namespace friendlySAIN.BigBrain
         protected CustomNavigationPoint? nearBossCoverPoint;
         protected float nextShootCoverCheckTime;
         protected float lastGoToPointEndTime;
-        protected float pushCommitEndTime;
         protected string? pushCommitEnemyId;
         protected BotLogicDecision? pushCommitDecision;
         protected Vector3 combatAreaCenter;
         protected FollowerCombatStyle combatStyle;
         protected bool combatAreaInitialized;
+        private BotLogicDecision? trackedAdvanceDecision;
+        private Vector3 lastAdvanceProgressPosition;
+        private float nextAdvanceProgressCheckTime;
+        private int stalledAdvanceChecks;
         private bool scheduleNextFrameEnd;
         private bool holdActive;
         private float holdEndTime;
         private const float PushEnemyMaxDistance = 41f;
-        private const float PushCommitSeconds = 1.5f;
         private const float CombatAreaExitDistance = 12f;
         private const float CombatAreaArrivalDistance = 8f;
+        private const float AdvanceProgressCheckInterval = 1.25f;
+        private const float AdvanceMinProgressDistance = 0.75f;
+        private const int AdvanceStallEndThreshold = 3;
 
         protected FollowerPmcCombatLogicBase(BotOwner botOwner)
         {
@@ -238,12 +243,15 @@ namespace friendlySAIN.BigBrain
             scheduleNextFrameEnd = false;
             holdActive = false;
             holdEndTime = 0f;
-            pushCommitEndTime = 0f;
             pushCommitEnemyId = null;
             pushCommitDecision = null;
             combatAreaCenter = Vector3.zero;
             combatStyle = FollowerCombatStyle.HangBack;
             combatAreaInitialized = false;
+            trackedAdvanceDecision = null;
+            lastAdvanceProgressPosition = Vector3.zero;
+            nextAdvanceProgressCheckTime = 0f;
+            stalledAdvanceChecks = 0;
         }
 
         public bool ShallUseNow()
@@ -449,12 +457,20 @@ namespace friendlySAIN.BigBrain
             EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
             {
+                ClearPushCommit();
                 return new AICoreActionEndStruct("enemy.None", true);
             }
 
             if (goalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
             {
+                ClearPushCommit();
                 return new AICoreActionEndStruct("enemy.canSh", true);
+            }
+
+            if (ShouldEndAdvanceForStall(BotLogicDecision.runToEnemy))
+            {
+                ClearPushCommit();
+                return new AICoreActionEndStruct("advanceStuck", true);
             }
 
             if (IsPushCommitted(goalEnemy))
@@ -511,12 +527,20 @@ namespace friendlySAIN.BigBrain
             EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
             {
+                ClearPushCommit();
                 return new AICoreActionEndStruct("enemy.None", true);
             }
 
             if (goalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
             {
+                ClearPushCommit();
                 return new AICoreActionEndStruct("enemy.canSh", true);
+            }
+
+            if (ShouldEndAdvanceForStall(BotLogicDecision.goToEnemy))
+            {
+                ClearPushCommit();
+                return new AICoreActionEndStruct("advanceStuck", true);
             }
 
             if (IsPushCommitted(goalEnemy))
@@ -782,7 +806,6 @@ namespace friendlySAIN.BigBrain
 
         protected void CommitPush(EnemyInfo goalEnemy, BotLogicDecision decision)
         {
-            pushCommitEndTime = Time.time + PushCommitSeconds;
             pushCommitEnemyId = goalEnemy.ProfileId;
             pushCommitDecision = decision;
         }
@@ -790,16 +813,16 @@ namespace friendlySAIN.BigBrain
         protected bool IsPushCommitted(EnemyInfo? goalEnemy)
         {
             if (goalEnemy == null ||
-                pushCommitEndTime < Time.time ||
                 string.IsNullOrEmpty(pushCommitEnemyId) ||
                 !string.Equals(pushCommitEnemyId, goalEnemy.ProfileId, StringComparison.Ordinal))
             {
-                pushCommitDecision = null;
+                ClearPushCommit();
                 return false;
             }
 
             if (!CanLeaveBossForPush())
             {
+                ClearPushCommit();
                 return false;
             }
 
@@ -816,14 +839,68 @@ namespace friendlySAIN.BigBrain
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(pushCommitDecision.Value, "pushCommit", null);
         }
 
+        protected void ClearPushCommit()
+        {
+            pushCommitEnemyId = null;
+            pushCommitDecision = null;
+        }
+
+        private bool ShouldEndAdvanceForStall(BotLogicDecision decision)
+        {
+            if (trackedAdvanceDecision != decision)
+            {
+                trackedAdvanceDecision = decision;
+                stalledAdvanceChecks = 0;
+                lastAdvanceProgressPosition = BotOwner.Position;
+                nextAdvanceProgressCheckTime = Time.time + AdvanceProgressCheckInterval;
+                return false;
+            }
+
+            if (!BotOwner.Mover.HasPathAndNoComplete)
+            {
+                stalledAdvanceChecks = 0;
+                lastAdvanceProgressPosition = BotOwner.Position;
+                nextAdvanceProgressCheckTime = Time.time + AdvanceProgressCheckInterval;
+                return false;
+            }
+
+            if (nextAdvanceProgressCheckTime > Time.time)
+            {
+                return false;
+            }
+
+            float minProgressSqr = AdvanceMinProgressDistance * AdvanceMinProgressDistance;
+            Vector3 currentPosition = BotOwner.Position;
+            if ((currentPosition - lastAdvanceProgressPosition).sqrMagnitude >= minProgressSqr)
+            {
+                stalledAdvanceChecks = 0;
+            }
+            else
+            {
+                stalledAdvanceChecks++;
+            }
+
+            lastAdvanceProgressPosition = currentPosition;
+            nextAdvanceProgressCheckTime = Time.time + AdvanceProgressCheckInterval;
+
+            if (stalledAdvanceChecks < AdvanceStallEndThreshold)
+            {
+                return false;
+            }
+
+            trackedAdvanceDecision = null;
+            stalledAdvanceChecks = 0;
+            return true;
+        }
+
         protected bool TryActivateFollowerGrenade(EnemyInfo goalEnemy)
         {
             if (!friendlySAIN.botGrenades.Value ||
                 goalEnemy == null ||
                 !goalEnemy.IsVisible ||
                 goalEnemy.Person == null ||
-                goalEnemy.Distance < 12f ||
-                goalEnemy.Distance > 35f ||
+                goalEnemy.Distance < 15f ||
+                goalEnemy.Distance > 28f ||
                 BotOwner.WeaponManager == null ||
                 BotOwner.WeaponManager.IsMelee ||
                 BotOwner.WeaponManager.Grenades == null ||
@@ -831,6 +908,19 @@ namespace friendlySAIN.BigBrain
                 BotOwner.BotRequestController == null ||
                 BotOwner.BotRequestController.HaveActivatedRequests() ||
                 BotOwner.Medecine.Using)
+            {
+                return false;
+            }
+
+            if (IsDogFightActive() ||
+                BotOwner.Memory.IsUnderFire ||
+                WasHitRecently(2f) ||
+                Time.time - goalEnemy.FirstTimeSeen < 1.5f)
+            {
+                return false;
+            }
+
+            if (goalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
             {
                 return false;
             }

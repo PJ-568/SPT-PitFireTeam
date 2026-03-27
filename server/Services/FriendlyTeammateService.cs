@@ -141,9 +141,21 @@ public class FriendlyTeammateService(
         return ToFriendSummary(teammate);
     }
 
-    public List<SearchFriendResponse> ListTeammates(MongoId sessionId)
+    public List<object> ListTeammates(MongoId sessionId)
     {
-        return LoadTeammates(sessionId).Select(ToFriendSummary).ToList();
+        return LoadTeammates(sessionId)
+            .Select(teammate => ToTeammateSummary(teammate, GetTeammateSettings(sessionId, teammate)))
+            .ToList();
+    }
+
+    public List<string> GetAutoJoinTeammateAccountIds(MongoId sessionId)
+    {
+        return LoadTeammates(sessionId)
+            .Where(teammate => GetTeammateSettings(sessionId, teammate).AutoJoinEnabled)
+            .Select(teammate => teammate.Aid?.ToString())
+            .Where(aid => !string.IsNullOrWhiteSpace(aid))
+            .Cast<string>()
+            .ToList();
     }
 
     public List<FriendlyTeammateFollowerDetailsResponse> ListFollowerDetails(MongoId sessionId)
@@ -252,11 +264,13 @@ public class FriendlyTeammateService(
     {
         var teammate = FindByAccountId(sessionId, request.Aid);
         var selectedLoadoutId = NormalizeRequiredValue(request.LoadoutId, "loadoutId");
+        var settings = GetTeammateSettings(sessionId, teammate);
 
         if (string.Equals(selectedLoadoutId, DefaultLoadoutId, StringComparison.OrdinalIgnoreCase))
         {
             RestoreDefaultEquipment(sessionId, teammate);
-            SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
+            settings.SelectedLoadoutId = DefaultLoadoutId;
+            SaveTeammateSettings(sessionId, teammate, settings);
             SaveTeammate(sessionId, teammate);
             return;
         }
@@ -272,8 +286,17 @@ public class FriendlyTeammateService(
         }
 
         ApplyEquipmentBuild(teammate, equipmentBuild, playerPmc);
-        SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = selectedLoadoutId });
+        settings.SelectedLoadoutId = selectedLoadoutId;
+        SaveTeammateSettings(sessionId, teammate, settings);
         SaveTeammate(sessionId, teammate);
+    }
+
+    public void SetTeammateAutoJoin(MongoId sessionId, FriendlyTeammateAutoJoinRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        var settings = GetTeammateSettings(sessionId, teammate);
+        settings.AutoJoinEnabled = request.Enabled;
+        SaveTeammateSettings(sessionId, teammate, settings);
     }
 
     public bool TryGetTeammateProfile(MongoId sessionId, string? accountId, out GetOtherProfileResponse? profile)
@@ -946,6 +969,27 @@ public class FriendlyTeammateService(
         };
     }
 
+    private object ToTeammateSummary(BotBase teammate, FriendlyTeammateSettings? settings = null)
+    {
+        var info = teammate.Info ?? throw new FriendlyTeammateException("Teammate profile is missing Info");
+        settings ??= new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId };
+
+        return new
+        {
+            Id = teammate.Id ?? throw new FriendlyTeammateException("Teammate profile is missing Id"),
+            Aid = teammate.Aid,
+            Info = new UserDialogDetails
+            {
+                Nickname = info.Nickname,
+                Side = info.Side,
+                Level = info.Level,
+                MemberCategory = MemberCategory.Unheard,
+                SelectedMemberCategory = MemberCategory.Unheard,
+            },
+            AutoJoinEnabled = settings.AutoJoinEnabled,
+        };
+    }
+
     private UserDialogInfo ToFriendDialog(BotBase teammate)
     {
         SearchFriendResponse summary = ToFriendSummary(teammate);
@@ -1111,11 +1155,19 @@ public class FriendlyTeammateService(
         string filePath = GetTeammateSettingsFilePath(sessionId, teammate);
         if (!fileUtil.FileExists(filePath))
         {
-            return new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId };
+            return new FriendlyTeammateSettings
+            {
+                SelectedLoadoutId = DefaultLoadoutId,
+                AutoJoinEnabled = false,
+            };
         }
 
         FriendlyTeammateSettings? settings = jsonUtil.DeserializeFromFile<FriendlyTeammateSettings>(filePath);
-        return settings ?? new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId };
+        return settings ?? new FriendlyTeammateSettings
+        {
+            SelectedLoadoutId = DefaultLoadoutId,
+            AutoJoinEnabled = false,
+        };
     }
 
     private void SaveTeammateSettings(MongoId sessionId, BotBase teammate, FriendlyTeammateSettings settings)
