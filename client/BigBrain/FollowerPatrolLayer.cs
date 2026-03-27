@@ -82,6 +82,7 @@ namespace friendlySAIN.BigBrain
         private bool triedReloadSecondaryWeapon = false;
         private float nextReloadCheckAt = 0f;
         private float nextMagazineFillCheckAt = 0f;
+        private float nextHealWorkRefreshAt = 0f;
         private bool stoppedForHealDecision = false;
         private bool sawEnemyDuringCurrentCycle = false;
         private BotFollowerPlayer? followerData;
@@ -210,6 +211,8 @@ namespace friendlySAIN.BigBrain
         {
             try
             {
+                RefreshHealWorkIfNeeded();
+
                 bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
                 bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
 
@@ -264,6 +267,55 @@ namespace friendlySAIN.BigBrain
             {
                 LogLayerException("IsCurrentActionEnding", ex);
                 return true;
+            }
+        }
+
+        private void RefreshHealWorkIfNeeded()
+        {
+            if (BotOwner?.Medecine == null ||
+                BotOwner.GetPlayer?.ActiveHealthController == null ||
+                !BotOwner.HealthController.IsAlive)
+            {
+                return;
+            }
+
+            if (BotOwner.Medecine.Using ||
+                BotOwner.Medecine.FirstAid.Have2Do ||
+                BotOwner.Medecine.SurgicalKit.HaveWork ||
+                Time.time < nextHealWorkRefreshAt)
+            {
+                return;
+            }
+
+            bool hasDestroyedPart = false;
+            foreach (EBodyPart part in GClass3058.RealBodyParts)
+            {
+                if (!BotOwner.GetPlayer.ActiveHealthController.IsBodyPartDestroyed(part))
+                {
+                    continue;
+                }
+
+                hasDestroyedPart = true;
+                break;
+            }
+
+            if (!hasDestroyedPart)
+            {
+                return;
+            }
+
+            nextHealWorkRefreshAt = Time.time + 1f;
+
+            try
+            {
+                BotOwner.Medecine.RefreshCurMeds();
+                BotOwner.Medecine.GetDamaged();
+                BotOwner.Medecine.SurgicalKit.FindDamagedPart();
+                BotOwner.Medecine.FirstAid.CheckParts();
+            }
+            catch (Exception ex)
+            {
+                LogLayerException("RefreshHealWorkIfNeeded", ex);
             }
         }
 

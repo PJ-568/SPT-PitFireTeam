@@ -48,7 +48,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-03-21  
+**Last updated:** 2026-03-27  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
 ## Project Overview
@@ -158,12 +158,19 @@ Current custom teammate feature state:
 - Dependency: BigBrain (`xyz.drakia.bigbrain`)
 - Optional integration: SAIN (`me.sol.sain`) detected at runtime.
 - Optional SAIN addon integration: `xyz.pit.friendlysain.sainaddon` (separate DLL in `addon/`)
+- Core runtime flags in `client/friendlyPlugin.cs`:
+    - `UseSainFollowerCombat` = SAIN installed + addon present
+    - `ShouldDisableSainForFollowers` = SAIN installed + addon missing
 - Follower control model:
     - Combat remains vanilla/SAIN-owned.
     - Friendly follow logic is implemented as a BigBrain custom layer/action (`FollowerPatrolLayer` + `FollowAction`).
     - Regroup request execution is split by runtime context:
         - vanilla regroup path for no-SAIN or out-of-combat,
         - SAIN combat path is handled by addon `SAINFollowerCombatLayer` (custom SAIN squad-layer replacement for followers).
+    - If SAIN is installed but the addon is missing:
+        - core keeps follower combat on the vanilla/core BigBrain path,
+        - core suppresses SAIN follower layer takeover so SAIN does not pause or own followers,
+        - non-followers continue using SAIN normally.
 
 ## 0b) Follower Core Components
 
@@ -172,7 +179,6 @@ Current custom teammate feature state:
 - `BotFollowerPlayer.cs` — Per-follower state container (active command, healing status, lifecycle)
 - `AIBossPlayer.cs` — Boss command handler (TeamStatus, gestures, loot/door requests, attention)
 - `BossFollowerPlayer.cs` — Boss-side follower roster management
-- `FollowerCombatManager.cs` — Combat state coordination across followers
 - `SquadControlMenuUi.cs` — Team Management UI (My Squad roster/settings screens)
 
 **Follower Lifecycle:**
@@ -192,12 +198,45 @@ Current custom teammate feature state:
 
 **Core Files:**
 
+- `client/BigBrain/FollowerCombatLayer.cs` — Core follower PMC combat logic and decision routing when SAIN follower combat is unavailable
 - `client/BigBrain/FollowerPatrolLayer.cs` — Follow logic, state recovery, action selection
 - `client/BigBrain/FollowerRequestLayer.cs` — Command request detection and activation
 - `client/BigBrain/Actions/FollowAction.cs` — Chase and cover-settle movement
 - `client/BigBrain/Actions/GestureCommandAction.cs` — Command execution pipeline (12 action types)
 - `client/BigBrain/Actions/HealAction.cs` — Medical work with timeout safety
+- `client/BigBrain/Actions/FollowerCombatActionBase.cs` — Shared base/data wrapper for split combat actions
+- Combat actions are split into individual files under `client/BigBrain/Actions/` (no monolithic `FollowerCombatDecisionActions.cs` anymore)
 - Additional actions: `PeacefulAction.cs`, `PeaceHardAimAction.cs`, `GoToCoverPointAction.cs`, `EatDrinkAction.cs`
+
+**Core Follower Combat Behavior:**
+
+- `FollowerPmcCombatLayer` only runs on the core/vanilla path (`!UseSainFollowerCombat`)
+- Current supported BigBrain combat actions are file-split and mapped from `BotLogicDecision`:
+    - `CombatHoldPositionAction`
+    - `CombatRunToCoverAction`
+    - `CombatAttackMovingAction`
+    - `CombatDogFightAction`
+    - `CombatShootFromPlaceAction`
+    - `CombatShootFromCoverAction`
+    - `CombatGoToEnemyAction`
+    - `CombatRunToEnemyAction`
+    - `CombatGoToPointAction`
+    - `CombatThrowGrenadeFromPlaceAction`
+    - `CombatShootToSmokeAction`
+- `CombatGoToEnemyAction` is now the custom old-plugin-style advance action:
+    - cover-aware advance,
+    - periodic path refresh,
+    - short committed approach point to reduce wall-side dithering.
+- `runToEnemy` remains the decisive sprint path and is still allowed to end when the bot reaches a valid firing state.
+- Core combat style now distinguishes `HangBack` vs `MoveForward`:
+    - default is boss-anchored protection,
+    - when the player leaves the current combat area, followers reanchor to the player area instead of clinging to stale local cover.
+- Push behavior has a short commit window:
+    - initial push is range-gated,
+    - once chosen, the push decision is allowed to run briefly without immediately changing its mind because of distance drift.
+- Dedicated regular grenade use is now explicit on the core path:
+    - no hidden opportunistic grenade throw inside dogfight,
+    - grenade throw goes through `throwGrenadeFromPlace` with a dedicated safety gate.
 
 **Patrol Readiness (Post-Combat Handoff):**
 
@@ -291,6 +330,16 @@ Supported commands via `GestureCommandAction`:
 - `CurrentScreenTryReturnToRootScreenPatch` — clears squad-mode on explicit root return (`MainMenu` bottom tab)
 - `MainMenuControllerReadyScreenGatePatch` — clears squad-mode on `Play` transition
 
+**Current Group Enemy Sync Model:**
+
+- Group enemy sharing is now driven from `AIBossPlayer.OnBossGroupStaticUpdate()`
+- Core behavior:
+    - if one active follower has a stable enemy and is in a valid combat state,
+    - and another active follower has no enemy,
+    - core calls `BotsGroup.ReportAboutEnemy(...)` once for that update pass
+- `BotGroupReportEnemyPatch` postfix remains the passive consumer that applies the report to idle followers
+- Old overlapping follower-side sticky/adopt/team-sync logic was removed from `BotFollowerPlayer`
+
 ## 0f) Utility Modules & bridges
 
 **File:** `client/Modules/`
@@ -300,6 +349,7 @@ Supported commands via `GestureCommandAction`:
 - `SainAddonBridge.cs` — Delegate interface for SAIN addon callbacks
     - `IsReadyForPatrolAfterCombat(BotOwner)` — Patrol readiness query
     - `OnFollowerDismiss(BotOwner)` — Lifecycle event for addon cleanup
+    - addon-available combat/reset/sync calls are only attempted from core when `UseSainFollowerCombat == true`
 
 **Shared Utilities:**
 
@@ -432,7 +482,9 @@ Supported commands via `GestureCommandAction`:
 **Conditional Path:**
 
 - Only active when SAIN (`me.sol.sain`) is installed at runtime
-- Core plugin validates SAIN/addon presence and logs explicit error if SAIN present but addon missing
+- Core plugin now owns the SAIN/addon split explicitly:
+    - SAIN + addon present: follower SAIN combat path is used
+    - SAIN present + addon missing: core disables SAIN takeover for followers and falls back to vanilla/core follower combat
 - Shared bridge contract via `SainAddonBridge.cs` for core → addon communication
 
 **Layer Stack in Combat:**
@@ -504,7 +556,7 @@ On Timeout:
 - Post-release grace: 1.5s before patrol activation
 - Apply crouch nudge during grace (prevent sprint-thrash)
 
-## SAIN-Specific Patches (9 Always + 1 Conditional)
+## SAIN-Specific Patches (10 Always + 1 Conditional)
 
 **Always Applied:**
 
@@ -517,6 +569,7 @@ On Timeout:
 7. **`SAINFollowerPersonalityPatch`** — Clone `followerBigPipe` SAIN template per-follower, apply combat personality (Normal/Chad/GigaChad)
 8. **`SAINFollowerSquadLeaderPatch`** — Force `IAmLeader = false` for all followers
 9. **`SAINFollowerLowLightVisionPatch`** — Reduce low-light vision penalty via `EnemyGainSightClass.CalcTimeModifier`
+10. **`SAINFollowerBushVisionPatch`** — Follower-only exclusion from SAIN bush-vision tuning so vanilla foliage visibility handling applies to followers
 
 **Conditional (if `EnableForcedEnemyRetention`):**
 

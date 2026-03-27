@@ -42,26 +42,29 @@ public class FriendlySainServerPlugin(
     {
         var botTypes = databaseService.GetBots().Types;
 
-        ApplyForcedArmband(botTypes, "usec", ItemTpl.ARMBAND_BLUE);
-        ApplyForcedArmband(botTypes, "bear", ItemTpl.ARMBAND_RED);
+        ApplyForcedArmband(botTypes, new[] { "usec", "pmcusec" }, ItemTpl.ARMBAND_BLUE);
+        ApplyForcedArmband(botTypes, new[] { "bear", "pmcbear" }, ItemTpl.ARMBAND_RED);
     }
 
     private void ApplyForcedArmband(
         Dictionary<string, SPTarkov.Server.Core.Models.Eft.Common.Tables.BotType?> botTypes,
-        string botType,
+        IEnumerable<string> botTypeKeys,
         MongoId armbandTpl
     )
     {
-        if (!botTypes.TryGetValue(botType, out var bot) || bot is null)
+        foreach (var botTypeKey in botTypeKeys)
         {
-            logger.Warning($"Unable to enforce armband for missing bot type '{botType}'");
-            return;
-        }
+            if (!botTypes.TryGetValue(botTypeKey, out var bot) || bot is null)
+            {
+                logger.Warning($"Unable to enforce armband for missing bot type '{botTypeKey}'");
+                continue;
+            }
 
-        bot.BotChances.EquipmentChances["Armband"] = 100;
-        bot.BotInventory.Equipment[EquipmentSlots.ArmBand] = new Dictionary<MongoId, double>
-        {
-            [armbandTpl] = 1,
-        };
+            bot.BotChances.EquipmentChances["Armband"] = 100;
+            bot.BotInventory.Equipment[EquipmentSlots.ArmBand] = new Dictionary<MongoId, double>
+            {
+                [armbandTpl] = 1,
+            };
+        }
     }
 }

@@ -54,11 +54,6 @@ namespace friendlySAIN.Components
         protected bool _canPatrol = false;
         private bool _peaceChangeHooked = false;
         private bool _manualUpdateHooked = false;
-        private bool _lastHaveEnemyKnown = false;
-        private bool _lastHaveEnemy = false;
-        private string? _lastCommittedEnemyId;
-        private float _lastCommittedAt;
-        private const float EnemyStickWindowSeconds = 8f;
         private Vector3 _teleportGraceTarget;
         private float _teleportGraceUntil;
         private const float TeleportGraceSeconds = 0.45f;
@@ -74,9 +69,6 @@ namespace friendlySAIN.Components
         private float _knownEnemySince;
         private bool _knownEnemyLatched;
         private const float KnownEnemyAcquireHoldSeconds = 0.5f;
-        private string? _lastSainSyncedEnemyId;
-        private float _nextTeamEnemyAdoptAt;
-        private const float TeamEnemyAdoptIntervalSeconds = 0.25f;
 
         private static Type? _sainEnableType;
         private static MethodInfo? _getSainByBotOwnerMethod;
@@ -346,11 +338,6 @@ namespace friendlySAIN.Components
             }
 
             EnsureSainBossAndFollowersFriendly();
-
-            if (isPickedUp)
-            {
-                TryAdoptEnemyFromTeam(_bot);
-            }
 
             var _bots = _bot.BotsController.BotSpawner.Bots;
             var _rougeTypes = Utils.Props.BossFollowersType.ToList();
@@ -1129,6 +1116,55 @@ namespace friendlySAIN.Components
             return Time.time - _knownEnemySince >= KnownEnemyAcquireHoldSeconds;
         }
 
+        private static bool HasLineOfSightToGoalEnemy(BotOwner owner, EnemyInfo goalEnemy)
+        {
+            try
+            {
+                if (owner?.GetPlayer?.PlayerBones?.WeaponRoot == null)
+                {
+                    return false;
+                }
+
+                Player enemyPlayer = goalEnemy.Person as Player;
+                if ((enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) && !string.IsNullOrEmpty(goalEnemy.ProfileId))
+                {
+                    enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+                }
+
+                if (enemyPlayer?.MainParts == null || enemyPlayer.HealthController?.IsAlive != true)
+                {
+                    return false;
+                }
+
+                bool hasHead = enemyPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart);
+                bool hasBody = enemyPlayer.MainParts.TryGetValue(BodyPartType.body, out var bodyPart);
+                if (!hasHead && !hasBody)
+                {
+                    return false;
+                }
+
+                Vector3 firePos = owner.GetPlayer.PlayerBones.WeaponRoot.position;
+                LayerMask mask = owner.LookSensor?.Mask ?? LayerMaskClass.HighPolyWithTerrainMask;
+
+                if (headPart != null &&
+                    Utils.Utils.CanShootToTarget(new ShootPointClass(headPart.Position, 1f), firePos, mask, false))
+                {
+                    return true;
+                }
+
+                if (bodyPart != null &&
+                    Utils.Utils.CanShootToTarget(new ShootPointClass(bodyPart.Position, 1f), firePos, mask, false))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
         public bool IsReadyForPatrolAfterCombat()
         {
             BotOwner owner = _bot;
@@ -1206,12 +1242,6 @@ namespace friendlySAIN.Components
             return true;
         }
 
-        public void ResetCombatCommitState()
-        {
-            _lastCommittedEnemyId = null;
-            _lastCommittedAt = 0f;
-        }
-
         public void ClearCommand(string reason = "unspecified")
         {
             if (_bot != null)
@@ -1244,9 +1274,6 @@ namespace friendlySAIN.Components
 
             try
             {
-                _lastSainSyncedEnemyId = null;
-                _lastCommittedEnemyId = null;
-                _lastCommittedAt = 0f;
                 _knownEnemyProfileId = null;
                 _knownEnemySince = 0f;
                 _knownEnemyLatched = false;
@@ -1381,8 +1408,6 @@ namespace friendlySAIN.Components
         {
             if (_manualUpdateHooked) return;
             if (_bot?.ProfileId == null) return;
-            _lastHaveEnemy = _bot.Memory?.HaveEnemy ?? false;
-            _lastHaveEnemyKnown = true;
             BotOwnerManualUpdatePatch.BotOwnerUpdate[_bot.ProfileId] = OnBotOwnerManualUpdate;
             _manualUpdateHooked = true;
         }
@@ -1397,10 +1422,6 @@ namespace friendlySAIN.Components
                 BotOwnerManualUpdatePatch.BotOwnerUpdate.Remove(_bot.ProfileId);
             }
             _manualUpdateHooked = false;
-            _lastHaveEnemyKnown = false;
-            _lastCommittedEnemyId = null;
-            _lastCommittedAt = 0f;
-            _lastSainSyncedEnemyId = null;
         }
 
         private void OnPeaceChange(bool isPeace)
@@ -1426,350 +1447,11 @@ namespace friendlySAIN.Components
                         owner.GetPlayer?.Teleport(_teleportGraceTarget);
                     }
                 }
-
-                /*
-                                bool haveEnemy = owner.Memory?.HaveEnemy ?? false;
-                                if (haveEnemy && IsStaleDeadGoalEnemy(owner))
-                                {
-                                    EnemyInfo staleGoal = owner.Memory?.GoalEnemy;
-                                    IPlayer staleEnemyPlayer = staleGoal?.Person;
-                                    if (staleEnemyPlayer != null)
-                                    {
-                                        owner.Memory.DeleteInfoAboutEnemy(staleEnemyPlayer);
-                                    }
-                                    else if (!string.IsNullOrEmpty(staleGoal?.ProfileId))
-                                    {
-                                        Player stalePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(staleGoal.ProfileId);
-                                        if (stalePlayer != null)
-                                        {
-                                            owner.Memory.DeleteInfoAboutEnemy(stalePlayer);
-                                        }
-                                    }
-
-                                    owner.Memory.GoalEnemy = null;
-                                    owner.Memory.LastEnemy = null;
-                                    haveEnemy = owner.Memory?.HaveEnemy ?? false;
-                                }
-
-                                if (!haveEnemy && owner.Memory?.GoalTarget?.HaveMainTarget() == true)
-                                {
-                                    owner.Memory.GoalTarget.Clear();
-                                }
-                                if (!haveEnemy)
-                                {
-                                    _lastSainSyncedEnemyId = null;
-
-                                    // First try to re-apply the most recent committed enemy for this follower.
-                                    // This stabilizes short SAIN drop windows and prevents rapid drop/reacquire loops.
-                                    if (!TryReapplyStickyEnemy(owner, out _, out _))
-                                    {
-                                        TryAdoptEnemyFromTeam(owner);
-                                    }
-
-                                    // Re-sample after reapply/adopt. Without this, the local snapshot remains stale
-                                    // for the current tick and can repeatedly re-enter the no-enemy path.
-                                    haveEnemy = owner.Memory?.HaveEnemy ?? false;
-                                }
-
-                                if (_lastHaveEnemyKnown && _lastHaveEnemy != haveEnemy)
-                                {
-                                    var goal = owner.Memory?.GoalEnemy;
-                                    if (haveEnemy)
-                                    {
-                                        if (!string.IsNullOrEmpty(goal?.ProfileId))
-                                        {
-                                            _lastCommittedEnemyId = goal.ProfileId;
-                                            _lastCommittedAt = Time.time;
-                                            TrySyncEnemyToOtherFollowers(owner, goal);
-                                        }
-                                    }
-                                }
-
-                                _lastHaveEnemy = haveEnemy;
-                                _lastHaveEnemyKnown = true;*/
             }
             catch (Exception ex)
             {
                 Modules.Logger.LogError("Exception in BotFollowerPlayer manual update combat debounce");
                 Modules.Logger.LogError(ex);
-            }
-        }
-
-        private static bool IsStaleDeadGoalEnemy(BotOwner owner)
-        {
-            EnemyInfo goal = owner?.Memory?.GoalEnemy;
-            if (goal == null)
-            {
-                return false;
-            }
-
-            if (goal.Person is Player goalPlayer)
-            {
-                return goalPlayer.HealthController?.IsAlive == false;
-            }
-
-            if (!string.IsNullOrEmpty(goal.ProfileId))
-            {
-                Player aliveById = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goal.ProfileId);
-                return aliveById == null;
-            }
-
-            return false;
-        }
-
-        private bool HasStickyEnemyCandidate(out string? enemyId, out float age)
-        {
-            enemyId = _lastCommittedEnemyId;
-            age = string.IsNullOrEmpty(_lastCommittedEnemyId) ? float.MaxValue : Time.time - _lastCommittedAt;
-            if (string.IsNullOrEmpty(_lastCommittedEnemyId)) return false;
-            if (age > EnemyStickWindowSeconds) return false;
-
-            Player enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(_lastCommittedEnemyId);
-            if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) return false;
-            return true;
-        }
-
-        private void TryAdoptEnemyFromTeam(BotOwner owner)
-        {
-            if (owner == null || owner.Memory == null || owner.Memory.HaveEnemy) return;
-            if (_player?.realPlayer == null) return;
-            if (Time.time < _nextTeamEnemyAdoptAt) return;
-
-            _nextTeamEnemyAdoptAt = Time.time + TeamEnemyAdoptIntervalSeconds;
-
-            List<BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(_player.realPlayer.ProfileId);
-            if (followers == null || followers.Count < 2) return;
-
-            for (int i = 0; i < followers.Count; i++)
-            {
-                BotOwner source = followers[i]?.GetBot();
-                if (source == null || source == owner || source.IsDead || source.BotState != EBotState.Active) continue;
-                EnemyInfo sourceGoal = source.Memory?.GoalEnemy;
-                if (source.Memory?.HaveEnemy != true || sourceGoal == null || string.IsNullOrEmpty(sourceGoal.ProfileId)) continue;
-
-                // Keep sticky anchor fresh while a teammate still tracks this enemy.
-                _lastCommittedEnemyId = sourceGoal.ProfileId;
-                _lastCommittedAt = Time.time;
-
-                Player enemyPlayer = sourceGoal.Person as Player ?? Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(sourceGoal.ProfileId);
-                if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) continue;
-                if (BossPlayers.IsPlayerBoss(enemyPlayer.ProfileId)) continue;
-                if (enemyPlayer.IsAI && enemyPlayer.AIData?.BotOwner != null && BossPlayers.IsFollower(enemyPlayer.AIData.BotOwner)) continue;
-
-                TrySyncEnemyToOtherFollowers(source, sourceGoal);
-
-                if (owner.Memory.HaveEnemy)
-                {
-                    _lastCommittedEnemyId = sourceGoal.ProfileId;
-                    _lastCommittedAt = Time.time;
-                    break;
-                }
-            }
-        }
-
-        private bool TryReapplyStickyEnemy(BotOwner owner, out string? enemyId, out float age)
-        {
-            if (owner == null)
-            {
-                enemyId = null;
-                age = float.MaxValue;
-                return false;
-            }
-
-            if (!HasStickyEnemyCandidate(out enemyId, out age))
-            {
-                return false;
-            }
-
-            try
-            {
-                Player enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyId);
-                if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) return false;
-
-                EnemyInfo info = Utils.Enemy.MakeEnemy(owner, enemyPlayer);
-                if (info == null)
-                {
-                    BotSettingsClass botSettings = new BotSettingsClass(enemyPlayer, owner.BotsGroup, EBotEnemyCause.addPlayerToBoss)
-                    {
-                        EnemyLastPosition = enemyPlayer.Position
-                    };
-                    owner.Memory.IsPeace = false;
-                    owner.Memory.AddEnemy(enemyPlayer, botSettings, false);
-                    PromoteEnemyAsGoal(owner, enemyId);
-                    info = owner.Memory?.GoalEnemy;
-                }
-
-                if (info != null)
-                {
-                    owner.Memory.IsPeace = false;
-                    PromoteEnemyAsGoal(owner, enemyId);
-                    return owner.Memory?.HaveEnemy == true;
-                }
-            }
-            catch
-            {
-                // Keep update loop resilient; this is a best-effort stabilization path.
-            }
-
-            return false;
-        }
-
-        private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId)
-        {
-            if (follower?.EnemiesController?.EnemyInfos == null || string.IsNullOrEmpty(enemyProfileId)) return;
-
-            EnemyInfo? promoted = null;
-            foreach (var item in follower.EnemiesController.EnemyInfos)
-            {
-                if (item.Key?.ProfileId == enemyProfileId)
-                {
-                    promoted = item.Value;
-                    break;
-                }
-            }
-
-            if (promoted != null)
-            {
-                promoted.PriorityIndex = 0;
-                follower.Memory.GoalEnemy = promoted;
-            }
-        }
-
-        private static bool HasLineOfSightToGoalEnemy(BotOwner owner, EnemyInfo goalEnemy)
-        {
-            try
-            {
-                if (owner?.GetPlayer?.PlayerBones?.WeaponRoot == null)
-                {
-                    return false;
-                }
-
-                Player enemyPlayer = goalEnemy.Person as Player;
-                if ((enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) && !string.IsNullOrEmpty(goalEnemy.ProfileId))
-                {
-                    enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
-                }
-
-                if (enemyPlayer?.MainParts == null || enemyPlayer.HealthController?.IsAlive != true)
-                {
-                    return false;
-                }
-
-                bool hasHead = enemyPlayer.MainParts.TryGetValue(BodyPartType.head, out var headPart);
-                bool hasBody = enemyPlayer.MainParts.TryGetValue(BodyPartType.body, out var bodyPart);
-                if (!hasHead && !hasBody)
-                {
-                    return false;
-                }
-
-                Vector3 firePos = owner.GetPlayer.PlayerBones.WeaponRoot.position;
-                LayerMask mask = owner.LookSensor?.Mask ?? LayerMaskClass.HighPolyWithTerrainMask;
-
-                if (headPart != null &&
-                    Utils.Utils.CanShootToTarget(new ShootPointClass(headPart.Position, 1f), firePos, mask, false))
-                {
-                    return true;
-                }
-
-                if (bodyPart != null &&
-                    Utils.Utils.CanShootToTarget(new ShootPointClass(bodyPart.Position, 1f), firePos, mask, false))
-                {
-                    return true;
-                }
-            }
-            catch
-            {
-                // Keep command/state checks resilient on any transient actor/memory nulls.
-            }
-
-            return false;
-        }
-
-        private void TrySyncEnemyToOtherFollowers(BotOwner source, EnemyInfo goal)
-        {
-            if (!friendlySAIN.UseSainFollowerCombat) return;
-            if (source == null || goal == null) return;
-            if (_player?.realPlayer == null) return;
-
-            Player enemyPlayer = goal.Person as Player ?? Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goal.ProfileId);
-            if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) return;
-            if (BossPlayers.IsPlayerBoss(enemyPlayer.ProfileId)) return;
-            if (enemyPlayer.IsAI && enemyPlayer.AIData?.BotOwner != null && BossPlayers.IsFollower(enemyPlayer.AIData.BotOwner)) return;
-
-            List<BotFollowerPlayer> followers = BossPlayers.GetFollowersByBoss(_player.realPlayer.ProfileId);
-            if (followers == null || followers.Count < 2) return;
-
-            for (int i = 0; i < followers.Count; i++)
-            {
-                BotFollowerPlayer followerData = followers[i];
-                BotOwner member = followerData?.GetBot();
-                if (member == null || member == source || member.IsDead || member.BotState != EBotState.Active) continue;
-                if (member.Memory == null || member.Memory.HaveEnemy) continue;
-
-                EnemyInfo info = Utils.Enemy.MakeEnemy(member, enemyPlayer);
-                if (info == null) continue;
-
-                member.Memory.IsPeace = false;
-                if (!member.Memory.HaveEnemy || member.Memory.GoalEnemy == null)
-                {
-                    BotSettingsClass? groupInfo = null;
-                    member.BotsGroup?.Enemies?.TryGetValue(enemyPlayer, out groupInfo);
-                    if (groupInfo == null)
-                    {
-                        groupInfo = new BotSettingsClass(enemyPlayer, member.BotsGroup, EBotEnemyCause.addPlayerToBoss)
-                        {
-                            EnemyLastPosition = enemyPlayer.Position
-                        };
-                    }
-
-                    member.Memory.AddEnemy(enemyPlayer, groupInfo, false);
-                }
-
-                PromoteEnemyAsGoal(member, enemyPlayer.ProfileId);
-
-                if (goal.IsVisible)
-                {
-                    info.SetVisible(true);
-                }
-
-                TrySyncGoalEnemyToSain(member, member.Memory.GoalEnemy ?? info);
-
-                if (followerData.TryGetActiveCommand(out _, out _))
-                {
-                    followerData.ClearCommand("EnemySyncedFromFollower");
-                }
-            }
-        }
-
-        private void TrySyncGoalEnemyToSain(BotOwner owner, EnemyInfo goal)
-        {
-            if (!friendlySAIN.UseSainFollowerCombat) return;
-            if (owner == null || goal == null || goal.Person == null) return;
-
-            string goalId = goal.ProfileId;
-            if (string.IsNullOrEmpty(goalId)) return;
-            if (string.Equals(_lastSainSyncedEnemyId, goalId, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            try
-            {
-                Player enemyPlayer = goal.Person as Player;
-                if (enemyPlayer == null)
-                {
-                    return;
-                }
-
-                bool synced = SainAddonBridge.TrySyncEnemyState(owner, enemyPlayer);
-                if (synced)
-                {
-                    _lastSainSyncedEnemyId = goalId;
-                }
-            }
-            catch
-            {
-                // keep follower update path resilient
             }
         }
 

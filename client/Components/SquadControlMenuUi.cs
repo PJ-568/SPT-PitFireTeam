@@ -367,6 +367,12 @@ namespace friendlySAIN.Components
             bool needsRoster = rosterGridRoot != null && (rosterGridRoot.childCount == 0 || shouldForceRosterRefresh);
             bool needsSettings = settingsContentRoot != null && settingsContentRoot.childCount == 0;
 
+            if (shouldForceRosterRefresh && needsRoster)
+            {
+                RebuildRosterTiles();
+                needsRoster = false;
+            }
+
             if (needsRoster || needsSettings)
             {
                 friendlySAIN.Instance.StartCoroutine(RebuildAfterTransitionCoroutine(needsRoster, needsSettings));

@@ -176,6 +176,8 @@ namespace friendlySAIN.BigBrain
                     return new Action(typeof(CombatGoToPointAction), decision.Reason, actionData);
                 case BotLogicDecision.heal:
                     return new Action(typeof(HealAction), decision.Reason, actionData);
+                case BotLogicDecision.throwGrenadeFromPlace:
+                    return new Action(typeof(CombatThrowGrenadeFromPlaceAction), decision.Reason, actionData);
                 case BotLogicDecision.shootToSmoke:
                     return new Action(typeof(CombatShootToSmokeAction), decision.Reason, actionData);
                 default:
@@ -191,6 +193,12 @@ namespace friendlySAIN.BigBrain
 
     internal abstract class FollowerPmcCombatLogicBase
     {
+        protected enum FollowerCombatStyle
+        {
+            HangBack,
+            MoveForward,
+        }
+
         protected readonly BotOwner BotOwner;
         protected readonly BotFollower BotFollower;
 
@@ -205,9 +213,19 @@ namespace friendlySAIN.BigBrain
         protected CustomNavigationPoint? nearBossCoverPoint;
         protected float nextShootCoverCheckTime;
         protected float lastGoToPointEndTime;
+        protected float pushCommitEndTime;
+        protected string? pushCommitEnemyId;
+        protected BotLogicDecision? pushCommitDecision;
+        protected Vector3 combatAreaCenter;
+        protected FollowerCombatStyle combatStyle;
+        protected bool combatAreaInitialized;
         private bool scheduleNextFrameEnd;
         private bool holdActive;
         private float holdEndTime;
+        private const float PushEnemyMaxDistance = 41f;
+        private const float PushCommitSeconds = 1.5f;
+        private const float CombatAreaExitDistance = 12f;
+        private const float CombatAreaArrivalDistance = 8f;
 
         protected FollowerPmcCombatLogicBase(BotOwner botOwner)
         {
@@ -220,6 +238,12 @@ namespace friendlySAIN.BigBrain
             scheduleNextFrameEnd = false;
             holdActive = false;
             holdEndTime = 0f;
+            pushCommitEndTime = 0f;
+            pushCommitEnemyId = null;
+            pushCommitDecision = null;
+            combatAreaCenter = Vector3.zero;
+            combatStyle = FollowerCombatStyle.HangBack;
+            combatAreaInitialized = false;
         }
 
         public bool ShallUseNow()
@@ -260,6 +284,12 @@ namespace friendlySAIN.BigBrain
                 if (inFightDecision != null)
                 {
                     return inFightDecision.Value;
+                }
+
+                AICoreActionResultStruct<BotLogicDecision, GClass26>? committedPushDecision = TryGetCommittedPushDecision(goalEnemy);
+                if (committedPushDecision != null)
+                {
+                    return committedPushDecision.Value;
                 }
 
                 AICoreActionResultStruct<BotLogicDecision, GClass26>? protectorEngageDecision = TryGetProtectorEngageDecision(goalEnemy);
@@ -309,6 +339,7 @@ namespace friendlySAIN.BigBrain
                 BotLogicDecision.heal => EndHeal(),
                 BotLogicDecision.shootFromCover => EndShootFromCover(),
                 BotLogicDecision.goToPoint => EndGoToPoint(),
+                BotLogicDecision.throwGrenadeFromPlace => EndThrowGrenadeFromPlace(),
                 _ => EndImmediately(),
             };
         }
@@ -334,6 +365,17 @@ namespace friendlySAIN.BigBrain
             }
 
             return result;
+        }
+
+        protected virtual AICoreActionEndStruct EndThrowGrenadeFromPlace()
+        {
+            BotRequest currentRequest = BotOwner.BotRequestController?.CurRequest;
+            if (currentRequest?.BotRequestType == BotRequestType.throwGrenade)
+            {
+                return Continue();
+            }
+
+            return new AICoreActionEndStruct("throwGrenade", true);
         }
 
         protected virtual AICoreActionEndStruct EndHoldPosition()
@@ -405,12 +447,22 @@ namespace friendlySAIN.BigBrain
         protected virtual AICoreActionEndStruct EndRunToEnemy()
         {
             EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
-            if (goalEnemy != null && (!goalEnemy.IsVisible || !goalEnemy.CanShoot))
+            if (goalEnemy == null)
+            {
+                return new AICoreActionEndStruct("enemy.None", true);
+            }
+
+            if (goalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                return new AICoreActionEndStruct("enemy.canSh", true);
+            }
+
+            if (IsPushCommitted(goalEnemy))
             {
                 return Continue();
             }
 
-            return new AICoreActionEndStruct("CanSV", true);
+            return Continue();
         }
 
         protected virtual AICoreActionEndStruct EndShootFromPlace()
@@ -456,15 +508,23 @@ namespace friendlySAIN.BigBrain
 
         protected virtual AICoreActionEndStruct EndGoToEnemy()
         {
-            RefreshShootCover();
-            bool wantKill = ProtectWantKill();
-            bool careKill = ProtectCareKill();
-            if (wantKill && careKill && !HaveCoverToShoot)
+            EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
+            if (goalEnemy == null)
             {
-                return EndBaseGoToEnemy();
+                return new AICoreActionEndStruct("enemy.None", true);
             }
 
-            return new AICoreActionEndStruct("resEndG1", true);
+            if (goalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                return new AICoreActionEndStruct("enemy.canSh", true);
+            }
+
+            if (IsPushCommitted(goalEnemy))
+            {
+                return Continue();
+            }
+
+            return EndBaseGoToEnemy();
         }
 
         protected virtual AICoreActionEndStruct EndAttackMoving()
@@ -514,11 +574,22 @@ namespace friendlySAIN.BigBrain
             bool canShoot = goalEnemy.CanShoot;
             bool wantKill = ProtectWantKill();
             bool careKill = ProtectCareKill();
+            UpdateCombatAreaStyle();
             RefreshShootCover();
+
+            if (TryActivateFollowerGrenade(goalEnemy))
+            {
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.throwGrenadeFromPlace, "FollowerGrenade", null);
+            }
 
             if (!goalEnemy.IsVisible && BotOwner.SmokeGrenade.ShallShoot())
             {
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootToSmoke, "SmokeGrenad", null);
+            }
+
+            if (combatStyle == FollowerCombatStyle.MoveForward)
+            {
+                return DecideBossPositionAction(GetBossPosition());
             }
 
             if (HaveCoverToShoot && wantKill)
@@ -583,6 +654,12 @@ namespace friendlySAIN.BigBrain
                 }
             }
 
+            Vector3 bossPosition = GetBossPosition();
+            if ((BotOwner.Position - bossPosition).sqrMagnitude > CloseBossSqr)
+            {
+                return DecideBossPositionAction(bossPosition);
+            }
+
             if (BotOwner.Memory.IsInCover)
             {
                 if (BotOwner.Medecine.FirstAid.Have2Do &&
@@ -590,12 +667,6 @@ namespace friendlySAIN.BigBrain
                      Time.time - BotOwner.Memory.LastEnemyTimeSeen > BotOwner.Settings.FileSettings.Mind.PROTECT_DELTA_HEAL_SEC))
                 {
                     return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.heal, "PROTECTDELT", null);
-                }
-
-                Vector3 bossPosition = GetBossPosition();
-                if ((BotOwner.Position - bossPosition).sqrMagnitude > CloseBossSqr)
-                {
-                    return DecideBossPositionAction(bossPosition);
                 }
 
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "distToBoss", null);
@@ -665,7 +736,10 @@ namespace friendlySAIN.BigBrain
 
         protected AICoreActionResultStruct<BotLogicDecision, GClass26>? TryGetProtectorEngageDecision(EnemyInfo goalEnemy)
         {
-            if (!ShouldAttackImmediately(goalEnemy) || !IsEnemyLowThreat(goalEnemy, 2f) || !CanLeaveBossForPush())
+            if (!ShouldAttackImmediately(goalEnemy) ||
+                !IsEnemyLowThreat(goalEnemy, 2f) ||
+                !CanLeaveBossForPush() ||
+                goalEnemy.Distance > PushEnemyMaxDistance)
             {
                 return null;
             }
@@ -687,6 +761,7 @@ namespace friendlySAIN.BigBrain
                     pushDecision = BotLogicDecision.goToEnemy;
                 }
 
+                CommitPush(goalEnemy, pushDecision);
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(pushDecision, "pushEnemy", null);
             }
 
@@ -694,13 +769,117 @@ namespace friendlySAIN.BigBrain
             {
                 if (goalEnemy.IsVisible && goalEnemy.CanShoot)
                 {
+                    CommitPush(goalEnemy, BotLogicDecision.attackMoving);
                     return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.attackMoving, "getInCloseSlow", null);
                 }
 
+                CommitPush(goalEnemy, BotLogicDecision.runToEnemy);
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToEnemy, "getInCloseFast", null);
             }
 
             return null;
+        }
+
+        protected void CommitPush(EnemyInfo goalEnemy, BotLogicDecision decision)
+        {
+            pushCommitEndTime = Time.time + PushCommitSeconds;
+            pushCommitEnemyId = goalEnemy.ProfileId;
+            pushCommitDecision = decision;
+        }
+
+        protected bool IsPushCommitted(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null ||
+                pushCommitEndTime < Time.time ||
+                string.IsNullOrEmpty(pushCommitEnemyId) ||
+                !string.Equals(pushCommitEnemyId, goalEnemy.ProfileId, StringComparison.Ordinal))
+            {
+                pushCommitDecision = null;
+                return false;
+            }
+
+            if (!CanLeaveBossForPush())
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        protected AICoreActionResultStruct<BotLogicDecision, GClass26>? TryGetCommittedPushDecision(EnemyInfo goalEnemy)
+        {
+            if (!IsPushCommitted(goalEnemy) || !pushCommitDecision.HasValue)
+            {
+                return null;
+            }
+
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(pushCommitDecision.Value, "pushCommit", null);
+        }
+
+        protected bool TryActivateFollowerGrenade(EnemyInfo goalEnemy)
+        {
+            if (!friendlySAIN.botGrenades.Value ||
+                goalEnemy == null ||
+                !goalEnemy.IsVisible ||
+                goalEnemy.Person == null ||
+                goalEnemy.Distance < 12f ||
+                goalEnemy.Distance > 35f ||
+                BotOwner.WeaponManager == null ||
+                BotOwner.WeaponManager.IsMelee ||
+                BotOwner.WeaponManager.Grenades == null ||
+                !BotOwner.WeaponManager.Grenades.HaveGrenade ||
+                BotOwner.BotRequestController == null ||
+                BotOwner.BotRequestController.HaveActivatedRequests() ||
+                BotOwner.Medecine.Using)
+            {
+                return false;
+            }
+
+            Vector3 targetPosition = goalEnemy.CurrPosition + Vector3.up;
+            if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, 8f))
+            {
+                return false;
+            }
+
+            return BotOwner.BotRequestController.TryActivateThrowGrenadeRequest(targetPosition, null, out _);
+        }
+
+        protected bool IsFriendlyTooCloseToGrenadeTarget(Vector3 targetPosition, float unsafeRadius)
+        {
+            float unsafeRadiusSqr = unsafeRadius * unsafeRadius;
+
+            if (BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            Player bossPlayer = boss.realPlayer;
+            if (bossPlayer != null && (bossPlayer.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
+            {
+                return true;
+            }
+
+            List<BotOwner> followers = boss.Followers;
+            if (followers == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < followers.Count; i++)
+            {
+                BotOwner follower = followers[i];
+                if (follower == null || follower == BotOwner || follower.IsDead)
+                {
+                    continue;
+                }
+
+                if ((follower.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         protected void HoldFor(float seconds)
@@ -729,6 +908,33 @@ namespace friendlySAIN.BigBrain
         protected Vector3 GetBossPosition()
         {
             return BotOwner.BotFollower.BossToFollow != null ? BotOwner.BotFollower.BossToFollow.Position : BotOwner.Position;
+        }
+
+        protected void UpdateCombatAreaStyle()
+        {
+            Vector3 bossPosition = GetBossPosition();
+            if (!combatAreaInitialized)
+            {
+                combatAreaCenter = bossPosition;
+                combatStyle = FollowerCombatStyle.HangBack;
+                combatAreaInitialized = true;
+                return;
+            }
+
+            if (combatStyle == FollowerCombatStyle.HangBack)
+            {
+                if ((bossPosition - combatAreaCenter).sqrMagnitude > CombatAreaExitDistance * CombatAreaExitDistance)
+                {
+                    combatStyle = FollowerCombatStyle.MoveForward;
+                    combatAreaCenter = bossPosition;
+                }
+                return;
+            }
+
+            if ((BotOwner.Position - combatAreaCenter).sqrMagnitude <= CombatAreaArrivalDistance * CombatAreaArrivalDistance)
+            {
+                combatStyle = FollowerCombatStyle.HangBack;
+            }
         }
 
         protected void RefreshBossCover()

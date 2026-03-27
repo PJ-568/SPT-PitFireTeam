@@ -21,7 +21,6 @@ dist/
 
 # Maven
 target/
-dist/
 
 # JetBrains IDE
 .idea/
@@ -53,3 +52,4 @@ client/obj
 package-lock.json
 .vs
 types
+/.dotnet/

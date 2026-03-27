@@ -115,6 +115,21 @@ namespace friendlySAIN.Patches
         }
     }
 
+    internal static class FollowerMutedCombatPhraseGate
+    {
+        private static readonly HashSet<EPhraseTrigger> MutedFollowerTriggers = new HashSet<EPhraseTrigger>
+        {
+            EPhraseTrigger.Clear,
+            EPhraseTrigger.LostVisual,
+            EPhraseTrigger.OnLostVisual
+        };
+
+        public static bool ShouldBlock(BotOwner owner, EPhraseTrigger phrase)
+        {
+            return owner != null && BossPlayers.IsFollower(owner) && MutedFollowerTriggers.Contains(phrase);
+        }
+    }
+
     // patch for preventing bots from talking if silenced command is active
     internal class BotTalkTrySayPatch : ModulePatch
     {
@@ -128,6 +143,11 @@ namespace friendlySAIN.Patches
         private static bool PatchPrefix(BotTalk __instance, EPhraseTrigger type, ETagStatus? additionaMask, bool withGroupDelay)
         {
             if (FollowerForcedPhraseGate.ShouldBlock(__instance.BotOwner_0, type))
+            {
+                return false;
+            }
+
+            if (FollowerMutedCombatPhraseGate.ShouldBlock(__instance.BotOwner_0, type))
             {
                 return false;
             }
@@ -178,6 +198,11 @@ namespace friendlySAIN.Patches
         private static bool PatchPrefix(BotTalk __instance, EPhraseTrigger type, bool sayImmediately = false, ETagStatus? additionalMask = null)
         {
             if (FollowerForcedPhraseGate.ShouldBlock(__instance.BotOwner_0, type))
+            {
+                return false;
+            }
+
+            if (FollowerMutedCombatPhraseGate.ShouldBlock(__instance.BotOwner_0, type))
             {
                 return false;
             }

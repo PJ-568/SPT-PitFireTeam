@@ -67,17 +67,6 @@ namespace friendlySAIN.SAINAddon
 
                     activeFollowerIds.Add(owner.ProfileId);
 
-
-                    // keep SAIN in sync if bot has enemy but SAIN says otherwise
-                    if (owner.Memory.HaveEnemy && SAINEnableClass.GetSAIN(owner.ProfileId, out BotComponent bot) && bot != null && bot.EnemyController?.GoalEnemy == null)
-                    {
-                        Player? enemy = owner.Memory.GoalEnemy?.Person as Player;
-                        if (enemy != null)
-                        {
-                            TrySyncFollowerEnemyState(owner, enemy);
-                        }
-                    }
-
                     if (!TryGetFollowerEnemyForGroupSearch(owner, out Player enemyPlayer, out string enemyProfileId))
                     {
                         continue;

@@ -1,6 +1,7 @@
 using Arena.UI;
 using Comfort.Common;
 using EFT;
+using EFT.HealthSystem;
 using EFT.InventoryLogic;
 using EFT.UI;
 using friendlySAIN.Utils;
@@ -89,6 +90,103 @@ namespace friendlySAIN.Patches
 
     internal class OtherPlayerProfileScreenPatch : ModulePatch
     {
+        private sealed class ProfileSkillsHealthController : IHealthController
+        {
+            private readonly Profile.ProfileHealthClass _health;
+            private readonly GClass2182 _snapshot;
+
+            public ProfileSkillsHealthController(Profile.ProfileHealthClass health)
+            {
+                _health = health ?? throw new ArgumentNullException(nameof(health));
+                _snapshot = new GClass2182(health);
+            }
+
+            public event Action<IEffect> EffectAddedEvent { add { } remove { } }
+            public event Action<IEffect> EffectStartedEvent { add { } remove { } }
+            public event Action<IEffect> EffectUpdatedEvent { add { } remove { } }
+            public event Action<IEffect> EffectResidualEvent { add { } remove { } }
+            public event Action<IEffect> EffectRemovedEvent { add { } remove { } }
+            public event Action<IEffect> EffectStatusUpdateEvent { add { } remove { } }
+            public event Action<EBodyPart, float, DamageInfoStruct> ApplyDamageEvent { add { } remove { } }
+            public event Action<EBodyPart, float, DamageInfoStruct> HealthChangedEvent { add { } remove { } }
+            public event Action<float> EnergyChangedEvent { add { } remove { } }
+            public event Action<float> HydrationChangedEvent { add { } remove { } }
+            public event Action<float> TemperatureChangedEvent { add { } remove { } }
+            public event Action<EBodyPart, EDamageType> BodyPartDestroyedEvent { add { } remove { } }
+            public event Action<EBodyPart, ValueStruct> BodyPartRestoredEvent { add { } remove { } }
+            public event Action<EDamageType> DiedEvent { add { } remove { } }
+            public event Action<IEffect> HealerDoneEvent { add { } remove { } }
+            public event Action<Vector3, float, float> BurnEyesEvent { add { } remove { } }
+            public event Action<IPlayerBuff> StimulatorBuffEvent { add { } remove { } }
+            public event Action<IPlayerBuff> StimulatorBuffActivationEvent { add { } remove { } }
+
+            public float FallSafeHeight { set { } }
+            public bool IsAlive => GetBodyPartHealth(EBodyPart.Common).Current > 0f;
+            public float HealthRate => 0f;
+            public float EnergyRate => 0f;
+            public float HydrationRate => 0f;
+            public float TemperatureRate => 0f;
+            public float DamageCoeff => 1f;
+            public float StaminaCoeff => 1f;
+            public int UpdateTime => _health.UpdateTime ?? 0;
+            public HealthEffects BodyPartEffects => default;
+            public float CarryingWeightAbsoluteModifier => 0f;
+            public float CarryingWeightRelativeModifier => 0f;
+            public ValueStruct Hydration => _snapshot.Hydration;
+            public ValueStruct Energy => _snapshot.Energy;
+            public ValueStruct Temperature => _snapshot.Temperature;
+            public ValueStruct Poison => _snapshot.Poison;
+
+            public bool IsBodyPartBroken(EBodyPart bodyPart) => false;
+            public bool IsBodyPartDestroyed(EBodyPart bodyPart) => GetBodyPartHealth(bodyPart).Current <= 0f;
+            public void GetBodyPartsInCriticalCondition(float threshold, out int all, out int vital)
+            {
+                all = 0;
+                vital = 0;
+            }
+
+            public void SetEncumbered(bool encumbered) { }
+            public void SetOverEncumbered(bool encumbered) { }
+            public void AddFatigue() { }
+            public void AddImmunityNotificationEffect() { }
+            public TEffect FindExistingEffect<TEffect>(EBodyPart bodyPart = EBodyPart.Common) where TEffect : IEffect => default;
+            public TEffect FindActiveEffect<TEffect>(EBodyPart bodyPart = EBodyPart.Common) where TEffect : IEffect => default;
+            public IEnumerable<TEffect> FindActiveEffects<TEffect>(EBodyPart bodyPart = EBodyPart.Common) where TEffect : IEffect => Enumerable.Empty<TEffect>();
+            public IEnumerable<IEffect> GetAllActiveEffects(EBodyPart bodyPart = EBodyPart.Common) => Enumerable.Empty<IEffect>();
+            public IEnumerable<IEffect> GetAllEffects(EBodyPart bodyPart = EBodyPart.Common) => Enumerable.Empty<IEffect>();
+            public IEnumerable<IEffect> GetAllResidualEffects(EBodyPart bodyPart = EBodyPart.Common) => Enumerable.Empty<IEffect>();
+            public GStruct382<EBodyPart> BodyPartsPriority(Item item, bool continuousHealEnabled) => default;
+            public bool IsItemForHealing(Item item) => false;
+            public IResult HasPartsToApply(Item item) => null;
+            public bool CanApplyItem(Item item, EBodyPart bodyPart) => false;
+            public bool ApplyItem(Item item, GStruct382<EBodyPart> bodyPart, float? amount = null) => false;
+            public bool ApplyItem(Item item, EBodyPart bodyPart, float? amount = null) => false;
+            public void CancelApplyingItem() { }
+            public void ManualUpdate(float deltaTime) { }
+            public void PropagateAllEffects() { }
+            public string[] ActiveBuffsNames() => Array.Empty<string>();
+            public void DisableMetabolism() { }
+
+            public ValueStruct GetBodyPartHealth(EBodyPart bodyPart, bool rounded = false)
+            {
+                if (bodyPart == EBodyPart.Common)
+                {
+                    return _snapshot.GetBodyPartHealth(bodyPart, rounded);
+                }
+
+                if (_health.BodyParts != null && _health.BodyParts.TryGetValue(bodyPart, out Profile.ProfileHealthClass.ProfileBodyPartHealthClass part) && part?.Health != null)
+                {
+                    return new ValueStruct
+                    {
+                        Current = part.Health.Current,
+                        Maximum = part.Health.Maximum
+                    };
+                }
+
+                return default;
+            }
+        }
+
         private const string OptionsRoute = "/singleplayer/friendlysain/teammate/profile/options";
         private const string SuitRoute = "/singleplayer/friendlysain/teammate/profile/suit";
         private const string RenameRoute = "/singleplayer/friendlysain/teammate/profile/rename";
@@ -110,14 +208,35 @@ namespace friendlySAIN.Patches
         private static readonly FieldInfo NonWeaponItemsBlockPlaceholderField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_nonWeaponItemsBlockPlaceholder");
         private static readonly FieldInfo WeaponsGridLayoutGroupField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_weaponsGridLayoutGroup");
         private static readonly FieldInfo NonWeaponItemsGridLayoutGroupField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_nonWeaponItemsGridLayoutGroup");
+        private static readonly FieldInfo SkillsScreenListTabField = AccessTools.Field(typeof(SkillsScreen), "_listTab");
+        private static readonly FieldInfo SkillsScreenThumbsTabField = AccessTools.Field(typeof(SkillsScreen), "_thumbsTab");
+        private static readonly FieldInfo SkillsScreenTabsControllerField = AccessTools.Field(typeof(SkillsScreen), "gclass3808_0");
+        private static readonly MethodInfo SkillsScreenShowMethod = AccessTools.Method(typeof(SkillsScreen), "Show");
+        private static readonly FieldInfo SkillsAndMasteringSkillsScreenField = AccessTools.Field(typeof(SkillsAndMasteringScreen), "_skillsScreen");
+        private static readonly FieldInfo InventorySkillsAndMasteringScreenField = AccessTools.Field(typeof(InventoryScreen), "_skillsAndMasteringScreen");
+        private static readonly FieldInfo SkillManagerSkillsField = AccessTools.Field(typeof(SkillManager), nameof(SkillManager.Skills));
+        private static readonly FieldInfo SkillManagerDisplayListField = AccessTools.Field(typeof(SkillManager), nameof(SkillManager.DisplayList));
         private static readonly FieldInfo UiField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "UI");
         private static readonly FieldInfo UpperDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_upperButtonDropDown");
         private static readonly FieldInfo LowerDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_lowerButtonDropDown");
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
         private static readonly string GearIconPath = Path.Combine(PluginDirectory, "gear.png");
+        private static readonly Vector2 SkillsScreenOffset = new Vector2(-38f, -100f);
+        private static readonly HashSet<ESkillId> HiddenFollowerSkills = new HashSet<ESkillId>
+        {
+            ESkillId.Charisma,
+            ESkillId.Attention,
+            ESkillId.Intellect,
+            ESkillId.Search,
+            ESkillId.WeaponTreatment,
+            ESkillId.Crafting,
+            ESkillId.HideoutManagement
+        };
 
         public static ResultProfile ViewedProfile { get; set; }
         public static Transform LoadoutSelector { get; set; }
+        public static SkillsScreen SkillsPanel { get; set; }
+        public static RectTransform SkillsPanelHost { get; set; }
         public static CustomTextMeshProUGUI OriginalNicknameLabel { get; set; }
         public static DefaultUIButton NicknameRenameButton { get; set; }
         public static GameObject RenameOverlayRoot { get; set; }
@@ -128,6 +247,11 @@ namespace friendlySAIN.Patches
         private static Dictionary<GameObject, bool> HiddenRightSideRoots { get; } = new Dictionary<GameObject, bool>();
         internal static Action PendingBackOverrideAction { get; set; }
         internal static Action ActiveBackOverrideAction { get; set; }
+
+        private static void MarkSquadRosterDirty()
+        {
+            Components.SquadControlMenuUi.RequestRosterRefreshOnNextInject();
+        }
 
         internal static void PrepareReturnOverride(Action callback)
         {
@@ -173,7 +297,7 @@ namespace friendlySAIN.Patches
             FriendlyTeammateProfileOptions options = TryLoadProfileOptions(profile.AccountId);
             if (options == null || options.Loadouts == null || options.Loadouts.Count == 0)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Teammate profile patch aborted: no profile options for accountId '{profile.AccountId}'.");
+                DisplaySkillsPanel(__instance, profile, session);
                 return;
             }
 
@@ -223,6 +347,385 @@ namespace friendlySAIN.Patches
             ConfigureLoadoutPanel(loadoutPanel, clothingSelectionPanel);
             DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
             ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
+            DisplaySkillsPanel(__instance, profile, session);
+        }
+
+        private static void DisplaySkillsPanel(OtherPlayerProfileScreen screen, ResultProfile profile, ISession session)
+        {
+            if (screen == null || profile?.Skills == null || session?.Profile == null)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Skills panel skipped: missing screen, profile skills, or session profile.");
+                return;
+            }
+
+            SkillsScreen template = FindSkillsScreenTemplate();
+            if (template == null || !TryPrepareSkillsHost(screen, out RectTransform hostParent))
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Skills panel skipped: template={(template != null)}.");
+                return;
+            }
+
+            if (SkillsPanel != null)
+            {
+                GameObject.Destroy(SkillsPanel.gameObject);
+                SkillsPanel = null;
+            }
+
+            if (SkillsPanelHost != null)
+            {
+                GameObject.Destroy(SkillsPanelHost.gameObject);
+                SkillsPanelHost = null;
+            }
+
+            GameObject hostObject = new GameObject("friendlySAIN_ProfileSkillsHost", typeof(RectTransform));
+            hostObject.transform.SetParent(hostParent, false);
+            RectTransform hostRect = hostObject.GetComponent<RectTransform>();
+            StretchToFillParent(hostRect);
+            hostRect.SetAsLastSibling();
+
+            SkillsScreen clone = GameObject.Instantiate(template, hostRect, false);
+            clone.name = "friendlySAIN_ProfileSkillsScreen";
+            if (clone.transform is RectTransform cloneRect)
+            {
+                ConfigureInjectedSkillsScreenRect(screen, cloneRect);
+            }
+
+            Profile skillsProfile = BuildSkillsProfile(session.Profile, profile.Skills);
+
+            if (!TryInitializeSkillsScreen(clone))
+            {
+                GameObject.Destroy(hostObject);
+                GameObject.Destroy(clone.gameObject);
+                return;
+            }
+
+            object healthController = ResolveSkillsHealthController(profile, session);
+            if (healthController == null)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Skills panel skipped: unable to resolve any health controller.");
+                GameObject.Destroy(hostObject);
+                GameObject.Destroy(clone.gameObject);
+                return;
+            }
+
+            try
+            {
+                SkillsScreenShowMethod?.Invoke(clone, new object[] { skillsProfile, healthController });
+                HideDetailedSkillProgressChildren(clone.transform);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to show follower skills panel.");
+                Modules.Logger.LogError(ex);
+                GameObject.Destroy(hostObject);
+                GameObject.Destroy(clone.gameObject);
+                return;
+            }
+
+
+            AddViewListClass ui = UiField?.GetValue(screen) as AddViewListClass;
+            ui?.AddDisposable(clone);
+
+            SkillsPanelHost = hostRect;
+            SkillsPanel = clone;
+            friendlySAIN.Log.LogWarning($"[UI] Follower skills panel shown for '{profile.AccountId}'.");
+        }
+
+        private static Profile BuildSkillsProfile(Profile sessionProfile, SkillManager sourceSkills)
+        {
+            Profile skillsProfile = sessionProfile?.Clone();
+            if (skillsProfile?.Skills == null || sourceSkills == null)
+            {
+                return skillsProfile;
+            }
+
+            skillsProfile.Skills.ApplyChanges(sourceSkills);
+            FilterHiddenSkills(skillsProfile.Skills);
+            return skillsProfile;
+        }
+
+        private static void FilterHiddenSkills(SkillManager skillManager)
+        {
+            if (skillManager == null)
+            {
+                return;
+            }
+
+            ReplaceSkillArray(SkillManagerDisplayListField, skillManager);
+            ReplaceSkillArray(SkillManagerSkillsField, skillManager);
+        }
+
+        private static void ReplaceSkillArray(FieldInfo field, SkillManager skillManager)
+        {
+            if (field?.GetValue(skillManager) is not SkillClass[] skills)
+            {
+                return;
+            }
+
+            SkillClass[] filtered = skills
+                .Where(skill => skill != null && !skill.Locked && !HiddenFollowerSkills.Contains(skill.Id))
+                .ToArray();
+
+            field.SetValue(skillManager, filtered);
+        }
+
+        private static void HideDetailedSkillProgressChildren(Transform root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (child != null && child.name == "Progress")
+                {
+                    child.gameObject.SetActive(false);
+                }
+            }
+        }
+
+        private static object ResolveSkillsHealthController(ResultProfile profile, ISession session)
+        {
+            try
+            {
+                if (session?.Profile?.Health != null)
+                {
+                    return new ProfileSkillsHealthController(session.Profile.Health);
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to build session-profile health controller for skills panel.");
+                Modules.Logger.LogError(ex);
+            }
+
+            try
+            {
+                return Singleton<GameWorld>.Instantiated
+                    ? (object)Singleton<GameWorld>.Instance?.MainPlayer?.ActiveHealthController
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to resolve live health controller fallback for skills panel.");
+                Modules.Logger.LogError(ex);
+                return null;
+            }
+        }
+
+        private static bool TryInitializeSkillsScreen(SkillsScreen skillsScreen)
+        {
+            if (skillsScreen == null)
+            {
+                return false;
+            }
+
+            if (SkillsScreenTabsControllerField?.GetValue(skillsScreen) != null)
+            {
+                return true;
+            }
+
+            try
+            {
+                AccessTools.Method(typeof(SkillsScreen), "Awake")?.Invoke(skillsScreen, null);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to initialize stock SkillsScreen clone.");
+                Modules.Logger.LogError(ex);
+                return false;
+            }
+
+            return SkillsScreenTabsControllerField?.GetValue(skillsScreen) != null;
+        }
+
+        private static SkillsScreen FindSkillsScreenTemplate()
+        {
+            SkillsScreen direct = Resources.FindObjectsOfTypeAll<SkillsScreen>()
+                .FirstOrDefault(screen =>
+                    screen != null &&
+                    screen.name != "friendlySAIN_ProfileSkillsScreen" &&
+                    screen.transform is RectTransform);
+            if (direct != null)
+            {
+                return direct;
+            }
+
+            SkillsAndMasteringScreen skillsAndMastering = Resources.FindObjectsOfTypeAll<SkillsAndMasteringScreen>()
+                .FirstOrDefault(screen => screen != null);
+            SkillsScreen fromSkillsAndMastering = SkillsAndMasteringSkillsScreenField?.GetValue(skillsAndMastering) as SkillsScreen;
+            if (fromSkillsAndMastering?.transform is RectTransform)
+            {
+                return fromSkillsAndMastering;
+            }
+
+            InventoryScreen inventoryScreen = Resources.FindObjectsOfTypeAll<InventoryScreen>()
+                .FirstOrDefault(screen => screen != null);
+            SkillsAndMasteringScreen inventorySkillsAndMastering = InventorySkillsAndMasteringScreenField?.GetValue(inventoryScreen) as SkillsAndMasteringScreen;
+            SkillsScreen fromInventory = SkillsAndMasteringSkillsScreenField?.GetValue(inventorySkillsAndMastering) as SkillsScreen;
+            if (fromInventory?.transform is RectTransform)
+            {
+                return fromInventory;
+            }
+
+            friendlySAIN.Log.LogWarning("[UI] Unable to locate a stock SkillsScreen template.");
+            return null;
+        }
+
+        private static bool TryPrepareSkillsHost(OtherPlayerProfileScreen screen, out RectTransform hostParent)
+        {
+            hostParent = null;
+            if (screen == null)
+            {
+                return false;
+            }
+
+            Transform rightSide = screen.transform.Find("RightSide")
+                ?? FindChildRecursive(screen.transform, "RightSide");
+
+            rightSide?.gameObject.SetActive(true);
+            hostParent = rightSide as RectTransform;
+            return hostParent != null;
+        }
+
+        private static void EnsureSkillsScreenOptionsVisible(SkillsScreen skillsScreen)
+        {
+            if (skillsScreen == null)
+            {
+                return;
+            }
+
+            Transform options = skillsScreen.transform.Find("Options")
+                ?? FindChildRecursive(skillsScreen.transform, "Options");
+            if (options == null)
+            {
+                return;
+            }
+
+            options.gameObject.SetActive(true);
+            if (options is RectTransform optionsRect)
+            {
+                optionsRect.anchorMin = new Vector2(0f, 1f);
+                optionsRect.anchorMax = new Vector2(1f, 1f);
+                optionsRect.pivot = new Vector2(0.5f, 1f);
+                optionsRect.localScale = Vector3.one;
+            }
+        }
+
+        private static RectTransform GetSkillsAnchorRect(OtherPlayerProfileScreen screen)
+        {
+            GameObject[] targets =
+            [
+                ResolveProfileSectionRoot(screen.transform, (OverallStatsPanelField?.GetValue(screen) as Component)?.transform),
+                ResolveProfileSectionRoot(screen.transform, (AchievementsProgressBlockField?.GetValue(screen) as Component)?.transform),
+                ResolveProfileSectionRoot(screen.transform, (WeaponsGridLayoutGroupField?.GetValue(screen) as Component)?.transform),
+            ];
+
+            foreach (GameObject target in targets)
+            {
+                if (target?.transform is RectTransform rect)
+                {
+                    return rect;
+                }
+            }
+
+            return null;
+        }
+
+        private static void CopyRectTransform(RectTransform source, RectTransform target)
+        {
+            if (source == null || target == null)
+            {
+                return;
+            }
+
+            target.anchorMin = source.anchorMin;
+            target.anchorMax = source.anchorMax;
+            target.pivot = source.pivot;
+            target.anchoredPosition = source.anchoredPosition;
+            target.sizeDelta = source.sizeDelta;
+            target.offsetMin = source.offsetMin;
+            target.offsetMax = source.offsetMax;
+            target.localScale = source.localScale;
+            target.localRotation = source.localRotation;
+        }
+
+        private static void StretchToFillParent(RectTransform target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            target.anchorMin = new Vector2(0f, 0f);
+            target.anchorMax = new Vector2(1f, 1f);
+            target.pivot = new Vector2(0f, 1f);
+            target.anchoredPosition = Vector2.zero;
+            target.sizeDelta = Vector2.zero;
+            target.offsetMin = Vector2.zero;
+            target.offsetMax = Vector2.zero;
+            target.localScale = Vector3.one;
+            target.localRotation = Quaternion.identity;
+        }
+
+        private static void ConfigureInjectedSkillsScreenRect(OtherPlayerProfileScreen screen, RectTransform target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            float referenceHeight = ResolveReferencePanelHeight(screen);
+            float calculatedHeight = referenceHeight > 0f
+                ? referenceHeight + SkillsScreenOffset.y
+                : target.rect.height + SkillsScreenOffset.y;
+
+            target.anchorMin = new Vector2(0f, 1f);
+            target.anchorMax = new Vector2(1f, 1f);
+            target.pivot = new Vector2(0f, 1f);
+            target.anchoredPosition = SkillsScreenOffset;
+            target.sizeDelta = new Vector2(0f, calculatedHeight);
+            target.localScale = Vector3.one;
+            target.localRotation = Quaternion.identity;
+        }
+
+        private static float ResolveReferencePanelHeight(OtherPlayerProfileScreen screen)
+        {
+            if (screen == null)
+            {
+                return 0f;
+            }
+
+            InventoryPlayerModelWithStatsWindow playerModelWindow =
+                PlayerModelWindowField?.GetValue(screen) as InventoryPlayerModelWithStatsWindow;
+
+            if (TryGetClothingPanel(screen, playerModelWindow, out RectTransform clothingPanel, out _, out Transform parent))
+            {
+                if (parent is RectTransform parentRect && parentRect.rect.height > 0f)
+                {
+                    return parentRect.rect.height;
+                }
+
+                if (clothingPanel != null && clothingPanel.rect.height > 0f)
+                {
+                    return clothingPanel.rect.height;
+                }
+            }
+
+            if (playerModelWindow?.transform is RectTransform playerModelRect && playerModelRect.rect.height > 0f)
+            {
+                return playerModelRect.rect.height;
+            }
+
+            Transform playerModelRoot = screen.transform.Find("PlayerModelWithStats")
+                ?? FindChildRecursive(screen.transform, "PlayerModelWithStats");
+            if (playerModelRoot is RectTransform rootRect && rootRect.rect.height > 0f)
+            {
+                return rootRect.rect.height;
+            }
+
+            return 0f;
         }
 
         private static void ConfigureBackOverride(OtherPlayerProfileScreen screen)
@@ -314,11 +817,13 @@ namespace friendlySAIN.Patches
             {
                 string body = ViewedProfile.Customization[EBodyModelPart.Body];
                 string feet = ViewedProfile.Customization[EBodyModelPart.Feet];
-                RequestHandler.PostJson(SuitRoute, SerializeBody(new FriendlyTeammateSuitRequest
+                string responseJson = RequestHandler.PostJson(SuitRoute, SerializeBody(new FriendlyTeammateSuitRequest
                 {
                     aid = ViewedProfile.AccountId,
                     suit = new string[] { body, feet }
                 }));
+                EnsureBodySuccess(responseJson);
+                MarkSquadRosterDirty();
             }
             catch (Exception ex)
             {
@@ -701,6 +1206,7 @@ namespace friendlySAIN.Patches
                 }
 
                 SocialNetworkClassPatch.RefreshFriendsList();
+                MarkSquadRosterDirty();
                 CloseRenameOverlay();
             }
             catch (Exception ex)
@@ -826,6 +1332,16 @@ namespace friendlySAIN.Patches
 
         private static void ClearProfileRightSideContent(OtherPlayerProfileScreen screen)
         {
+            HideProfileRightSideRoot(screen, screen?.transform.Find("Overall")?.gameObject);
+            Transform rightSide = screen?.transform.Find("RightSide")
+                ?? FindChildRecursive(screen?.transform, "RightSide");
+            if (rightSide != null)
+            {
+                foreach (Transform child in rightSide)
+                {
+                    HideProfileRightSideRoot(screen, child.gameObject);
+                }
+            }
             HideProfileRightSideRoot(screen, OverallStatsPanelField?.GetValue(screen) as Component);
             HideProfileRightSideRoot(screen, AchievementsProgressBlockField?.GetValue(screen) as Component);
             HideProfileRightSideRoot(screen, AchievementsBlockPlaceholderField?.GetValue(screen) as GameObject);
@@ -862,6 +1378,19 @@ namespace friendlySAIN.Patches
             if (screenRoot == null || target == null)
             {
                 return null;
+            }
+
+            Transform rightSideRoot = screenRoot.Find("RightSide")
+                ?? FindChildRecursive(screenRoot, "RightSide");
+            if (rightSideRoot != null && target.IsChildOf(rightSideRoot))
+            {
+                Transform currentRightSide = target;
+                while (currentRightSide.parent != null && currentRightSide.parent != rightSideRoot)
+                {
+                    currentRightSide = currentRightSide.parent;
+                }
+
+                return currentRightSide == rightSideRoot ? null : currentRightSide.gameObject;
             }
 
             Transform current = target;
@@ -1045,12 +1574,14 @@ namespace friendlySAIN.Patches
             {
                 try
                 {
-                    RequestHandler.PostJson(LoadoutRoute, SerializeBody(new FriendlyTeammateLoadoutRequest
+                    string responseJson = RequestHandler.PostJson(LoadoutRoute, SerializeBody(new FriendlyTeammateLoadoutRequest
                     {
                         aid = profile.AccountId,
                         loadoutId = selected.Id
                     }));
+                    EnsureBodySuccess(responseJson);
 
+                    MarkSquadRosterDirty();
                     RefreshPlayerVisualization(profile, inventoryController, session, window);
                 }
                 catch (Exception ex)
@@ -1161,6 +1692,18 @@ namespace friendlySAIN.Patches
             {
                 GameObject.Destroy(OtherPlayerProfileScreenPatch.LoadoutSelector.gameObject);
                 OtherPlayerProfileScreenPatch.LoadoutSelector = null;
+            }
+
+            if (OtherPlayerProfileScreenPatch.SkillsPanel != null)
+            {
+                GameObject.Destroy(OtherPlayerProfileScreenPatch.SkillsPanel.gameObject);
+                OtherPlayerProfileScreenPatch.SkillsPanel = null;
+            }
+
+            if (OtherPlayerProfileScreenPatch.SkillsPanelHost != null)
+            {
+                GameObject.Destroy(OtherPlayerProfileScreenPatch.SkillsPanelHost.gameObject);
+                OtherPlayerProfileScreenPatch.SkillsPanelHost = null;
             }
 
             if (callback == null)

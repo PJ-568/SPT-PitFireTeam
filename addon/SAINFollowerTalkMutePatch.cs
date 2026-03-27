@@ -13,7 +13,7 @@ namespace friendlySAIN.SAINAddon
 {
     internal static class SAINFollowerTalkMutePatch
     {
-        private const bool EnableFollowerTalkMuteDebugLogs = true;
+        private const bool EnableFollowerTalkMuteDebugLogs = false;
         private const float LogThrottleSeconds = 2f;
 
         private static readonly HashSet<EPhraseTrigger> MutedFollowerTriggers = new HashSet<EPhraseTrigger>

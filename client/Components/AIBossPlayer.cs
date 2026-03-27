@@ -72,6 +72,9 @@ namespace friendlySAIN.Components
         private static bool _sainAddonDecisionResetBridgeErrorLogged;
         private bool _bossGroupStaticUpdateSubscribed;
         private float _nextBossGroupStaticUpdateAt;
+        private readonly Dictionary<string, StableEnemyReportState> _stableEnemyReportByFollower =
+            new Dictionary<string, StableEnemyReportState>(StringComparer.Ordinal);
+        private const float StableEnemyReportSeconds = 0.75f;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -660,7 +663,6 @@ namespace friendlySAIN.Components
 
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
                 followerData?.ClearCommand("Attention:Look");
-                followerData?.ResetCombatCommitState();
 
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
@@ -1451,6 +1453,7 @@ namespace friendlySAIN.Components
         public void DisposeBoss()
         {
             UnsubscribeBossGroupStaticUpdate();
+            _stableEnemyReportByFollower.Clear();
             realPlayer.HealthController.DiedEvent -= OnDead;
 
             Singleton<BotEventHandler>.Instance.OnPhraseSay -= PhraseSaid;
@@ -1509,7 +1512,154 @@ namespace friendlySAIN.Components
             }
 
             _nextBossGroupStaticUpdateAt = Time.time + 0.5f;
+            ReportEnemyToIdleFollowers();
             SainAddonBridge.RaiseBossGroupStaticUpdate(this);
+        }
+
+        private void ReportEnemyToIdleFollowers()
+        {
+            if (bossGroup == null || Followers == null || Followers.Count < 2)
+            {
+                _stableEnemyReportByFollower.Clear();
+                return;
+            }
+
+            HashSet<string> activeFollowerIds = new HashSet<string>(StringComparer.Ordinal);
+            BotOwner bestReporter = null;
+            Player enemyPlayer = null;
+            EEnemyPartVisibleType visibleType = EEnemyPartVisibleType.Sence;
+            bool foundVisibleReporter = false;
+
+            for (int i = 0; i < Followers.Count; i++)
+            {
+                BotOwner follower = Followers[i];
+                if (!IsFollowerEligibleForGroupEnemySync(follower))
+                {
+                    continue;
+                }
+
+                activeFollowerIds.Add(follower.ProfileId);
+
+                if (!TryGetStableEnemyReporter(follower, out Player candidateEnemy, out EEnemyPartVisibleType candidateVisibleType))
+                {
+                    continue;
+                }
+
+                if (bestReporter == null || (!foundVisibleReporter && candidateVisibleType == EEnemyPartVisibleType.Visible))
+                {
+                    bestReporter = follower;
+                    enemyPlayer = candidateEnemy;
+                    visibleType = candidateVisibleType;
+                    foundVisibleReporter = candidateVisibleType == EEnemyPartVisibleType.Visible;
+                }
+            }
+
+            foreach (string followerId in _stableEnemyReportByFollower.Keys.ToList())
+            {
+                if (!activeFollowerIds.Contains(followerId))
+                {
+                    _stableEnemyReportByFollower.Remove(followerId);
+                }
+            }
+
+            if (bestReporter == null || enemyPlayer == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < Followers.Count; i++)
+            {
+                BotOwner follower = Followers[i];
+                if (!IsFollowerEligibleForGroupEnemySync(follower) || follower == bestReporter)
+                {
+                    continue;
+                }
+
+                if (follower.Memory?.HaveEnemy == true)
+                {
+                    continue;
+                }
+
+                bossGroup.ReportAboutEnemy(enemyPlayer, visibleType, bestReporter);
+                break;
+            }
+        }
+
+        private bool TryGetStableEnemyReporter(BotOwner follower, out Player enemyPlayer, out EEnemyPartVisibleType visibleType)
+        {
+            enemyPlayer = null;
+            visibleType = EEnemyPartVisibleType.Sence;
+
+            if (!IsFollowerEligibleForGroupEnemySync(follower))
+            {
+                ClearStableEnemyReporter(follower);
+                return false;
+            }
+
+            EnemyInfo goalEnemy = follower.Memory?.GoalEnemy;
+            if (goalEnemy == null || !follower.Memory.HaveEnemy || follower.Memory.IsPeace)
+            {
+                ClearStableEnemyReporter(follower);
+                return false;
+            }
+
+            enemyPlayer = goalEnemy.Person as Player;
+            if ((enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true) && !string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+            }
+
+            if (enemyPlayer == null || enemyPlayer.HealthController?.IsAlive != true)
+            {
+                ClearStableEnemyReporter(follower);
+                return false;
+            }
+
+            if (BossPlayers.IsPlayerBoss(enemyPlayer.ProfileId) ||
+                (enemyPlayer.IsAI && enemyPlayer.AIData?.BotOwner != null && BossPlayers.IsFollower(enemyPlayer.AIData.BotOwner)))
+            {
+                ClearStableEnemyReporter(follower);
+                return false;
+            }
+
+            if (!_stableEnemyReportByFollower.TryGetValue(follower.ProfileId, out StableEnemyReportState state) ||
+                state == null ||
+                !string.Equals(state.EnemyProfileId, enemyPlayer.ProfileId, StringComparison.Ordinal))
+            {
+                _stableEnemyReportByFollower[follower.ProfileId] = new StableEnemyReportState
+                {
+                    EnemyProfileId = enemyPlayer.ProfileId,
+                    Since = Time.time
+                };
+                return false;
+            }
+
+            if (Time.time - state.Since < StableEnemyReportSeconds)
+            {
+                return false;
+            }
+
+            visibleType = goalEnemy.IsVisible ? EEnemyPartVisibleType.Visible : EEnemyPartVisibleType.Sence;
+            return true;
+        }
+
+        private void ClearStableEnemyReporter(BotOwner follower)
+        {
+            if (follower == null || string.IsNullOrEmpty(follower.ProfileId))
+            {
+                return;
+            }
+
+            _stableEnemyReportByFollower.Remove(follower.ProfileId);
+        }
+
+        private static bool IsFollowerEligibleForGroupEnemySync(BotOwner follower)
+        {
+            return follower != null &&
+                   !follower.IsDead &&
+                   follower.BotState == EBotState.Active &&
+                   follower.Memory != null &&
+                   follower.GetPlayer?.HealthController?.IsAlive == true;
         }
 
         public void AddFollower(BotOwner bot)
@@ -1529,6 +1679,12 @@ namespace friendlySAIN.Components
             public Vector3 Position;
             public float ExpiresAt;
             public bool Announced;
+        }
+
+        private sealed class StableEnemyReportState
+        {
+            public string EnemyProfileId = string.Empty;
+            public float Since;
         }
     }
     public class AIBossPlayerLogic : GClass430
