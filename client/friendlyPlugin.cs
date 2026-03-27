@@ -299,7 +299,7 @@ namespace friendlySAIN
             new MatchmakerPlayerControllerClassAbortPatch().Enable();
             new MatchmakerPlayerControllerClassLeavePatch().Enable();
             new MatchMakerAcceptScreenPatch().Enable();
-            new MatchMakerPlayerPreviewSecureContainerPatch().Enable();
+            new MatchMakerPlayerPreviewFollowerUiPatch().Enable();
             new ContextInteractionsPlayerRemovePatch().Enable();
             new TransitPointPatch().Enable();
             new MatchMakerSelectionLocationScreenPatch().Enable();
