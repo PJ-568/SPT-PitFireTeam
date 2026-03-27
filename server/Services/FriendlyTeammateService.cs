@@ -13,17 +13,20 @@ using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Bots;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Servers;
+using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Utils;
 using SPTarkov.Server.Core.Utils.Cloners;
 using CommonCustomization = SPTarkov.Server.Core.Models.Eft.Common.Tables.Customization;
 using CommonInfo = SPTarkov.Server.Core.Models.Eft.Common.Tables.Info;
 using System;
+using System.Text.Json;
 
 namespace friendlySAIN.Server.Services;
 
 [Injectable]
 public class FriendlyTeammateService(
     BotGenerator botGenerator,
+    DatabaseService databaseService,
     FileUtil fileUtil,
     HashUtil hashUtil,
     JsonUtil jsonUtil,
@@ -39,6 +42,7 @@ public class FriendlyTeammateService(
     private const string DefaultLoadoutName = "Default";
     private const string DefaultLoadoutId = "000000000000000000000000";
     private const int RelativeLevelDelta = 5;
+    private const int SecureContainerAmmoStackCount = 10;
 
     public SearchFriendResponse CreateTeammate(MongoId sessionId, FriendlyTeammateCreateRequest request)
     {
@@ -79,6 +83,7 @@ public class FriendlyTeammateService(
         teammate.Aid = GetUniqueAccountId(sessionId);
 
         NormalizeTeammateProfile(teammate, playerPmc);
+        ApplyPmcFollowerSkillBaseline(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammate(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
@@ -126,6 +131,7 @@ public class FriendlyTeammateService(
         teammate.Aid = GetUniqueAccountId(sessionId);
 
         NormalizeTeammateProfile(teammate, playerPmc);
+        ApplyPmcFollowerSkillBaseline(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammate(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
@@ -177,7 +183,7 @@ public class FriendlyTeammateService(
     public GetOtherProfileResponse GetTeammateProfile(MongoId sessionId, GetOtherProfileRequest request)
     {
         var teammate = FindByAccountId(sessionId, request.AccountId);
-        return ToOtherProfileResponse(teammate);
+        return ToOtherProfileResponse(PrepareTeammateForFetch(teammate));
     }
 
     public FriendlyTeammateProfileOptionsResponse GetProfileOptions(MongoId sessionId, FriendlyTeammateProfileOptionsRequest request)
@@ -284,7 +290,7 @@ public class FriendlyTeammateService(
             return false;
         }
 
-        profile = ToOtherProfileResponse(teammate);
+        profile = ToOtherProfileResponse(PrepareTeammateForFetch(teammate));
         return true;
     }
 
@@ -296,7 +302,7 @@ public class FriendlyTeammateService(
             return false;
         }
 
-        groupCharacter = ToGroupCharacter(teammate!);
+        groupCharacter = ToGroupCharacter(PrepareTeammateForFetch(teammate!));
         return true;
     }
 
@@ -308,11 +314,37 @@ public class FriendlyTeammateService(
             return false;
         }
 
-        var clone = cloner.Clone(teammate!) ?? teammate;
-        ApplyTemporaryHealthMultiplier(clone!, healthMultiplier);
-        EnsureFollowerHasMedicalSupply(clone!);
-        profile = clone;
+        profile = PrepareTeammateForFetch(teammate!, healthMultiplier);
         return true;
+    }
+
+    private BotBase PrepareTeammateForFetch(BotBase teammate, double? healthMultiplier = null)
+    {
+        var clone = cloner.Clone(teammate) ?? teammate;
+        ApplyPmcFollowerSkillBaseline(clone);
+        ApplyTemporaryHealthMultiplier(clone, healthMultiplier);
+        EnsureFollowerHasMedicalSupply(clone);
+        EnsureFollowerHasSecureContainerAmmo(clone);
+        return clone;
+    }
+
+    public void PersistFollowerProgress(MongoId sessionId, IEnumerable<FriendlyTeammateFollowerProgressRequest>? progressEntries)
+    {
+        if (progressEntries == null)
+        {
+            return;
+        }
+
+        foreach (var progressEntry in progressEntries)
+        {
+            if (!TryFindByAccountId(sessionId, progressEntry.Aid, out var teammate) || teammate == null)
+            {
+                continue;
+            }
+
+            ApplyFollowerProgress(teammate, progressEntry);
+            SaveTeammate(sessionId, teammate);
+        }
     }
 
     private void EnsureFollowerHasMedicalSupply(BotBase profile)
@@ -384,6 +416,103 @@ public class FriendlyTeammateService(
         {
             logger.Info($"Ensured medical supplies for follower '{profile.Info?.Nickname}': Medical={hasMedical}, Surgical={hasSurgical}");
         }
+    }
+
+    private void EnsureFollowerHasSecureContainerAmmo(BotBase profile)
+    {
+        if (profile?.Inventory?.Items == null)
+        {
+            return;
+        }
+
+        var secureContainer = profile.Inventory.Items.FirstOrDefault(item => item.SlotId == nameof(EquipmentSlots.SecuredContainer));
+        if (secureContainer?.Id == null)
+        {
+            return;
+        }
+
+        var ammoTemplate = FindMainWeaponAmmoTemplate(profile.Inventory.Items.ToList());
+        if (ammoTemplate == null || ammoTemplate.Value.IsEmpty)
+        {
+            return;
+        }
+
+        var ammoDetails = itemHelper.GetItem(ammoTemplate.Value);
+        if (!ammoDetails.Key || ammoDetails.Value == null)
+        {
+            return;
+        }
+
+        var stackSize = ammoDetails.Value.Properties?.StackMaxSize ?? 0;
+        if (stackSize <= 0)
+        {
+            return;
+        }
+
+        var secureContainerId = secureContainer.Id.ToString();
+        var existingStacks = profile.Inventory.Items.Count(item =>
+            string.Equals(item.ParentId, secureContainerId, StringComparison.OrdinalIgnoreCase) &&
+            item.Template == ammoTemplate.Value);
+
+        for (var i = existingStacks; i < SecureContainerAmmoStackCount; i++)
+        {
+            profile.Inventory.Items.Add(new Item
+            {
+                Id = new MongoId(),
+                Template = ammoTemplate.Value,
+                ParentId = secureContainerId,
+                SlotId = "main",
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = stackSize,
+                    SpawnedInSession = false,
+                },
+            });
+        }
+    }
+
+    private MongoId? FindMainWeaponAmmoTemplate(List<Item> inventoryItems)
+    {
+        var mainWeapon = inventoryItems.FirstOrDefault(item => item.SlotId == nameof(EquipmentSlots.FirstPrimaryWeapon))
+            ?? inventoryItems.FirstOrDefault(item => item.SlotId == nameof(EquipmentSlots.SecondPrimaryWeapon))
+            ?? inventoryItems.FirstOrDefault(item => item.SlotId == nameof(EquipmentSlots.Holster));
+
+        if (mainWeapon?.Id == null)
+        {
+            return null;
+        }
+
+        foreach (var weaponChild in inventoryItems.Where(item => item.ParentId == mainWeapon.Id.ToString()))
+        {
+            var directAmmo = FindAmmoTemplateRecursive(inventoryItems, weaponChild);
+            if (directAmmo != null)
+            {
+                return directAmmo;
+            }
+        }
+
+        return null;
+    }
+
+    private MongoId? FindAmmoTemplateRecursive(List<Item> inventoryItems, Item item)
+    {
+        if (itemHelper.IsOfBaseclass(item.Template, BaseClasses.AMMO))
+        {
+            return item.Template;
+        }
+
+        var childItems = inventoryItems.Where(child => child.ParentId == item.Id.ToString());
+        foreach (var childItem in childItems)
+        {
+            var ammoTemplate = FindAmmoTemplateRecursive(inventoryItems, childItem);
+            if (ammoTemplate != null)
+            {
+                return ammoTemplate;
+            }
+        }
+
+        return null;
     }
 
     private bool IsMedicalItem(string? templateId, bool isSurgical = false)
@@ -524,6 +653,138 @@ public class FriendlyTeammateService(
         teammate.Achievements = playerPmc.Achievements;
         teammate.Stats.Eft.TotalInGameTime = playerPmc.Stats?.Eft?.TotalInGameTime ?? teammate.Stats.Eft.TotalInGameTime ?? 0;
         teammate.Stats.Eft.OverallCounters = playerPmc.Stats?.Eft?.OverallCounters ?? teammate.Stats.Eft.OverallCounters;
+    }
+
+    private void ApplyFollowerProgress(BotBase teammate, FriendlyTeammateFollowerProgressRequest progressEntry)
+    {
+        teammate.Info ??= new CommonInfo();
+        teammate.Skills ??= new Skills
+        {
+            Common = [],
+            Mastering = [],
+            Points = 0,
+        };
+
+        var gainedExperience = (int)Math.Round(progressEntry.BotExperienceSession);
+        if (gainedExperience > 0)
+        {
+            teammate.Info.Experience += gainedExperience;
+            RecalculateTeammateLevel(teammate);
+        }
+
+        if (progressEntry.Skills == null || progressEntry.Skills.Count == 0)
+        {
+            return;
+        }
+
+        var commonSkills = teammate.Skills.Common?.ToList() ?? [];
+        foreach (var skillEntry in progressEntry.Skills)
+        {
+            if (!TryParseSkillType(skillEntry.Id, out var skillType))
+            {
+                continue;
+            }
+
+            var progress = Math.Round(skillEntry.Current + skillEntry.Progress, 2);
+            var existingSkill = commonSkills.FirstOrDefault(skill => skill.Id == skillType);
+            if (existingSkill != null)
+            {
+                existingSkill.Progress = progress;
+                continue;
+            }
+
+            commonSkills.Add(new CommonSkill
+            {
+                Id = skillType,
+                Progress = progress,
+                PointsEarnedDuringSession = 0,
+                LastAccess = 0,
+            });
+        }
+
+        teammate.Skills.Common = commonSkills;
+    }
+
+    private void ApplyPmcFollowerSkillBaseline(BotBase teammate)
+    {
+        teammate.Info ??= new CommonInfo();
+        teammate.Skills ??= new Skills
+        {
+            Common = [],
+            Mastering = [],
+            Points = 0,
+        };
+
+        var commonSkills = teammate.Skills.Common?.ToList() ?? [];
+        var botLevel = Math.Max(1, teammate.Info.Level ?? 1);
+
+        EnsureSkillProgressFloor(commonSkills, SkillTypes.AimDrills, 4500);
+        EnsureSkillProgressFloor(commonSkills, SkillTypes.Health, Math.Min(40 * botLevel, 5100));
+        EnsureSkillProgressFloor(commonSkills, SkillTypes.Vitality, Math.Min(30 * botLevel, 5100));
+        EnsureSkillProgressFloor(commonSkills, SkillTypes.HeavyVests, Math.Min(20 * botLevel, 5100));
+        EnsureSkillProgressFloor(commonSkills, SkillTypes.LightVests, Math.Min(20 * botLevel, 5100));
+        EnsureSkillProgressFloor(commonSkills, SkillTypes.StressResistance, Math.Min(20 * botLevel, 5100));
+
+        teammate.Skills.Common = commonSkills;
+    }
+
+    private static void EnsureSkillProgressFloor(List<CommonSkill> commonSkills, SkillTypes skillType, double minimumProgress)
+    {
+        var skill = commonSkills.FirstOrDefault(existingSkill => existingSkill.Id == skillType);
+        if (skill == null)
+        {
+            commonSkills.Add(new CommonSkill
+            {
+                Id = skillType,
+                Progress = minimumProgress,
+                PointsEarnedDuringSession = 0,
+                LastAccess = 0,
+            });
+
+            return;
+        }
+
+        skill.Progress = Math.Max(skill.Progress, minimumProgress);
+    }
+
+    private void RecalculateTeammateLevel(BotBase teammate)
+    {
+        if (teammate.Info == null)
+        {
+            return;
+        }
+
+        var accumulatedExperience = 0;
+        var experienceTable = databaseService.GetGlobals().Configuration.Exp.Level.ExperienceTable;
+        for (var i = 0; i < experienceTable.Length; i++)
+        {
+            accumulatedExperience += experienceTable[i].Experience;
+            if (teammate.Info.Experience < accumulatedExperience)
+            {
+                break;
+            }
+
+            teammate.Info.Level = i + 1;
+        }
+    }
+
+    private static bool TryParseSkillType(JsonElement idValue, out SkillTypes skillType)
+    {
+        skillType = default;
+
+        if (idValue.ValueKind == JsonValueKind.String)
+        {
+            var rawValue = idValue.GetString();
+            return !string.IsNullOrWhiteSpace(rawValue) && Enum.TryParse(rawValue, ignoreCase: true, out skillType);
+        }
+
+        if (idValue.ValueKind == JsonValueKind.Number && idValue.TryGetInt32(out var numericValue))
+        {
+            skillType = (SkillTypes)numericValue;
+            return Enum.IsDefined(skillType);
+        }
+
+        return false;
     }
 
     private List<BotBase> LoadTeammates(MongoId sessionId)

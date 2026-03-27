@@ -372,7 +372,7 @@ namespace friendlySAIN.Modules
                     });
                 }
 
-                /* RequestHandler.PostJson("/client/game/bot/followerprogress", data.ToJson(_defaultJsonConverters)); */
+                RequestHandler.PostJson("/client/game/bot/followerprogress", data.ToJson(_defaultJsonConverters));
             }
             catch (Exception ex)
             {

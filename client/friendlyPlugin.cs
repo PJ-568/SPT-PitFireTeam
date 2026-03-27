@@ -271,6 +271,8 @@ namespace friendlySAIN
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();
             new PlayerSayPatch().Enable();
+            new PlayerKilledPatch().Enable();
+            new PlayerShotPatch().Enable();
             new AddTeammateBackButtonPatch().Enable();
             new AddTeammateNicknameFieldEndEditPatch().Enable();
             new AddTeammateNicknameFieldInitPatch().Enable();
@@ -298,6 +300,7 @@ namespace friendlySAIN
             new MatchmakerPlayerControllerClassAbortPatch().Enable();
             new MatchmakerPlayerControllerClassLeavePatch().Enable();
             new MatchMakerAcceptScreenPatch().Enable();
+            new MatchMakerPlayerPreviewSecureContainerPatch().Enable();
             new ContextInteractionsPlayerRemovePatch().Enable();
             // new MatchMakerSelectionLocationScreenPatch().Enable();
             // new SelectSpawnPointPatch().Enable();

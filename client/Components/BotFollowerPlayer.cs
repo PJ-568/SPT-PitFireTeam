@@ -393,9 +393,6 @@ namespace friendlySAIN.Components
                 }
             }, 300);
 
-            // ensure bot has enough ammo
-            AddExtraAmmo();
-
             // - ensure weapon is in auto mode
             if (_bot.WeaponManager.ShootController.Item != null && _bot.WeaponManager.ShootController.Item.WeapFireType.Contains(Weapon.EFireMode.fullauto))
                 _bot.WeaponManager.ShootController.ChangeFireMode(Weapon.EFireMode.fullauto);
@@ -615,6 +612,7 @@ namespace friendlySAIN.Components
 
             settings.FileSettings.Boss.EFFECT_REGENERATION_PER_MIN = 40f;
 
+            settings.FileSettings.Grenade.IGNORE_SMOKE_GRENADE = true;
             settings.FileSettings.Grenade.NO_RUN_FROM_AI_GRENADES = false;
 
             bot.Settings = settings;
@@ -658,70 +656,6 @@ namespace friendlySAIN.Components
                     field.SetValue(_bot.Profile.FenceInfo.FenceLoyalty, false);
                 }
             }
-        }
-
-        protected void AddExtraAmmo()
-        {
-            InventoryController? inventory = GetInventoryController();
-
-            if (inventory == null)
-            {
-                Modules.Logger.LogError("Cannot access inventory of bot, extra ammo will not be added");
-                return;
-            }
-
-            SearchableItemItemClass? secureContainer;
-
-            try
-            {
-                secureContainer = (SearchableItemItemClass)inventory.Inventory.Equipment.GetSlot(EquipmentSlot.SecuredContainer).ContainedItem;
-            }
-            catch
-            {
-                Modules.Logger.LogError("Cannot access secure container of bot, extra ammo will not be added");
-                return;
-            }
-
-            if (secureContainer == null)
-            {
-                Modules.Logger.LogError("Bot has no secure container, cannot add extra ammo");
-                return;
-            }
-
-            StashGridClass stashGridClass = secureContainer.Grids.FirstOrDefault();
-            if (stashGridClass == null) return;
-
-            Weapon? weapon = _bot.AIData?.Player?.HandsController?.Item as Weapon;
-            if (weapon == null)
-            {
-                Modules.Logger.LogError("Bot has no weapon to add ammo");
-                return;
-            }
-
-            Item ammoToAdd = weapon.GetCurrentMagazine()?.FirstRealAmmo() ??
-                Singleton<ItemFactoryClass>.Instance.CreateItem(MongoID.Generate(), weapon.CurrentAmmoTemplate._id, null);
-
-            if (ammoToAdd == null)
-            {
-                Modules.Logger.LogError("Bot has no ammo template to add");
-                return;
-            }
-
-            for (int i = 0; i < 10; i++)
-            {
-                Item ammo = ammoToAdd.CloneItem();
-                ammo.StackObjectsCount = ammo.StackMaxSize;
-                var location = stashGridClass.FindFreeSpace(ammo);
-                if (location == null) break;
-
-                var result = stashGridClass.AddItemWithoutRestrictions(ammo, location);
-                if (!result.Succeeded) break;
-            }
-        }
-
-        private InventoryController? GetInventoryController()
-        {
-            return _bot?.GetPlayer?.InventoryController;
         }
 
         public bool IsBot(BotOwner bot)

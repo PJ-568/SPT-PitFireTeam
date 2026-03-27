@@ -1,5 +1,7 @@
 ﻿using EFT;
 using EFT.Game.Spawning;
+using Comfort.Common;
+using EFT.InventoryLogic;
 using EFT.UI.Matchmaker;
 using friendlySAIN.Utils;
 using HarmonyLib;
@@ -9,6 +11,7 @@ using SPT.Common.Http;
 using SPT.Common.Utils;
 using SPT.Reflection.Patching;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -80,6 +83,275 @@ namespace friendlySAIN.Patches
             if (teammate.PlayerVisualRepresentation.Info.Health == null)
             {
                 teammate.PlayerVisualRepresentation.Info.Health = referenceHealth.Clone();
+            }
+        }
+    }
+
+    internal sealed class FriendlyTeammatePreviewProfile
+    {
+        public FriendlyTeammatePreviewEquipment Equipment { get; set; }
+    }
+
+    internal sealed class FriendlyTeammatePreviewEquipment
+    {
+        public List<FriendlyTeammatePreviewItem> Items { get; set; }
+    }
+
+    internal sealed class FriendlyTeammatePreviewItem
+    {
+        public string Id { get; set; }
+        public string Template { get; set; }
+        public string ParentId { get; set; }
+        public string SlotId { get; set; }
+        public FriendlyTeammatePreviewItemUpd Upd { get; set; }
+    }
+
+    internal sealed class FriendlyTeammatePreviewItemUpd
+    {
+        public int StackObjectsCount { get; set; }
+    }
+
+    internal sealed class TeammateSecureContainerPreviewController : MonoBehaviour
+    {
+        private const string ProfileRoute = "/singleplayer/friendlysain/teammate/profile";
+        private const float CacheLifetimeSeconds = 5f;
+        private const string LoadingText = "SC: loading...";
+        private const string EmptyText = "SC: empty";
+        private const string ErrorText = "SC: unavailable";
+
+        private sealed class CacheEntry
+        {
+            public float ExpiresAt;
+            public string Summary;
+        }
+
+        private static readonly Dictionary<string, CacheEntry> SummaryCache = new Dictionary<string, CacheEntry>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, string> ItemNameCache = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        private TextMeshProUGUI _label;
+        private int _requestVersion;
+
+        public void Bind(MatchMakerPlayerPreview preview, string accountId, bool enabled)
+        {
+            EnsureLabel(preview);
+            _requestVersion++;
+
+            if (_label == null)
+            {
+                return;
+            }
+
+            if (!enabled || string.IsNullOrWhiteSpace(accountId))
+            {
+                _label.gameObject.SetActive(false);
+                return;
+            }
+
+            _label.gameObject.SetActive(true);
+            if (SummaryCache.TryGetValue(accountId, out CacheEntry cacheEntry) && cacheEntry.ExpiresAt > Time.realtimeSinceStartup)
+            {
+                _label.text = cacheEntry.Summary;
+                return;
+            }
+
+            _label.text = LoadingText;
+            StartCoroutine(LoadSummaryCoroutine(accountId, _requestVersion));
+        }
+
+        private void EnsureLabel(MatchMakerPlayerPreview preview)
+        {
+            if (_label != null || preview == null)
+            {
+                return;
+            }
+
+            TextMeshProUGUI statusField = AccessTools.Field(typeof(MatchMakerPlayerPreview), "_groupStatusField")?.GetValue(preview) as TextMeshProUGUI;
+            if (statusField == null)
+            {
+                return;
+            }
+
+            _label = Instantiate(statusField, statusField.transform.parent, false);
+            _label.name = "FriendlyTeammateSecureContainerPreview";
+            _label.fontSize *= 0.8f;
+            _label.enableWordWrapping = false;
+            _label.overflowMode = TextOverflowModes.Ellipsis;
+            _label.color = new Color32(200, 200, 200, 255);
+            _label.text = string.Empty;
+            _label.raycastTarget = false;
+
+            RectTransform statusRect = statusField.rectTransform;
+            RectTransform labelRect = _label.rectTransform;
+            labelRect.anchorMin = statusRect.anchorMin;
+            labelRect.anchorMax = statusRect.anchorMax;
+            labelRect.pivot = statusRect.pivot;
+            labelRect.anchoredPosition = statusRect.anchoredPosition + new Vector2(0f, -24f);
+            labelRect.sizeDelta = new Vector2(Mathf.Max(statusRect.sizeDelta.x, 260f), Mathf.Max(statusRect.sizeDelta.y, 20f));
+        }
+
+        private IEnumerator LoadSummaryCoroutine(string accountId, int requestVersion)
+        {
+            Task<string> requestTask = Task.Run(() => RequestHandler.PostJson(ProfileRoute, JsonConvert.SerializeObject(new { accountId })));
+            yield return new WaitUntil(() => requestTask.IsCompleted);
+
+            if (requestVersion != _requestVersion || _label == null)
+            {
+                yield break;
+            }
+
+            if (requestTask.IsFaulted)
+            {
+                _label.text = ErrorText;
+                yield break;
+            }
+
+            string summary = BuildSummary(requestTask.Result);
+            SummaryCache[accountId] = new CacheEntry
+            {
+                Summary = summary,
+                ExpiresAt = Time.realtimeSinceStartup + CacheLifetimeSeconds
+            };
+
+            if (requestVersion == _requestVersion && _label != null)
+            {
+                _label.text = summary;
+            }
+        }
+
+        private static string BuildSummary(string responseJson)
+        {
+            try
+            {
+                FriendlyTeammatePreviewProfile profile = ParseProfile(responseJson);
+                List<FriendlyTeammatePreviewItem> items = profile?.Equipment?.Items;
+                if (items == null || items.Count == 0)
+                {
+                    return EmptyText;
+                }
+
+                FriendlyTeammatePreviewItem secureContainer = items.FirstOrDefault(item =>
+                    string.Equals(item?.SlotId, nameof(EquipmentSlot.SecuredContainer), StringComparison.OrdinalIgnoreCase));
+
+                if (secureContainer == null || string.IsNullOrWhiteSpace(secureContainer.Id))
+                {
+                    return EmptyText;
+                }
+
+                List<FriendlyTeammatePreviewItem> directChildren = items
+                    .Where(item => string.Equals(item?.ParentId, secureContainer.Id, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (directChildren.Count == 0)
+                {
+                    return EmptyText;
+                }
+
+                List<string> entries = directChildren
+                    .Where(item => !string.IsNullOrWhiteSpace(item.Template))
+                    .GroupBy(item => item.Template, StringComparer.OrdinalIgnoreCase)
+                    .Select(group =>
+                    {
+                        int stackCount = group.Sum(item => Math.Max(1, item?.Upd?.StackObjectsCount ?? 1));
+                        string itemName = ResolveItemName(group.Key);
+                        return stackCount > 1 ? $"{itemName} x{stackCount}" : itemName;
+                    })
+                    .OrderBy(entry => entry, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (entries.Count == 0)
+                {
+                    return EmptyText;
+                }
+
+                const int maxEntries = 3;
+                return entries.Count > maxEntries
+                    ? $"SC: {string.Join(", ", entries.Take(maxEntries))} +{entries.Count - maxEntries}"
+                    : $"SC: {string.Join(", ", entries)}";
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to build secure container preview summary.");
+                friendlySAIN.Log.LogError(ex);
+                return ErrorText;
+            }
+        }
+
+        private static FriendlyTeammatePreviewProfile ParseProfile(string responseJson)
+        {
+            FriendlyTeammateBodyResponse<FriendlyTeammatePreviewProfile> body =
+                JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<FriendlyTeammatePreviewProfile>>(responseJson);
+
+            if (body?.data != null)
+            {
+                return body.data;
+            }
+
+            return JsonConvert.DeserializeObject<FriendlyTeammatePreviewProfile>(responseJson);
+        }
+
+        private static string ResolveItemName(string templateId)
+        {
+            if (string.IsNullOrWhiteSpace(templateId))
+            {
+                return "Unknown";
+            }
+
+            if (ItemNameCache.TryGetValue(templateId, out string itemName))
+            {
+                return itemName;
+            }
+
+            try
+            {
+                if (Singleton<ItemFactoryClass>.Instantiated)
+                {
+                    Item item = Singleton<ItemFactoryClass>.Instance.CreateItem(templateId, templateId, null);
+                    itemName = item.LocalizedShortName();
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Failed to resolve item name for template '{templateId}'.");
+                friendlySAIN.Log.LogError(ex);
+            }
+
+            itemName ??= templateId;
+            ItemNameCache[templateId] = itemName;
+            return itemName;
+        }
+    }
+
+    internal class MatchMakerPlayerPreviewSecureContainerPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(MatchMakerPlayerPreview), nameof(MatchMakerPlayerPreview.Show));
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(MatchMakerPlayerPreview __instance, GroupPlayerViewModelClass player)
+        {
+            try
+            {
+                if (__instance == null)
+                {
+                    return;
+                }
+
+                TeammateSecureContainerPreviewController controller =
+                    __instance.gameObject.GetComponent<TeammateSecureContainerPreviewController>()
+                    ?? __instance.gameObject.AddComponent<TeammateSecureContainerPreviewController>();
+
+                string accountId = player?.AccountId ?? string.Empty;
+                bool isTeammate = !string.IsNullOrWhiteSpace(accountId)
+                    && MainMenuControllerPatch.GroupPlayers.Any(groupPlayer => groupPlayer?.AccountId == accountId);
+
+                controller.Bind(__instance, accountId, isTeammate);
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to update secure container preview.");
+                friendlySAIN.Log.LogError(ex);
             }
         }
     }

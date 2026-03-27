@@ -72,4 +72,13 @@ public class FriendlyTeammateMatchCallbacks(
         var details = teammateService.ListFollowerDetails(sessionId);
         return new ValueTask<string>(httpResponseUtil.GetBody(details));
     }
+
+    public ValueTask<string> PersistFollowerProgress(
+        string url,
+        List<FriendlyTeammateFollowerProgressRequest> request,
+        MongoId sessionId)
+    {
+        teammateService.PersistFollowerProgress(sessionId, request);
+        return new ValueTask<string>(httpResponseUtil.EmptyResponse());
+    }
 }
