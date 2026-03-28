@@ -239,6 +239,16 @@ namespace friendlySAIN.Patches
             rect.anchoredPosition = anchoredPosition;
             rect.localScale = Vector3.one;
 
+            Type canvasGroupType = AccessTools.TypeByName("UnityEngine.CanvasGroup");
+            if (canvasGroupType != null)
+            {
+                Component canvasGroup = tab.GetComponent(canvasGroupType) ?? tab.gameObject.AddComponent(canvasGroupType);
+                Traverse canvasGroupTraverse = Traverse.Create(canvasGroup);
+                canvasGroupTraverse.Property("alpha").SetValue(1f);
+                canvasGroupTraverse.Property("interactable").SetValue(true);
+                canvasGroupTraverse.Property("blocksRaycasts").SetValue(true);
+            }
+
             UISpawnableToggle spawnableToggle = tab.SpawnableToggle;
             spawnableToggle.method_1(overlayToggleGroup);
 

@@ -200,6 +200,7 @@ namespace friendlySAIN.Patches
         private static readonly FieldInfo NicknameFieldUsedSymbolsField = AccessTools.Field(typeof(NicknameField), "_usedSymbolsCount");
         private static readonly FieldInfo BackButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_backButton");
         private static readonly FieldInfo HideoutButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_hideoutButton");
+        private static readonly MethodInfo HideoutButtonHandlerMethod = AccessTools.Method(typeof(OtherPlayerProfileScreen), "method_11");
         private static readonly FieldInfo ReportPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_reportPanel");
         private static readonly FieldInfo OverallStatsPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_overallStatsPanel");
         private static readonly FieldInfo AchievementsProgressBlockField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_achievementsProgressBlock");
@@ -246,6 +247,8 @@ namespace friendlySAIN.Patches
         public static GameObject RenameOverlayRoot { get; set; }
         public static NicknameField RenameOverlayField { get; set; }
         public static Vector2? OriginalNicknameAnchoredPosition { get; set; }
+        public static string OriginalHideoutButtonText { get; set; }
+        public static int? OriginalHideoutButtonFontSize { get; set; }
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
         private static List<GameObject> HiddenRenameButtonDecorations { get; } = new List<GameObject>();
         private static Dictionary<GameObject, bool> HiddenRightSideRoots { get; } = new Dictionary<GameObject, bool>();
@@ -288,15 +291,16 @@ namespace friendlySAIN.Patches
             }
 
             RestoreProfileRightSideContent(__instance);
+            ResetTeammateProfileUi(playerModelWindow);
 
             if (session?.Profile != null
                 && session.Profile.AccountId == profile.AccountId)
             {
-                RestoreHideoutButtonVisuals(__instance);
+                RestoreHideoutButtonVisuals(__instance, profile);
                 return;
             }
 
-            RestoreHideoutButtonVisuals(__instance);
+            RestoreHideoutButtonVisuals(__instance, profile);
 
             FriendlyTeammateProfileOptions options = TryLoadProfileOptions(profile.AccountId);
             if (options == null)
@@ -1059,13 +1063,13 @@ namespace friendlySAIN.Patches
                 Transform playerModelTransform = playerModelWindow.transform;
                 Transform hierarchyPanel = playerModelTransform.Find("ClothingPanel")
                     ?? playerModelTransform.Find("PlayerModelWithStats/ClothingPanel")
-                    ?? screen.transform.Find("PlayerModelWithStats/ClothingPanel")
-                    ?? screen.transform.Find("ClothingPanel");
+                    ?? screen?.transform.Find("PlayerModelWithStats/ClothingPanel")
+                    ?? screen?.transform.Find("ClothingPanel");
 
                 if (hierarchyPanel == null)
                 {
                     hierarchyPanel = FindChildRecursive(playerModelTransform, "ClothingPanel")
-                        ?? FindChildRecursive(screen.transform, "ClothingPanel");
+                        ?? FindChildRecursive(screen?.transform, "ClothingPanel");
                 }
 
                 clothingSelectionPanel = hierarchyPanel?.GetComponent<InventoryClothingSelectionPanel>();
@@ -1074,6 +1078,32 @@ namespace friendlySAIN.Patches
             clothingPanel = clothingSelectionPanel?.transform as RectTransform;
             parent = clothingPanel?.parent;
             return clothingPanel != null && clothingSelectionPanel != null && parent != null;
+        }
+
+        private static void ResetTeammateProfileUi(InventoryPlayerModelWithStatsWindow playerModelWindow)
+        {
+            playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
+            ViewedProfile = null;
+
+            if (LoadoutSelector != null)
+            {
+                GameObject.Destroy(LoadoutSelector.gameObject);
+                LoadoutSelector = null;
+            }
+
+            if (EditLoadoutButtonRoot != null)
+            {
+                GameObject.Destroy(EditLoadoutButtonRoot.gameObject);
+                EditLoadoutButtonRoot = null;
+            }
+
+            EditLoadoutButton = null;
+
+            if (TryGetClothingPanel(null, playerModelWindow, out RectTransform clothingPanel, out _, out _)
+                && clothingPanel != null)
+            {
+                clothingPanel.gameObject.SetActive(false);
+            }
         }
 
         private static Transform FindChildRecursive(Transform root, string childName)
@@ -1160,6 +1190,9 @@ namespace friendlySAIN.Patches
                 return;
             }
 
+            OriginalHideoutButtonText ??= hideoutButton.HeaderText;
+            OriginalHideoutButtonFontSize ??= hideoutButton.HeaderSize;
+
             hideoutButton.gameObject.SetActive(true);
             hideoutButton.SetRawText(GetSocialUiText("RenameChange", "EDIT NAME"), 18);
             HideHideoutButtonDecorations(hideoutButton);
@@ -1196,7 +1229,7 @@ namespace friendlySAIN.Patches
             }
         }
 
-        internal static void RestoreHideoutButtonVisuals(OtherPlayerProfileScreen screen)
+        internal static void RestoreHideoutButtonVisuals(OtherPlayerProfileScreen screen, ResultProfile profile = null)
         {
             foreach (GameObject decoration in HiddenRenameButtonDecorations)
             {
@@ -1207,6 +1240,27 @@ namespace friendlySAIN.Patches
             }
 
             HiddenRenameButtonDecorations.Clear();
+
+            DefaultUIButton hideoutButton = HideoutButtonField?.GetValue(screen) as DefaultUIButton;
+            if (hideoutButton == null)
+            {
+                return;
+            }
+
+            hideoutButton.OnClick.RemoveAllListeners();
+            if (HideoutButtonHandlerMethod != null)
+            {
+                hideoutButton.OnClick.AddListener(() => HideoutButtonHandlerMethod.Invoke(screen, null));
+            }
+
+            if (!string.IsNullOrWhiteSpace(OriginalHideoutButtonText))
+            {
+                hideoutButton.SetHeaderText(OriginalHideoutButtonText, OriginalHideoutButtonFontSize ?? hideoutButton.HeaderSize);
+            }
+            if (profile != null)
+            {
+                hideoutButton.gameObject.SetActive(profile.HideoutData != null);
+            }
         }
 
         internal static void RestoreProfileRightSideContent(OtherPlayerProfileScreen screen)
