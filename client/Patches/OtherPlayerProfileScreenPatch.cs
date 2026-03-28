@@ -221,6 +221,7 @@ namespace friendlySAIN.Patches
         private static readonly FieldInfo LowerDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_lowerButtonDropDown");
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
         private static readonly string GearIconPath = Path.Combine(PluginDirectory, "gear.png");
+        private static readonly string BrainIconPath = Path.Combine(PluginDirectory, "brain.png");
         private static readonly Vector2 SkillsScreenOffset = new Vector2(-38f, -100f);
         private static readonly HashSet<ESkillId> HiddenFollowerSkills = new HashSet<ESkillId>
         {
@@ -235,6 +236,9 @@ namespace friendlySAIN.Patches
 
         public static ResultProfile ViewedProfile { get; set; }
         public static Transform LoadoutSelector { get; set; }
+        public static DefaultUIButton EditLoadoutButton { get; set; }
+        public static Transform EditLoadoutButtonRoot { get; set; }
+        public static GameObject LoadoutEditorOverlayRoot { get; set; }
         public static SkillsScreen SkillsPanel { get; set; }
         public static RectTransform SkillsPanelHost { get; set; }
         public static CustomTextMeshProUGUI OriginalNicknameLabel { get; set; }
@@ -349,10 +353,296 @@ namespace friendlySAIN.Patches
 
             ui.AddDisposable(loadoutPanel);
             LoadoutSelector = clone;
-            ConfigureLoadoutPanel(loadoutPanel, clothingSelectionPanel);
-            DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
-            ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
-            DisplaySkillsPanel(__instance, profile, session);
+            try
+            {
+                ConfigureLoadoutPanel(loadoutPanel, clothingSelectionPanel);
+                DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
+                ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
+                CreateEditLoadoutButton(__instance, clone, parent, profile);
+                DisplaySkillsPanel(__instance, profile, session);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to apply teammate profile elements.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static void CreateEditLoadoutButton(OtherPlayerProfileScreen screen, RectTransform loadoutSelector, Transform parent, ResultProfile profile)
+        {
+            if (screen == null || loadoutSelector == null || parent == null || profile == null)
+            {
+                return;
+            }
+
+            if (EditLoadoutButton != null)
+            {
+                if (EditLoadoutButtonRoot != null)
+                {
+                    GameObject.Destroy(EditLoadoutButtonRoot.gameObject);
+                    EditLoadoutButtonRoot = null;
+                }
+
+                EditLoadoutButton = null;
+            }
+
+            RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
+            rowClone.name = "friendlySAIN_LoadoutEdit";
+            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f);
+            rowClone.gameObject.SetActive(true);
+
+            Transform upperRoot = rowClone.Find("Upper");
+            if (upperRoot != null)
+            {
+                upperRoot.gameObject.SetActive(false);
+            }
+
+            Transform lowerRoot = rowClone.Find("Lower");
+            if (lowerRoot != null)
+            {
+                lowerRoot.gameObject.SetActive(false);
+            }
+
+            DefaultUIButton buttonTemplate = HideoutButtonField?.GetValue(screen) as DefaultUIButton;
+            if (buttonTemplate == null)
+            {
+                GameObject.Destroy(rowClone.gameObject);
+                friendlySAIN.Log.LogWarning("[UI] Edit Loadout button aborted: hideout button template not found.");
+                return;
+            }
+
+            DefaultUIButton button = GameObject.Instantiate(buttonTemplate, rowClone, false);
+            if (button == null)
+            {
+                GameObject.Destroy(rowClone.gameObject);
+                friendlySAIN.Log.LogWarning("[UI] Edit Loadout button aborted: cloned hideout button not found.");
+                return;
+            }
+
+            button.name = "friendlySAIN_EditLoadoutButton";
+            button.gameObject.SetActive(true);
+            button.Interactable = true;
+            button.SetRawText(GetSocialUiText("EditLoadout", "Edit Loadout"), 18);
+            button.OnClick.RemoveAllListeners();
+            button.OnClick.AddListener(() => ShowLoadoutEditorOverlay(screen, profile));
+
+            if (button.transform is RectTransform buttonRect && buttonTemplate.transform is RectTransform templateRect)
+            {
+                buttonRect.anchorMin = new Vector2(0.5f, 0.5f);
+                buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
+                buttonRect.pivot = new Vector2(0.5f, 0.5f);
+                buttonRect.anchoredPosition = Vector2.zero;
+                buttonRect.sizeDelta = templateRect.sizeDelta;
+                buttonRect.localScale = Vector3.one;
+            }
+
+            EditLoadoutButtonRoot = rowClone;
+            EditLoadoutButton = button;
+        }
+
+        private static void ShowLoadoutEditorOverlay(OtherPlayerProfileScreen screen, ResultProfile profile)
+        {
+            CloseLoadoutEditorOverlay();
+
+            if (screen == null || profile == null)
+            {
+                return;
+            }
+
+            DefaultUIButton buttonTemplate = BackButtonField?.GetValue(screen) as DefaultUIButton;
+            if (buttonTemplate == null)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Loadout editor overlay aborted: template button not found.");
+                return;
+            }
+
+            GameObject overlayRoot = new GameObject("friendlySAIN_LoadoutEditorOverlay", typeof(RectTransform), typeof(Image));
+            overlayRoot.transform.SetParent(screen.transform, false);
+            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
+            overlayRect.anchorMin = Vector2.zero;
+            overlayRect.anchorMax = Vector2.one;
+            overlayRect.offsetMin = Vector2.zero;
+            overlayRect.offsetMax = Vector2.zero;
+            overlayRect.localScale = Vector3.one;
+            overlayRect.SetAsLastSibling();
+
+            Image backdrop = overlayRoot.GetComponent<Image>();
+            backdrop.color = new Color(0f, 0f, 0f, 0.2f);
+            backdrop.raycastTarget = true;
+
+            GameObject panel = new GameObject("friendlySAIN_LoadoutEditorPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(overlayRoot.transform, false);
+            RectTransform panelRect = panel.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.anchoredPosition = new Vector2(0f, -20f);
+            panelRect.sizeDelta = new Vector2(1220f, 700f);
+            panelRect.localScale = Vector3.one;
+
+            Image panelImage = panel.GetComponent<Image>();
+            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.985f);
+            panelImage.raycastTarget = true;
+
+            GameObject header = new GameObject("friendlySAIN_LoadoutEditorHeader", typeof(RectTransform), typeof(Image));
+            header.transform.SetParent(panel.transform, false);
+            RectTransform headerRect = header.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0f, 1f);
+            headerRect.anchorMax = new Vector2(1f, 1f);
+            headerRect.pivot = new Vector2(0.5f, 1f);
+            headerRect.offsetMin = new Vector2(0f, -36f);
+            headerRect.offsetMax = Vector2.zero;
+
+            Image headerImage = header.GetComponent<Image>();
+            headerImage.color = new Color(0.06f, 0.06f, 0.06f, 1f);
+            headerImage.raycastTarget = true;
+
+            CreateOverlayText(
+                "friendlySAIN_LoadoutEditorTitle",
+                header.transform,
+                new Vector2(18f, 0f),
+                new Vector2(-54f, 0f),
+                TextAlignmentOptions.MidlineLeft,
+                GetSocialUiText("EditLoadoutTitle", "Edit Loadout").ToUpperInvariant(),
+                20f,
+                new Color(0.87f, 0.87f, 0.84f, 1f));
+
+            Button closeButton = CreateWindowCloseButton(header.transform);
+            if (closeButton.transform is RectTransform closeRect)
+            {
+                closeRect.anchorMin = new Vector2(1f, 0.5f);
+                closeRect.anchorMax = new Vector2(1f, 0.5f);
+                closeRect.pivot = new Vector2(1f, 0.5f);
+                closeRect.anchoredPosition = new Vector2(-6f, 0f);
+            }
+
+            closeButton.onClick.AddListener(new UnityAction(CloseLoadoutEditorOverlay));
+
+            CreateOverlayText(
+                "friendlySAIN_LoadoutEditorSubtitle",
+                panel.transform,
+                new Vector2(28f, -62f),
+                new Vector2(-28f, -98f),
+                TextAlignmentOptions.MidlineLeft,
+                string.Format(
+                    GetSocialUiText("EditLoadoutSubtitle", "Loadout editor shell for {0}. Inventory integration comes in the next phase."),
+                    profile.Info?.Nickname ?? "teammate"),
+                17f,
+                new Color(0.67f, 0.67f, 0.64f, 1f));
+
+            CreateLoadoutEditorSection(
+                panel.transform,
+                "friendlySAIN_PlayerStashPlaceholder",
+                GetSocialUiText("PlayerStash", "Player Stash"),
+                GetSocialUiText("PlayerStashPlaceholder", "Left pane placeholder.\nThis will host the player's cloned stash."),
+                new Vector2(24f, 64f),
+                new Vector2(-610f, -104f));
+
+            CreateLoadoutEditorSection(
+                panel.transform,
+                "friendlySAIN_BotInventoryPlaceholder",
+                GetSocialUiText("BotInventory", "Follower Inventory"),
+                GetSocialUiText("BotInventoryPlaceholder", "Right pane placeholder.\nThis will host the follower's cloned inventory."),
+                new Vector2(610f, 64f),
+                new Vector2(-24f, -104f));
+
+            DefaultUIButton cancelButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
+            cancelButton.name = "friendlySAIN_LoadoutEditorCancelButton";
+            cancelButton.SetRawText(GetSocialUiText("Cancel", "Cancel"), 20);
+            cancelButton.OnClick.RemoveAllListeners();
+            cancelButton.OnClick.AddListener(CloseLoadoutEditorOverlay);
+            if (cancelButton.transform is RectTransform cancelRect)
+            {
+                cancelRect.anchorMin = new Vector2(1f, 0f);
+                cancelRect.anchorMax = new Vector2(1f, 0f);
+                cancelRect.pivot = new Vector2(1f, 0f);
+                cancelRect.anchoredPosition = new Vector2(-212f, 18f);
+                cancelRect.localScale = Vector3.one * 0.9f;
+            }
+
+            DefaultUIButton doneButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
+            doneButton.name = "friendlySAIN_LoadoutEditorDoneButton";
+            doneButton.SetRawText(GetSocialUiText("Done", "Done"), 20);
+            doneButton.OnClick.RemoveAllListeners();
+            doneButton.OnClick.AddListener(() =>
+            {
+                Modules.Logger.LogInfo($"[UI] Loadout editor shell confirmed for teammate '{profile.AccountId}'.");
+                CloseLoadoutEditorOverlay();
+            });
+            if (doneButton.transform is RectTransform doneRect)
+            {
+                doneRect.anchorMin = new Vector2(1f, 0f);
+                doneRect.anchorMax = new Vector2(1f, 0f);
+                doneRect.pivot = new Vector2(1f, 0f);
+                doneRect.anchoredPosition = new Vector2(-24f, 18f);
+                doneRect.localScale = Vector3.one * 0.9f;
+            }
+
+            LoadoutEditorOverlayRoot = overlayRoot;
+        }
+
+        private static void CreateLoadoutEditorSection(Transform parent, string name, string title, string body, Vector2 offsetMin, Vector2 offsetMax)
+        {
+            GameObject section = new GameObject(name, typeof(RectTransform), typeof(Image));
+            section.transform.SetParent(parent, false);
+            RectTransform sectionRect = section.GetComponent<RectTransform>();
+            sectionRect.anchorMin = Vector2.zero;
+            sectionRect.anchorMax = Vector2.one;
+            sectionRect.offsetMin = offsetMin;
+            sectionRect.offsetMax = offsetMax;
+            sectionRect.localScale = Vector3.one;
+
+            Image sectionImage = section.GetComponent<Image>();
+            sectionImage.color = new Color(0.09f, 0.09f, 0.09f, 1f);
+            sectionImage.raycastTarget = true;
+
+            CreateOverlayText(
+                $"{name}_Title",
+                section.transform,
+                new Vector2(18f, -8f),
+                new Vector2(-18f, -44f),
+                TextAlignmentOptions.MidlineLeft,
+                title.ToUpperInvariant(),
+                18f,
+                new Color(0.84f, 0.84f, 0.81f, 1f));
+
+            CreateOverlayText(
+                $"{name}_Body",
+                section.transform,
+                new Vector2(22f, 18f),
+                new Vector2(-22f, -54f),
+                TextAlignmentOptions.Center,
+                body,
+                21f,
+                new Color(0.58f, 0.58f, 0.56f, 1f));
+        }
+
+        private static CustomTextMeshProUGUI CreateOverlayText(
+            string name,
+            Transform parent,
+            Vector2 offsetMin,
+            Vector2 offsetMax,
+            TextAlignmentOptions alignment,
+            string text,
+            float fontSize,
+            Color color)
+        {
+            GameObject textObject = new GameObject(name, typeof(RectTransform), typeof(CustomTextMeshProUGUI));
+            textObject.transform.SetParent(parent, false);
+            RectTransform textRect = textObject.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = offsetMin;
+            textRect.offsetMax = offsetMax;
+            textRect.localScale = Vector3.one;
+
+            CustomTextMeshProUGUI label = textObject.GetComponent<CustomTextMeshProUGUI>();
+            label.text = text;
+            label.fontSize = fontSize;
+            label.alignment = alignment;
+            label.color = color;
+            label.enableWordWrapping = true;
+            return label;
         }
 
         private static void DisplaySkillsPanel(OtherPlayerProfileScreen screen, ResultProfile profile, ISession session)
@@ -1253,6 +1543,15 @@ namespace friendlySAIN.Patches
             RenameOverlayField = null;
         }
 
+        internal static void CloseLoadoutEditorOverlay()
+        {
+            if (LoadoutEditorOverlayRoot != null)
+            {
+                GameObject.Destroy(LoadoutEditorOverlayRoot);
+                LoadoutEditorOverlayRoot = null;
+            }
+        }
+
         private static string GetSocialUiText(string key, string fallback)
         {
             if (friendlySAIN.optionsLang?.socialUi != null
@@ -1415,29 +1714,59 @@ namespace friendlySAIN.Patches
             if (upperDropdown != null && lowerDropdown != null)
             {
                 ReplaceDropdownIcon(panel.transform, "Upper/Icon", GearIconPath);
-                HideDropdownIcon(panel.transform, "Lower/Icon");
-
-                lowerDropdown.gameObject.SetActive(false);
+                ReplaceDropdownIcon(panel.transform, "Lower/Icon", BrainIconPath);
+                upperDropdown.gameObject.SetActive(true);
+                lowerDropdown.gameObject.SetActive(true);
             }
         }
 
-        private static void ApplyLoadoutPanelLayout(InventoryClothingSelectionPanel panel, InventoryClothingSelectionPanel sourcePanel)
+        private static void ApplyLoadoutPanelLayout(InventoryClothingSelectionPanel panel, InventoryClothingSelectionPanel sourcePanel, bool useLowerSource = false)
         {
-            DropDownBox upperDropdown = UpperDropdownField?.GetValue(panel) as DropDownBox;
-            DropDownBox sourceUpperDropdown = UpperDropdownField?.GetValue(sourcePanel) as DropDownBox;
-            if (upperDropdown?.transform is not RectTransform upperRect || sourceUpperDropdown?.transform is not RectTransform sourceUpperRect)
+            ApplyDropdownLayout(
+                UpperDropdownField?.GetValue(panel) as DropDownBox,
+                UpperDropdownField?.GetValue(sourcePanel) as DropDownBox);
+            ApplyDropdownLayout(
+                LowerDropdownField?.GetValue(panel) as DropDownBox,
+                LowerDropdownField?.GetValue(sourcePanel) as DropDownBox);
+
+            ApplyIconLayout(panel.transform, "Upper/Icon", sourcePanel.transform, "Upper/Icon");
+            ApplyIconLayout(panel.transform, "Lower/Icon", sourcePanel.transform, "Lower/Icon");
+        }
+
+        private static void ApplyDropdownLayout(DropDownBox targetDropdown, DropDownBox sourceDropdown)
+        {
+            if (targetDropdown?.transform is not RectTransform targetRect || sourceDropdown?.transform is not RectTransform sourceRect)
             {
                 return;
             }
 
-            upperRect.anchorMin = sourceUpperRect.anchorMin;
-            upperRect.anchorMax = sourceUpperRect.anchorMax;
-            upperRect.pivot = sourceUpperRect.pivot;
-            upperRect.anchoredPosition = sourceUpperRect.anchoredPosition;
-            upperRect.sizeDelta = sourceUpperRect.sizeDelta;
-            upperRect.offsetMin = sourceUpperRect.offsetMin;
-            upperRect.offsetMax = sourceUpperRect.offsetMax;
-            upperRect.localScale = sourceUpperRect.localScale;
+            targetRect.anchorMin = sourceRect.anchorMin;
+            targetRect.anchorMax = sourceRect.anchorMax;
+            targetRect.pivot = sourceRect.pivot;
+            targetRect.anchoredPosition = sourceRect.anchoredPosition;
+            targetRect.sizeDelta = sourceRect.sizeDelta;
+            targetRect.offsetMin = sourceRect.offsetMin;
+            targetRect.offsetMax = sourceRect.offsetMax;
+            targetRect.localScale = sourceRect.localScale;
+        }
+
+        private static void ApplyIconLayout(Transform targetParent, string targetPath, Transform sourceParent, string sourcePath)
+        {
+            RectTransform targetRect = targetParent?.Find(targetPath) as RectTransform;
+            RectTransform sourceRect = sourceParent?.Find(sourcePath) as RectTransform;
+            if (targetRect == null || sourceRect == null)
+            {
+                return;
+            }
+
+            targetRect.anchorMin = sourceRect.anchorMin;
+            targetRect.anchorMax = sourceRect.anchorMax;
+            targetRect.pivot = sourceRect.pivot;
+            targetRect.anchoredPosition = sourceRect.anchoredPosition;
+            targetRect.sizeDelta = sourceRect.sizeDelta;
+            targetRect.offsetMin = sourceRect.offsetMin;
+            targetRect.offsetMax = sourceRect.offsetMax;
+            targetRect.localScale = sourceRect.localScale;
         }
 
         private static void ReplaceDropdownIcon(Transform parent, string childPath, string filePath)
@@ -1471,7 +1800,7 @@ namespace friendlySAIN.Patches
 
             image.sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
             image.enabled = true;
-            image.rectTransform.sizeDelta = new Vector2(25f, 30f);
+            image.preserveAspect = true;
         }
 
         private static void HideDropdownIcon(Transform parent, string childPath)
@@ -1551,6 +1880,7 @@ namespace friendlySAIN.Patches
             CustomDropdownIds.Clear();
 
             List<dropDownItem> loadoutItems = [];
+            HashSet<string> loadoutIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             dropDownItem currentLoadout = null;
             foreach (FriendlyTeammateLoadoutOption option in options.Loadouts)
             {
@@ -1561,6 +1891,7 @@ namespace friendlySAIN.Patches
                 };
 
                 CustomDropdownIds.Add(item.Id);
+                loadoutIds.Add(item.Id);
                 loadoutItems.Add(item);
 
                 if (string.Equals(option.Id, options.CurrentLoadoutId, StringComparison.OrdinalIgnoreCase))
@@ -1575,8 +1906,22 @@ namespace friendlySAIN.Patches
                 return;
             }
 
-            panel.Show(loadoutItems, currentLoadout, new List<dropDownItem> { currentLoadout }, currentLoadout, false, selected =>
+            FriendlyProfileDropdownItem currentTactic = new FriendlyProfileDropdownItem
             {
+                Id = "111111111111111111111111",
+                Name = GetSocialUiText("ProfileTactic", "Default")
+            };
+
+            CustomDropdownIds.Add(currentTactic.Id);
+            List<dropDownItem> tacticItems = new List<dropDownItem> { currentTactic };
+
+            panel.Show(loadoutItems, currentLoadout, tacticItems, currentTactic, false, selected =>
+            {
+                if (selected == null || !loadoutIds.Contains(selected.Id))
+                {
+                    return;
+                }
+
                 try
                 {
                     string responseJson = RequestHandler.PostJson(LoadoutRoute, SerializeBody(new FriendlyTeammateLoadoutRequest
@@ -1690,6 +2035,14 @@ namespace friendlySAIN.Patches
                 OtherPlayerProfileScreenPatch.NicknameRenameButton = null;
             }
 
+            OtherPlayerProfileScreenPatch.CloseLoadoutEditorOverlay();
+
+            if (OtherPlayerProfileScreenPatch.EditLoadoutButton != null)
+            {
+                GameObject.Destroy(OtherPlayerProfileScreenPatch.EditLoadoutButton.gameObject);
+                OtherPlayerProfileScreenPatch.EditLoadoutButton = null;
+            }
+
             OtherPlayerProfileScreenPatch.RestoreHideoutButtonVisuals(__instance);
             OtherPlayerProfileScreenPatch.RestoreProfileRightSideContent(__instance);
 
@@ -1697,6 +2050,12 @@ namespace friendlySAIN.Patches
             {
                 GameObject.Destroy(OtherPlayerProfileScreenPatch.LoadoutSelector.gameObject);
                 OtherPlayerProfileScreenPatch.LoadoutSelector = null;
+            }
+
+            if (OtherPlayerProfileScreenPatch.EditLoadoutButtonRoot != null)
+            {
+                GameObject.Destroy(OtherPlayerProfileScreenPatch.EditLoadoutButtonRoot.gameObject);
+                OtherPlayerProfileScreenPatch.EditLoadoutButtonRoot = null;
             }
 
             if (OtherPlayerProfileScreenPatch.SkillsPanel != null)

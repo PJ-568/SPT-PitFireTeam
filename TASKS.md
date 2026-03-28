@@ -1,4 +1,4 @@
-# (NOT STARTED) - Implement Enemy Push command
+# Implement Enemy Push command
 
 Old Plugin Push Flow:
 
@@ -23,7 +23,7 @@ Very similar to old flow, but with some adjustments:
 - Triggered by `EPhraseTrigger.GoForward` but in the "transmision flow" is in the matter the others are in friendlySAIN (like EPhraseTrigger.OnRepeatedContact or EPhraseTrigger.Regroup)
 - When out of combat `EPhraseTrigger.GoForward` acts like ` EInteraction.ThereGesture` except it will be for all nearby followers instead of just the closest one.
 
-# (NOT STARTED) - Combat commands
+# Combat commands
 
 Description:
 
@@ -33,17 +33,17 @@ Description:
 
 The "Stop" phrase should stop the bot from roaming around near the boss. It is similar to "hold" gesture, except the bot does not go into crouch. If boss gets out of range (25f) he should discard the command and resume following.
 
-# (NOT STARTED) - Combat Tactics
+# Combat Tactics
 
 Description:
 
 - Implement combat tactics such as Marksman, Default, Holder, and Pusher that can be assigned to followers and influence their combat behavior in ways similar to the old plugin's tactics system.
 
-# (NOT STARTED) - Vanilla Group Search combat decision
+# Vanilla Group Search combat decision
 
 - SAIN has a search log, but so does vanilla. Yet SAIN also can group the bots to do group search instead of individual search. I would like to replicate the search party we tried with SAIN
 
-# (NOT STARTED) - Vanilla Surround combat decision
+# Vanilla Surround combat decision
 
 Description:
 
@@ -56,7 +56,7 @@ Description:
 - remaining bots fall back to boss default/regroup behavior
 - Surround must be interruption-safe because combat decisions can break at any time due to visibility, hits, enemy death, bot death, self-actions, or other SAIN combat changes.
 
-# (NOT STARTED) - Implement follower run-ahead feature
+# Implement follower run-ahead feature
 
 Goal:
 
@@ -69,7 +69,7 @@ Behavior target:
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
 
-# (NOT STARTED) - Add directional quick-phrase look commands
+# Add directional quick-phrase look commands
 
 Goal:
 
@@ -132,15 +132,15 @@ Implemented so far:
 
 Still to do:
 
-- Add right-click context for protrait where you can invite to group, view profile or toggle "auto join" on/off. Auto joins was implemented in the old plugin making follower automatically join the next raid. They would show up in the "match maker ready" screen. If player kicked them out, they would not join until either manually added again, raid finished or game restarted.
+- (DONE) Add right-click context for protrait where you can invite to group, view profile or toggle "auto join" on/off. Auto joins was implemented in the old plugin making follower automatically join the next raid. They would show up in the "match maker ready" screen. If player kicked them out, they would not join until either manually added again, raid finished or game restarted.
+- (DONE) bring the stock `InventoryScreen` skills list (`Common UI/Common UI/InventoryScreen/SkillsAndMasteringPanel/BottomPanel/SkillsPanel/Lower Part/Scrollview/Content/Skill List`) into the `OtherPlayerProfileScreen` right-side area for teammate/bot profiles
 - Bot tactic implementation (runtime/brain):
     - implement tactic behavior in follower AI/brain logic (not only team-management UI).
     - keep tactic persistence wiring aligned with runtime behavior (`Default`, `Support`, `Marksman`, `Holder`, `Pusher`).
 
 Next active FE focus:
 
-- first: bring the stock `InventoryScreen` skills list (`Common UI/Common UI/InventoryScreen/SkillsAndMasteringPanel/BottomPanel/SkillsPanel/Lower Part/Scrollview/Content/Skill List`) into the `OtherPlayerProfileScreen` right-side area for teammate/bot profiles
-- second: implement tactic behavior in the bot brain/runtime path and keep it in sync with management/persistence
+- implement tactic behavior in the bot brain/runtime path and keep it in sync with management/persistence
 
 Notes from old plugin / description:
 
@@ -167,11 +167,25 @@ Old plugin made it possible for followers to transit with the user between maps.
 - following the old plugin add language support for various language
 - observe game language setting and update according to the changes of it
 
+# ADD SUPPORT FOR CUSTOM EQUIPMENT (NEW FEATURE)
+
+In addition to the way we select equipment preset for followers, we should also allow for custom equipment to be done on the followers. We can do this by adding a "Edit Loadout" button next to the equipment dropdown where when press, it will open to the right the bot's inventory like when you loot a corpse. And to the left, instead of player investory we show the player's stash. Then user can move items from stash to bot inventory and vice versa. When user is done, they can press a "Done" button and this will be saved as "Custom" preset for the bot. It is important to note that once saved, the items the player picked will not actually be removed from his stash. This is a clone move. WHen player moves an item from the stash to the bot, it appears on the bot investory, but does not go away from the stash. When the player moves an item from the bot's inventory it goes away from that inventory and will temporarly appear in the player stash (until done is pressed), if that item was originally in the bot inventory (meaning it was part of bot's default loadout). When player press "done" such items disappear from the player stash and the bot's "default" loadout remains unchanged.
+If player edit default's bot invetory or does a combination (as he can move back and forth in the screen) where among the items in the new loadout. when he saves, we must remember the "default" items so the player cannot comeback later and edit the custom layout and now, because it is custom and not default, he is able to perform an exploit and retain the itmes.
+So in short, if we allow custom loadout, the bot cannot actually take items from the player stash, but only clone them. The player also cannot take bot's default items, but only move them as he make changes, because for example he may take out the default weapon and put one of this own. When he says, that default weapon will not stay in the stash and neither will the player's weapon be removed from the stash.
+
 # ADD THE GOONS (AFTER INITIAL RELEASE)
 
 Description:
 
 - Old plugin allowed for the Goons to become followers if player had good karma with Knight trader. We should implement the same feature in the new plugin.
+
+# ADD SCAV FOLLOWER BRAIN (AFTER INITIAL RELEASE)
+
+- Old plugin had a special brain for Scav followers that made them behave differently than PMC followers. We should implement the same feature in the new plugin, with different behavior for Scav followers compared to PMC followers.
+
+# ADD SCAV FOLLOWERS AT SPAWN (AFTER INITIAL RELEASE)
+
+- Old plugin allowed for Scav followers to spawn with the player if the player had good karma with Fence. We should implement the same feature in the new plugin.
 
 # FUTURE IDEAS
 
