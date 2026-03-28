@@ -53,6 +53,7 @@ namespace friendlySAIN.Components
         private const float SettingsControlRightInset = 52f;
         private const float SettingsShortcutRightInset = 128f;
         private const float SettingsSliderVerticalOffset = 36f;
+        private const float RaidOverlayBackButtonYOffset = 50f;
 
         private static readonly FieldInfo HeaderLabelField = AccessTools.Field(typeof(DefaultUIButton), "_headerLabel");
         private static readonly FieldInfo TraderCardsContainerField = AccessTools.Field(typeof(TraderScreensGroup), "_traderCardsContainer");
@@ -65,17 +66,23 @@ namespace friendlySAIN.Components
         private static readonly FieldInfo SimpleContextMenuButtonsContainerField = AccessTools.Field(typeof(SimpleContextMenu), "_interactionButtonsContainer");
         private static readonly FieldInfo InteractionButtonsContainerTemplateField = AccessTools.Field(typeof(InteractionButtonsContainer), "_buttonTemplate");
         private static readonly FieldInfo InteractionButtonsContainerButtonsRootField = AccessTools.Field(typeof(InteractionButtonsContainer), "_buttonsContainer");
+        private static readonly FieldInfo MatchmakerBackButtonField = AccessTools.Field(typeof(MatchMakerSideSelectionScreen), "_backButton");
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
         private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
         private static Sprite squadIconSprite;
         private static Sprite rosterTileDiagonalSprite;
         private static Sprite autoJoinBadgeSprite;
+        private const float RaidSettingsButtonGap = 10f;
 
         private MenuScreen menuScreen;
         private DefaultUIButton playerButton;
         private DefaultUIButton tradeButton;
+        private DefaultUIButton hideScreenButton;
         private DefaultUIButton squadButton;
+        private DefaultUIButton raidSettingsButton;
         private GameObject screenRoot;
+        private TextMeshProUGUI titleLabel;
+        private DefaultUIButton standaloneCloseButton;
         private RectTransform stockCardsContainer;
         private RectTransform rosterPanelRect;
         private ScrollRectNoDrag rosterScrollRect;
@@ -105,6 +112,7 @@ namespace friendlySAIN.Components
         private readonly StringBuilder shortcutBuilder = new StringBuilder();
         private int rosterBuildVersion;
         private static bool forceRosterRefreshOnNextInject;
+        private bool raidSettingsOverlayActive;
 
         internal static void RequestRosterRefreshOnNextInject()
         {
@@ -263,11 +271,47 @@ namespace friendlySAIN.Components
             }
         }
 
-        public void Initialize(MenuScreen screen, DefaultUIButton sourcePlayerButton, DefaultUIButton sourceTradeButton)
+        private sealed class TooltipHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+        {
+            private string tooltipText;
+            private Vector2 tooltipOffset = new Vector2(5f, 7f);
+
+            public void Configure(string text, Vector2? offset = null)
+            {
+                tooltipText = text ?? string.Empty;
+                tooltipOffset = offset ?? new Vector2(5f, 7f);
+            }
+
+            public void OnPointerEnter(PointerEventData eventData)
+            {
+                if (string.IsNullOrWhiteSpace(tooltipText))
+                {
+                    return;
+                }
+
+                ItemUiContext instance = ItemUiContext.Instance;
+                instance?.Tooltip?.Show(tooltipText, tooltipOffset, 0f, null);
+            }
+
+            public void OnPointerExit(PointerEventData eventData)
+            {
+                ItemUiContext instance = ItemUiContext.Instance;
+                instance?.Tooltip?.Close();
+            }
+
+            private void OnDisable()
+            {
+                ItemUiContext instance = ItemUiContext.Instance;
+                instance?.Tooltip?.Close();
+            }
+        }
+
+        public void Initialize(MenuScreen screen, DefaultUIButton sourcePlayerButton, DefaultUIButton sourceTradeButton, DefaultUIButton sourceHideScreenButton)
         {
             menuScreen = screen;
             playerButton = sourcePlayerButton;
             tradeButton = sourceTradeButton;
+            hideScreenButton = sourceHideScreenButton;
 
             if (playerButton == null)
             {
@@ -275,10 +319,17 @@ namespace friendlySAIN.Components
             }
 
             EnsureSquadButton();
+            EnsureRaidSettingsButton();
             EnsureScreen();
+            raidSettingsOverlayActive = false;
             if (screenRoot != null)
             {
                 screenRoot.SetActive(false);
+            }
+
+            if (standaloneCloseButton != null)
+            {
+                standaloneCloseButton.gameObject.SetActive(false);
             }
 
             SyncButtonVisibility();
@@ -286,17 +337,29 @@ namespace friendlySAIN.Components
 
         public void SyncButtonVisibility()
         {
-            if (squadButton == null || playerButton == null)
+            if (playerButton != null && squadButton != null)
             {
-                return;
+                bool visible = playerButton.gameObject.activeSelf;
+                squadButton.gameObject.SetActive(visible);
             }
 
-            bool visible = playerButton.gameObject.activeSelf;
-            squadButton.gameObject.SetActive(visible);
+            if (raidSettingsButton != null)
+            {
+                bool showRaidSettingsButton = hideScreenButton != null
+                    && hideScreenButton.gameObject.activeSelf
+                    && !raidSettingsOverlayActive;
+                raidSettingsButton.gameObject.SetActive(showRaidSettingsButton);
+            }
         }
 
         private void Update()
         {
+            if (raidSettingsOverlayActive && UnityEngine.Input.GetKeyDown(KeyCode.Escape))
+            {
+                HideRaidSettingsOverlay();
+                return;
+            }
+
             if (activeShortcutCaptureEntry == null)
             {
                 return;
@@ -361,15 +424,65 @@ namespace friendlySAIN.Components
                 squadRect.anchorMax = playerRect.anchorMax;
                 squadRect.pivot = playerRect.pivot;
                 squadRect.sizeDelta = playerRect.sizeDelta;
-                squadRect.anchoredPosition = playerRect.anchoredPosition + new Vector2(0f, -verticalStep);
+                squadRect.anchoredPosition = playerRect.anchoredPosition + new Vector2(0f, -verticalStep - 10f);
 
                 ShiftButtonsBelowPlayer(playerRect, verticalStep);
+
+                if (tradeRect != null)
+                {
+                    tradeRect.anchoredPosition -= new Vector2(0f, 4f);
+                }
             }
 
             squadButton.SetRawText(GetSocialUiText("SquadControlButton", "Squad Control"), playerButton.HeaderSize);
             squadButton.SetIcon(LoadSquadIcon());
             squadButton.OnClick.RemoveAllListeners();
             squadButton.OnClick.AddListener(Modules.SquadSideSelectionFlow.Open);
+        }
+
+        private void EnsureRaidSettingsButton()
+        {
+            if (hideScreenButton == null)
+            {
+                if (raidSettingsButton != null)
+                {
+                    raidSettingsButton.gameObject.SetActive(false);
+                }
+
+                return;
+            }
+
+            if (raidSettingsButton == null)
+            {
+                Transform existing = hideScreenButton.transform.parent.Find("friendlySAIN_RaidSettingsButton");
+                if (existing != null)
+                {
+                    raidSettingsButton = existing.GetComponent<DefaultUIButton>();
+                }
+            }
+
+            if (raidSettingsButton == null)
+            {
+                raidSettingsButton = Instantiate(hideScreenButton, hideScreenButton.transform.parent, false);
+                raidSettingsButton.name = "friendlySAIN_RaidSettingsButton";
+            }
+
+            if (hideScreenButton.transform is RectTransform resumeRect
+                && raidSettingsButton.transform is RectTransform raidRect)
+            {
+                raidRect.anchorMin = resumeRect.anchorMin;
+                raidRect.anchorMax = resumeRect.anchorMax;
+                raidRect.pivot = resumeRect.pivot;
+                raidRect.sizeDelta = resumeRect.sizeDelta;
+                raidRect.anchoredPosition = resumeRect.anchoredPosition - new Vector2(0f, resumeRect.rect.height + RaidSettingsButtonGap - 5f);
+                raidRect.localScale = resumeRect.localScale;
+            }
+
+            raidSettingsButton.transform.SetSiblingIndex(hideScreenButton.transform.GetSiblingIndex() + 1);
+            raidSettingsButton.SetRawText(GetSocialUiText("SquadControlRaidSettingsButton", "Squad Settings"), hideScreenButton.HeaderSize);
+            raidSettingsButton.SetIcon(null);
+            raidSettingsButton.OnClick.RemoveAllListeners();
+            raidSettingsButton.OnClick.AddListener(ShowRaidSettingsOverlay);
         }
 
         internal static SquadControlMenuUi FindInstance()
@@ -508,6 +621,56 @@ namespace friendlySAIN.Components
             titleRect.pivot = new Vector2(0.5f, 1f);
             titleRect.sizeDelta = new Vector2(600f, 60f);
             titleRect.anchoredPosition = new Vector2(0f, -48f);
+
+            titleLabel = titleObject.GetComponent<TextMeshProUGUI>();
+            EnsureStandaloneCloseButton();
+        }
+
+        private void EnsureStandaloneCloseButton()
+        {
+            if (standaloneCloseButton != null && standaloneCloseButton.transform.parent == screenRoot.transform)
+            {
+                return;
+            }
+
+            DefaultUIButton closeButton = ResolveOverlayBackButtonTemplate();
+            if (closeButton == null)
+            {
+                return;
+            }
+
+            closeButton.transform.SetParent(screenRoot.transform, false);
+            closeButton.name = "friendlySAIN_SquadControlStandaloneClose";
+            closeButton.gameObject.SetActive(false);
+            standaloneCloseButton = closeButton;
+        }
+
+        private DefaultUIButton ResolveOverlayBackButtonTemplate()
+        {
+            MatchMakerSideSelectionScreen sideSelectionScreen = Resources.FindObjectsOfTypeAll<MatchMakerSideSelectionScreen>()
+                .FirstOrDefault(screen => screen != null);
+            DefaultUIButton template = sideSelectionScreen?.transform.Find("ScreenDefaultButtons/BackButton")?.GetComponent<DefaultUIButton>()
+                ?? MatchmakerBackButtonField?.GetValue(sideSelectionScreen) as DefaultUIButton;
+            if (template == null)
+            {
+                return null;
+            }
+
+            DefaultUIButton clone = Instantiate(template, screenRoot.transform, false);
+            clone.gameObject.SetActive(true);
+            clone.Interactable = true;
+
+            if (template.transform is RectTransform templateRect && clone.transform is RectTransform cloneRect)
+            {
+                cloneRect.anchorMin = new Vector2(0.5f, 0f);
+                cloneRect.anchorMax = new Vector2(0.5f, 0f);
+                cloneRect.pivot = new Vector2(0.5f, 0f);
+                cloneRect.sizeDelta = templateRect.sizeDelta;
+                cloneRect.anchoredPosition = new Vector2(0f, RaidOverlayBackButtonYOffset);
+                cloneRect.localScale = templateRect.localScale;
+            }
+
+            return clone;
         }
 
         private bool TryCreateStockTraderChrome(RectTransform rootRect)
@@ -583,6 +746,70 @@ namespace friendlySAIN.Components
             {
                 CancelShortcutCapture(false);
             }
+        }
+
+        internal void ShowRaidSettingsOverlay()
+        {
+            EnsureScreen();
+            if (screenRoot == null)
+            {
+                return;
+            }
+
+            EnsureStandaloneCloseButton();
+
+            RetractPanels();
+            raidSettingsOverlayActive = true;
+            screenRoot.SetActive(true);
+            SetStandaloneTitle(GetSocialUiText("SquadControlRaidSettingsTitle", "My Squad Settings"));
+            ShowTab(false);
+
+            if (standaloneCloseButton != null)
+            {
+                standaloneCloseButton.SetRawText(GetSocialUiText("SquadControlBack", "Back"), standaloneCloseButton.HeaderSize);
+                standaloneCloseButton.SetIcon(null);
+                standaloneCloseButton.OnClick.RemoveAllListeners();
+                standaloneCloseButton.OnClick.AddListener(HideRaidSettingsOverlay);
+                standaloneCloseButton.Interactable = true;
+                standaloneCloseButton.transform.SetAsLastSibling();
+                standaloneCloseButton.gameObject.SetActive(true);
+            }
+
+            if (settingsContentRoot == null || settingsContentRoot.childCount == 0)
+            {
+                RebuildSettingsEntries();
+            }
+
+            SyncButtonVisibility();
+        }
+
+        internal void HideRaidSettingsOverlay()
+        {
+            raidSettingsOverlayActive = false;
+
+            if (screenRoot != null)
+            {
+                screenRoot.SetActive(false);
+            }
+
+            if (standaloneCloseButton != null)
+            {
+                standaloneCloseButton.gameObject.SetActive(false);
+            }
+
+            SetStandaloneTitle(GetSocialUiText("SquadControlTitle", "My Squad"));
+            CancelShortcutCapture(false);
+            SyncButtonVisibility();
+        }
+
+        private void SetStandaloneTitle(string title)
+        {
+            if (titleLabel == null)
+            {
+                return;
+            }
+
+            titleLabel.text = title;
         }
 
         private GameObject CreateFallbackContentPanel(string name, string label)
@@ -2098,6 +2325,9 @@ namespace friendlySAIN.Components
             button.colors = colors;
             button.onClick.AddListener(() => ShowRemoveConfirmOverlay(entry));
 
+            TooltipHoverController tooltipHover = buttonObject.AddComponent<TooltipHoverController>();
+            tooltipHover.Configure(GetSocialUiText("SquadControlDeleteTooltip", "Delete"));
+
             GameObject labelObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
             labelObject.transform.SetParent(buttonObject.transform, false);
             RectTransform labelRect = labelObject.GetComponent<RectTransform>();
@@ -2148,7 +2378,11 @@ namespace friendlySAIN.Components
             badgeImage.type = Image.Type.Simple;
             badgeImage.preserveAspect = true;
             badgeImage.color = new Color(0.92f, 0.92f, 0.9f, 0.95f);
-            badgeImage.raycastTarget = false;
+            badgeImage.raycastTarget = true;
+
+            TooltipHoverController tooltipHover = badgeObject.AddComponent<TooltipHoverController>();
+            tooltipHover.Configure(GetSocialUiText("SquadControlAutoJoinTooltip", "Auto-join"));
+
             badgeObject.SetActive(entry.AutoJoinEnabled);
         }
 

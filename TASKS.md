@@ -167,11 +167,19 @@ Old plugin made it possible for followers to transit with the user between maps.
 - following the old plugin add language support for various language
 - observe game language setting and update according to the changes of it
 
-# ADD SUPPORT FOR CUSTOM EQUIPMENT (NEW FEATURE)
+# ADD ICON GROUP TO FOLLOWER PORTRAT
+
+Add an icon similar to the "auto join" icon to the roaster tile of followers that will show when the follower is present in the group. THe resource to use is "icon_group.png". This one will be in the lower left corner of the title. You must keep it in sync with the status of the group followers. I can invite a follower to the group fia right click on the tile or on the invite group component. When follower is added or remove there, this icon must update if I am already on the screen.
+
+# (IN PROGRESS) ADD SUPPORT FOR CUSTOM EQUIPMENT
 
 In addition to the way we select equipment preset for followers, we should also allow for custom equipment to be done on the followers. We can do this by adding a "Edit Loadout" button next to the equipment dropdown where when press, it will open to the right the bot's inventory like when you loot a corpse. And to the left, instead of player investory we show the player's stash. Then user can move items from stash to bot inventory and vice versa. When user is done, they can press a "Done" button and this will be saved as "Custom" preset for the bot. It is important to note that once saved, the items the player picked will not actually be removed from his stash. This is a clone move. WHen player moves an item from the stash to the bot, it appears on the bot investory, but does not go away from the stash. When the player moves an item from the bot's inventory it goes away from that inventory and will temporarly appear in the player stash (until done is pressed), if that item was originally in the bot inventory (meaning it was part of bot's default loadout). When player press "done" such items disappear from the player stash and the bot's "default" loadout remains unchanged.
 If player edit default's bot invetory or does a combination (as he can move back and forth in the screen) where among the items in the new loadout. when he saves, we must remember the "default" items so the player cannot comeback later and edit the custom layout and now, because it is custom and not default, he is able to perform an exploit and retain the itmes.
 So in short, if we allow custom loadout, the bot cannot actually take items from the player stash, but only clone them. The player also cannot take bot's default items, but only move them as he make changes, because for example he may take out the default weapon and put one of this own. When he says, that default weapon will not stay in the stash and neither will the player's weapon be removed from the stash.
+
+# (DONE) ADD MY SQUAD SETTINGS BUTTON
+
+Add a "my squad settings" button that show up only while in raid and allows the view of the settings page of the squad screen. We could centralize this so that his button opens a full screen overlay (like the old screen) and has just settings components. While the squad screen has the full squad management components. Should be, below "resume" button and with a 10px top offset
 
 # ADD THE GOONS (AFTER INITIAL RELEASE)
 

@@ -12,6 +12,7 @@ namespace friendlySAIN.Patches
     {
         private static readonly FieldInfo PlayerButtonField = AccessTools.Field(typeof(MenuScreen), "_playerButton");
         private static readonly FieldInfo TradeButtonField = AccessTools.Field(typeof(MenuScreen), "_tradeButton");
+        private static readonly FieldInfo HideScreenButtonField = AccessTools.Field(typeof(MenuScreen), "_hideScreenButton");
 
         protected override MethodBase GetTargetMethod()
         {
@@ -26,12 +27,13 @@ namespace friendlySAIN.Patches
         {
             DefaultUIButton playerButton = PlayerButtonField?.GetValue(__instance) as DefaultUIButton;
             DefaultUIButton tradeButton = TradeButtonField?.GetValue(__instance) as DefaultUIButton;
+            DefaultUIButton hideScreenButton = HideScreenButtonField?.GetValue(__instance) as DefaultUIButton;
             if (playerButton == null)
             {
                 return;
             }
 
-            SquadControlMenuUi.GetOrCreate(__instance).Initialize(__instance, playerButton, tradeButton);
+            SquadControlMenuUi.GetOrCreate(__instance).Initialize(__instance, playerButton, tradeButton, hideScreenButton);
         }
     }
 
