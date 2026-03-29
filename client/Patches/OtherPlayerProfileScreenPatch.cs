@@ -2,8 +2,10 @@ using Arena.UI;
 using Comfort.Common;
 using EFT;
 using EFT.HealthSystem;
+using EFT.InputSystem;
 using EFT.InventoryLogic;
 using EFT.UI;
+using EFT.UI.DragAndDrop;
 using friendlySAIN.Utils;
 using HarmonyLib;
 using Newtonsoft.Json;
@@ -66,6 +68,35 @@ namespace friendlySAIN.Patches
     {
         public string aid { get; set; }
         public string nickname { get; set; }
+    }
+
+    internal sealed class LoadoutEditorHeaderDragHandle : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
+    {
+        public RectTransform Target;
+
+        private bool _dragging;
+
+        public void OnBeginDrag(PointerEventData eventData)
+        {
+            _dragging = Target != null;
+        }
+
+        public void OnDrag(PointerEventData eventData)
+        {
+            if (!_dragging || Target == null)
+            {
+                return;
+            }
+
+            Vector2 delta = eventData.delta;
+            Target.offsetMin += delta;
+            Target.offsetMax += delta;
+        }
+
+        public void OnEndDrag(PointerEventData eventData)
+        {
+            _dragging = false;
+        }
     }
 
     internal class FriendlyDropdownNamePatch : ModulePatch
@@ -220,10 +251,41 @@ namespace friendlySAIN.Patches
         private static readonly FieldInfo UiField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "UI");
         private static readonly FieldInfo UpperDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_upperButtonDropDown");
         private static readonly FieldInfo LowerDropdownField = AccessTools.Field(typeof(InventoryClothingSelectionPanel), "_lowerButtonDropDown");
+        private static readonly FieldInfo TransferItemsScreenStashPanelField = AccessTools.Field(typeof(TransferItemsScreen), "_stashPanel");
+        private static readonly FieldInfo InventoryScreenItemsPanelField = AccessTools.Field(typeof(InventoryScreen), "_itemsPanel");
+        private static readonly FieldInfo ItemsPanelComplexStashPanelField = AccessTools.Field(typeof(ItemsPanel), "_complexStashPanel");
+        private static readonly FieldInfo ComplexStashPanelLootPanelField = AccessTools.Field(typeof(ComplexStashPanel), "_lootPanel");
+        private static readonly FieldInfo ComplexStashPanelContainersPanelField = AccessTools.Field(typeof(ComplexStashPanel), "_containersPanel");
+        private static readonly FieldInfo ComplexStashPanelEquipmentPanelSourceField = AccessTools.Field(typeof(ComplexStashPanel), "_equipmentPanelSource");
+        private static readonly FieldInfo ComplexStashPanelComplexPanelField = AccessTools.Field(typeof(ComplexStashPanel), "_complexPanel");
+        private static readonly FieldInfo ComplexStashPanelContainerNamePanelField = AccessTools.Field(typeof(ComplexStashPanel), "_containerNamePanel");
+        private static readonly FieldInfo ContainersPanelSlotViewsContainerField = AccessTools.Field(typeof(ContainersPanel), "_slotViewsContainer");
+        private static readonly FieldInfo ContainersPanelDictionaryField = AccessTools.Field(typeof(ContainersPanel), "dictionary_0");
+        private static readonly FieldInfo ContainersPanelDogtagSlotViewField = AccessTools.Field(typeof(ContainersPanel), "slotView_0");
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
         private static readonly string GearIconPath = Path.Combine(PluginDirectory, "gear.png");
         private static readonly string BrainIconPath = Path.Combine(PluginDirectory, "brain.png");
         private static readonly Vector2 SkillsScreenOffset = new Vector2(-38f, -100f);
+        private static readonly EquipmentSlot[] LoadoutEditorContainerSlots =
+        {
+            EquipmentSlot.TacticalVest,
+            EquipmentSlot.Pockets,
+            EquipmentSlot.Backpack
+        };
+        private static readonly EquipmentSlot[] LoadoutEditorEquipmentSlots =
+        {
+            EquipmentSlot.Scabbard,
+            EquipmentSlot.Holster,
+            EquipmentSlot.FirstPrimaryWeapon,
+            EquipmentSlot.SecondPrimaryWeapon,
+            EquipmentSlot.Eyewear,
+            EquipmentSlot.FaceCover,
+            EquipmentSlot.Headwear,
+            EquipmentSlot.Earpiece,
+            EquipmentSlot.ArmorVest,
+            EquipmentSlot.ArmBand,
+            EquipmentSlot.Dogtag
+        };
         private static readonly HashSet<ESkillId> HiddenFollowerSkills = new HashSet<ESkillId>
         {
             ESkillId.Charisma,
@@ -236,10 +298,14 @@ namespace friendlySAIN.Patches
         };
 
         public static ResultProfile ViewedProfile { get; set; }
+        public static InventoryController ActiveProfileInventoryController { get; set; }
+        public static ISession ActiveProfileSession { get; set; }
         public static Transform LoadoutSelector { get; set; }
         public static DefaultUIButton EditLoadoutButton { get; set; }
         public static Transform EditLoadoutButtonRoot { get; set; }
         public static GameObject LoadoutEditorOverlayRoot { get; set; }
+        public static SimpleStashPanel LoadoutEditorStashPanel { get; set; }
+        public static ComplexStashPanel LoadoutEditorEquipmentPanel { get; set; }
         public static SkillsScreen SkillsPanel { get; set; }
         public static RectTransform SkillsPanelHost { get; set; }
         public static CustomTextMeshProUGUI OriginalNicknameLabel { get; set; }
@@ -322,6 +388,8 @@ namespace friendlySAIN.Patches
 
             friendlySAIN.Log.LogInfo($"[UI] Applying teammate profile customization UI for '{profile.AccountId}'.");
             ViewedProfile = profile;
+            ActiveProfileInventoryController = inventoryController;
+            ActiveProfileSession = session;
             playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
             playerModelWindow.OnCustomizationChanged += PlayerModelWithStatsWindow_OnCustomizationChanged;
 
@@ -448,7 +516,7 @@ namespace friendlySAIN.Patches
         {
             CloseLoadoutEditorOverlay();
 
-            if (screen == null || profile == null)
+            if (screen == null || profile == null || ActiveProfileSession?.Profile?.Inventory?.Stash == null)
             {
                 return;
             }
@@ -477,11 +545,11 @@ namespace friendlySAIN.Patches
             GameObject panel = new GameObject("friendlySAIN_LoadoutEditorPanel", typeof(RectTransform), typeof(Image));
             panel.transform.SetParent(overlayRoot.transform, false);
             RectTransform panelRect = panel.GetComponent<RectTransform>();
-            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
-            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMin = Vector2.zero;
+            panelRect.anchorMax = Vector2.one;
             panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.anchoredPosition = new Vector2(0f, -20f);
-            panelRect.sizeDelta = new Vector2(1220f, 700f);
+            panelRect.offsetMin = new Vector2(235f, 100f);
+            panelRect.offsetMax = new Vector2(-235f, -100f);
             panelRect.localScale = Vector3.one;
 
             Image panelImage = panel.GetComponent<Image>();
@@ -500,6 +568,9 @@ namespace friendlySAIN.Patches
             Image headerImage = header.GetComponent<Image>();
             headerImage.color = new Color(0.06f, 0.06f, 0.06f, 1f);
             headerImage.raycastTarget = true;
+
+            LoadoutEditorHeaderDragHandle dragHandle = header.AddComponent<LoadoutEditorHeaderDragHandle>();
+            dragHandle.Target = panelRect;
 
             CreateOverlayText(
                 "friendlySAIN_LoadoutEditorTitle",
@@ -529,26 +600,30 @@ namespace friendlySAIN.Patches
                 new Vector2(-28f, -98f),
                 TextAlignmentOptions.MidlineLeft,
                 string.Format(
-                    GetSocialUiText("EditLoadoutSubtitle", "Loadout editor shell for {0}. Inventory integration comes in the next phase."),
+                    GetSocialUiText("EditLoadoutSubtitle", "Edit cloned items for {0}. Changes here do not touch the real stash yet."),
                     profile.Info?.Nickname ?? "teammate"),
                 17f,
                 new Color(0.67f, 0.67f, 0.64f, 1f));
 
-            CreateLoadoutEditorSection(
+            RectTransform leftSection = CreateLoadoutEditorSection(
                 panel.transform,
-                "friendlySAIN_PlayerStashPlaceholder",
+                "friendlySAIN_PlayerStashSection",
                 GetSocialUiText("PlayerStash", "Player Stash"),
-                GetSocialUiText("PlayerStashPlaceholder", "Left pane placeholder.\nThis will host the player's cloned stash."),
-                new Vector2(24f, 64f),
-                new Vector2(-610f, -104f));
+                new Vector2(0f, 0f),
+                new Vector2(0.5f, 1f),
+                new Vector2(16f, 64f),
+                new Vector2(-2f, -104f));
 
-            CreateLoadoutEditorSection(
+            RectTransform rightSection = CreateLoadoutEditorSection(
                 panel.transform,
-                "friendlySAIN_BotInventoryPlaceholder",
+                "friendlySAIN_BotInventorySection",
                 GetSocialUiText("BotInventory", "Follower Inventory"),
-                GetSocialUiText("BotInventoryPlaceholder", "Right pane placeholder.\nThis will host the follower's cloned inventory."),
-                new Vector2(610f, 64f),
-                new Vector2(-24f, -104f));
+                new Vector2(0.5f, 0f),
+                new Vector2(1f, 1f),
+                new Vector2(0f, 64f),
+                new Vector2(-10f, -104f));
+
+            TryBuildLoadoutEditorPanels(profile, leftSection, rightSection);
 
             DefaultUIButton cancelButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
             cancelButton.name = "friendlySAIN_LoadoutEditorCancelButton";
@@ -585,13 +660,20 @@ namespace friendlySAIN.Patches
             LoadoutEditorOverlayRoot = overlayRoot;
         }
 
-        private static void CreateLoadoutEditorSection(Transform parent, string name, string title, string body, Vector2 offsetMin, Vector2 offsetMax)
+        private static RectTransform CreateLoadoutEditorSection(
+            Transform parent,
+            string name,
+            string title,
+            Vector2 anchorMin,
+            Vector2 anchorMax,
+            Vector2 offsetMin,
+            Vector2 offsetMax)
         {
             GameObject section = new GameObject(name, typeof(RectTransform), typeof(Image));
             section.transform.SetParent(parent, false);
             RectTransform sectionRect = section.GetComponent<RectTransform>();
-            sectionRect.anchorMin = Vector2.zero;
-            sectionRect.anchorMax = Vector2.one;
+            sectionRect.anchorMin = anchorMin;
+            sectionRect.anchorMax = anchorMax;
             sectionRect.offsetMin = offsetMin;
             sectionRect.offsetMax = offsetMax;
             sectionRect.localScale = Vector3.one;
@@ -600,25 +682,507 @@ namespace friendlySAIN.Patches
             sectionImage.color = new Color(0.09f, 0.09f, 0.09f, 1f);
             sectionImage.raycastTarget = true;
 
-            CreateOverlayText(
-                $"{name}_Title",
-                section.transform,
-                new Vector2(18f, -8f),
-                new Vector2(-18f, -44f),
-                TextAlignmentOptions.MidlineLeft,
-                title.ToUpperInvariant(),
-                18f,
-                new Color(0.84f, 0.84f, 0.81f, 1f));
+            GameObject contentRoot = new GameObject($"{name}_Content", typeof(RectTransform));
+            contentRoot.transform.SetParent(section.transform, false);
+            RectTransform contentRect = contentRoot.GetComponent<RectTransform>();
+            contentRect.anchorMin = Vector2.zero;
+            contentRect.anchorMax = Vector2.one;
+            contentRect.offsetMin = new Vector2(8f, 10f);
+            contentRect.offsetMax = new Vector2(-8f, -10f);
+            contentRect.localScale = Vector3.one;
+            return contentRect;
+        }
 
+        private static void CreateLoadoutEditorFallbackText(Transform parent, string name, string body)
+        {
             CreateOverlayText(
-                $"{name}_Body",
-                section.transform,
-                new Vector2(22f, 18f),
-                new Vector2(-22f, -54f),
+                name,
+                parent,
+                new Vector2(12f, 12f),
+                new Vector2(-12f, -12f),
                 TextAlignmentOptions.Center,
                 body,
-                21f,
+                19f,
                 new Color(0.58f, 0.58f, 0.56f, 1f));
+        }
+
+        private static void TryBuildLoadoutEditorPanels(ResultProfile profile, RectTransform leftSection, RectTransform rightSection)
+        {
+            if (profile?.Equipment == null
+                || ActiveProfileSession?.Profile?.Inventory?.Stash == null
+                || ActiveProfileInventoryController == null)
+            {
+                const string missingReason = "missing profile equipment, stash, or inventory controller";
+                friendlySAIN.Log.LogWarning("[UI] Loadout editor inventory build aborted: missing profile equipment, stash, or inventory controller.");
+                CreateLoadoutEditorFallbackText(
+                    leftSection,
+                    "friendlySAIN_PlayerStashFallback",
+                    string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), missingReason));
+                CreateLoadoutEditorFallbackText(
+                    rightSection,
+                    "friendlySAIN_BotInventoryFallback",
+                    string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), missingReason));
+                return;
+            }
+
+            ItemUiContext itemUiContext = ItemUiContext.Instance;
+            if (itemUiContext == null)
+            {
+                const string reason = "ItemUiContext.Instance is null";
+                friendlySAIN.Log.LogWarning("[UI] Loadout editor inventory build aborted: ItemUiContext.Instance is null.");
+                CreateLoadoutEditorFallbackText(
+                    leftSection,
+                    "friendlySAIN_PlayerStashFallback",
+                    string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), reason));
+                CreateLoadoutEditorFallbackText(
+                    rightSection,
+                    "friendlySAIN_BotInventoryFallback",
+                    string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), reason));
+                return;
+            }
+
+            itemUiContext.Configure(
+                ActiveProfileInventoryController,
+                ActiveProfileSession.Profile,
+                ActiveProfileSession,
+                EItemUiContextType.TransferItemsScreen,
+                ECursorResult.ShowCursor);
+
+            TryBuildLoadoutEditorStashPanel(leftSection);
+            TryBuildLoadoutEditorFollowerPanel(profile, rightSection, itemUiContext);
+        }
+
+        private static void TryBuildLoadoutEditorStashPanel(RectTransform leftSection)
+        {
+            try
+            {
+                SimpleStashPanel stashTemplate = ResolveLoadoutEditorStashTemplate();
+                StashItemClass fakeStash = CreateClonedFakeStash(ActiveProfileSession.Profile.Inventory.Stash);
+                if (stashTemplate == null || fakeStash == null)
+                {
+                    throw new InvalidOperationException($"stashTemplate={(stashTemplate != null)}, fakeStash={(fakeStash != null)}");
+                }
+
+                ItemContextAbstractClass stashContext = new GClass3459(
+                    fakeStash,
+                    GClass3459.EItemType.Inventory,
+                    ActiveProfileInventoryController.Inventory.FavoriteItemsStorage,
+                    false);
+
+                SimpleStashPanel stashPanel = GameObject.Instantiate(stashTemplate, leftSection, false);
+                stashPanel.name = "friendlySAIN_LoadoutEditorStashPanel";
+                if (stashPanel.transform is RectTransform stashRect)
+                {
+                    StretchToFillParent(stashRect);
+                }
+
+                stashPanel.Show(
+                    fakeStash,
+                    ActiveProfileInventoryController,
+                    stashContext,
+                    false,
+                    null,
+                    SimpleStashPanel.EStashSearchAvailability.Unavailable,
+                    null,
+                    ItemsPanel.EItemsTab.Gear);
+
+                LoadoutEditorStashPanel = stashPanel;
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI] Failed to build cloned stash panel.");
+                friendlySAIN.Log.LogError(ex);
+                CreateLoadoutEditorFallbackText(
+                    leftSection,
+                    "friendlySAIN_PlayerStashFallback",
+                    string.Format(
+                        GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"),
+                        ex.GetType().Name + ": " + ex.Message));
+            }
+        }
+
+        private static void TryBuildLoadoutEditorFollowerPanel(ResultProfile profile, RectTransform rightSection, ItemUiContext itemUiContext)
+        {
+            try
+            {
+                ComplexStashPanel equipmentTemplate = ResolveLoadoutEditorEquipmentTemplate();
+                TraderControllerClass followerInventoryController = null;
+                Inventory followerInventory = CreateClonedFollowerInventory(profile.Equipment, out followerInventoryController);
+                InventoryEquipment equipmentView = followerInventory?.Equipment;
+                if (equipmentTemplate == null || equipmentView == null || followerInventoryController == null)
+                {
+                    throw new InvalidOperationException($"equipmentTemplate={(equipmentTemplate != null)}, followerInventory={(followerInventory != null)}, equipmentView={(equipmentView != null)}, followerController={(followerInventoryController != null)}");
+                }
+
+                ItemContextAbstractClass equipmentContext = new GClass3450(EItemViewType.TransferTrader);
+
+                ComplexStashPanel equipmentPanelRoot = GameObject.Instantiate(equipmentTemplate, rightSection, false);
+                equipmentPanelRoot.name = "friendlySAIN_LoadoutEditorEquipmentPanel";
+                if (equipmentPanelRoot.transform is RectTransform equipmentRect)
+                {
+                    StretchToFillParent(equipmentRect);
+                }
+
+                ShowLoadoutEditorEquipmentPanel(
+                    equipmentPanelRoot,
+                    equipmentContext,
+                    equipmentView,
+                    followerInventoryController,
+                    profile.Info?.Nickname ?? "teammate",
+                    profile.Skills ?? ActiveProfileSession.Profile.Skills,
+                    ActiveProfileSession.InsuranceCompany,
+                    itemUiContext);
+
+                LoadoutEditorEquipmentPanel = equipmentPanelRoot;
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI] Failed to build cloned follower inventory.");
+                friendlySAIN.Log.LogError(ex);
+                CreateLoadoutEditorFallbackText(
+                    rightSection,
+                    "friendlySAIN_BotInventoryFallback",
+                    string.Format(
+                        GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"),
+                        ex.GetType().Name + ": " + ex.Message));
+            }
+        }
+
+        private static Inventory CreateClonedFollowerInventory(InventoryEquipment sourceEquipment, out TraderControllerClass followerInventoryController)
+        {
+            followerInventoryController = null;
+            if (sourceEquipment == null)
+            {
+                return null;
+            }
+
+            InventoryDescriptorClass equipmentDescriptor = EFTItemSerializerClass.SerializeItem(sourceEquipment, null);
+            if (equipmentDescriptor == null)
+            {
+                return null;
+            }
+
+            EFTInventoryClass descriptor = new EFTInventoryClass
+            {
+                Equipment = equipmentDescriptor,
+                FavoriteItemsStorage = new List<MongoID>(),
+                FastAccess = new Dictionary<EBoundItem, MongoID>(),
+                DiscardLimits = new Dictionary<MongoID, int>()
+            };
+
+            Inventory clonedInventory = descriptor.ToInventory();
+            InventoryEquipment clonedEquipment = clonedInventory?.Equipment;
+            if (clonedEquipment == null)
+            {
+                return clonedInventory;
+            }
+
+            followerInventoryController = new TraderControllerClass(
+                clonedEquipment,
+                "friendlysain_fake_follower",
+                sourceEquipment.Owner?.ContainerName ?? "follower",
+                false,
+                EOwnerType.Profile);
+
+            foreach (EquipmentSlot equipmentSlot in InventoryEquipment.AllSlotNames)
+            {
+                Slot slot = clonedEquipment.GetSlot(equipmentSlot);
+                Item containedItem = slot?.ContainedItem;
+                if (slot == null || containedItem == null)
+                {
+                    continue;
+                }
+
+                // Re-apply slot ownership so nested container views resolve a valid owner chain.
+                slot.ChangeContainedItemDirectly(containedItem);
+            }
+
+            return clonedInventory;
+        }
+
+        private static SimpleStashPanel ResolveLoadoutEditorStashTemplate()
+        {
+            SimpleStashPanel screenTemplate = TransferItemsScreenStashPanelField?.GetValue(CommonUI.Instance?.TransferItemsScreen) as SimpleStashPanel;
+            if (screenTemplate != null)
+            {
+                return screenTemplate;
+            }
+
+            return Resources.FindObjectsOfTypeAll<SimpleStashPanel>()
+                .FirstOrDefault(panel => panel != null && !panel.name.StartsWith("friendlySAIN_", StringComparison.Ordinal));
+        }
+
+        private static ComplexStashPanel ResolveLoadoutEditorEquipmentTemplate()
+        {
+            ItemsPanel itemsPanel = InventoryScreenItemsPanelField?.GetValue(CommonUI.Instance?.InventoryScreen) as ItemsPanel;
+            ComplexStashPanel screenTemplate = ItemsPanelComplexStashPanelField?.GetValue(itemsPanel) as ComplexStashPanel;
+            if (screenTemplate != null)
+            {
+                return screenTemplate;
+            }
+
+            return Resources.FindObjectsOfTypeAll<ComplexStashPanel>()
+                .FirstOrDefault(panel => panel != null && !panel.name.StartsWith("friendlySAIN_", StringComparison.Ordinal));
+        }
+
+        private static void ShowLoadoutEditorEquipmentPanel(
+            ComplexStashPanel panelRoot,
+            ItemContextAbstractClass equipmentContext,
+            InventoryEquipment equipmentView,
+            TraderControllerClass followerInventoryController,
+            string followerName,
+            SkillManager skills,
+            InsuranceCompanyClass insurance,
+            ItemUiContext itemUiContext)
+        {
+            if (panelRoot == null || equipmentView == null || followerInventoryController == null)
+            {
+                throw new InvalidOperationException("equipment panel root, equipment view, or follower inventory controller was null");
+            }
+
+            Transform lootPanel = ComplexStashPanelLootPanelField?.GetValue(panelRoot) as Transform;
+            ContainersPanel containersPanel = ComplexStashPanelContainersPanelField?.GetValue(panelRoot) as ContainersPanel;
+            EquipmentTab equipmentTemplate = ComplexStashPanelEquipmentPanelSourceField?.GetValue(panelRoot) as EquipmentTab;
+            GameObject complexPanel = ComplexStashPanelComplexPanelField?.GetValue(panelRoot) as GameObject;
+            GameObject containerNamePanel = ComplexStashPanelContainerNamePanelField?.GetValue(panelRoot) as GameObject;
+
+            if (lootPanel == null || containersPanel == null || equipmentTemplate == null || complexPanel == null)
+            {
+                throw new InvalidOperationException("equipment panel template was missing loot panel, containers panel, equipment tab, or complex panel");
+            }
+
+            complexPanel.SetActive(true);
+            if (containerNamePanel != null)
+            {
+                containerNamePanel.SetActive(false);
+            }
+
+            RenderLoadoutEditorContainersPanel(
+                containersPanel,
+                equipmentContext,
+                equipmentView,
+                followerInventoryController,
+                skills,
+                insurance);
+
+            EquipmentTab equipmentTab = GameObject.Instantiate(equipmentTemplate, lootPanel, false);
+            equipmentTab.transform.SetAsFirstSibling();
+            RenderLoadoutEditorEquipmentTab(
+                equipmentTab,
+                equipmentContext,
+                equipmentView,
+                followerInventoryController,
+                skills,
+                insurance);
+
+            SetLoadoutEditorEquipmentHeader(panelRoot.transform, followerName);
+            itemUiContext.RegisterView(equipmentContext);
+        }
+
+        private static void RenderLoadoutEditorContainersPanel(
+            ContainersPanel containersPanel,
+            ItemContextAbstractClass equipmentContext,
+            InventoryEquipment equipmentView,
+            TraderControllerClass followerInventoryController,
+            SkillManager skills,
+            InsuranceCompanyClass insurance)
+        {
+            Transform slotViewsContainer = ContainersPanelSlotViewsContainerField?.GetValue(containersPanel) as Transform;
+            Dictionary<EquipmentSlot, SlotView> renderedViews =
+                ContainersPanelDictionaryField?.GetValue(containersPanel) as Dictionary<EquipmentSlot, SlotView>;
+
+            if (slotViewsContainer == null || renderedViews == null)
+            {
+                throw new InvalidOperationException("containers panel layout fields were missing");
+            }
+
+            ItemUiContext itemUiContext = ItemUiContext.Instance;
+            foreach (EquipmentSlot equipmentSlot in LoadoutEditorContainerSlots)
+            {
+                Slot slot = equipmentView.GetSlot(equipmentSlot);
+                if (slot == null)
+                {
+                    continue;
+                }
+
+                SlotView slotView = containersPanel.method_0(equipmentSlot);
+                if (slotView == null)
+                {
+                    continue;
+                }
+
+                if (equipmentSlot == EquipmentSlot.Pockets)
+                {
+                    HorizontalLayoutGroup pocketsLayout = slotView.gameObject.GetComponent<HorizontalLayoutGroup>();
+                    if (pocketsLayout != null)
+                    {
+                        pocketsLayout.spacing += 10f;
+                    }
+                }
+
+                slotView.transform.SetParent(slotViewsContainer, false);
+                slotView.Show(
+                    slot,
+                    equipmentContext,
+                    followerInventoryController,
+                    itemUiContext,
+                    skills,
+                    insurance,
+                    false);
+                renderedViews[equipmentSlot] = slotView;
+            }
+        }
+
+        private static void SetLoadoutEditorEquipmentHeader(Transform panelRoot, string followerName)
+        {
+            if (panelRoot == null || string.IsNullOrWhiteSpace(followerName))
+            {
+                return;
+            }
+
+            Transform headerTextTransform = panelRoot.Find("Header/Text");
+            if (headerTextTransform == null)
+            {
+                headerTextTransform = panelRoot.GetComponentsInChildren<Transform>(true)
+                    .FirstOrDefault(transform =>
+                        transform != null
+                        && string.Equals(transform.name, "Text", StringComparison.Ordinal)
+                        && string.Equals(transform.parent?.name, "Header", StringComparison.Ordinal));
+            }
+
+            if (headerTextTransform == null)
+            {
+                return;
+            }
+
+            LocalizedText localizedText = headerTextTransform.GetComponent<LocalizedText>();
+            if (localizedText != null)
+            {
+                localizedText.enabled = false;
+            }
+
+            TMP_Text headerText = headerTextTransform.GetComponent<TMP_Text>();
+            if (headerText != null)
+            {
+                headerText.text = followerName.ToUpperInvariant();
+            }
+        }
+
+        private static void RenderLoadoutEditorEquipmentTab(
+            EquipmentTab equipmentTab,
+            ItemContextAbstractClass equipmentContext,
+            InventoryEquipment equipmentView,
+            TraderControllerClass followerInventoryController,
+            SkillManager skills,
+            InsuranceCompanyClass insurance)
+        {
+            equipmentTab.gameObject.SetActive(true);
+            HideLoadoutEditorCharacterGearImage(equipmentTab.transform);
+
+            foreach (EquipmentSlot equipmentSlot in LoadoutEditorEquipmentSlots)
+            {
+                SlotView slotView = equipmentTab.GetSlotView(equipmentSlot);
+                if (slotView == null)
+                {
+                    continue;
+                }
+
+                Slot slot = equipmentView.GetSlot(equipmentSlot);
+                if (slot == null)
+                {
+                    slotView.gameObject.SetActive(false);
+                    continue;
+                }
+
+                ItemContextAbstractClass slotContext = equipmentSlot == EquipmentSlot.Dogtag
+                    ? new GClass3450()
+                    : equipmentContext;
+
+                slotView.Show(
+                    slot,
+                    slotContext,
+                    followerInventoryController,
+                    ItemUiContext.Instance,
+                    skills,
+                    insurance,
+                    false);
+            }
+        }
+
+        private static void HideLoadoutEditorCharacterGearImage(Transform equipmentTabRoot)
+        {
+            if (equipmentTabRoot == null)
+            {
+                return;
+            }
+
+            Transform characterGear = equipmentTabRoot.Find("ChracterGear");
+            if (characterGear == null)
+            {
+                return;
+            }
+
+            Image characterGearImage = characterGear.GetComponent<Image>();
+            if (characterGearImage != null)
+            {
+                characterGearImage.enabled = false;
+            }
+        }
+
+        private static StashItemClass CreateClonedFakeStash(StashItemClass sourceStash)
+        {
+            if (sourceStash?.Grid == null)
+            {
+                return null;
+            }
+
+            StashItemClass fakeStash = Singleton<ItemFactoryClass>.Instance.CreateFakeStash(null);
+            if (fakeStash == null)
+            {
+                return null;
+            }
+
+            StashGridClass sourceGrid = sourceStash.Grid;
+            StashGridClass fakeGrid = new StashGridClass(
+                sourceGrid.ID,
+                sourceGrid.GridWidth,
+                sourceGrid.GridHeight,
+                sourceGrid.CanStretchVertically,
+                sourceGrid.CanStretchHorizontally,
+                sourceGrid.Filters ?? Array.Empty<ItemFilter>(),
+                fakeStash,
+                sourceGrid.MaxItemsCount ?? -1);
+
+            fakeStash.Grids[0] = fakeGrid;
+            _ = new TraderControllerClass(
+                fakeStash,
+                "friendlysain_fake_stash",
+                sourceStash.Owner?.ContainerName ?? "stash",
+                false,
+                EOwnerType.Profile);
+
+            foreach (KeyValuePair<Item, LocationInGrid> entry in sourceGrid.ItemCollection)
+            {
+                if (entry.Key == null || entry.Value == null)
+                {
+                    continue;
+                }
+
+                Item clonedItem = entry.Key.CloneItem(null);
+                if (clonedItem == null)
+                {
+                    continue;
+                }
+
+                LocationInGrid clonedLocation = entry.Value.Clone();
+                GStruct154<GClass3415> addResult = fakeGrid.AddItemWithoutRestrictions(clonedItem, clonedLocation);
+                if (addResult.Failed)
+                {
+                    friendlySAIN.Log.LogWarning($"[UI] Loadout editor fake stash add failed for '{entry.Key.TemplateId}': {addResult.Error}");
+                }
+            }
+
+            return fakeStash;
         }
 
         private static CustomTextMeshProUGUI CreateOverlayText(
@@ -1084,6 +1648,8 @@ namespace friendlySAIN.Patches
         {
             playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
             ViewedProfile = null;
+            ActiveProfileInventoryController = null;
+            ActiveProfileSession = null;
 
             if (LoadoutSelector != null)
             {
@@ -1599,6 +2165,19 @@ namespace friendlySAIN.Patches
 
         internal static void CloseLoadoutEditorOverlay()
         {
+            if (LoadoutEditorEquipmentPanel != null)
+            {
+                LoadoutEditorEquipmentPanel.Close();
+                LoadoutEditorEquipmentPanel.UnConfigure();
+                LoadoutEditorEquipmentPanel = null;
+            }
+
+            if (LoadoutEditorStashPanel != null)
+            {
+                LoadoutEditorStashPanel.Close();
+                LoadoutEditorStashPanel = null;
+            }
+
             if (LoadoutEditorOverlayRoot != null)
             {
                 GameObject.Destroy(LoadoutEditorOverlayRoot);
@@ -2064,6 +2643,8 @@ namespace friendlySAIN.Patches
             }
 
             OtherPlayerProfileScreenPatch.ViewedProfile = null;
+            OtherPlayerProfileScreenPatch.ActiveProfileInventoryController = null;
+            OtherPlayerProfileScreenPatch.ActiveProfileSession = null;
             OtherPlayerProfileScreenPatch.CustomDropdownIds.Clear();
             OtherPlayerProfileScreenPatch.CloseRenameOverlay();
 

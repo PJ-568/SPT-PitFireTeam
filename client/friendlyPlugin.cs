@@ -326,6 +326,7 @@ namespace friendlySAIN
             new ChatInvitePlayersPanelRefreshPatch().Enable();
             new ChatCreateDialoguePanelRefreshPatch().Enable();
             new ChatFriendsRequestsPanelRefreshPatch().Enable();
+            new CourierDialogueAvatarPatch().Enable();
             // new SocialNetworkClassSendPatch().Enable();
             // new QuestClassPatch().Enable();
 

@@ -804,12 +804,6 @@ namespace friendlySAIN.Patches
                 return;
             }
 
-            var currentPlayer = matchmaker.CurrentPlayer;
-            if (currentPlayer != null && matchmaker.GroupPlayers.All(x => x.AccountId != currentPlayer.AccountId))
-            {
-                matchmaker.GroupPlayers.Add(currentPlayer);
-            }
-
             Profile.ProfileHealthClass currentHealth = matchmaker.CurrentPlayer?.Info?.Health;
 
             try

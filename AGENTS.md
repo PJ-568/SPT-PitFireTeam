@@ -48,7 +48,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-03-28  
+**Last updated:** 2026-03-29  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
 ## Project Overview
@@ -89,61 +89,68 @@ When multiple approaches are possible, prefer:
 
 ## 0a) Teammate System Status (In Progress)
 
-Current custom teammate feature state:
+Current verified custom teammate feature state:
 
-- Friends list has a localized `Add Teammate` entry injected into the social UI.
-- Pressing it opens a custom teammate creation flow built on the stock appearance screen:
-    - name entry,
-    - player-side forced automatically,
-    - head and voice selection,
-    - localized validation/prompt text overrides,
-    - custom back/submit handling.
-- On submit, the client posts `{ nickname, voice, head }` to the server endpoint `/singleplayer/friendlysain/teammate/create`.
-- Server generates a PMC bot of the player side, overwrites name/voice/head, and saves it as mod-owned JSON under:
-    - `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
-- Stock social flows are now bridged for teammates:
-    - teammates are merged into `/client/friend/list`
-    - teammate profile view is merged into `/client/profile/view`
-    - teammate deletion is bridged through `/client/friend/delete`
-- Social/update details:
-    - add-success path refreshes the social list so newly created teammates appear without reopening the game
-    - teammate ids now use stock server-side `HashUtil.GenerateAccountId()` collision-checked allocation, not a custom max-id allocator
-    - 4.x invite popup is patched separately because stock `Commando` and `SPT` chat bots share the same `Aid` and break popup row-keying
-- Team grouping flow is partially active:
-    - teammate appears in right-click invite/group flows
-    - teammate can accept group invite
-    - pre-raid ready screen and loading screen can show player + teammate
-    - persisted `Auto Join` can preload selected teammates into the next PMC ready flow
-    - teammate portrait right-click now exposes `Invite to group`, `View profile`, and `Auto join on/off`
-    - removing a teammate from the ready/group flow suppresses that teammate for the current auto-join cycle until re-added or reset
-    - ready-screen preview now rehydrates teammate visual health and shows a secure-container contents summary under the portrait preview
-    - local/offline raid guard is now enforced late in `TarkovApplication` and `MainMenuController.method_52()`
-    - teammate path must preserve the normal PMC insurance screen before the custom ready screen
-- Dedicated Team Management FE is now active:
-    - main menu now has a localized `My Squad` entry that opens the real `MatchMakerSideSelectionScreen` in squad mode (not the legacy standalone overlay)
+- Dedicated Team Management FE is the primary entry point:
+    - main menu now has a localized `My Squad` entry that opens the real `MatchMakerSideSelectionScreen` in squad mode
     - roster/settings panels from `SquadControlMenuUi` are injected into side-selection and controlled by EFT-style animated tabs (`Roaster` / `Settings`)
     - roster tab supports add/remove teammate flows, delayed sequential portrait loading, teammate profile open/return, and scrolling layout for larger squads
     - settings tab exposes the main friendlySAIN config set in a stock-style scrollable UI using EFT toggle/slider controls for checkbox and ranged settings
     - settings entries are grouped/reordered for the current squad-management UX and the duplicated BepInEx ConfigurationManager view is hidden for those settings
-    - old friends-list `Add Teammate` entry has been removed in favor of the Team screen entry point
-    - squad-mode lifecycle is explicit-action based: mode is cleared on side-selection `Back`, bottom-bar `MainMenu` root return, and `Play` transition, not on generic screen close/destroy
-- Server teammate routes now also include legacy follower spawn/settings compatibility used by the current client:
+    - squad-mode lifecycle is explicit-action based: mode is cleared on side-selection `Back`, bottom-bar `MainMenu` root return, and `Play` transition
+- Teammate creation flow is implemented through the stock appearance screen:
+    - name entry
+    - player-side forced automatically
+    - head and voice selection
+    - localized validation/prompt text overrides
+    - custom back/submit handling
+    - submit posts `{ nickname, voice, head }` to `/singleplayer/friendlysain/teammate/create`
+    - server creates a PMC bot of the player side and stores it under `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
+- Stock social/profile flows are bridged for teammates:
+    - teammates are merged into `/client/friend/list`
+    - teammate profile view is merged into `/client/profile/view`
+    - teammate deletion is bridged through `/client/friend/delete`
+    - add-success refresh updates the visible list without restarting the game
+    - teammate ids now use stock `HashUtil.GenerateAccountId()` collision-checked allocation
+    - 4.x invite popup is patched separately because stock `Commando` and `SPT` chat bots share the same `Aid`
+- Team grouping flow is functional but not fully parity-complete:
+    - teammate appears in right-click invite/group flows
+    - teammate can accept group invite
+    - pre-raid ready screen and loading screen can show player + teammate
+    - persisted `Auto Join` can preload selected teammates into the next PMC ready flow
+    - teammate portrait right-click exposes `Invite to group`, `View profile`, and `Auto join on/off`
+    - removing a teammate from the ready/group flow suppresses that teammate for the current auto-join cycle until re-added or reset
+    - ready-screen preview rehydrates teammate visual health and shows a secure-container contents summary
+    - local/offline raid guard is enforced late in `TarkovApplication` and `MainMenuController.method_52()`
+    - teammate path preserves the normal PMC insurance screen before the custom ready screen
+- Server teammate routes include current client compatibility paths:
     - `/client/game/bot/followergenerate`
     - `/client/game/bot/followerdetails`
-- Teammate profile view customization is in progress:
-    - hideout/report are hidden,
-    - stock clothes dropdowns are reused,
-    - custom loadout dropdown is injected below,
-    - stock `SkillsScreen` is now cloned into teammate profile view with filtered follower-relevant skills,
-    - clothes/loadout persistence routes exist on the server,
-    - teammate rename from profile view is implemented through a custom overlay + backend rename route,
-    - UI layout tuning is still active.
+- Teammate profile view now has completed profile-side customization features:
+    - hideout/report actions are hidden for teammate profiles
+    - stock clothes dropdowns are reused for teammate suit selection
+    - custom loadout dropdown is injected below the clothes selector
+    - loadout choices come from the player profile's saved equipment builds plus `Default`
+    - selected teammate loadout persists through `/singleplayer/friendlysain/teammate/profile/loadout`
+    - persisted loadout selection flows through follower details and shows as the current teammate equipment name
+    - teammate rename is implemented through a custom overlay + backend rename route
+    - stock `SkillsScreen` is cloned into teammate profile view with filtered follower-relevant skills
+    - teammate-only profile UI resets correctly when switching back to a normal player profile
+- Teammate custom loadout editor is only partially implemented:
+    - teammate profile has an `Edit Loadout` entry point
+    - modal shell and fake local inventory session exist
+    - left side renders a cloned fake stash
+    - right side renders a cloned follower equipment/inventory view
+    - secure container and dogtag are hidden from the follower-side container display
+    - drag header / overlay movement is implemented
+    - persistence and real save/apply behavior are not finished
 - Current backend/social/profile/runtime limitations:
     - tactic persistence/UI is not implemented yet (`followerdetails` currently returns `Default`)
     - voice/head customization from profile screen is not implemented yet
-    - Team screen `Settings` tab is functionally in place for checkbox/ranged friendlySAIN settings; keybind/input-option parity is still pending if needed later
+    - custom loadout editor does not yet save or reconstruct edited inventory state
+    - Team screen `Settings` tab currently covers checkbox/ranged friendlySAIN settings; keybind/input-option parity is still pending if needed later
     - teammate invite/group flow still needs more parity with old plugin around pre-raid screen sequencing and group state handling
-    - old chatbot-style teammate management is still not ported; current management path is the roster/context-menu flow
+    - old chatbot-style teammate management is not ported; current management path is the roster/context-menu flow
     - teammate profiles remain mod-owned bot JSON, not full stock `SptProfile` accounts
 
 ## 0) Project Context
@@ -780,45 +787,6 @@ See detailed tracking: `../FOLLOWER-BUGS.md`
 
 ---
 
-## 7) Status/Debug Notes
-
-- `PingTeamates` enemy marker/status timing corrected:
-    - uses `Time.time - PersonalLastSeenTime` for recency.
-- `PingTeamates` callout throttling:
-    - directional voice callouts are now throttled to once every `15s` across pings,
-    - ping radio/location sound and triangle marker still update every valid ping.
-- TeamStatus/Look command burst handling:
-    - command handling was debounced to reduce repeated heavy work during rapid player phrase spam.
-- SAIN-friendly-fire path:
-    - current follower-only SAIN override no longer uses custom boss/follower geometry checks.
-    - it asks vanilla `ShootData.CheckFriendlyFire(from, to)` directly so SAIN follower fire denial follows vanilla friendly-fire sphere settings (`settings.FileSettings.Aiming.SHPERE_FRIENDY_FIRE_SIZE`) and vanilla ally filtering.
-- SAIN follower combat template:
-    - recruited followers now use a per-bot cloned copy of SAIN `followerBigPipe` settings as their combat template.
-    - the template is applied through addon-owned SAIN info/file-settings injection instead of follower-specific aim-target/random-look/hit-accuracy patching.
-    - `addon/SAINFollowerPersonalityPatch.cs` is the single entry point for future follower SAIN fine-tuning on top of that template (`ApplyFollowerTemplateFineTuning(...)`).
-- SAIN stale search cleanup:
-    - stale `EnemyKnownPlaces` / `SAINSearchClass` state was identified as the source of repeated `EPhraseTrigger.Clear` / `LostVisual` after combat or attention.
-    - addon release/reset bridge now explicitly clears active SAIN search state and invalidates known places during follower combat-state release/reset.
-- `PingTeamates` GUI path optimization:
-    - per-frame draw loops now use index-based iteration instead of delegate-based `List.ForEach`.
-    - bot status text reuses a single `StringBuilder` instance instead of allocating per bot per frame.
-    - tracked body-part iteration uses a static array instead of `Enum.GetValues(...)` allocations.
-- SAIN bridge debug noise reduction:
-    - follower SAIN enemy-bridge debug logs are disabled by default (`EnableSainEnemyBridgeDebugLogs = false`) to reduce runtime string/log overhead.
-- SAIN navigation investigation result:
-    - SAIN does not currently have one broad active non-mover "navigation fix" patch that generically recovers stuck bots.
-    - active navigation-adjacent behavior is split across:
-        - `Patches/MovementPatches.cs` global movement-context patches (`MovementContextIsAIPatch`, `CanBeSnappedPatch`) and mover-manual-update patches,
-        - door handling outside the mover (`Classes/PlayerManager/Doors/DoorHandler.cs`, `Classes/Bot/Doors/DoorOpener.cs`),
-        - `SAINBotUnstuckClass`, which contains vault/teleport unstuck logic but its coroutine body currently has the core unstuck calls commented out.
-    - practical implication: treat SAIN door handling and SAIN layer/mover handoff as active navigation influences first; do not assume SAIN has an active generic unstuck system currently rescuing follower navigation.
-- English BEAR voice assignment is applied at profile-load time:
-    - `SessionLoadBotsEnglishVoicePatch` patches `ProfileEndpointFactoryAbstractClass.LoadBots`
-    - each returned `Profile` is processed by `BotOwnerActivatePatch.ApplyEnglishVoiceForProfile(...)`
-    - this is the active runtime path for voice replacement (instead of late activation-only mutation)
-
----
-
 ## DEBUGGING & INVESTIGATION PRACTICES
 
 - treat bugs tracked separately as SAIN and vanilla categories
@@ -1009,9 +977,6 @@ SAIN integration:
     - profile generation uses game-side bot profile flow (direct `ISession.LoadBots` path via game profile/session objects), then injects into `BotCreationDataClass.CreateWithoutProfile(...)`.
     - bot spawner `InSpawnProcess` is incremented/decremented with failure rollback to avoid breaking later vanilla bot spawns.
     - fallback safe profile request may be used if requested side/role generation fails.
-    - treat bugs tracks seperate as SAIN and vanilla categories
-    - always spend time checking SAIN and client sources at the begining of the session to get proper context
-    - prefer to check client sources first when some method, class, or property is not clear, rather then making assumptions
 - English BEAR voice assignment is applied at profile-load time:
     - `SessionLoadBotsEnglishVoicePatch` patches `ProfileEndpointFactoryAbstractClass.LoadBots`
     - each returned `Profile` is processed by `BotOwnerActivatePatch.ApplyEnglishVoiceForProfile(...)`
@@ -1090,5 +1055,3 @@ Update (2026-03-06):
     - `addon/SAINFollowerPersonalityPatch.cs` raises follower detection/reaction and tightens aim behavior (higher `GainSightCoef`, higher hearing/visible multipliers, faster precision, lower accuracy/scatter multipliers).
     - `addon/SAINFollowerHitAccuracyPatch.cs` bypasses SAIN `AimHitEffectClass.GetHit` aim-affection for followers so incoming hits do not degrade follower aim.
     - `addon/SAINFollowerLowLightVisionPatch.cs` reduces low-light time-to-spot penalty for followers by post-processing SAIN time vision modifier in `EnemyGainSightClass.CalcTimeModifier`.
-
-## BUGS are tracked in : F:\Projects\SPT-Tarkov\FOLLOWER-BUGS.md

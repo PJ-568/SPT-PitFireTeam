@@ -328,6 +328,7 @@ namespace friendlySAIN.Components
             {
                 seenEnemies = GetSainContactFallbackEnemies(requester);
             }
+            seenEnemies = PrioritizeContactEnemies(requester, seenEnemies);
             Vector3 lookTarget = requester.Transform.position + requester.LookDirection.normalized * ContactLookDistance;
             int followersProcessed = 0;
             int followersSkippedVisibility = 0;
@@ -358,8 +359,9 @@ namespace friendlySAIN.Components
 
                 if (seenEnemies == null || seenEnemies.Count == 0) continue;
 
-                foreach (Player enemy in seenEnemies)
+                for (int i = 0; i < seenEnemies.Count; i++)
                 {
+                    Player enemy = seenEnemies[i];
                     if (enemy == null || enemy.ProfileId == follower.ProfileId || enemy.ProfileId == realPlayer.ProfileId) continue;
                     if (enemy.IsAI)
                     {
@@ -370,14 +372,14 @@ namespace friendlySAIN.Components
                         }
                     }
 
-                    RegisterContactEnemyForFollower(follower, enemy);
+                    RegisterContactEnemyForFollower(follower, enemy, i == 0);
                     enemiesInjected++;
                 }
             }
 
         }
 
-        private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy)
+        private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy, bool prioritizeAsGoal)
         {
 
             try
@@ -395,13 +397,25 @@ namespace friendlySAIN.Components
             {
                 EnemyLastPosition = enemy.Position
             };
+            botSettings.EnemyLastVisiblePosition = enemy.Position;
+            botSettings.EnemyWeaponRootLastPos = enemy.PlayerBones?.WeaponRoot?.position ?? (enemy.Position + Vector3.up * 1.2f);
 
             // Contact is an explicit combat cue from boss; force follower out of peaceful state.
             follower.Memory.IsPeace = false;
             follower.Memory.AddEnemy(enemy, botSettings, false);
 
-            // If memory did not auto-select goal enemy, promote the injected enemy manually.
-            if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
+            EnemyInfo? trackedEnemy = GetTrackedEnemyInfo(follower, enemy.ProfileId);
+            if (trackedEnemy != null)
+            {
+                trackedEnemy.SetVisible(true);
+                trackedEnemy.PersonalLastPos = enemy.Position;
+            }
+
+            if (prioritizeAsGoal)
+            {
+                PromoteEnemyAsGoal(follower, enemy.ProfileId);
+            }
+            else if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
             {
                 PromoteEnemyAsGoal(follower, enemy.ProfileId);
             }
@@ -424,6 +438,24 @@ namespace friendlySAIN.Components
             {
                 followerData.ClearCommand($"ContactEnemy:RegisterContactEnemyForFollower active={activeCommand}");
             }
+        }
+
+        private static EnemyInfo? GetTrackedEnemyInfo(BotOwner follower, string enemyProfileId)
+        {
+            if (follower?.EnemiesController?.EnemyInfos == null || string.IsNullOrEmpty(enemyProfileId))
+            {
+                return null;
+            }
+
+            foreach (var item in follower.EnemiesController.EnemyInfos)
+            {
+                if (item.Key?.ProfileId == enemyProfileId)
+                {
+                    return item.Value;
+                }
+            }
+
+            return null;
         }
 
         private static bool TrySyncSainEnemyState(BotOwner follower, Player enemyPlayer)
@@ -473,21 +505,44 @@ namespace friendlySAIN.Components
 
         private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId)
         {
-            EnemyInfo promoted = null;
-            foreach (var item in follower.EnemiesController.EnemyInfos)
-            {
-                if (item.Key?.ProfileId == enemyProfileId)
-                {
-                    promoted = item.Value;
-                    break;
-                }
-            }
+            EnemyInfo? promoted = GetTrackedEnemyInfo(follower, enemyProfileId);
 
             if (promoted != null)
             {
                 promoted.PriorityIndex = 0;
                 follower.Memory.GoalEnemy = promoted;
             }
+        }
+
+        private static List<Player> PrioritizeContactEnemies(IPlayer requester, List<Player> seenEnemies)
+        {
+            if (requester == null || seenEnemies == null || seenEnemies.Count <= 1)
+            {
+                return seenEnemies ?? new List<Player>();
+            }
+
+            Player? closestSeenEnemy = InteractableObjects.GetClosestSeenEnemy();
+            Vector3 lookDirection = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+            Vector3 requesterPosition = requester.Transform.position;
+
+            return seenEnemies
+                .Where(enemy => enemy != null)
+                .Distinct()
+                .OrderByDescending(enemy => closestSeenEnemy != null && enemy.ProfileId == closestSeenEnemy.ProfileId)
+                .ThenByDescending(enemy =>
+                {
+                    Vector3 toEnemy = enemy.Position - requesterPosition;
+                    if (toEnemy.sqrMagnitude < 0.001f)
+                    {
+                        return 1f;
+                    }
+
+                    return Vector3.Dot(lookDirection, toEnemy.normalized);
+                })
+                .ThenBy(enemy => (enemy.Position - requesterPosition).sqrMagnitude)
+                .ToList();
         }
 
         private List<Player> GetBossVisibleEnemiesForContact(IPlayer requester)

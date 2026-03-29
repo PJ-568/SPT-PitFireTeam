@@ -4,6 +4,8 @@ using EFT.UI;
 using HarmonyLib;
 using SPT.Reflection.Utils;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
@@ -22,9 +24,11 @@ namespace friendlySAIN.Modules
         public static bool SquadModeActive { get; private set; }
         public static bool SuppressPlayerModelViewShow { get; private set; }
         public static bool IsOpeningSquadModeScreen { get; private set; }
+        public static IReadOnlyCollection<string> OpeningGroupAccountIds => openingGroupAccountIds;
 
         private static GameObject alphaLabelObject;
         private static bool? alphaLabelWasActive;
+        private static HashSet<string> openingGroupAccountIds = new HashSet<string>(StringComparer.Ordinal);
 
         public static void Open()
         {
@@ -55,6 +59,7 @@ namespace friendlySAIN.Modules
 
             SquadModeActive = true;
             IsOpeningSquadModeScreen = true;
+            CaptureOpeningGroupSnapshot(app);
             HideSquadScreenAlphaLabel();
 
             try
@@ -65,6 +70,7 @@ namespace friendlySAIN.Modules
             {
                 ShowSquadScreenAlphaLabel();
                 SquadModeActive = false;
+                openingGroupAccountIds.Clear();
                 friendlySAIN.Log.LogError("[SquadFlow] Failed to open MatchMakerSideSelectionScreen.");
                 friendlySAIN.Log.LogError(ex);
             }
@@ -86,6 +92,7 @@ namespace friendlySAIN.Modules
             SquadModeActive = false;
             IsOpeningSquadModeScreen = false;
             ShowSquadScreenAlphaLabel();
+            openingGroupAccountIds.Clear();
 
             if (!string.IsNullOrWhiteSpace(reason))
             {
@@ -162,6 +169,34 @@ namespace friendlySAIN.Modules
             catch { }
 
             return friendlySAIN.application;
+        }
+
+        private static void CaptureOpeningGroupSnapshot(TarkovApplication app)
+        {
+            openingGroupAccountIds.Clear();
+
+            MatchmakerPlayerControllerClass controller = app?.MatchmakerPlayerControllerClass;
+            if (controller?.GroupPlayers == null)
+            {
+                friendlySAIN.Log.LogInfo("[UI][GroupBadge] Opening snapshot skipped. Matchmaker controller or GroupPlayers is not ready.");
+                return;
+            }
+
+            foreach (string accountId in controller.GroupPlayers
+                         .Select(player => player?.AccountId)
+                         .Where(accountId => !string.IsNullOrWhiteSpace(accountId))
+                         .Select(accountId => accountId!))
+            {
+                openingGroupAccountIds.Add(accountId);
+            }
+
+            friendlySAIN.Log.LogInfo(
+                $"[UI][GroupBadge] Captured opening snapshot. count={openingGroupAccountIds.Count} ids={string.Join(",", openingGroupAccountIds)}");
+        }
+
+        public static bool IsAccountInOpeningGroupSnapshot(string accountId)
+        {
+            return !string.IsNullOrWhiteSpace(accountId) && openingGroupAccountIds.Contains(accountId);
         }
     }
 }

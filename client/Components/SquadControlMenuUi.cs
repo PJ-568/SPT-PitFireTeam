@@ -72,6 +72,7 @@ namespace friendlySAIN.Components
         private static Sprite squadIconSprite;
         private static Sprite rosterTileDiagonalSprite;
         private static Sprite autoJoinBadgeSprite;
+        private static Sprite groupBadgeSprite;
         private const float RaidSettingsButtonGap = 10f;
 
         private MenuScreen menuScreen;
@@ -113,6 +114,8 @@ namespace friendlySAIN.Components
         private int rosterBuildVersion;
         private static bool forceRosterRefreshOnNextInject;
         private bool raidSettingsOverlayActive;
+        private MatchmakerPlayerControllerClass subscribedGroupBadgeLogController;
+        private Action unsubscribeGroupBadgeLog;
 
         internal static void RequestRosterRefreshOnNextInject()
         {
@@ -308,6 +311,8 @@ namespace friendlySAIN.Components
 
         public void Initialize(MenuScreen screen, DefaultUIButton sourcePlayerButton, DefaultUIButton sourceTradeButton, DefaultUIButton sourceHideScreenButton)
         {
+            DetachGroupBadgeEventLogging();
+
             menuScreen = screen;
             playerButton = sourcePlayerButton;
             tradeButton = sourceTradeButton;
@@ -332,7 +337,18 @@ namespace friendlySAIN.Components
                 standaloneCloseButton.gameObject.SetActive(false);
             }
 
+            EnsureGroupBadgeEventLogging();
             SyncButtonVisibility();
+        }
+
+        private void OnDisable()
+        {
+            DetachGroupBadgeEventLogging();
+        }
+
+        private void OnDestroy()
+        {
+            DetachGroupBadgeEventLogging();
         }
 
         public void SyncButtonVisibility()
@@ -493,6 +509,7 @@ namespace friendlySAIN.Components
         internal void InjectPanelsIntoScreen(Transform newParent)
         {
             EnsureScreen();
+            EnsureGroupBadgeEventLogging();
             if (screenRoot == null)
             {
                 return;
@@ -516,6 +533,11 @@ namespace friendlySAIN.Components
             forceRosterRefreshOnNextInject = false;
             bool needsRoster = rosterGridRoot != null && (rosterGridRoot.childCount == 0 || shouldForceRosterRefresh);
             bool needsSettings = settingsContentRoot != null && settingsContentRoot.childCount == 0;
+
+            if (!needsRoster && rosterGridRoot != null)
+            {
+                SyncGroupBadgesFromOpeningSnapshot();
+            }
 
             if (shouldForceRosterRefresh && needsRoster)
             {
@@ -2085,6 +2107,8 @@ namespace friendlySAIN.Components
             {
                 rosterScrollRect.verticalNormalizedPosition = 1f;
             }
+
+            SyncGroupBadgesFromOpeningSnapshot();
         }
 
         private IEnumerable<SquadRosterEntry> BuildRosterEntries()
@@ -2294,6 +2318,7 @@ namespace friendlySAIN.Components
             AttachPortraitProfileTrigger(portraitHost, entry);
             CreateRemoveButton(tileRect, entry);
             CreateAutoJoinBadge(tileRect, entry);
+            CreateGroupBadge(tileRect, entry.AccountId);
             CreateRosterNameLabel(tileRect, entry.Nickname);
             EnqueuePortrait(entry.AccountId, iconImage, portraitHost, buildVersion);
         }
@@ -2400,6 +2425,63 @@ namespace friendlySAIN.Components
             }
 
             Transform badge = tile.Find("friendlySAIN_AutoJoinBadge");
+            if (badge != null)
+            {
+                badge.gameObject.SetActive(enabled);
+            }
+        }
+
+        private void CreateGroupBadge(RectTransform tileRect, string accountId)
+        {
+            if (tileRect == null)
+            {
+                return;
+            }
+
+            Sprite badgeSprite = LoadGroupBadgeSprite();
+            if (badgeSprite == null)
+            {
+                return;
+            }
+
+            GameObject badgeObject = new GameObject("friendlySAIN_GroupBadge", typeof(RectTransform), typeof(Image));
+            badgeObject.transform.SetParent(tileRect, false);
+
+            RectTransform rect = badgeObject.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(0f, 0f);
+            rect.pivot = new Vector2(0f, 0f);
+            rect.sizeDelta = new Vector2(20f, 20f);
+            rect.anchoredPosition = new Vector2(1f, 3f);
+
+            Image badgeImage = badgeObject.GetComponent<Image>();
+            badgeImage.sprite = badgeSprite;
+            badgeImage.type = Image.Type.Simple;
+            badgeImage.preserveAspect = true;
+            badgeImage.color = new Color(0.92f, 0.92f, 0.9f, 0.95f);
+            badgeImage.raycastTarget = true;
+
+            TooltipHoverController tooltipHover = badgeObject.AddComponent<TooltipHoverController>();
+            tooltipHover.Configure(GetSocialUiText("SquadControlInGroupTooltip", "In group"));
+
+            bool startsActive = Modules.SquadSideSelectionFlow.IsAccountInOpeningGroupSnapshot(accountId);
+            badgeObject.SetActive(startsActive);
+        }
+
+        private void UpdateGroupBadge(string accountId, bool enabled)
+        {
+            if (rosterGridRoot == null || string.IsNullOrWhiteSpace(accountId))
+            {
+                return;
+            }
+
+            Transform tile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{accountId}");
+            if (tile == null)
+            {
+                return;
+            }
+
+            Transform badge = tile.Find("friendlySAIN_GroupBadge");
             if (badge != null)
             {
                 badge.gameObject.SetActive(enabled);
@@ -3381,21 +3463,162 @@ namespace friendlySAIN.Components
         {
             controller = null;
 
-            if (friendlySAIN.application == null)
+            try
             {
-                try
+                if (friendlySAIN.application == null)
                 {
                     friendlySAIN.application = SPT.Reflection.Utils.ClientAppUtils.GetMainApp();
                 }
-                catch (Exception ex)
+
+                if (friendlySAIN.application == null)
                 {
-                    friendlySAIN.Log.LogError("[UI] Failed to resolve main application for teammate invite.");
-                    friendlySAIN.Log.LogError(ex);
+                    return false;
+                }
+
+                controller = friendlySAIN.application.MatchmakerPlayerControllerClass;
+                return controller != null;
+            }
+            catch
+            {
+                controller = null;
+                return false;
+            }
+        }
+
+        private void EnsureGroupBadgeEventLogging()
+        {
+            try
+            {
+                if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller == null)
+                {
+                    DetachGroupBadgeEventLogging();
+                    return;
+                }
+
+                if (ReferenceEquals(subscribedGroupBadgeLogController, controller))
+                {
+                    return;
+                }
+
+                DetachGroupBadgeEventLogging();
+                subscribedGroupBadgeLogController = controller;
+
+                if (controller.GroupPlayers != null)
+                {
+                    unsubscribeGroupBadgeLog = controller.GroupPlayers.ItemsChanged.Subscribe(LogGroupBadgeItemsChanged);
                 }
             }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to subscribe to GroupPlayers.ItemsChanged.");
+                friendlySAIN.Log.LogError(ex);
+            }
+        }
 
-            controller = friendlySAIN.application?.MatchmakerPlayerControllerClass;
-            return controller != null;
+        private void DetachGroupBadgeEventLogging()
+        {
+            try
+            {
+                if (unsubscribeGroupBadgeLog != null)
+                {
+                    unsubscribeGroupBadgeLog();
+                    unsubscribeGroupBadgeLog = null;
+                }
+
+                subscribedGroupBadgeLogController = null;
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to detach GroupPlayers.ItemsChanged subscription.");
+                friendlySAIN.Log.LogError(ex);
+            }
+        }
+
+        private void LogGroupBadgeItemsChanged()
+        {
+            try
+            {
+                int count = subscribedGroupBadgeLogController?.GroupPlayers?.Count ?? -1;
+                SyncGroupBadgesFromCurrentGroup();
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed while logging GroupPlayers.ItemsChanged.");
+                friendlySAIN.Log.LogError(ex);
+            }
+        }
+
+        private void SyncGroupBadgesFromCurrentGroup()
+        {
+            try
+            {
+                if (rosterGridRoot == null || !rosterGridRoot.gameObject.activeInHierarchy)
+                {
+                    return;
+                }
+
+                if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller?.GroupPlayers == null)
+                {
+                    return;
+                }
+
+                HashSet<string> groupedIds = controller.GroupPlayers
+                    .Select(player => player?.AccountId)
+                    .Where(accountId => !string.IsNullOrWhiteSpace(accountId))
+                    .Select(accountId => accountId!)
+                    .ToHashSet(StringComparer.Ordinal);
+
+                const string prefix = "friendlySAIN_RosterTile_";
+                for (int i = 0; i < rosterGridRoot.childCount; i++)
+                {
+                    Transform tile = rosterGridRoot.GetChild(i);
+                    if (tile == null || !tile.name.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string accountId = tile.name.Substring(prefix.Length);
+                    UpdateGroupBadge(accountId, groupedIds.Contains(accountId));
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from current group.");
+                friendlySAIN.Log.LogError(ex);
+            }
+        }
+
+        private void SyncGroupBadgesFromOpeningSnapshot()
+        {
+            try
+            {
+                if (rosterGridRoot == null || !rosterGridRoot.gameObject.activeInHierarchy)
+                {
+                    return;
+                }
+
+                HashSet<string> groupedIds = Modules.SquadSideSelectionFlow.OpeningGroupAccountIds
+                    .Where(accountId => !string.IsNullOrWhiteSpace(accountId))
+                    .ToHashSet(StringComparer.Ordinal);
+
+                const string prefix = "friendlySAIN_RosterTile_";
+                for (int i = 0; i < rosterGridRoot.childCount; i++)
+                {
+                    Transform tile = rosterGridRoot.GetChild(i);
+                    if (tile == null || !tile.name.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string accountId = tile.name.Substring(prefix.Length);
+                    UpdateGroupBadge(accountId, groupedIds.Contains(accountId));
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from opening snapshot.");
+                friendlySAIN.Log.LogError(ex);
+            }
         }
 
         private void ClosePortraitContextMenu()
@@ -4153,6 +4376,42 @@ namespace friendlySAIN.Components
             autoJoinBadgeSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
             autoJoinBadgeSprite.name = "friendlySAIN_AutoJoinBadge";
             return autoJoinBadgeSprite;
+        }
+
+        private Sprite LoadGroupBadgeSprite()
+        {
+            if (groupBadgeSprite != null)
+            {
+                return groupBadgeSprite;
+            }
+
+            string[] candidates =
+            {
+                Path.Combine(PluginDirectory, "icon_group.png"),
+                Path.Combine(PluginDirectory, "resources", "icon_group.png"),
+                Path.Combine(Directory.GetParent(PluginDirectory)?.FullName ?? PluginDirectory, "resources", "icon_group.png"),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "icon_group.png"),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "resources", "icon_group.png")
+            };
+
+            string iconPath = candidates.FirstOrDefault(File.Exists);
+            if (string.IsNullOrEmpty(iconPath))
+            {
+                return null;
+            }
+
+            byte[] fileData = File.ReadAllBytes(iconPath);
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+            if (!texture.LoadImage(fileData))
+            {
+                Destroy(texture);
+                return null;
+            }
+
+            texture.name = "friendlySAIN_GroupBadge";
+            groupBadgeSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
+            groupBadgeSprite.name = "friendlySAIN_GroupBadge";
+            return groupBadgeSprite;
         }
 
         private static string GetSocialUiText(string key, string fallback)
