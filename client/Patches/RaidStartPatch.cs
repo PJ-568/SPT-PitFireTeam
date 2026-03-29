@@ -78,15 +78,109 @@ namespace friendlySAIN.Patches
     {
         public static void Ensure(GroupPlayerViewModelClass teammate, Profile.ProfileHealthClass referenceHealth)
         {
-            if (teammate?.PlayerVisualRepresentation?.Info == null || referenceHealth == null)
+            if (teammate == null || referenceHealth == null)
             {
                 return;
             }
 
-            if (teammate.PlayerVisualRepresentation.Info.Health == null)
+            Profile.ProfileHealthClass sourceHealth = teammate.PlayerVisualRepresentation?.Info?.Health ?? teammate.Info?.Health;
+            Profile.ProfileHealthClass normalizedHealth = Normalize(sourceHealth, referenceHealth);
+
+            if (teammate.PlayerVisualRepresentation?.Info != null)
             {
-                teammate.PlayerVisualRepresentation.Info.Health = referenceHealth.Clone();
+                teammate.PlayerVisualRepresentation.Info.Health = normalizedHealth;
             }
+
+            if (teammate.Info != null)
+            {
+                teammate.Info.Health = normalizedHealth.Clone();
+            }
+        }
+
+        public static Profile.ProfileHealthClass Normalize(Profile.ProfileHealthClass sourceHealth, Profile.ProfileHealthClass referenceHealth)
+        {
+            if (referenceHealth == null)
+            {
+                return sourceHealth;
+            }
+
+            if (sourceHealth == null)
+            {
+                return referenceHealth.Clone();
+            }
+
+            Profile.ProfileHealthClass normalizedHealth = referenceHealth.Clone();
+
+            normalizedHealth.Energy = CloneValueInfo(sourceHealth.Energy) ?? normalizedHealth.Energy;
+            normalizedHealth.Hydration = CloneValueInfo(sourceHealth.Hydration) ?? normalizedHealth.Hydration;
+            normalizedHealth.Temperature = CloneValueInfo(sourceHealth.Temperature) ?? normalizedHealth.Temperature;
+            normalizedHealth.Poison = CloneValueInfo(sourceHealth.Poison) ?? normalizedHealth.Poison;
+            normalizedHealth.UpdateTime = sourceHealth.UpdateTime ?? normalizedHealth.UpdateTime;
+
+            if (sourceHealth.BodyParts != null)
+            {
+                foreach (KeyValuePair<EBodyPart, Profile.ProfileHealthClass.ProfileBodyPartHealthClass> bodyPart in sourceHealth.BodyParts)
+                {
+                    Profile.ProfileHealthClass.ProfileBodyPartHealthClass clonedBodyPart = CloneBodyPart(bodyPart.Value);
+                    if (clonedBodyPart != null)
+                    {
+                        normalizedHealth.BodyParts[bodyPart.Key] = clonedBodyPart;
+                    }
+                }
+            }
+
+            return normalizedHealth;
+        }
+
+        private static Profile.ProfileHealthClass.ValueInfo CloneValueInfo(Profile.ProfileHealthClass.ValueInfo source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            return new Profile.ProfileHealthClass.ValueInfo
+            {
+                Current = source.Current,
+                Minimum = source.Minimum,
+                Maximum = source.Maximum,
+                OverDamageReceivedMultiplier = source.OverDamageReceivedMultiplier,
+                EnvironmentDamageMultiplier = source.EnvironmentDamageMultiplier
+            };
+        }
+
+        private static Profile.ProfileHealthClass.ProfileBodyPartHealthClass CloneBodyPart(Profile.ProfileHealthClass.ProfileBodyPartHealthClass source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            Profile.ProfileHealthClass.ProfileBodyPartHealthClass bodyPart = new Profile.ProfileHealthClass.ProfileBodyPartHealthClass
+            {
+                Health = CloneValueInfo(source.Health) ?? new Profile.ProfileHealthClass.ValueInfo(),
+                Effects = new Dictionary<string, Profile.ProfileHealthClass.GClass2206>()
+            };
+
+            if (source.Effects == null)
+            {
+                return bodyPart;
+            }
+
+            foreach (KeyValuePair<string, Profile.ProfileHealthClass.GClass2206> effect in source.Effects)
+            {
+                if (string.IsNullOrWhiteSpace(effect.Key) || effect.Value == null)
+                {
+                    continue;
+                }
+
+                bodyPart.Effects[effect.Key] = new Profile.ProfileHealthClass.GClass2206
+                {
+                    Time = effect.Value.Time
+                };
+            }
+
+            return bodyPart;
         }
     }
 
@@ -176,7 +270,9 @@ namespace friendlySAIN.Patches
                     return null;
                 }
 
-                playerVisualization.Info.Health ??= currentPlayer.Info.Health?.Clone();
+                Profile.ProfileHealthClass normalizedHealth =
+                    SyntheticTeammateVisualHealth.Normalize(playerVisualization.Info.Health, currentPlayer.Info.Health);
+                playerVisualization.Info.Health = normalizedHealth;
 
                 GClass1410 previewInfo = new GClass1410
                 {
@@ -190,7 +286,7 @@ namespace friendlySAIN.Patches
                     SavageNickname = currentPlayer.Info.Nickname,
                     GameVersion = currentPlayer.Info.GameVersion,
                     HasCoopExtension = currentPlayer.Info.HasCoopExtension,
-                    Health = playerVisualization.Info.Health
+                    Health = normalizedHealth.Clone()
                 };
                 playerVisualization.Info.MemberCategory = EMemberCategory.Unheard;
                 playerVisualization.Info.SelectedMemberCategory = EMemberCategory.Unheard;
@@ -335,7 +431,7 @@ namespace friendlySAIN.Patches
                 profile.QuestsData.ForEach(quest =>
                 {
 
-                    foreach (var item in Utils.Props.Quests)
+                    foreach (var item in Utils. Props.Quests)
                     {
                         foreach (var item1 in item.Value)
                         {
@@ -799,9 +895,25 @@ namespace friendlySAIN.Patches
         {
             if (!raidSettings.IsPmc) MainMenuControllerPatch.GroupPlayers.Clear();
 
-            if (matchmaker == null)
+            if (matchmaker?.GroupPlayers?.List_0 == null)
             {
                 return;
+            }
+
+            List<GroupPlayerViewModelClass> raidGroup = matchmaker.GroupPlayers.List_0;
+            GroupPlayerViewModelClass currentPlayer = matchmaker.CurrentPlayer;
+            if (currentPlayer != null)
+            {
+                int currentIndex = raidGroup.FindIndex(x => x?.AccountId == currentPlayer.AccountId);
+                if (currentIndex < 0)
+                {
+                    raidGroup.Insert(0, currentPlayer);
+                }
+                else if (currentIndex > 0)
+                {
+                    raidGroup.RemoveAt(currentIndex);
+                    raidGroup.Insert(0, currentPlayer);
+                }
             }
 
             Profile.ProfileHealthClass currentHealth = matchmaker.CurrentPlayer?.Info?.Health;
@@ -817,9 +929,9 @@ namespace friendlySAIN.Patches
 
                     try
                     {
-                        if (matchmaker.GroupPlayers.All(x => x.AccountId != item.AccountId))
+                        if (raidGroup.All(x => x.AccountId != item.AccountId))
                         {
-                            matchmaker.GroupPlayers.Add(item);
+                            raidGroup.Add(item);
                         }
                     }
                     catch (Exception ex)
@@ -842,7 +954,7 @@ namespace friendlySAIN.Patches
                 {
                     foreach (var item in MainMenuControllerPatch.TransitPlayers)
                     {
-                        var player = matchmaker.GroupPlayers.FirstOrDefault(x => x.AccountId == item.AccountId);
+                        var player = raidGroup.FirstOrDefault(x => x.AccountId == item.AccountId);
                         if (player == null)
                         {
                             if (currentHealth != null)
@@ -852,7 +964,7 @@ namespace friendlySAIN.Patches
 
                             try
                             {
-                                matchmaker.GroupPlayers.Add(item);
+                                raidGroup.Add(item);
                             }
                             catch (Exception ex)
                             {
@@ -869,6 +981,40 @@ namespace friendlySAIN.Patches
                     friendlySAIN.Log.LogWarning("[Raid] Failed to process transit players on MatchmakerTimeHasCome");
                     friendlySAIN.Log.LogError(ex);
                 }
+            }
+        }
+    }
+
+    internal class PartyInfoPanelEquipmentHealthPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(PartyInfoPanel), "method_3");
+        }
+
+        [PatchPrefix]
+        private static void PatchPrefix(PartyInfoPanel __instance, GroupPlayerViewModelClass raidPlayer)
+        {
+            try
+            {
+                if (raidPlayer == null)
+                {
+                    return;
+                }
+
+                Profile currentProfile = AccessTools.Field(typeof(PartyInfoPanel), "profile_0").GetValue(__instance) as Profile;
+                Profile.ProfileHealthClass referenceHealth = currentProfile?.Health;
+                if (referenceHealth == null)
+                {
+                    return;
+                }
+
+                SyntheticTeammateVisualHealth.Ensure(raidPlayer, referenceHealth);
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to normalize teammate health before showing party equipment.");
+                friendlySAIN.Log.LogError(ex);
             }
         }
     }

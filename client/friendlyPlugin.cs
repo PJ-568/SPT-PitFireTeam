@@ -306,6 +306,7 @@ namespace friendlySAIN
             new SelectSpawnPointPatch().Enable();
 
             new MatchmakerTimeHasComeShowPatch().Enable();
+            new PartyInfoPanelEquipmentHealthPatch().Enable();
             new MenuScreenShowSquadControlPatch().Enable();
             new MenuScreenReconnectVisibilitySquadControlPatch().Enable();
             new MenuScreenMinimizedVisibilitySquadControlPatch().Enable();
@@ -326,7 +327,6 @@ namespace friendlySAIN
             new ChatInvitePlayersPanelRefreshPatch().Enable();
             new ChatCreateDialoguePanelRefreshPatch().Enable();
             new ChatFriendsRequestsPanelRefreshPatch().Enable();
-            new CourierDialogueAvatarPatch().Enable();
             // new SocialNetworkClassSendPatch().Enable();
             // new QuestClassPatch().Enable();
 

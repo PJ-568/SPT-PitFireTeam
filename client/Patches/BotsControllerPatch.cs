@@ -1550,19 +1550,11 @@ namespace friendlySAIN.Patches
 
             Modules.Logger.LogInfo("Raid Ended");
 
-            try
+            if (raidTransit)
             {
-                if (!raidTransit) RequestHandler.GetJson("/singleplayer/pitraidend");
-                else
-                {
-                    Utils.Utils.FlagSet("RaidTransit", true);
-                    Utils.Utils.FlagSet("isBadGuy", friendlySAIN.badGuy.Value || SpawnHelper.spawnMemberIdsBoss.Count > 0);
-                    Utils.Utils.FlagSet("friendlySAIN", friendlySAIN.friendlySAINFLAG.Value);
-                }
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError(ex);
+                Utils.Utils.FlagSet("RaidTransit", true);
+                Utils.Utils.FlagSet("isBadGuy", friendlySAIN.badGuy.Value || SpawnHelper.spawnMemberIdsBoss.Count > 0);
+                Utils.Utils.FlagSet("friendlySAIN", friendlySAIN.friendlySAINFLAG.Value);
             }
 
             return true;

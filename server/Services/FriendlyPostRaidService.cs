@@ -130,15 +130,15 @@ public class FriendlyPostRaidService(
     {
         return new UserDialogInfo
         {
-            Id = new MongoId("67b0f29e151899410b04aacb"),
-            Aid = 900001,
+            Id = new MongoId("67d3a28a3d6f4f7dbd09ed13"),
+            Aid = 1113680,
             Info = new UserDialogDetails
             {
-                Nickname = "Squadmate Courier",
+                Nickname = "SquadDelivery",
                 Side = "Usec",
-                Level = 50,
-                MemberCategory = MemberCategory.Developer,
-                SelectedMemberCategory = MemberCategory.Developer,
+                Level = 1,
+                MemberCategory = MemberCategory.Emissary,
+                SelectedMemberCategory = MemberCategory.Emissary,
             },
         };
     }
