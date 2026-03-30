@@ -180,6 +180,8 @@ namespace friendlySAIN.BigBrain
                     return new Action(typeof(CombatThrowGrenadeFromPlaceAction), decision.Reason, actionData);
                 case BotLogicDecision.shootToSmoke:
                     return new Action(typeof(CombatShootToSmokeAction), decision.Reason, actionData);
+                case BotLogicDecision.goToCoverPoint:
+                    return new Action(typeof(GoToCoverPointAction), decision.Reason, actionData);
                 default:
                     if (LoggedUnsupportedDecisions.Add(decision.Action))
                     {

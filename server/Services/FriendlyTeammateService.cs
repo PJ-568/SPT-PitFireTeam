@@ -388,57 +388,37 @@ public class FriendlyTeammateService(
 
         var secureContainerId = secureContainer.Id.ToString();
 
-        // Check separately for medical and surgical items
-        bool hasMedical = profile.Inventory.Items.Any(item =>
-            IsMedicalItem(item.Template.ToString(), isSurgical: false)
-        );
-
-        bool hasSurgical = profile.Inventory.Items.Any(item =>
-            IsMedicalItem(item.Template.ToString(), isSurgical: true)
-        );
-
-        // Add Grizzly Medical Kit if no medical item exists
-        if (!hasMedical)
+        // Add Grizzly Medical Kit
+        var grizzlyId = new MongoId();
+        profile.Inventory.Items.Add(new Item
         {
-            var grizzlyId = new MongoId();
-            profile.Inventory.Items.Add(new Item
+            Id = grizzlyId,
+            Template = new MongoId("590c657e86f77412b013051d"), // Grizzly Medical Kit
+            ParentId = secureContainerId,
+            SlotId = "main",
+            Location = null,
+            Upd = new Upd
             {
-                Id = grizzlyId,
-                Template = new MongoId("60d446124bafe47a209fece4"), // Grizzly Medical Kit
-                ParentId = secureContainerId,
-                SlotId = "main",
-                Location = null,
-                Upd = new Upd
-                {
-                    StackObjectsCount = 1,
-                    SpawnedInSession = false,
-                },
-            });
-        }
+                StackObjectsCount = 1,
+                SpawnedInSession = false,
+            },
+        });
 
-        // Add Surv12 Surgical Kit if no surgical item exists
-        if (!hasSurgical)
+        // Add Surv12 Surgical Kit
+        var surv12Id = new MongoId();
+        profile.Inventory.Items.Add(new Item
         {
-            var surv12Id = new MongoId();
-            profile.Inventory.Items.Add(new Item
+            Id = surv12Id,
+            Template = new MongoId("5d02797c86f774203f38e30a"), // Surv12 Surgical Kit
+            ParentId = secureContainerId,
+            SlotId = "main",
+            Location = null,
+            Upd = new Upd
             {
-                Id = surv12Id,
-                Template = new MongoId("5d235b4d86f77443f4309c0e"), // Surv12 Surgical Kit
-                ParentId = secureContainerId,
-                SlotId = "main",
-                Location = null,
-                Upd = new Upd
-                {
-                    StackObjectsCount = 1,
-                    SpawnedInSession = false,
-                },
-            });
-        }
-
-        if (!hasMedical || !hasSurgical)
-        {
-            logger.Info($"Ensured medical supplies for follower '{profile.Info?.Nickname}': Medical={hasMedical}, Surgical={hasSurgical}");
-        }
+                StackObjectsCount = 1,
+                SpawnedInSession = false,
+            },
+        });
     }
 
     private void EnsureFollowerHasSecureContainerAmmo(BotBase profile)

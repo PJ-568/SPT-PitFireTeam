@@ -24,7 +24,6 @@ namespace friendlySAIN.BigBrain.Actions
 
         private float nextFollowUpdateAt;
         private float nextSettlePointAt;
-        private Vector3? lastMoveTarget;
         private bool isPathBlocked;
 
         private float holdPositionUntil;
@@ -143,7 +142,7 @@ namespace friendlySAIN.BigBrain.Actions
 
             float distance = forceFollow
                 ? forcedDistance
-                : Mathf.Abs((isPathBlocked && lastMoveTarget.HasValue ? (lastMoveTarget.Value - BotOwner.Position) : (leaderPosition - BotOwner.Position)).magnitude);
+                : Mathf.Abs((leaderPosition - BotOwner.Position).magnitude);
 
             bool inRange = distance < DefaultFollowDistance;
 
@@ -309,7 +308,7 @@ namespace friendlySAIN.BigBrain.Actions
                     Mathf.Floor(leaderPosition.z / 3f) * 3f
                 );
 
-                float distanceToLeader = Mathf.Abs((isPathBlocked && lastMoveTarget.HasValue ? (lastMoveTarget.Value - botPosition) : (leaderGridPosition - botPosition)).magnitude);
+                float distanceToLeader = Mathf.Abs((leaderGridPosition - botPosition).magnitude);
                 bool inRange = distanceToLeader < followDistance;
 
                 if (!inRange)
@@ -442,7 +441,6 @@ namespace friendlySAIN.BigBrain.Actions
             if (pathStatus == NavMeshPathStatus.PathComplete)
             {
                 BotOwner.Steering.LookToMovingDirection();
-                lastMoveTarget = position;
             }
 
             return pathStatus;
@@ -456,14 +454,14 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            if (NavMesh.SamplePosition(leaderPosition, out _, 1.5f, -1) && GoToPosition(leaderPosition) != NavMeshPathStatus.PathComplete)
+            if (NavMesh.SamplePosition(leaderPosition, out _, 5f, -1) && GoToPosition(leaderPosition) != NavMeshPathStatus.PathComplete)
             {
                 isPathBlocked = true;
             }
 
             if (isPathBlocked)
             {
-                CustomNavigationPoint freeClosePoint = BotOwner.Covers.GetFreeClosePoint(leaderPosition, 0f, false);
+                CustomNavigationPoint freeClosePoint = BotOwner.Covers.GetFreeClosePoint(leaderPosition, 1f, false);
                 if (freeClosePoint != null)
                 {
                     GoToPosition(freeClosePoint.Position);

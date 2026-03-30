@@ -400,15 +400,15 @@ namespace friendlySAIN.Components
             botSettings.EnemyLastVisiblePosition = enemy.Position;
             botSettings.EnemyWeaponRootLastPos = enemy.PlayerBones?.WeaponRoot?.position ?? (enemy.Position + Vector3.up * 1.2f);
 
-            // Contact is an explicit combat cue from boss; force follower out of peaceful state.
+            // Contact is an explicit combat cue from boss; force an EnemyInfo to exist now
+            // instead of waiting for later controller reconciliation.
             follower.Memory.IsPeace = false;
-            follower.Memory.AddEnemy(enemy, botSettings, false);
-
-            EnemyInfo? trackedEnemy = GetTrackedEnemyInfo(follower, enemy.ProfileId);
+            EnemyInfo? trackedEnemy = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.addPlayerToBoss);
             if (trackedEnemy != null)
             {
                 trackedEnemy.SetVisible(true);
                 trackedEnemy.PersonalLastPos = enemy.Position;
+                trackedEnemy.GroupInfo = botSettings;
             }
 
             if (prioritizeAsGoal)
@@ -428,7 +428,7 @@ namespace friendlySAIN.Components
             }
 
 
-            TrySyncSainEnemyState(follower, enemy);
+            TrySyncSainEnemyState(follower, enemy, prioritizeAsGoal);
 
 
             // Entering combat should break request commands
@@ -458,14 +458,14 @@ namespace friendlySAIN.Components
             return null;
         }
 
-        private static bool TrySyncSainEnemyState(BotOwner follower, Player enemyPlayer)
+        private static bool TrySyncSainEnemyState(BotOwner follower, Player enemyPlayer, bool prioritizeAsGoal)
         {
             if (!friendlySAIN.UseSainFollowerCombat) return false;
             if (follower == null || enemyPlayer == null) return false;
 
             try
             {
-                return SainAddonBridge.TrySyncEnemyState(follower, enemyPlayer);
+                return SainAddonBridge.TrySyncEnemyState(follower, enemyPlayer, prioritizeAsGoal);
             }
             catch (Exception ex)
             {

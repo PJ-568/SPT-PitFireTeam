@@ -209,6 +209,11 @@ namespace friendlySAIN.BigBrain
 
         public override Action GetNextAction()
         {
+            if (BotOwner.Mover.Pause)
+            {
+                BotOwner.Mover.Pause = false;
+            }
+
             try
             {
                 RefreshHealWorkIfNeeded();

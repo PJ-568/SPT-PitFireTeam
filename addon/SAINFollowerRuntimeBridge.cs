@@ -624,7 +624,7 @@ namespace friendlySAIN.SAINAddon
             }
         }
 
-        public static bool TrySyncFollowerEnemyState(BotOwner owner, Player enemyPlayer)
+        public static bool TrySyncFollowerEnemyState(BotOwner owner, Player enemyPlayer, bool prioritizeAsGoal)
         {
             if (owner == null || enemyPlayer == null || string.IsNullOrEmpty(owner.ProfileId))
             {
@@ -647,13 +647,13 @@ namespace friendlySAIN.SAINAddon
             if (sainEnemy != null)
             {
                 sainEnemy.UpdateLastSeenPosition(enemyPlayer.Position, Time.time);
-                if (enemyController.KnownEnemies.Count == 0)
+                bool shouldForceGoal = prioritizeAsGoal || enemyController.GoalEnemy == null;
+                if (shouldForceGoal)
                 {
                     setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
                 }
                 else
                 {
-
                     enemyController.ChooseEnemy();
                     if (enemyController.GoalEnemy == null)
                     {

@@ -2723,8 +2723,22 @@ namespace friendlySAIN.Components
             };
 
             ReplaceStockPortraitChrome(clonedRoot.transform, level);
+            ResetStockPortraitToLoadingState(iconImage);
 
             return true;
+        }
+
+        private static void ResetStockPortraitToLoadingState(PlayerIconImage iconImage)
+        {
+            if (iconImage?._pmcPreview == null || iconImage._progress == null)
+            {
+                return;
+            }
+
+            iconImage._pmcPreview.sprite = null;
+            iconImage._pmcPreview.enabled = false;
+            iconImage._pmcPreview.preserveAspect = true;
+            iconImage._progress.SetActive(true);
         }
 
         private void ReplaceStockPortraitChrome(Transform clonedRoot, int level)
