@@ -196,6 +196,7 @@ namespace friendlySAIN.Modules
             _followers.Clear();
             _followersByProfileId.Clear();
             _shallBeFollower.Clear();
+            FollowerGrenadeCooldowns.ClearAll();
 
             IsDisposed = true;
             Instance = null;

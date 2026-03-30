@@ -40,6 +40,12 @@ namespace friendlySAIN.Patches
                     return false;
                 }
 
+                if (!FollowerGrenadeCooldowns.CanProceedToThrow(bot))
+                {
+                    __result = false;
+                    return false;
+                }
+
                 BotGrenadeController grenades = bot.WeaponManager?.Grenades;
                 if (grenades == null || !grenades.HaveGrenade)
                 {

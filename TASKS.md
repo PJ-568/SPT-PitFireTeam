@@ -115,7 +115,7 @@ Old plugin had several method for selecting covers and positions from where to s
 
 # ADD 'AGGRESSION' SETTING
 
-Add a slider meant to determine the agressiveness of the followers. Which in turn controls how frequent they will try to push an enemy by going to him. With 100% this should mean that the bot should not care at all if enemy is outside the radius of the boss, he should still try to push him. WIth 50% it should act as it is now, with 0% it should mean no push, always stay around boss.
+Add a slider meant to determine the agressiveness of a follower. This will be seen in the "other profile" screen, after "Edit loadout". This controls how frequent he will try to push an enemy by going to him. With 100% this should mean that the bot should not care at all if enemy is outside the radius of the boss, he should still try to push him. With 50% it should act as it is now, with 0% it should mean no push, always stay around boss. Every increase, increases the the outside radius he can go to. Beyond 80%, bot does not care how far the enemy is.
 
 # Implement Enemy Push command
 
@@ -189,6 +189,10 @@ Description:
 - Non marksman can also detect shotguns seconday weapon and may choose to use it for a close push (see old plugin)
 - Even if follower is not marksman, if he detects single shot weapon as primary and auto as secondary, he may choose to switch to secondary for close combat.
 - Protector, sticks around the boss and is not afraid to get between the boss and the enemy, if the enemy is shooting the boss. Protector tries to put himself between the boss and the enemy. Something the old plugin did with "Guard" tactic.
+
+# ADD RADIAL COMMANDS
+
+- Implement a radial menu made of 2 circles that will hold all available command for the followers. This will be alternative to the quick gestures menu of the game and it is mean as an easier way to access the commands if players do not wish to bind them to some key but find it hard to use the in game gesture menu
 
 # Vanilla Group Search combat decision
 

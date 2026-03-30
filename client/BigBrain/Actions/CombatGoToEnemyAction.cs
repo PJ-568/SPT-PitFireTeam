@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using EFT.InventoryLogic;
 using friendlySAIN.Utils;
 using System.Collections.Generic;
 using UnityEngine;
@@ -13,6 +14,9 @@ namespace friendlySAIN.BigBrain.Actions
         private const float ProgressCheckInterval = 1.25f;
         private const float MinimumProgressDistance = 0.75f;
         private const int StalledRefreshThreshold = 2;
+        private const float TacticalReloadSafeDistance = 25f;
+        private const int LargeMagazineLowAmmoThreshold = 20;
+        private const int PistolLargeMagazineLowAmmoThreshold = 10;
 
         private readonly GClass183 shootLogic;
         private bool shouldSprint;
@@ -73,7 +77,7 @@ namespace friendlySAIN.BigBrain.Actions
             if (BotOwner.Mover.HasPathAndNoComplete)
             {
                 bool reached = BotOwner.Mover.IsComeTo(BotOwner.Settings.FileSettings.Move.REACH_DIST, false);
-                if (!BotOwner.WeaponManager.HaveBullets)
+                if (ShouldReloadWhileAdvancing(goalEnemy))
                 {
                     BotOwner.WeaponManager.Reload.TryReload();
                 }
@@ -333,6 +337,72 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.StopMove();
             BotOwner.LookData.SetLookPointByHearing(null);
             BotOwner.SetPose(0f);
+        }
+
+        private bool ShouldReloadWhileAdvancing(EnemyInfo goalEnemy)
+        {
+            if (BotOwner?.WeaponManager?.Reload == null || BotOwner.WeaponManager.Reload.Reloading)
+            {
+                return false;
+            }
+
+            if (!BotOwner.WeaponManager.HaveBullets)
+            {
+                return true;
+            }
+
+            if (goalEnemy == null || goalEnemy.Distance < TacticalReloadSafeDistance)
+            {
+                return false;
+            }
+
+            Weapon currentWeapon = BotOwner.WeaponManager.CurrentWeapon;
+            MagazineItemClass currentMagazine = currentWeapon?.GetCurrentMagazine();
+            if (currentWeapon == null || currentMagazine == null)
+            {
+                return false;
+            }
+
+            int capacity = currentMagazine.MaxCount;
+            int currentBullets = currentMagazine.Count;
+            if (capacity <= 0 || currentBullets >= capacity)
+            {
+                return false;
+            }
+
+            return currentBullets <= GetTacticalReloadThreshold(currentWeapon, capacity);
+        }
+
+        private static int GetTacticalReloadThreshold(Weapon weapon, int capacity)
+        {
+            if (capacity <= 0)
+            {
+                return 0;
+            }
+
+            if (IsPistol(weapon))
+            {
+                return capacity > PistolLargeMagazineLowAmmoThreshold
+                    ? PistolLargeMagazineLowAmmoThreshold
+                    : capacity / 2;
+            }
+
+            if (capacity <= 20)
+            {
+                return capacity / 2;
+            }
+
+            if (capacity > 30)
+            {
+                return LargeMagazineLowAmmoThreshold;
+            }
+
+            return capacity / 2;
+        }
+
+        private static bool IsPistol(Weapon weapon)
+        {
+            return string.Equals(weapon?.Template?.weapClass, "pistol", System.StringComparison.OrdinalIgnoreCase);
         }
     }
 }

@@ -914,26 +914,40 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (!FollowerGrenadeCooldowns.TryReserveThrow(BotOwner))
+            {
+                return false;
+            }
+
             if (IsDogFightActive() ||
                 BotOwner.Memory.IsUnderFire ||
                 WasHitRecently(2f) ||
                 Time.time - goalEnemy.FirstTimeSeen < 1.5f)
             {
+                FollowerGrenadeCooldowns.CancelPending(BotOwner);
                 return false;
             }
 
             if (goalEnemy.CanShoot && BotOwner.LookSensor.EnoughDistToShoot(out _))
             {
+                FollowerGrenadeCooldowns.CancelPending(BotOwner);
                 return false;
             }
 
             Vector3 targetPosition = goalEnemy.CurrPosition + Vector3.up;
             if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, 8f))
             {
+                FollowerGrenadeCooldowns.CancelPending(BotOwner);
                 return false;
             }
 
-            return BotOwner.BotRequestController.TryActivateThrowGrenadeRequest(targetPosition, null, out _);
+            bool activated = BotOwner.BotRequestController.TryActivateThrowGrenadeRequest(targetPosition, null, out _);
+            if (!activated)
+            {
+                FollowerGrenadeCooldowns.CancelPending(BotOwner);
+            }
+
+            return activated;
         }
 
         protected bool IsFriendlyTooCloseToGrenadeTarget(Vector3 targetPosition, float unsafeRadius)

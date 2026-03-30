@@ -346,8 +346,7 @@ public class FriendlyTeammateService(
         var clone = cloner.Clone(teammate) ?? teammate;
         ApplyPmcFollowerSkillBaseline(clone);
         ApplyTemporaryHealthMultiplier(clone, healthMultiplier);
-        EnsureFollowerHasMedicalSupply(clone);
-        EnsureFollowerHasSecureContainerAmmo(clone);
+        EnsureFollowerHasSecureContainerSupplies(clone);
         return clone;
     }
 
@@ -370,23 +369,19 @@ public class FriendlyTeammateService(
         }
     }
 
-    private void EnsureFollowerHasMedicalSupply(BotBase profile)
+    private void EnsureFollowerHasSecureContainerSupplies(BotBase profile)
     {
         if (profile?.Inventory?.Items == null)
         {
             return;
         }
 
-        // Find secure container slot in equipment
-        var secureContainer = profile.Inventory.Items
-            .FirstOrDefault(item => item.SlotId == "SecuredContainer");
-
-        if (secureContainer?.Id == null)
+        if (!TryGetSecureContainerId(profile, out string secureContainerId))
         {
-            return; // No secure container found
+            return;
         }
 
-        var secureContainerId = secureContainer.Id.ToString();
+        ClearSecureContainerContents(profile.Inventory.Items, secureContainerId);
 
         // Add Grizzly Medical Kit
         var grizzlyId = new MongoId();
@@ -419,20 +414,6 @@ public class FriendlyTeammateService(
                 SpawnedInSession = false,
             },
         });
-    }
-
-    private void EnsureFollowerHasSecureContainerAmmo(BotBase profile)
-    {
-        if (profile?.Inventory?.Items == null)
-        {
-            return;
-        }
-
-        var secureContainer = profile.Inventory.Items.FirstOrDefault(item => item.SlotId == nameof(EquipmentSlots.SecuredContainer));
-        if (secureContainer?.Id == null)
-        {
-            return;
-        }
 
         var ammoTemplate = FindMainWeaponAmmoTemplate(profile.Inventory.Items.ToList());
         if (ammoTemplate == null || ammoTemplate.Value.IsEmpty)
@@ -452,12 +433,7 @@ public class FriendlyTeammateService(
             return;
         }
 
-        var secureContainerId = secureContainer.Id.ToString();
-        var existingStacks = profile.Inventory.Items.Count(item =>
-            string.Equals(item.ParentId, secureContainerId, StringComparison.OrdinalIgnoreCase) &&
-            item.Template == ammoTemplate.Value);
-
-        for (var i = existingStacks; i < SecureContainerAmmoStackCount; i++)
+        for (var i = 0; i < SecureContainerAmmoStackCount; i++)
         {
             profile.Inventory.Items.Add(new Item
             {
@@ -473,6 +449,60 @@ public class FriendlyTeammateService(
                 },
             });
         }
+    }
+
+    private bool TryGetSecureContainerId(BotBase profile, out string secureContainerId)
+    {
+        secureContainerId = string.Empty;
+
+        if (profile?.Inventory?.Items == null)
+        {
+            return false;
+        }
+
+        Item? secureContainer = profile.Inventory.Items.FirstOrDefault(item =>
+            string.Equals(item.SlotId, nameof(EquipmentSlots.SecuredContainer), StringComparison.OrdinalIgnoreCase));
+        if (secureContainer?.Id == null)
+        {
+            return false;
+        }
+
+        var containerId = secureContainer.Id.ToString();
+        secureContainerId = containerId;
+        return true;
+    }
+
+    private void ClearSecureContainerContents(List<Item> inventoryItems, string secureContainerId)
+    {
+        if (inventoryItems == null || string.IsNullOrWhiteSpace(secureContainerId))
+        {
+            return;
+        }
+
+        var ownedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { secureContainerId };
+        var removedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var foundChild = true;
+
+        while (foundChild)
+        {
+            foundChild = false;
+            foreach (var item in inventoryItems)
+            {
+                if (item?.Id == null || string.IsNullOrEmpty(item.ParentId) || !ownedIds.Contains(item.ParentId))
+                {
+                    continue;
+                }
+
+                var itemId = item.Id.ToString();
+                if (removedIds.Add(itemId))
+                {
+                    ownedIds.Add(itemId);
+                    foundChild = true;
+                }
+            }
+        }
+
+        inventoryItems.RemoveAll(item => item?.Id != null && removedIds.Contains(item.Id.ToString()));
     }
 
     private MongoId? FindMainWeaponAmmoTemplate(List<Item> inventoryItems)

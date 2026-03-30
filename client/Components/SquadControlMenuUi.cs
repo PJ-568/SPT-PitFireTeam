@@ -110,9 +110,11 @@ namespace friendlySAIN.Components
         private readonly Dictionary<RectTransform, Vector2> originalButtonPositions = new Dictionary<RectTransform, Vector2>();
         private readonly Dictionary<string, GameObject> portraitLoadingIndicators = new Dictionary<string, GameObject>(StringComparer.Ordinal);
         private readonly HashSet<string> autoJoinRequestsInFlight = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> groupRequestsInFlight = new HashSet<string>(StringComparer.Ordinal);
         private readonly StringBuilder shortcutBuilder = new StringBuilder();
         private int rosterBuildVersion;
         private static bool forceRosterRefreshOnNextInject;
+        private static readonly HashSet<string> pendingTileRefreshAccountIds = new HashSet<string>(StringComparer.Ordinal);
         private bool raidSettingsOverlayActive;
         private MatchmakerPlayerControllerClass subscribedGroupBadgeLogController;
         private Action unsubscribeGroupBadgeLog;
@@ -120,6 +122,22 @@ namespace friendlySAIN.Components
         internal static void RequestRosterRefreshOnNextInject()
         {
             forceRosterRefreshOnNextInject = true;
+            pendingTileRefreshAccountIds.Clear();
+        }
+
+        internal static void RequestRosterTileRefreshOnNextInject(string accountId)
+        {
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return;
+            }
+
+            if (forceRosterRefreshOnNextInject)
+            {
+                return;
+            }
+
+            pendingTileRefreshAccountIds.Add(accountId);
         }
 
         private sealed class SquadRosterEntry
@@ -531,12 +549,19 @@ namespace friendlySAIN.Components
             // Rebuild roster only on first open or when explicitly requested by add-teammate flow.
             bool shouldForceRosterRefresh = forceRosterRefreshOnNextInject;
             forceRosterRefreshOnNextInject = false;
+            List<string> pendingTileRefreshIds = pendingTileRefreshAccountIds.ToList();
+            pendingTileRefreshAccountIds.Clear();
             bool needsRoster = rosterGridRoot != null && (rosterGridRoot.childCount == 0 || shouldForceRosterRefresh);
             bool needsSettings = settingsContentRoot != null && settingsContentRoot.childCount == 0;
 
             if (!needsRoster && rosterGridRoot != null)
             {
-                SyncGroupBadgesFromOpeningSnapshot();
+                SyncGroupBadgesFromKnownState();
+
+                if (pendingTileRefreshIds.Count > 0)
+                {
+                    RefreshRosterTiles(pendingTileRefreshIds);
+                }
             }
 
             if (shouldForceRosterRefresh && needsRoster)
@@ -2071,6 +2096,7 @@ namespace friendlySAIN.Components
             CancelPortraitQueue();
             portraitLoadingIndicators.Clear();
             autoJoinRequestsInFlight.Clear();
+            groupRequestsInFlight.Clear();
             rosterBuildVersion++;
 
             for (int i = rosterGridRoot.childCount - 1; i >= 0; i--)
@@ -2108,7 +2134,80 @@ namespace friendlySAIN.Components
                 rosterScrollRect.verticalNormalizedPosition = 1f;
             }
 
-            SyncGroupBadgesFromOpeningSnapshot();
+            SyncGroupBadgesFromKnownState();
+        }
+
+        private void RefreshRosterTiles(ICollection<string> accountIds)
+        {
+            if (rosterGridRoot == null || accountIds == null || accountIds.Count == 0)
+            {
+                return;
+            }
+
+            Dictionary<string, SquadRosterEntry> entriesByAccountId = BuildRosterEntries()
+                .GroupBy(entry => entry.AccountId, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToDictionary(entry => entry.AccountId, StringComparer.Ordinal);
+
+            bool changed = false;
+            foreach (string accountId in accountIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal))
+            {
+                if (!entriesByAccountId.TryGetValue(accountId, out SquadRosterEntry entry))
+                {
+                    continue;
+                }
+
+                if (RefreshRosterTile(entry))
+                {
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(rosterGridRoot);
+
+            if (rosterContentRoot != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rosterContentRoot);
+            }
+
+            if (rosterPanel != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rosterPanel.GetComponent<RectTransform>());
+            }
+
+            SyncGroupBadgesFromKnownState();
+        }
+
+        private bool RefreshRosterTile(SquadRosterEntry entry)
+        {
+            if (rosterGridRoot == null || entry == null || string.IsNullOrWhiteSpace(entry.AccountId))
+            {
+                return false;
+            }
+
+            Transform existingTile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{entry.AccountId}");
+            if (existingTile == null)
+            {
+                return false;
+            }
+
+            int siblingIndex = existingTile.GetSiblingIndex();
+            Destroy(existingTile.gameObject);
+
+            CreateRosterTile(rosterGridRoot, entry, ++rosterBuildVersion);
+            Transform refreshedTile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{entry.AccountId}");
+            if (refreshedTile == null)
+            {
+                return false;
+            }
+
+            refreshedTile.SetSiblingIndex(siblingIndex);
+            return true;
         }
 
         private IEnumerable<SquadRosterEntry> BuildRosterEntries()
@@ -2464,7 +2563,8 @@ namespace friendlySAIN.Components
             TooltipHoverController tooltipHover = badgeObject.AddComponent<TooltipHoverController>();
             tooltipHover.Configure(GetSocialUiText("SquadControlInGroupTooltip", "In group"));
 
-            bool startsActive = Modules.SquadSideSelectionFlow.IsAccountInOpeningGroupSnapshot(accountId);
+            bool startsActive = IsAccountInCurrentGroup(accountId)
+                || Modules.SquadSideSelectionFlow.IsAccountInOpeningGroupSnapshot(accountId);
             badgeObject.SetActive(startsActive);
         }
 
@@ -3019,6 +3119,14 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            bool isInGroup = IsAccountInCurrentGroup(entry.AccountId);
+            string groupActionLabel = GetSocialUiText(
+                isInGroup ? "SquadControlRemoveFromGroup" : "SquadControlInviteToGroup",
+                isInGroup ? "Remove from group" : "Invite to group");
+            Action groupAction = isInGroup
+                ? (Action)(() => RemoveTeammateFromGroup(entry))
+                : () => InviteTeammateToGroup(entry);
+
             GameObject overlayRoot = new GameObject("friendlySAIN_PortraitContextMenuOverlay", typeof(RectTransform), typeof(Image), typeof(Button));
             overlayRoot.transform.SetParent(overlayParent, false);
             RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
@@ -3033,7 +3141,7 @@ namespace friendlySAIN.Components
             overlayButton.transition = Selectable.Transition.None;
             overlayButton.onClick.AddListener(ClosePortraitContextMenu);
 
-            if (TryCreateStockPortraitContextMenu(overlayRoot.transform, overlayRect, entry, eventData))
+            if (TryCreateStockPortraitContextMenu(overlayRoot.transform, overlayRect, entry, eventData, groupActionLabel, groupAction))
             {
                 portraitContextMenuOverlay = overlayRoot;
                 return;
@@ -3069,8 +3177,8 @@ namespace friendlySAIN.Components
 
             CreateContextMenuButton(
                 menuObject.transform,
-                GetSocialUiText("SquadControlInviteToGroup", "Invite to group"),
-                () => InviteTeammateToGroup(entry));
+                groupActionLabel,
+                groupAction);
             CreateContextMenuButton(
                 menuObject.transform,
                 GetSocialUiText("SquadControlViewProfile", "View profile"),
@@ -3089,7 +3197,13 @@ namespace friendlySAIN.Components
             portraitContextMenuOverlay = overlayRoot;
         }
 
-        private bool TryCreateStockPortraitContextMenu(Transform overlayParent, RectTransform overlayRect, SquadRosterEntry entry, PointerEventData eventData)
+        private bool TryCreateStockPortraitContextMenu(
+            Transform overlayParent,
+            RectTransform overlayRect,
+            SquadRosterEntry entry,
+            PointerEventData eventData,
+            string groupActionLabel,
+            Action groupAction)
         {
             if (overlayParent == null || overlayRect == null || entry == null)
             {
@@ -3133,11 +3247,11 @@ namespace friendlySAIN.Components
                 buttonTemplate,
                 buttonsRoot,
                 "InviteInGroup",
-                GetSocialUiText("SquadControlInviteToGroup", "Invite to group"),
+                groupActionLabel,
                 () =>
                 {
                     ClosePortraitContextMenu();
-                    InviteTeammateToGroup(entry);
+                    groupAction?.Invoke();
                 });
             CreateStockContextMenuButton(
                 container,
@@ -3266,14 +3380,210 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            TeammateAutoJoinRuntime.ClearSuppression(entry.AccountId);
-
-            if (controller.GroupPlayers != null && controller.GroupPlayers.Any(player => player?.AccountId == entry.AccountId))
+            if (!groupRequestsInFlight.Add(entry.AccountId))
             {
                 return;
             }
 
-            controller.SendInvite(entry.AccountId, true, null);
+            if (controller.IsInGroup(entry.AccountId))
+            {
+                groupRequestsInFlight.Remove(entry.AccountId);
+                SyncGroupBadgesFromKnownState();
+                return;
+            }
+
+            TeammateAutoJoinRuntime.ClearSuppression(entry.AccountId);
+            SetPortraitLoading(entry.AccountId, true);
+
+            try
+            {
+                controller.SendInvite(entry.AccountId, true, null);
+            }
+            catch (Exception ex)
+            {
+                SetPortraitLoading(entry.AccountId, false);
+                groupRequestsInFlight.Remove(entry.AccountId);
+                friendlySAIN.Log.LogError($"[UI] Failed to send group invite for teammate '{entry.AccountId}'.");
+                friendlySAIN.Log.LogError(ex);
+                return;
+            }
+
+            if (friendlySAIN.Instance == null)
+            {
+                SetPortraitLoading(entry.AccountId, false);
+                groupRequestsInFlight.Remove(entry.AccountId);
+                return;
+            }
+
+            friendlySAIN.Instance.StartCoroutine(WaitForInviteResolutionCoroutine(entry.AccountId, entry.Nickname));
+        }
+
+        private void RemoveTeammateFromGroup(SquadRosterEntry entry)
+        {
+            ClosePortraitContextMenu();
+
+            if (entry == null || string.IsNullOrWhiteSpace(entry.AccountId))
+            {
+                return;
+            }
+
+            if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller == null)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Could not remove teammate '{entry.AccountId}' from the group: matchmaker controller unavailable.");
+                return;
+            }
+
+            if (!groupRequestsInFlight.Add(entry.AccountId))
+            {
+                return;
+            }
+
+            if (!controller.IsInGroup(entry.AccountId))
+            {
+                groupRequestsInFlight.Remove(entry.AccountId);
+                SyncGroupBadgesFromKnownState();
+                return;
+            }
+
+            SetPortraitLoading(entry.AccountId, true);
+
+            bool removeTriggered;
+            try
+            {
+                removeTriggered = TryExecuteStockRemovePlayerInteraction(controller, entry.AccountId);
+            }
+            catch (Exception ex)
+            {
+                SetPortraitLoading(entry.AccountId, false);
+                groupRequestsInFlight.Remove(entry.AccountId);
+                friendlySAIN.Log.LogError($"[UI] Failed to remove teammate '{entry.AccountId}' from the group.");
+                friendlySAIN.Log.LogError(ex);
+                return;
+            }
+
+            if (!removeTriggered)
+            {
+                SetPortraitLoading(entry.AccountId, false);
+                groupRequestsInFlight.Remove(entry.AccountId);
+                SyncGroupBadgesFromKnownState();
+                friendlySAIN.Log.LogWarning($"[UI] Stock remove-player interaction was not available for teammate '{entry.AccountId}'.");
+                return;
+            }
+
+            if (friendlySAIN.Instance == null)
+            {
+                SetPortraitLoading(entry.AccountId, false);
+                groupRequestsInFlight.Remove(entry.AccountId);
+                return;
+            }
+
+            friendlySAIN.Instance.StartCoroutine(WaitForGroupRemovalCoroutine(entry.AccountId, entry.Nickname));
+        }
+
+        private IEnumerator WaitForInviteResolutionCoroutine(string accountId, string nickname)
+        {
+            const float timeoutSeconds = 15f;
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            bool inviteObserved = false;
+            bool joinedGroup = false;
+
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) && controller != null)
+                {
+                    if (controller.IsInGroup(accountId))
+                    {
+                        joinedGroup = true;
+                        break;
+                    }
+
+                    bool invitePending = controller.IsInvitedByMe(accountId);
+                    if (invitePending)
+                    {
+                        inviteObserved = true;
+                    }
+                    else if (inviteObserved)
+                    {
+                        break;
+                    }
+                }
+
+                yield return null;
+            }
+
+            SetPortraitLoading(accountId, false);
+            groupRequestsInFlight.Remove(accountId);
+            SyncGroupBadgesFromKnownState();
+
+            if (joinedGroup)
+            {
+                string successTemplate = GetSocialUiText("SquadControlInviteAcceptedToast", "{0} joined the group.");
+                AddTeammateCreationFlow.ShowToast(string.Format(successTemplate, nickname ?? string.Empty));
+                yield break;
+            }
+
+            string failureTemplate = GetSocialUiText("SquadControlInvitePendingFailedToast", "Group invite for {0} was not accepted.");
+            AddTeammateCreationFlow.ShowToast(string.Format(failureTemplate, nickname ?? string.Empty));
+        }
+
+        private IEnumerator WaitForGroupRemovalCoroutine(string accountId, string nickname)
+        {
+            const float timeoutSeconds = 10f;
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            bool removedFromGroup = false;
+
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) && controller != null)
+                {
+                    if (!controller.IsInGroup(accountId))
+                    {
+                        removedFromGroup = true;
+                        break;
+                    }
+                }
+
+                yield return null;
+            }
+
+            SetPortraitLoading(accountId, false);
+            groupRequestsInFlight.Remove(accountId);
+            SyncGroupBadgesFromKnownState();
+
+            if (removedFromGroup)
+            {
+                string successTemplate = GetSocialUiText("SquadControlRemovedFromGroupToast", "Removed {0} from the group.");
+                AddTeammateCreationFlow.ShowToast(string.Format(successTemplate, nickname ?? string.Empty));
+                yield break;
+            }
+
+            string failureTemplate = GetSocialUiText("SquadControlRemoveFromGroupFailedToast", "Failed to remove {0} from the group.");
+            AddTeammateCreationFlow.ShowToast(string.Format(failureTemplate, nickname ?? string.Empty));
+        }
+
+        private bool TryExecuteStockRemovePlayerInteraction(MatchmakerPlayerControllerClass controller, string accountId)
+        {
+            if (controller == null || string.IsNullOrWhiteSpace(accountId))
+            {
+                return false;
+            }
+
+            GroupPlayerDataClass groupPlayer = controller.GroupPlayers?
+                .FirstOrDefault(player => player?.AccountId == accountId);
+            if (groupPlayer == null)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Could not resolve live group player data for teammate '{accountId}'.");
+                return false;
+            }
+
+            ContextInteractionsClass contextInteractions = controller.GetContextInteractions(groupPlayer, true, true);
+            if (contextInteractions == null)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Could not build stock context interactions for teammate '{accountId}'.");
+                return false;
+            }
+
+            return contextInteractions.ExecuteInteraction(ERaidPlayerButton.RemovePlayer);
         }
 
         private void ToggleTeammateAutoJoin(SquadRosterEntry entry)
@@ -3351,6 +3661,14 @@ namespace friendlySAIN.Components
                 if (nextState)
                 {
                     TeammateAutoJoinRuntime.ClearSuppression(accountId);
+                }
+                else
+                {
+                    TeammateAutoJoinRuntime.MarkSuppressed(accountId);
+                    if (!IsAccountInCurrentGroup(accountId))
+                    {
+                        MainMenuControllerPatch.GroupPlayers.RemoveFirst(player => player?.AccountId == accountId);
+                    }
                 }
 
                 entry.AutoJoinEnabled = nextState;
@@ -3552,8 +3870,7 @@ namespace friendlySAIN.Components
         {
             try
             {
-                int count = subscribedGroupBadgeLogController?.GroupPlayers?.Count ?? -1;
-                SyncGroupBadgesFromCurrentGroup();
+                SyncGroupBadgesFromKnownState();
             }
             catch (Exception ex)
             {
@@ -3562,18 +3879,26 @@ namespace friendlySAIN.Components
             }
         }
 
-        private void SyncGroupBadgesFromCurrentGroup()
+        private void SyncGroupBadgesFromKnownState()
+        {
+            if (!SyncGroupBadgesFromCurrentGroup())
+            {
+                SyncGroupBadgesFromOpeningSnapshot();
+            }
+        }
+
+        private bool SyncGroupBadgesFromCurrentGroup()
         {
             try
             {
                 if (rosterGridRoot == null || !rosterGridRoot.gameObject.activeInHierarchy)
                 {
-                    return;
+                    return false;
                 }
 
                 if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller?.GroupPlayers == null)
                 {
-                    return;
+                    return false;
                 }
 
                 HashSet<string> groupedIds = controller.GroupPlayers
@@ -3582,23 +3907,14 @@ namespace friendlySAIN.Components
                     .Select(accountId => accountId!)
                     .ToHashSet(StringComparer.Ordinal);
 
-                const string prefix = "friendlySAIN_RosterTile_";
-                for (int i = 0; i < rosterGridRoot.childCount; i++)
-                {
-                    Transform tile = rosterGridRoot.GetChild(i);
-                    if (tile == null || !tile.name.StartsWith(prefix, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    string accountId = tile.name.Substring(prefix.Length);
-                    UpdateGroupBadge(accountId, groupedIds.Contains(accountId));
-                }
+                ApplyGroupBadgeVisibility(groupedIds);
+                return true;
             }
             catch (Exception ex)
             {
                 friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from current group.");
                 friendlySAIN.Log.LogError(ex);
+                return false;
             }
         }
 
@@ -3615,23 +3931,56 @@ namespace friendlySAIN.Components
                     .Where(accountId => !string.IsNullOrWhiteSpace(accountId))
                     .ToHashSet(StringComparer.Ordinal);
 
-                const string prefix = "friendlySAIN_RosterTile_";
-                for (int i = 0; i < rosterGridRoot.childCount; i++)
-                {
-                    Transform tile = rosterGridRoot.GetChild(i);
-                    if (tile == null || !tile.name.StartsWith(prefix, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    string accountId = tile.name.Substring(prefix.Length);
-                    UpdateGroupBadge(accountId, groupedIds.Contains(accountId));
-                }
+                ApplyGroupBadgeVisibility(groupedIds);
             }
             catch (Exception ex)
             {
                 friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from opening snapshot.");
                 friendlySAIN.Log.LogError(ex);
+            }
+        }
+
+        private void ApplyGroupBadgeVisibility(HashSet<string> groupedIds)
+        {
+            if (rosterGridRoot == null)
+            {
+                return;
+            }
+
+            const string prefix = "friendlySAIN_RosterTile_";
+            for (int i = 0; i < rosterGridRoot.childCount; i++)
+            {
+                Transform tile = rosterGridRoot.GetChild(i);
+                if (tile == null || !tile.name.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string accountId = tile.name.Substring(prefix.Length);
+                UpdateGroupBadge(accountId, groupedIds != null && groupedIds.Contains(accountId));
+            }
+        }
+
+        private bool IsAccountInCurrentGroup(string accountId)
+        {
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller == null)
+                {
+                    return false;
+                }
+
+                return controller.IsInGroup(accountId)
+                    || (controller.GroupPlayers != null && controller.GroupPlayers.Any(player => player?.AccountId == accountId));
+            }
+            catch
+            {
+                return false;
             }
         }
 

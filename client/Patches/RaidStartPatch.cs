@@ -588,26 +588,6 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MainMenuControllerClass __instance)
         {
-            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
-            {
-                return;
-            }
-
-            MatchmakerPlayerControllerClass matchmakerPlayerControllerClass = __instance.MatchmakerPlayerControllerClass;
-
-            var removeGroup = new playerGroup();
-
-            foreach (var item in matchmakerPlayerControllerClass.GroupPlayers)
-            {
-                if (item != matchmakerPlayerControllerClass.CurrentPlayer)
-                    removeGroup.Add(item);
-            }
-
-            foreach (var item in removeGroup)
-            {
-                matchmakerPlayerControllerClass.GroupPlayers.Remove(item);
-            }
-
         }
     }
     /**
@@ -743,8 +723,6 @@ namespace friendlySAIN.Patches
      */
     internal class MainMenuControllerReadyScreenGatePatch : ModulePatch
     {
-        private static readonly playerGroup RemovedPlayers = new playerGroup();
-
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(MainMenuControllerClass), "method_52");
@@ -758,55 +736,13 @@ namespace friendlySAIN.Patches
                 Modules.SquadSideSelectionFlow.Deactivate("play-ready-screen");
             }
 
-            RemovedPlayers.Clear();
-
-            MatchmakerPlayerControllerClass controller = __instance.MatchmakerPlayerControllerClass;
             RaidSettings raidSettings = __instance.RaidSettings_0;
-            if (controller == null || raidSettings == null || MainMenuControllerPatch.GroupPlayers.Count < 1)
+            if (raidSettings == null || MainMenuControllerPatch.GroupPlayers.Count < 1)
             {
                 return;
             }
 
             raidSettings.RaidMode = ERaidMode.Local;
-
-            foreach (GroupPlayerViewModelClass player in controller.GroupPlayers)
-            {
-                if (player != controller.CurrentPlayer)
-                {
-                    RemovedPlayers.Add(player);
-                }
-            }
-
-            foreach (GroupPlayerViewModelClass player in RemovedPlayers)
-            {
-                controller.GroupPlayers.Remove(player);
-            }
-        }
-
-        [PatchPostfix]
-        private static void PatchPostfix(MainMenuControllerClass __instance)
-        {
-            if (RemovedPlayers.Count < 1)
-            {
-                return;
-            }
-
-            MatchmakerPlayerControllerClass controller = __instance.MatchmakerPlayerControllerClass;
-            if (controller == null)
-            {
-                RemovedPlayers.Clear();
-                return;
-            }
-
-            foreach (GroupPlayerViewModelClass player in RemovedPlayers)
-            {
-                if (controller.GroupPlayers.All(existing => existing.AccountId != player.AccountId))
-                {
-                    controller.GroupPlayers.Add(player);
-                }
-            }
-
-            RemovedPlayers.Clear();
         }
     }
     /**
@@ -838,25 +774,6 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(MatchMakerAcceptScreen __instance)
         {
-            if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
-            {
-                return;
-            }
-
-            var controller = AccessTools.Field(typeof(MatchMakerAcceptScreen), "MatchmakerPlayersController").GetValue(__instance) as MatchmakerPlayerControllerClass;
-
-            var removeGroup = new playerGroup();
-
-            foreach (var item in controller.GroupPlayers)
-            {
-                if (item != controller.CurrentPlayer)
-                    removeGroup.Add(item);
-            }
-
-            foreach (var item in removeGroup)
-            {
-                controller.GroupPlayers.Remove(item);
-            }
         }
     }
     /**

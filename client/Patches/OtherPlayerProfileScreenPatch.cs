@@ -321,8 +321,14 @@ namespace friendlySAIN.Patches
         internal static Action PendingBackOverrideAction { get; set; }
         internal static Action ActiveBackOverrideAction { get; set; }
 
-        private static void MarkSquadRosterDirty()
+        private static void MarkSquadRosterDirty(string accountId = null)
         {
+            if (!string.IsNullOrWhiteSpace(accountId))
+            {
+                Components.SquadControlMenuUi.RequestRosterTileRefreshOnNextInject(accountId);
+                return;
+            }
+
             Components.SquadControlMenuUi.RequestRosterRefreshOnNextInject();
         }
 
@@ -1714,7 +1720,7 @@ namespace friendlySAIN.Patches
                     suit = new string[] { body, feet }
                 }));
                 EnsureBodySuccess(responseJson);
-                MarkSquadRosterDirty();
+                MarkSquadRosterDirty(ViewedProfile?.AccountId);
             }
             catch (Exception ex)
             {
@@ -2121,7 +2127,7 @@ namespace friendlySAIN.Patches
                 }
 
                 SocialNetworkClassPatch.RefreshFriendsList();
-                MarkSquadRosterDirty();
+                MarkSquadRosterDirty(profile?.AccountId);
                 CloseRenameOverlay();
             }
             catch (Exception ex)
@@ -2564,7 +2570,7 @@ namespace friendlySAIN.Patches
                     }));
                     EnsureBodySuccess(responseJson);
 
-                    MarkSquadRosterDirty();
+                    MarkSquadRosterDirty(profile?.AccountId);
                     RefreshPlayerVisualization(profile, inventoryController, session, window);
                 }
                 catch (Exception ex)

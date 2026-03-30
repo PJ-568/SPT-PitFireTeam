@@ -61,9 +61,10 @@ public class FriendlyPostRaidService(
         SendMessageDetails details = new()
         {
             RecipientId = sessionId,
-            Sender = MessageType.UserMessage,
-            DialogType = MessageType.UserMessage,
+            Sender = MessageType.NpcTraderMessage,
+            DialogType = MessageType.NpcTraderMessage,
             SenderDetails = sender,
+            Trader = FriendlyCourierTraderProfile.CourierTraderIdValue,
             MessageText = PickRandom(ReturnItemsMessages),
             Items = items,
             ItemsMaxStorageLifetimeSeconds = 86400,
@@ -130,15 +131,15 @@ public class FriendlyPostRaidService(
     {
         return new UserDialogInfo
         {
-            Id = new MongoId("67d3a28a3d6f4f7dbd09ed13"),
-            Aid = 1113680,
+            Id = FriendlyCourierTraderProfile.CourierTraderId,
+            Aid = FriendlyCourierTraderProfile.CourierAid,
             Info = new UserDialogDetails
             {
-                Nickname = "SquadDelivery",
+                Nickname = FriendlyCourierTraderProfile.CourierNickname,
                 Side = "Usec",
                 Level = 1,
-                MemberCategory = MemberCategory.Emissary,
-                SelectedMemberCategory = MemberCategory.Emissary,
+                MemberCategory = MemberCategory.Trader,
+                SelectedMemberCategory = MemberCategory.Trader,
             },
         };
     }
