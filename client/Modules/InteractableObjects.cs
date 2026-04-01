@@ -88,9 +88,16 @@ namespace friendlySAIN.Modules
 
             if (flatItems != null && flatItems.Any())
             {
+                Dictionary<string, object>? member = null;
+                if (_followersWithLoot != null && _followersWithLoot.Count > 0)
+                {
+                    member = _followersWithLoot.Values.FirstOrDefault();
+                }
+
                 RequestHandler.PostJson("/singleplayer/returnitems", new
                 {
                     items = flatItems,
+                    member,
                 }.ToJson(_defaultJsonConverters));
 
                 return true;
@@ -321,6 +328,12 @@ namespace friendlySAIN.Modules
 
         public static Vector3 GetLootPosition()
         {
+            if (Instance?._lootItem != null && TryGetLootNavPosition(Instance._lootItem, out Vector3 livePosition))
+            {
+                Instance._lootPosition = livePosition;
+                return livePosition;
+            }
+
             return Instance?._lootPosition ?? Vector3.zero;
         }
 
@@ -352,9 +365,6 @@ namespace friendlySAIN.Modules
                         return false;
                     }
 
-                    bot.ItemTaker.ThrownItems.Add(Instance._lootItem);
-                    bot.ItemTaker.ItemToTake = Instance._lootItem;
-
                     Instance._lootPosition = navMeshHit.position;
 
                     Instance._botToLoot = _follower;
@@ -371,6 +381,41 @@ namespace friendlySAIN.Modules
             }
 
             return false;
+        }
+
+        private static bool TryGetLootNavPosition(LootItem lootItem, out Vector3 position)
+        {
+            position = Vector3.zero;
+
+            if (lootItem == null)
+            {
+                return false;
+            }
+
+            Vector3 samplePoint = lootItem.transform.position;
+
+            try
+            {
+                Collider collider = lootItem.GetComponentInChildren<Collider>();
+                if (collider != null)
+                {
+                    samplePoint = collider.bounds.center;
+                    samplePoint.y = collider.bounds.center.y - collider.bounds.extents.y - 0.4f;
+                }
+
+                if (NavMesh.SamplePosition(samplePoint, out NavMeshHit navMeshHit, 2f, -1))
+                {
+                    position = navMeshHit.position;
+                    return true;
+                }
+            }
+            catch
+            {
+                // fall back to raw transform position below
+            }
+
+            position = lootItem.transform.position;
+            return true;
         }
 
         public static bool IsTaker(BotOwner bot)

@@ -8,4 +8,7 @@ public record FriendlyPostRaidReturnItemsRequest : IRequestData
 {
     [JsonPropertyName("items")]
     public List<Item>? Items { get; set; }
+
+    [JsonPropertyName("member")]
+    public FriendlyPostRaidMember? Member { get; set; }
 }

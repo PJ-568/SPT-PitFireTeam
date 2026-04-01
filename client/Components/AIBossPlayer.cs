@@ -976,7 +976,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            closestFollowerData.SetTakeLootItem(20f);
+            closestFollowerData.SetTakeLootItem(35f);
             closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
         }

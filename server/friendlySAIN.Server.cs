@@ -5,7 +5,6 @@ using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Mod;
 using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Models.Utils;
-using friendlySAIN.Server.Services;
 using Range = SemanticVersioning.Range;
 using Version = SemanticVersioning.Version;
 
@@ -35,7 +34,6 @@ public class FriendlySainServerPlugin(
     public Task OnLoad()
     {
         EnforcePmcArmbands();
-        RegisterSquadCourierTrader();
         logger.Info("friendlySAIN.Server loaded");
         return Task.CompletedTask;
     }
@@ -46,30 +44,6 @@ public class FriendlySainServerPlugin(
 
         ApplyForcedArmband(botTypes, new[] { "usec", "pmcusec" }, ItemTpl.ARMBAND_BLUE);
         ApplyForcedArmband(botTypes, new[] { "bear", "pmcbear" }, ItemTpl.ARMBAND_RED);
-    }
-
-    private void RegisterSquadCourierTrader()
-    {
-        var traders = databaseService.GetTraders();
-        if (!traders.ContainsKey(FriendlyCourierTraderProfile.CourierTraderId))
-        {
-            traders[FriendlyCourierTraderProfile.CourierTraderId] = FriendlyCourierTraderProfile.CreateTrader();
-        }
-
-        foreach (var locale in databaseService.GetLocales().Global.Values)
-        {
-            var entries = locale.Value;
-            if (entries == null)
-            {
-                continue;
-            }
-
-            entries[$"{FriendlyCourierTraderProfile.CourierTraderIdValue} FullName"] = FriendlyCourierTraderProfile.CourierNickname;
-            entries[$"{FriendlyCourierTraderProfile.CourierTraderIdValue} FirstName"] = FriendlyCourierTraderProfile.CourierNickname;
-            entries[$"{FriendlyCourierTraderProfile.CourierTraderIdValue} Nickname"] = FriendlyCourierTraderProfile.CourierNickname;
-            entries[$"{FriendlyCourierTraderProfile.CourierTraderIdValue} Location"] = FriendlyCourierTraderProfile.CourierLocation;
-            entries[$"{FriendlyCourierTraderProfile.CourierTraderIdValue} Description"] = FriendlyCourierTraderProfile.CourierDescription;
-        }
     }
 
     private void ApplyForcedArmband(

@@ -1,3 +1,4 @@
+using Comfort.Common;
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.Interactive;
@@ -8,7 +9,6 @@ using friendlySAIN.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -36,6 +36,8 @@ namespace friendlySAIN.BigBrain.Actions
         private Vector3 regroupBossAnchorPosition;
         private float nextRegroupBossAnchorCheckAt;
         private bool lootPickupInProgress;
+        private float lootPickupReadyAt;
+        private float lootPickupAttemptStartedAt;
         private LootItem? activeLootItem;
         private Door? activeDoor;
         private bool doorMoveIssued;
@@ -82,6 +84,8 @@ namespace friendlySAIN.BigBrain.Actions
             regroupBossAnchorPosition = Vector3.zero;
             nextRegroupBossAnchorCheckAt = 0f;
             lootPickupInProgress = false;
+            lootPickupReadyAt = 0f;
+            lootPickupAttemptStartedAt = 0f;
             activeLootItem = null;
             activeDoor = null;
             doorMoveIssued = false;
@@ -121,6 +125,8 @@ namespace friendlySAIN.BigBrain.Actions
                 regroupBossAnchorPosition = Vector3.zero;
                 nextRegroupBossAnchorCheckAt = 0f;
                 lootPickupInProgress = false;
+                lootPickupReadyAt = 0f;
+                lootPickupAttemptStartedAt = 0f;
                 activeLootItem = null;
                 CleanupDoorInteraction();
             }
@@ -728,13 +734,13 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            if (!InteractableObjects.IsTaker(BotOwner))
+            if (!CanContinueLootCommand(out string? guardFailureReason))
             {
-                ClearTakeLootState("TakeLoot:notTaker");
+                ClearTakeLootState(guardFailureReason ?? "TakeLoot:invalidState");
                 return;
             }
 
-            activeLootItem ??= BotOwner.ItemTaker?.ItemToTake ?? InteractableObjects.GetCurLootItem();
+            activeLootItem ??= InteractableObjects.GetCurLootItem();
             if (activeLootItem == null)
             {
                 ClearTakeLootState("TakeLoot:itemMissing");
@@ -755,6 +761,7 @@ namespace friendlySAIN.BigBrain.Actions
             float distance = Vector3.Distance(BotOwner.Position, lootPosition);
             if (distance > 1.75f)
             {
+                lootPickupReadyAt = 0f;
                 BotOwner.GoToSomePointData.SetPoint(lootPosition);
                 BotOwner.GoToSomePointData.UpdateToGo(false);
                 BotOwner.Steering.LookToMovingDirection();
@@ -768,183 +775,240 @@ namespace friendlySAIN.BigBrain.Actions
             }
             BotOwner.Steering.LookToPoint(activeLootItem.transform.position);
 
-            if (!lootPickupInProgress)
+            if (lootPickupInProgress)
             {
-                lootPickupInProgress = true;
-                PickupLootAsync(activeLootItem).HandleExceptions();
+                if (lootPickupAttemptStartedAt > 0f && Time.time - lootPickupAttemptStartedAt > 3f)
+                {
+                    StopLootPickupState(BotOwner?.GetPlayer);
+                    lootPickupInProgress = false;
+                    lootPickupAttemptStartedAt = 0f;
+                    lootPickupReadyAt = Time.time + 0.35f;
+                }
+
+                return;
             }
+
+            if (lootPickupReadyAt <= 0f)
+            {
+                lootPickupReadyAt = Time.time + 0.35f;
+                return;
+            }
+
+            if (Time.time < lootPickupReadyAt)
+            {
+                return;
+            }
+
+            StartLootPickup(activeLootItem);
         }
 
-        private async Task PickupLootAsync(LootItem lootItem)
+        private bool CanContinueLootCommand(out string? reason)
+        {
+            reason = null;
+
+            if (BotOwner == null || BotOwner.IsDead || BotOwner.BotState != EBotState.Active)
+            {
+                reason = "TakeLoot:botInvalid";
+                return false;
+            }
+
+            if (!InteractableObjects.IsTaker(BotOwner))
+            {
+                reason = "TakeLoot:notTaker";
+                return false;
+            }
+
+            if (BotOwner.Memory?.HaveEnemy == true)
+            {
+                reason = "TakeLoot:enemy";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryGetLootExecutionContext(
+            LootItem? lootItem,
+            out Player? botPlayer,
+            out InventoryController? inventory,
+            out Item? rootItem,
+            out string reason)
+        {
+            botPlayer = null;
+            inventory = null;
+            rootItem = null;
+
+            if (!CanContinueLootCommand(out string? guardFailureReason))
+            {
+                reason = guardFailureReason ?? "TakeLoot:invalidState";
+                return false;
+            }
+
+            if (lootItem == null || lootItem.gameObject == null)
+            {
+                reason = "TakeLoot:itemMissing";
+                return false;
+            }
+
+            TraderControllerClass? itemOwner = lootItem.ItemOwner;
+            rootItem = itemOwner?.RootItem;
+            if (rootItem == null)
+            {
+                reason = "TakeLoot:itemNull";
+                return false;
+            }
+
+            botPlayer = BotOwner.GetPlayer;
+            inventory = botPlayer?.InventoryController;
+            if (botPlayer == null || inventory == null)
+            {
+                reason = "TakeLoot:noInventory";
+                return false;
+            }
+
+            reason = string.Empty;
+            return true;
+        }
+
+        private void StartLootPickup(LootItem lootItem)
         {
             try
             {
-                Item? item = lootItem?.Item;
-                if (item == null)
+                if (!TryGetLootExecutionContext(lootItem, out Player? botPlayer, out InventoryController? inventory, out Item? rootItem, out string reason))
                 {
-                    ClearTakeLootState("TakeLoot:itemNull");
+                    ClearTakeLootState(reason);
                     return;
                 }
 
-                await Task.Delay(600);
+                var pickupResult = InteractionsHandlerClass.QuickFindAppropriatePlace(
+                    rootItem,
+                    inventory,
+                    inventory.Inventory.Equipment.ToEnumerable<InventoryEquipment>(),
+                    InteractionsHandlerClass.EMoveItemOrder.PickUp,
+                    true);
 
-                if (BotOwner.IsDead || !InteractableObjects.IsTaker(BotOwner))
-                {
-                    ClearTakeLootState("TakeLoot:takerLost");
-                    return;
-                }
-
-                Player? botPlayer = BotOwner.GetPlayer;
-                InventoryController? inventory = botPlayer?.InventoryController;
-                if (inventory == null || botPlayer == null)
-                {
-                    ClearTakeLootState("TakeLoot:noInventory");
-                    return;
-                }
-
-                InventoryEquipment equipment = inventory.Inventory.Equipment;
-                bool wasTransferred = false;
-
-                List<Type> equipTypes = new List<Type>
-                {
-                    typeof(ThrowWeapItemClass),
-                    typeof(MedicalItemClass),
-                    typeof(MagazineItemClass)
-                };
-
-                if (equipTypes.Any(t => item.GetType() == t))
-                {
-                    var quickPlace = InteractionsHandlerClass.QuickFindAppropriatePlace(
-                        item,
-                        inventory,
-                        equipment.ToEnumerable<InventoryEquipment>(),
-                        InteractionsHandlerClass.EMoveItemOrder.PrioritizeTargetsOrder,
-                        true);
-                    if (quickPlace.Succeeded)
-                    {
-                        BotOwner.ItemTaker.method_1(botPlayer, quickPlace.Value, lootItem.ItemOwner.RootItem, lootItem.LastOwner);
-                        wasTransferred = true;
-                        if (item is MagazineItemClass mag)
-                        {
-                            inventory.StrictCheckMagazine(mag, false, 0, false, true);
-                        }
-                    }
-                }
-
-                bool isEquipmentItem =
-                    item is BackpackItemClass ||
-                    item is ArmorItemClass ||
-                    item is VestItemClass ||
-                    item is HeadwearItemClass;
-                if (!wasTransferred && isEquipmentItem)
-                {
-                    ItemAddress slotLocation = inventory.FindSlotToPickUp(item);
-                    if (slotLocation != null)
-                    {
-                        var moveResult = InteractionsHandlerClass.Move(item, slotLocation, inventory, true);
-                        if (moveResult.Succeeded)
-                        {
-                            wasTransferred = true;
-                            await inventory.TryRunNetworkTransaction(moveResult, null);
-                        }
-                    }
-                }
-
-                if (!wasTransferred && item is Weapon weapon && item.GetItemComponent<KnifeComponent>() == null)
-                {
-                    ItemAddress? location = null;
-                    if (
-                        (item is PistolItemClass && equipment.GetSlot(EquipmentSlot.Holster).ContainedItem == null) ||
-                        (item is not PistolItemClass && equipment.GetSlot(EquipmentSlot.SecondPrimaryWeapon).ContainedItem == null))
-                    {
-                        location = inventory.FindSlotToPickUp(weapon);
-                    }
-
-                    if (location != null)
-                    {
-                        var moveResult = InteractionsHandlerClass.Move(weapon, location, inventory, true);
-                        if (moveResult.Succeeded)
-                        {
-                            wasTransferred = true;
-                            await inventory.TryRunNetworkTransaction(moveResult, null);
-                            BotOwner.WeaponManager.UpdateWeaponsList();
-                        }
-                    }
-                }
-
-                if (!wasTransferred)
-                {
-                    List<EquipmentSlot> possibleSlots = new List<EquipmentSlot>
-                    {
-                        EquipmentSlot.Backpack,
-                        EquipmentSlot.TacticalVest,
-                        EquipmentSlot.ArmorVest,
-                        EquipmentSlot.Pockets
-                    };
-
-                    foreach (EquipmentSlot slot in possibleSlots)
-                    {
-                        if (BotOwner.ItemTaker.method_10(slot, lootItem))
-                        {
-                            wasTransferred = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!wasTransferred)
+                if (!pickupResult.Succeeded)
                 {
                     BotOwner.BotTalk.TrySay(EPhraseTrigger.Negative, false);
                     ClearTakeLootState("TakeLoot:noSpace");
                     return;
                 }
 
-                if (followerData?.IsSquadMate == true)
+                if (!inventory.CanExecute(pickupResult.Value))
                 {
-                    InteractableObjects.StoreItem(BotOwner, item);
+                    ClearTakeLootState("TakeLoot:cannotExecute");
+                    return;
                 }
 
-                BotOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
-                ClearTakeLootState("TakeLoot:done");
+                lootPickupInProgress = true;
+                lootPickupAttemptStartedAt = Time.time;
+                botPlayer.SaveInteractionRayInfo();
+                botPlayer.CurrentManagedState.Pickup(true, () => ExecuteLootPickupTransaction(lootItem, rootItem, inventory, pickupResult.Value));
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogError("TakeLoot command failed");
+                Modules.Logger.LogError("TakeLoot start failed");
                 Modules.Logger.LogError(ex);
-                ClearTakeLootState("TakeLoot:exception");
+                ClearTakeLootState("TakeLoot:startException");
+            }
+        }
+
+        private void ExecuteLootPickupTransaction(LootItem lootItem, Item rootItem, InventoryController inventory, GInterface424 pickupAction)
+        {
+            try
+            {
+                if (!TryGetLootExecutionContext(lootItem, out Player? botPlayer, out InventoryController? currentInventory, out Item? currentRootItem, out string reason))
+                {
+                    StopLootPickupState(botPlayer);
+                    ClearTakeLootState(reason);
+                    return;
+                }
+
+                if (!ReferenceEquals(currentInventory, inventory) || !ReferenceEquals(currentRootItem, rootItem))
+                {
+                    StopLootPickupState(botPlayer);
+                    ClearTakeLootState("TakeLoot:itemChanged");
+                    return;
+                }
+
+                if (pickupAction is GInterface427 moveAction)
+                {
+                    ItemAddress currentAddress = rootItem.CurrentAddress;
+                    if (currentAddress == null || !moveAction.From.Equals(currentAddress))
+                    {
+                        StopLootPickupState(botPlayer);
+                        ClearTakeLootState("TakeLoot:itemMoved");
+                        return;
+                    }
+                }
+
+                inventory.RunNetworkTransaction(pickupAction, new Callback(result => CompleteLootPickup(result, botPlayer, rootItem)));
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("TakeLoot transaction failed");
+                Modules.Logger.LogError(ex);
+                StopLootPickupState(BotOwner?.GetPlayer);
+                ClearTakeLootState("TakeLoot:transactionException");
+            }
+        }
+
+        private void CompleteLootPickup(IResult result, Player? botPlayer, Item rootItem)
+        {
+            try
+            {
+                if (result?.Succeed == true)
+                {
+                    botPlayer?.UpdateInteractionCast();
+
+                    if (followerData?.IsSquadMate == true)
+                    {
+                        InteractableObjects.StoreItem(BotOwner, rootItem);
+                    }
+
+                    if (rootItem is Weapon weapon && rootItem.GetItemComponent<KnifeComponent>() == null)
+                    {
+                        BotOwner.WeaponManager.UpdateWeaponsList();
+                    }
+
+                    BotOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                    ClearTakeLootState("TakeLoot:done");
+                    return;
+                }
+
+                BotOwner.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                ClearTakeLootState("TakeLoot:transactionFailed");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("TakeLoot completion failed");
+                Modules.Logger.LogError(ex);
+                ClearTakeLootState("TakeLoot:completionException");
+            }
+            finally
+            {
+                StopLootPickupState(botPlayer);
+            }
+        }
+
+        private static void StopLootPickupState(Player? botPlayer)
+        {
+            try
+            {
+                botPlayer?.CurrentManagedState?.Pickup(false, null);
+            }
+            catch
+            {
+                // best-effort cleanup only
             }
         }
 
         private void ClearTakeLootState(string reason)
         {
-            LootItem? lootToClear = activeLootItem;
             lootPickupInProgress = false;
+            lootPickupReadyAt = 0f;
+            lootPickupAttemptStartedAt = 0f;
             activeLootItem = null;
-
-            try
-            {
-                if (BotOwner?.ItemTaker != null)
-                {
-                    if (lootToClear != null)
-                    {
-                        BotOwner.ItemTaker.ThrownItems?.Remove(lootToClear);
-
-                        if (ReferenceEquals(BotOwner.ItemTaker.ItemToTake, lootToClear))
-                        {
-                            BotOwner.ItemTaker.ItemToTake = null;
-                        }
-                    }
-                    else if (BotOwner.ItemTaker.ItemToTake != null)
-                    {
-                        BotOwner.ItemTaker.ItemToTake = null;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Modules.Logger.LogError("TakeLoot cleanup failed");
-                Modules.Logger.LogError(ex);
-            }
 
             if (BotOwner != null)
             {
