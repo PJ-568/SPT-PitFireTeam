@@ -1057,6 +1057,16 @@ namespace friendlySAIN.Patches
         private static void PatchPrefix(ref ESpawnCategory category, EPlayerSide side, string groupId, string teamId, IPlayer person, string infiltration, string profileId)
         {
             if (!friendlySAIN.spawnPoint.Value || infiltration == "Hideout") return;
+
+            if (!string.IsNullOrEmpty(profileId))
+            {
+                int transitCount;
+                if (TransitControllerAbstractClass.IsTransit(profileId, out transitCount))
+                {
+                    return;
+                }
+            }
+
             // switch to coop mode if the player has followers
             if (category == ESpawnCategory.Player && person == null)
             {
