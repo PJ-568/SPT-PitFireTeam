@@ -37,6 +37,17 @@ public class FriendlyTeammateService(
     ISptLogger<FriendlyTeammateService> logger
 )
 {
+    private static readonly string[] WeaponSkillNames =
+    [
+        "Pistol",
+        "Revolver",
+        "SMG",
+        "Assault",
+        "Shotgun",
+        "Sniper",
+        "LMG",
+    ];
+
     private const string ModFolderName = "friendlySAIN-ServerMod";
     private const string TeammateFolderName = "teammates";
     private const string DefaultLoadoutName = "Default";
@@ -83,7 +94,9 @@ public class FriendlyTeammateService(
         teammate.Aid = GetUniqueAccountId(sessionId);
 
         NormalizeTeammateProfile(teammate, playerPmc);
-        ApplyPmcFollowerSkillBaseline(teammate);
+        NormalizeTeammateSkillsForCreation(teammate, playerPmc);
+        // Temporarily disabled: this floor baseline can over-inflate teammate skills.
+        // ApplyPmcFollowerSkillBaseline(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammate(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
@@ -131,7 +144,9 @@ public class FriendlyTeammateService(
         teammate.Aid = GetUniqueAccountId(sessionId);
 
         NormalizeTeammateProfile(teammate, playerPmc);
-        ApplyPmcFollowerSkillBaseline(teammate);
+        NormalizeTeammateSkillsForCreation(teammate, playerPmc);
+        // Temporarily disabled: this floor baseline can over-inflate teammate skills.
+        // ApplyPmcFollowerSkillBaseline(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammate(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
@@ -344,7 +359,8 @@ public class FriendlyTeammateService(
     private BotBase PrepareTeammateForFetch(BotBase teammate, double? healthMultiplier = null)
     {
         var clone = cloner.Clone(teammate) ?? teammate;
-        ApplyPmcFollowerSkillBaseline(clone);
+        // Temporarily disabled: this floor baseline can over-inflate teammate skills.
+        // ApplyPmcFollowerSkillBaseline(clone);
         ApplyTemporaryHealthMultiplier(clone, healthMultiplier);
         EnsureFollowerHasSecureContainerSupplies(clone);
         return clone;
@@ -686,6 +702,115 @@ public class FriendlyTeammateService(
         teammate.Achievements = playerPmc.Achievements;
         teammate.Stats.Eft.TotalInGameTime = playerPmc.Stats?.Eft?.TotalInGameTime ?? teammate.Stats.Eft.TotalInGameTime ?? 0;
         teammate.Stats.Eft.OverallCounters = playerPmc.Stats?.Eft?.OverallCounters ?? teammate.Stats.Eft.OverallCounters;
+    }
+
+    private static void NormalizeTeammateSkillsForCreation(BotBase teammate, PmcData playerPmc)
+    {
+        if (teammate?.Skills?.Common == null || playerPmc?.Skills?.Common == null)
+        {
+            return;
+        }
+
+        var generatedSkillProgress = teammate.Skills.Common
+            .Where(skill => skill != null)
+            .GroupBy(skill => skill.Id)
+            .ToDictionary(group => group.Key, group => group.First().Progress);
+
+        var playerSkillProgress = playerPmc.Skills.Common
+            .Where(skill => skill != null)
+            .GroupBy(skill => skill.Id)
+            .ToDictionary(group => group.Key, group => group.First().Progress);
+
+        if (playerSkillProgress.Count == 0)
+        {
+            return;
+        }
+
+        double playerGlobalCap = playerSkillProgress.Values.Max();
+
+        foreach (var teammateSkill in teammate.Skills.Common)
+        {
+            if (teammateSkill == null)
+            {
+                continue;
+            }
+
+            if (!playerSkillProgress.TryGetValue(teammateSkill.Id, out var playerProgress))
+            {
+                teammateSkill.Progress = Math.Min(teammateSkill.Progress, playerGlobalCap);
+                teammateSkill.PointsEarnedDuringSession = 0;
+                continue;
+            }
+
+            teammateSkill.Progress = Math.Min(teammateSkill.Progress, playerProgress);
+            teammateSkill.PointsEarnedDuringSession = 0;
+        }
+
+        ApplyRandomWeaponSpecialty(teammate.Skills.Common, playerSkillProgress, generatedSkillProgress);
+    }
+
+    private static void ApplyRandomWeaponSpecialty(
+        IEnumerable<CommonSkill> teammateSkills,
+        Dictionary<SkillTypes, double> playerSkillProgress,
+        Dictionary<SkillTypes, double> generatedSkillProgress)
+    {
+        if (teammateSkills == null)
+        {
+            return;
+        }
+
+        var weaponSkillTypes = ResolveWeaponSkillTypes();
+        if (weaponSkillTypes.Count == 0)
+        {
+            return;
+        }
+
+        var weaponSkills = teammateSkills
+            .Where(skill => skill != null && weaponSkillTypes.Contains(skill.Id))
+            .ToList();
+
+        if (weaponSkills.Count == 0)
+        {
+            return;
+        }
+
+        var playerWeaponMax = weaponSkills
+            .Select(skill => playerSkillProgress.TryGetValue(skill.Id, out var progress) ? progress : skill.Progress)
+            .DefaultIfEmpty(0d)
+            .Max();
+
+        var specialtySkill = weaponSkills[Random.Shared.Next(weaponSkills.Count)];
+        var bestOtherWeaponProgress = weaponSkills
+            .Where(skill => skill != specialtySkill)
+            .Select(skill => skill.Progress)
+            .DefaultIfEmpty(specialtySkill.Progress)
+            .Max();
+
+        var specialtyBonus = Random.Shared.Next(125, 276);
+        var specialtyCap = Math.Min(5100d, playerWeaponMax + specialtyBonus);
+        var specialtyFloor = Math.Min(specialtyCap, bestOtherWeaponProgress + specialtyBonus);
+        var generatedSpecialtyProgress = generatedSkillProgress.TryGetValue(specialtySkill.Id, out var generatedProgress)
+            ? generatedProgress
+            : specialtyFloor;
+
+        specialtySkill.Progress = Math.Max(specialtySkill.Progress, Math.Min(generatedSpecialtyProgress, specialtyCap));
+        specialtySkill.Progress = Math.Max(specialtySkill.Progress, specialtyFloor);
+        specialtySkill.PointsEarnedDuringSession = 0;
+    }
+
+    private static HashSet<SkillTypes> ResolveWeaponSkillTypes()
+    {
+        var result = new HashSet<SkillTypes>();
+
+        foreach (var skillName in WeaponSkillNames)
+        {
+            if (Enum.TryParse(skillName, ignoreCase: false, out SkillTypes skillType))
+            {
+                result.Add(skillType);
+            }
+        }
+
+        return result;
     }
 
     private void ApplyFollowerProgress(BotBase teammate, FriendlyTeammateFollowerProgressRequest progressEntry)
