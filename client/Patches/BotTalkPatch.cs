@@ -69,6 +69,30 @@ namespace friendlySAIN.Patches
 
             return true;
         }
+
+        public static bool TryGetArmedPhrase(BotOwner owner, out EPhraseTrigger phrase)
+        {
+            phrase = EPhraseTrigger.None;
+
+            if (owner == null || string.IsNullOrEmpty(owner.ProfileId))
+            {
+                return false;
+            }
+
+            if (!StateByFollower.TryGetValue(owner.ProfileId, out ForcedPhraseState state))
+            {
+                return false;
+            }
+
+            if (UnityEngine.Time.time > state.UntilTime)
+            {
+                StateByFollower.Remove(owner.ProfileId);
+                return false;
+            }
+
+            phrase = state.Phrase;
+            return true;
+        }
     }
 
     internal static class FollowerContactPhraseGate

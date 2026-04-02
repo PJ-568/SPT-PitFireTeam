@@ -15,6 +15,8 @@ namespace friendlySAIN.Patches
 {
     internal class FollowRequestPatch : ModulePatch
     {
+        private const int FirstPickupConversionDelayMs = 75;
+        private const float RecruitForcedPhraseSeconds = 2.5f;
 
         private static double MathClamp(double value, double min, double max)
         {
@@ -201,21 +203,17 @@ namespace friendlySAIN.Patches
                                 }
 
                                 me.BotTalk.SetSilence(2f);
-                                FollowerForcedPhraseGate.Arm(me, EPhraseTrigger.Roger, 1.5f);
-                                if (BossPlayers.AddFollower(me, playerBoss) != null)
+                                FollowerForcedPhraseGate.Arm(me, EPhraseTrigger.Roger, RecruitForcedPhraseSeconds);
+
+                                int conversionDelayMs = playerBoss.bossGroup == null ? FirstPickupConversionDelayMs : 0;
+                                Action completeRecruit = () => CompleteRecruitConversion(me, playerBoss);
+                                if (conversionDelayMs > 0)
                                 {
-                                    TrySayControlledFollowerPhrase(
-                                        me,
-                                        EPhraseTrigger.Roger,
-                                        EInteraction.OkGesture,
-                                        UnityEngine.Random.Range(300, 700));
+                                    Utils.Utils.SetTimeout(completeRecruit, conversionDelayMs);
                                 }
                                 else
                                 {
-                                    FollowerForcedPhraseGate.Arm(me, EPhraseTrigger.DontKnow, 1.5f);
-                                    me.BotTalk.SetSilence(0f);
-                                    me.BotTalk.DropNextSayPeriod();
-                                    me.BotTalk.Say(EPhraseTrigger.DontKnow, true);
+                                    completeRecruit();
                                 }
                             }
                             catch (Exception ex)
@@ -249,6 +247,39 @@ namespace friendlySAIN.Patches
             return true;
         }
 
+        private static void CompleteRecruitConversion(BotOwner bot, pitAIBossPlayer playerBoss)
+        {
+            if (bot == null || playerBoss == null || bot.IsDead || bot.BotState != EBotState.Active || bot.GetPlayer == null || !bot.GetPlayer.HealthController.IsAlive)
+            {
+                return;
+            }
+
+            if (bot.Memory?.HaveEnemy == true)
+            {
+                FollowerForcedPhraseGate.Arm(bot, EPhraseTrigger.DontKnow, 1.5f);
+                bot.BotTalk.SetSilence(0f);
+                bot.BotTalk.DropNextSayPeriod();
+                bot.BotTalk.Say(EPhraseTrigger.DontKnow, true);
+                bot.Gesture.TryGestus(EInteraction.NoGesture, true);
+                return;
+            }
+
+            if (BossPlayers.AddFollower(bot, playerBoss) != null)
+            {
+                TrySayControlledFollowerPhrase(
+                    bot,
+                    EPhraseTrigger.Roger,
+                    EInteraction.OkGesture,
+                    UnityEngine.Random.Range(300, 700));
+                return;
+            }
+
+            FollowerForcedPhraseGate.Arm(bot, EPhraseTrigger.DontKnow, 1.5f);
+            bot.BotTalk.SetSilence(0f);
+            bot.BotTalk.DropNextSayPeriod();
+            bot.BotTalk.Say(EPhraseTrigger.DontKnow, true);
+        }
+
         private static void TrySayControlledFollowerPhrase(
             BotOwner bot,
             EPhraseTrigger phrase,
@@ -268,9 +299,40 @@ namespace friendlySAIN.Patches
                 }
                 bot.BotTalk.SetSilence(0f);
                 bot.BotTalk.DropNextSayPeriod();
-                bot.BotTalk.Say(phrase, true);
+                bool saidPhrase = false;
+                if (friendlySAIN.ShouldDisableSainForFollowers)
+                {
+                    saidPhrase = TryPlayDirectFollowerPhrase(bot, phrase);
+                }
+
+                if (!saidPhrase)
+                {
+                    bot.BotTalk.Say(phrase, true);
+                }
+
                 bot.Gesture.TryGestus(gesture, true);
             }, delayMs);
+        }
+
+        private static bool TryPlayDirectFollowerPhrase(BotOwner bot, EPhraseTrigger phrase)
+        {
+            if (bot?.GetPlayer?.Speaker == null)
+            {
+                return false;
+            }
+
+            var speaker = bot.GetPlayer.Speaker;
+            if (speaker.Speaking || speaker.Busy)
+            {
+                return false;
+            }
+
+            ETagStatus mask = (bot.BotsGroup != null && bot.BotsGroup.MembersCount > 1)
+                ? ETagStatus.Coop
+                : ETagStatus.Solo;
+
+            mask |= ETagStatus.Unaware;
+            return speaker.Play(phrase, mask, true, null) != null;
         }
     }
 

@@ -25,6 +25,8 @@ namespace friendlySAIN.Patches
         private static Type? sainPlayerTalkPatch = null;
         private static Type? sainBotTalkPatch = null;
         private static Type? sainBotTalkManualUpdatePatch = null;
+        private static Type? sainPlayerComponentType = null;
+        private static PropertyInfo? sainPlayerComponentPlayerProperty = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
             if (!friendlySAIN.IsSAINInstalled) return;
@@ -66,6 +68,12 @@ namespace friendlySAIN.Patches
                 sainBotTalkManualUpdatePatch = Type.GetType("SAIN.Patches.Talk.BotTalkManualUpdatePatch, SAIN");
             }
 
+            if (sainPlayerComponentType == null)
+            {
+                sainPlayerComponentType = Type.GetType("SAIN.Components.PlayerComponent, SAIN");
+                sainPlayerComponentPlayerProperty = sainPlayerComponentType?.GetProperty("Player");
+            }
+
             if (enemyTalk != null)
             {
                 harmony.Patch(AccessTools.Method(enemyTalk, "playerTalked"), new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchPlayerTalked), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
@@ -78,6 +86,7 @@ namespace friendlySAIN.Patches
 
             PatchFollowerLayerFallbackIfAddonMissing(harmony);
             PatchSainTalkPrefixesForFollowers(harmony);
+            PatchSainPlayerVoiceLineForFollowers(harmony);
 
 
             if (squadType != null && SAINEnableClass != null)
@@ -153,6 +162,21 @@ namespace friendlySAIN.Patches
             }
         }
 
+        private static void PatchSainPlayerVoiceLineForFollowers(Harmony harmony)
+        {
+            MethodInfo? playVoiceLine =
+                sainPlayerComponentType != null
+                ? AccessTools.Method(sainPlayerComponentType, "PlayVoiceLine", new[] { typeof(EPhraseTrigger), typeof(ETagStatus), typeof(bool) })
+                : null;
+
+            if (playVoiceLine != null)
+            {
+                harmony.Patch(
+                    playVoiceLine,
+                    prefix: new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(GuardSainPlayerVoiceLineForFollower), BindingFlags.NonPublic | BindingFlags.Static)));
+            }
+        }
+
         [HarmonyPrefix]
         private static bool BypassSainTalkPatchForFollower(object[] __args, ref bool __result)
         {
@@ -202,6 +226,55 @@ namespace friendlySAIN.Patches
         private static bool PatchEnemyConvesation(EPhraseTrigger trigger, ETagStatus status, Player player)
         {
             return PatchPlayerTalked(trigger, status, player);
+        }
+
+        [HarmonyPrefix]
+        private static bool GuardSainPlayerVoiceLineForFollower(object __instance, EPhraseTrigger phrase, ETagStatus mask, bool aggressive, ref bool __result)
+        {
+            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            {
+                return true;
+            }
+
+            try
+            {
+                Player? player = sainPlayerComponentPlayerProperty?.GetValue(__instance) as Player;
+                BotOwner? botOwner = player?.AIData?.BotOwner;
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return true;
+                }
+
+                if (FollowerForcedPhraseGate.ShouldBlock(botOwner, phrase))
+                {
+                    __result = false;
+                    return false;
+                }
+
+                if (FollowerMutedCombatPhraseGate.ShouldBlock(botOwner, phrase))
+                {
+                    __result = false;
+                    return false;
+                }
+
+                if (phrase == EPhraseTrigger.OnRepeatedContact && !FollowerContactPhraseGate.ShouldAllow(botOwner))
+                {
+                    __result = false;
+                    return false;
+                }
+
+                if (FollowerTalkFrequencyGate.ShouldBlockCombatTalk(botOwner, phrase))
+                {
+                    __result = false;
+                    return false;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            return true;
         }
 
         [HarmonyPrefix]
