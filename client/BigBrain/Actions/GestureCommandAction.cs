@@ -622,7 +622,8 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             BotOwner.StopMove();
-            if (BotOwner.Mover.TargetPose > 0.15f || BotOwner.Mover.TargetPose < 0.05f)
+            if (followerData?.ShouldCrouchForHoldPosition() == true &&
+                (BotOwner.Mover.TargetPose > 0.15f || BotOwner.Mover.TargetPose < 0.05f))
             {
                 BotOwner.Mover.SetPose(0.1f);
             }
@@ -747,6 +748,13 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
+            // Keep the selected loot item pinned for this command so brief quick-panel target changes
+            // don't drop execution ownership mid-pickup.
+            if (InteractableObjects.GetCurLootItem() == null)
+            {
+                InteractableObjects.SetCurLootItem(activeLootItem);
+            }
+
             Vector3 lootPosition;
             try
             {
@@ -814,8 +822,12 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (!InteractableObjects.IsTaker(BotOwner))
             {
-                reason = "TakeLoot:notTaker";
-                return false;
+                // Taker ownership can be cleared transiently; try to recover once before aborting.
+                if (!InteractableObjects.SetTaker(BotOwner) || !InteractableObjects.IsTaker(BotOwner))
+                {
+                    reason = "TakeLoot:notTaker";
+                    return false;
+                }
             }
 
             if (BotOwner.Memory?.HaveEnemy == true)

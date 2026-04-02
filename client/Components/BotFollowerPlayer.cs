@@ -61,6 +61,7 @@ namespace friendlySAIN.Components
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
+        private bool _holdPositionShouldCrouch = true;
         private bool _resumeHoldAfterComeCloser;
         private float _commandLookPauseUntil;
         private Vector3 _commandLookOverridePoint;
@@ -847,11 +848,12 @@ namespace friendlySAIN.Components
             _canPatrol = value;
         }
 
-        public void SetHoldPosition(float duration)
+        public void SetHoldPosition(float duration, bool crouch = true)
         {
             _activeCommand = FollowerCommandType.HoldPosition;
             _commandUntilTime = float.PositiveInfinity;
             _commandTarget = Vector3.zero;
+            _holdPositionShouldCrouch = crouch;
             _resumeHoldAfterComeCloser = false;
         }
 
@@ -859,7 +861,7 @@ namespace friendlySAIN.Components
         {
             _activeCommand = FollowerCommandType.MoveToPoint;
             _commandTarget = target;
-            _commandUntilTime = Time.time + Mathf.Max(2f, duration);
+            _commandUntilTime = float.PositiveInfinity;
             _resumeHoldAfterComeCloser = false;
         }
 
@@ -943,6 +945,11 @@ namespace friendlySAIN.Components
         public bool IsComeCloserFromHold()
         {
             return _activeCommand == FollowerCommandType.ComeCloser && _resumeHoldAfterComeCloser;
+        }
+
+        public bool ShouldCrouchForHoldPosition()
+        {
+            return _holdPositionShouldCrouch;
         }
 
         public void PauseCommandLookRandom(float duration)
@@ -1193,6 +1200,7 @@ namespace friendlySAIN.Components
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
+            _holdPositionShouldCrouch = true;
             _resumeHoldAfterComeCloser = false;
             _commandLookPauseUntil = 0f;
             _commandLookOverridePoint = Vector3.zero;

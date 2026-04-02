@@ -51,9 +51,9 @@ namespace friendlySAIN.Components
         private const float TeamStatusGestureDistance = 15f;
         private const float ContactLookDistance = 45f;
         private const float GestureCommandDistance = 15f;
+        private const float PhraseCommandDistance = 30f;
         private const float ComeWithMeMaxDistance = 25f;
-        private const float GoThereMaxDistance = 50f;
-        private const float GoThereCrouchMaxDistance = 25f;
+        private const float DefaultGoToDistance = 50f;
         private const float LookAtFollowerDistance = 27f;
         private const float RegroupCloseNavDistance = 8f;
         private const float RegroupSameLevelTolerance = 1.75f;
@@ -217,6 +217,16 @@ namespace friendlySAIN.Components
                 else if (info.phrase == EPhraseTrigger.Look)
                 {
                     HandleAttentionCommand();
+                }
+                else if (info.phrase == EPhraseTrigger.Stop)
+                {
+                    ApplyStopPhrase(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.GoForward)
+                {
+                    ApplyGoForwardPhrase(info.PlayerRequester);
+                    return;
                 }
                 else if (info.phrase == EPhraseTrigger.Regroup)
                 {
@@ -699,6 +709,14 @@ namespace friendlySAIN.Components
             return seesBody;
         }
 
+        private static bool CanReactToBossPhrase(BotOwner follower, IPlayer requester, float maxDistance)
+        {
+            if (follower == null || requester == null) return false;
+            if (follower.IsDead || follower.BotState != EBotState.Active) return false;
+
+            return (follower.Position - requester.Position).sqrMagnitude <= maxDistance * maxDistance;
+        }
+
         private void HandleAttentionCommand()
         {
             const float enforceBlockSeconds = 2f;
@@ -864,6 +882,51 @@ namespace friendlySAIN.Components
                 if (followerData == null) continue;
 
                 followerData.SetHoldPosition(float.PositiveInfinity);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ApplyStopPhrase(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            if (requester is Player requesterPlayer)
+            {
+                BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, PhraseCommandDistance);
+                if (lookedFollower != null)
+                {
+                    bool applied = false;
+                    if (!lookedFollower.IsDead &&
+                        lookedFollower.BotState == EBotState.Active &&
+                        !lookedFollower.Memory.HaveEnemy &&
+                        CanReactToBossPhrase(lookedFollower, requesterPlayer, PhraseCommandDistance))
+                    {
+                        BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
+                        if (lookedFollowerData != null)
+                        {
+                            lookedFollowerData.SetHoldPosition(float.PositiveInfinity, crouch: false);
+                            lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                            applied = true;
+                        }
+                    }
+
+                    if (applied)
+                    {
+                        return;
+                    }
+                }
+            }
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (follower.Memory.HaveEnemy) continue;
+                if (!CanReactToBossPhrase(follower, requester, PhraseCommandDistance)) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                followerData.SetHoldPosition(float.PositiveInfinity, crouch: false);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }
@@ -1324,23 +1387,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            float maxThereDistance = GoThereMaxDistance;
-            if (requester is Player requesterPlayer && (requesterPlayer.MovementContext?.PoseLevel ?? 1f) < 0.75f)
-            {
-                maxThereDistance = GoThereCrouchMaxDistance;
-            }
-
-            Vector3 lookDir = requester.LookDirection.sqrMagnitude > 0.001f
-                ? requester.LookDirection.normalized
-                : requester.Transform.forward;
-
-            Vector3 rawTarget = requesterPos + lookDir * maxThereDistance;
-            if (Physics.Raycast(requesterPos + Vector3.up * 1.5f, lookDir, out RaycastHit lookHit, maxThereDistance, LayerMaskClass.HighPolyWithTerrainMask))
-            {
-                rawTarget = lookHit.point;
-            }
-
-            if (!NavMesh.SamplePosition(rawTarget, out NavMeshHit navHit, 12f, NavMesh.AllAreas))
+            if (!TryGetGoToCommandTarget(requester, out Vector3 commandTarget))
             {
                 return;
             }
@@ -1351,8 +1398,73 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            followerData.SetMoveToPoint(navHit.position, 14f);
+            followerData.SetMoveToPoint(commandTarget, 0f);
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private void ApplyGoForwardPhrase(IPlayer requester)
+        {
+            if (requester == null) return;
+            if (Time.time < _nextThereGestureAt) return;
+            _nextThereGestureAt = Time.time + 0.6f;
+
+            if (!TryGetGoToCommandTarget(requester, out Vector3 commandTarget))
+            {
+                return;
+            }
+
+            BotOwner excludedFollower = null;
+            if (requester is Player requesterPlayer)
+            {
+                excludedFollower = FindLookedAtFollower(requesterPlayer, PhraseCommandDistance);
+            }
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (excludedFollower != null && follower == excludedFollower) continue;
+                if (!CanReactToBossPhrase(follower, requester, PhraseCommandDistance)) continue;
+                if (!CanAcceptThereCommand(follower)) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                followerData.SetMoveToPoint(commandTarget, 0f);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private static bool TryGetGoToCommandTarget(IPlayer requester, out Vector3 commandTarget)
+        {
+            commandTarget = Vector3.zero;
+            if (requester == null)
+            {
+                return false;
+            }
+
+            Vector3 requesterPos = requester.Position;
+            Vector3 lookDir = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+            Ray interactionRay = requester is Player player ? player.InteractionRay : new Ray(requesterPos + Vector3.up * 1.5f, lookDir);
+            Vector3 rayDirection = interactionRay.direction.sqrMagnitude > 0.001f
+                ? interactionRay.direction.normalized
+                : lookDir;
+
+            float maxGoToDistance = friendlySAIN.goToDistance?.Value ?? DefaultGoToDistance;
+            Vector3 rawTarget = interactionRay.origin + rayDirection * maxGoToDistance;
+            if (Physics.Raycast(interactionRay.origin, rayDirection, out RaycastHit lookHit, maxGoToDistance, LayerMaskClass.HighPolyWithTerrainMask))
+            {
+                rawTarget = lookHit.point;
+            }
+
+            if (!NavMesh.SamplePosition(rawTarget, out NavMeshHit navHit, 12f, NavMesh.AllAreas))
+            {
+                return false;
+            }
+
+            commandTarget = navHit.position;
+            return true;
         }
 
         private static bool CanAcceptThereCommand(BotOwner follower)

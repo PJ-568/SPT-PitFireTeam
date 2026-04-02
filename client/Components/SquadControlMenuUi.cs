@@ -1081,13 +1081,6 @@ namespace friendlySAIN.Components
         {
             foreach (ConfigEntryBase entry in GetSettingsEntries(
                 friendlySAIN.spawnPoint,
-                friendlySAIN.botGrenades,
-                friendlySAIN.enemyMarker,
-                friendlySAIN.statusSound,
-                friendlySAIN.enemyRemember,
-                friendlySAIN.scanDistance,
-                friendlySAIN.patrolRadius,
-                friendlySAIN.botTalk,
                 friendlySAIN.englishBear,
                 friendlySAIN.pingRadioVolume,
                 friendlySAIN.pingTime))
@@ -1095,6 +1088,32 @@ namespace friendlySAIN.Components
                 yield return new SquadSettingEntry
                 {
                     SectionTitle = friendlySAIN.optionsLang?.baseSettings ?? "Base Settings",
+                    Entry = entry
+                };
+            }
+
+            foreach (ConfigEntryBase entry in GetSettingsEntries(
+                friendlySAIN.patrolRadius,
+                friendlySAIN.goToDistance))
+            {
+                yield return new SquadSettingEntry
+                {
+                    SectionTitle = friendlySAIN.optionsLang?.followSettings ?? "Follow Settings",
+                    Entry = entry
+                };
+            }
+
+            foreach (ConfigEntryBase entry in GetSettingsEntries(
+                friendlySAIN.botGrenades,
+                friendlySAIN.enemyMarker,
+                friendlySAIN.statusSound,
+                friendlySAIN.enemyRemember,
+                friendlySAIN.scanDistance,
+                friendlySAIN.botTalk))
+            {
+                yield return new SquadSettingEntry
+                {
+                    SectionTitle = friendlySAIN.optionsLang?.combatSettings ?? "Combat Settings",
                     Entry = entry
                 };
             }
@@ -2084,6 +2103,11 @@ namespace friendlySAIN.Components
 
         private static string GetSettingDisplayName(ConfigEntryBase entry)
         {
+            if (entry == friendlySAIN.goToDistance)
+            {
+                return friendlySAIN.optionsLang?.goToDistance?["Name"] ?? "Maximum 'Go To' Distance";
+            }
+
             string key = entry.Definition.Key ?? string.Empty;
             int index = 0;
             while (index < key.Length && (char.IsDigit(key[index]) || char.IsWhiteSpace(key[index])))

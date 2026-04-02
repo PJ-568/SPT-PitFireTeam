@@ -18,6 +18,8 @@ namespace friendlySAIN.Localization
             return new LanguageOptions
             {
                 baseSettings = "Base Settings",
+                followSettings = "Follow Settings",
+                combatSettings = "Combat Settings",
                 inputSettings = "Input Settings",
                 miscSettings = "Miscellaneous",
                 testSettings = "Testing",
@@ -37,6 +39,9 @@ namespace friendlySAIN.Localization
                 patrolRadius = Entry(
                     "Patrol Radius",
                     "Maximum distance from the player the followers will patrol around"),
+                goToDistance = Entry(
+                    "Maximum 'Go To' Distance",
+                    "Maximum distance followers will move when 'There' or 'GoForward' is issued."),
                 enemyRemember = Entry(
                     "Time to forget about the enemy (in sec.)",
                     "Maximum time a follower will remember an enemy. This is applied only at the beginning of a raid"),

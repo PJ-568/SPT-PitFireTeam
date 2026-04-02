@@ -56,6 +56,7 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.Sprint(shouldSprint, true);
             RefreshProgressState();
             NotMovingCheck();
+            bool hasPath = BotOwner.Mover.HasPathAndNoComplete;
 
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
@@ -69,12 +70,12 @@ namespace friendlySAIN.BigBrain.Actions
             {
                 AimingAndShoot(data);
             }
-            else
+            else if (!hasPath || shouldSprint)
             {
                 BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
             }
 
-            if (BotOwner.Mover.HasPathAndNoComplete)
+            if (hasPath)
             {
                 bool reached = BotOwner.Mover.IsComeTo(BotOwner.Settings.FileSettings.Move.REACH_DIST, false);
                 if (ShouldReloadWhileAdvancing(goalEnemy))

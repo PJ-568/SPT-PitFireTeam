@@ -62,6 +62,8 @@ namespace friendlySAIN
     public class LanguageOptions
     {
         public string baseSettings { get; set; }
+        public string followSettings { get; set; }
+        public string combatSettings { get; set; }
         public string inputSettings { get; set; }
         public string miscSettings { get; set; }
         public string testSettings { get; set; }
@@ -107,6 +109,8 @@ namespace friendlySAIN
         public Dictionary<string, string> socialUi { get; set; }
 
         public Dictionary<string, string> patrolRadius { get; set; }
+
+        public Dictionary<string, string> goToDistance { get; set; }
 
         public Dictionary<string, string> botTeleport { get; set; }
         public Dictionary<string, string> botHeal { get; set; }
@@ -166,6 +170,8 @@ namespace friendlySAIN
         public static ConfigEntry<int> botTalk;
 
         public static ConfigEntry<int> patrolRadius;
+
+        public static ConfigEntry<int> goToDistance;
 
         public static ConfigEntry<bool> spawnPoint;
 
@@ -245,6 +251,7 @@ namespace friendlySAIN
             new FollowRequestPatch().Enable();
             new HoldRequestPatch().Enable();
             new OpenDoorRequestPatch().Enable();
+            new BotReceiverPhraseOverridePatch().Enable();
 
 
             // spawn patches
@@ -465,6 +472,8 @@ namespace friendlySAIN
             botTalk = Config.Bind("", "24 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1014, Browsable = false }));
 
             spawnPoint = Config.Bind("", "25 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1015, Browsable = false }));
+
+            goToDistance = Config.Bind("", "26 Maximum Go To Distance", 50, new ConfigDescription(optionsLang.goToDistance["Description"], new AcceptableValueRange<int>(10, 150), new ConfigurationManagerAttributes { Order = -1016, Browsable = false }));
 
             Config.SaveOnConfigSet = true;
             Config.Save();
