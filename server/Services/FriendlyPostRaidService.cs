@@ -14,7 +14,9 @@ namespace friendlySAIN.Server.Services;
 [Injectable]
 public class FriendlyPostRaidService(
     MailSendService mailSendService,
-    NotificationSendHelper notificationSendHelper
+    NotificationSendHelper notificationSendHelper,
+    DialogueHelper dialogueHelper,
+    ISptLogger<FriendlyPostRaidService> logger
 )
 {
     private static readonly string[] ReturnItemsMessages =
@@ -55,21 +57,21 @@ public class FriendlyPostRaidService(
             return;
         }
 
-        UserDialogInfo sender = request.Member != null
-            ? ToSenderInfo(request.Member)
-            : CreateFallbackReturnSender();
+        UserDialogInfo sender = GetDeliverySender();
         SendMessageDetails details = new()
         {
             RecipientId = sessionId,
-            Sender = MessageType.UserMessage,
-            DialogType = MessageType.UserMessage,
+            Sender = MessageType.NpcTraderMessage,
+            DialogType = MessageType.NpcTraderMessage,
             SenderDetails = sender,
+            Trader = FriendlyCourierTraderProfile.CourierTraderIdValue,
             MessageText = PickRandom(ReturnItemsMessages),
             Items = items,
             ItemsMaxStorageLifetimeSeconds = 86400,
         };
 
         mailSendService.SendMessageToPlayer(details);
+        EnsureDialogHasSender(sessionId, sender);
     }
 
     public void HandleTeamEscaped(MongoId sessionId, FriendlyPostRaidTeamEscapedRequest request)
@@ -103,19 +105,41 @@ public class FriendlyPostRaidService(
         notificationSendHelper.SendMessageToPlayer(sessionId, sender, message, MessageType.UserMessage);
     }
 
-    private static UserDialogInfo CreateFallbackReturnSender()
+    private void EnsureDialogHasSender(MongoId sessionId, UserDialogInfo sender)
+    {
+        try
+        {
+            Dictionary<MongoId, SPTarkov.Server.Core.Models.Eft.Profile.Dialogue> dialogs = dialogueHelper.GetDialogsForProfile(sessionId);
+            if (!dialogs.TryGetValue(sender.Id, out var dialog) || dialog is null)
+            {
+                return;
+            }
+
+            dialog.Users ??= [];
+            if (dialog.Users.All(user => user.Id != sender.Id))
+            {
+                dialog.Users.Add(sender);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to ensure sender details in post-raid dialog: {ex.Message}");
+        }
+    }
+
+    private static UserDialogInfo GetDeliverySender()
     {
         return new UserDialogInfo
         {
-            Id = new MongoId("67b0f29e151899410b04aacb"),
-            Aid = 0,
+            Id = FriendlyCourierTraderProfile.CourierTraderId,
+            Aid = FriendlyCourierTraderProfile.CourierAid,
             Info = new UserDialogDetails
             {
-                Nickname = "Squadmate",
+                Nickname = FriendlyCourierTraderProfile.CourierNickname,
                 Side = "Usec",
                 Level = 1,
-                MemberCategory = MemberCategory.Unheard,
-                SelectedMemberCategory = MemberCategory.Unheard,
+                MemberCategory = MemberCategory.Trader,
+                SelectedMemberCategory = MemberCategory.Trader,
             },
         };
     }

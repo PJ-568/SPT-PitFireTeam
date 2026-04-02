@@ -5,6 +5,9 @@ using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Mod;
 using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Models.Utils;
+using SPTarkov.Server.Core.Utils.Json;
+using System.IO;
+using friendlySAIN.Server.Services;
 using Range = SemanticVersioning.Range;
 using Version = SemanticVersioning.Version;
 
@@ -33,9 +36,91 @@ public class FriendlySainServerPlugin(
 {
     public Task OnLoad()
     {
+        EnsureCourierTraderRegistered();
+        EnsureCourierTraderLocales();
+        EnsureCourierAvatarIsServed();
         EnforcePmcArmbands();
         logger.Info("friendlySAIN.Server loaded");
         return Task.CompletedTask;
+    }
+
+    private void EnsureCourierTraderRegistered()
+    {
+        try
+        {
+            var traders = databaseService.GetTraders();
+            if (traders.ContainsKey(FriendlyCourierTraderProfile.CourierTraderId))
+            {
+                return;
+            }
+
+            traders[FriendlyCourierTraderProfile.CourierTraderId] = FriendlyCourierTraderProfile.CreateTrader();
+            logger.Info($"Registered courier trader '{FriendlyCourierTraderProfile.CourierTraderIdValue}'");
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to register courier trader: {ex.Message}");
+        }
+    }
+
+    private void EnsureCourierTraderLocales()
+    {
+        try
+        {
+            string traderId = FriendlyCourierTraderProfile.CourierTraderIdValue;
+            foreach (var (_, lazyGlobal) in databaseService.GetLocales().Global)
+            {
+                lazyGlobal.AddTransformer(localized =>
+                {
+                    if (localized == null)
+                    {
+                        return localized;
+                    }
+
+                    localized[$"{traderId} Nickname"] = FriendlyCourierTraderProfile.CourierNickname;
+                    localized[$"{traderId} FirstName"] = FriendlyCourierTraderProfile.CourierNickname;
+                    localized[$"{traderId} FullName"] = FriendlyCourierTraderProfile.CourierNickname;
+                    localized[$"{traderId} Location"] = FriendlyCourierTraderProfile.CourierLocation;
+                    localized[$"{traderId} Description"] = FriendlyCourierTraderProfile.CourierDescription;
+                    return localized;
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to inject courier trader locale keys: {ex.Message}");
+        }
+    }
+
+    private void EnsureCourierAvatarIsServed()
+    {
+        try
+        {
+            string serverRoot = AppContext.BaseDirectory;
+            string sourcePath = Path.Combine(
+                serverRoot,
+                "user",
+                "mods",
+                "friendlySAIN-ServerMod",
+                "Resources",
+                "avatars",
+                "courier.png");
+            if (!File.Exists(sourcePath))
+            {
+                logger.Warning($"Courier avatar source missing: {sourcePath}");
+                return;
+            }
+
+            string targetDirectory = Path.Combine(serverRoot, "user", "sptappdata", "files", "trader", "avatar");
+            Directory.CreateDirectory(targetDirectory);
+
+            string targetPath = Path.Combine(targetDirectory, FriendlyCourierTraderProfile.CourierAvatarFileName);
+            File.Copy(sourcePath, targetPath, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to publish courier avatar: {ex.Message}");
+        }
     }
 
     private void EnforcePmcArmbands()
