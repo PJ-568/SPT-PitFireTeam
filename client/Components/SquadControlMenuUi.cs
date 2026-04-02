@@ -165,40 +165,62 @@ namespace friendlySAIN.Components
         private sealed class RosterTileHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
         {
             private Image background;
+            private TextMeshProUGUI nameLabel;
             private Color normalColor;
             private Color hoverColor;
             private Color pressedColor;
+            private Color normalTextColor;
+            private Color hoverTextColor;
             private bool isHovered;
 
-            public void Configure(Image target, Color normal, Color hover, Color pressed)
+            public void Configure(Image target, TextMeshProUGUI label, Color normal, Color hover, Color pressed)
             {
                 background = target;
+                nameLabel = label;
                 normalColor = normal;
                 hoverColor = hover;
                 pressedColor = pressed;
+                normalTextColor = nameLabel != null ? nameLabel.color : default;
+                hoverTextColor = new Color(1f - normalTextColor.r, 1f - normalTextColor.g, 1f - normalTextColor.b, normalTextColor.a);
                 Apply(normalColor);
+                ApplyText(normalTextColor);
             }
 
             public void OnPointerEnter(PointerEventData eventData)
             {
+                if (isHovered)
+                {
+                    return;
+                }
+
                 isHovered = true;
+                GUISounds guiSounds = Singleton<GUISounds>.Instance;
+                if (guiSounds != null)
+                {
+                    guiSounds.PlayUISound(EUISoundType.ButtonOver);
+                }
+
                 Apply(hoverColor);
+                ApplyText(hoverTextColor);
             }
 
             public void OnPointerExit(PointerEventData eventData)
             {
                 isHovered = false;
                 Apply(normalColor);
+                ApplyText(normalTextColor);
             }
 
             public void OnPointerDown(PointerEventData eventData)
             {
-                Apply(pressedColor);
+                Apply(isHovered ? hoverColor : normalColor);
+                ApplyText(isHovered ? hoverTextColor : normalTextColor);
             }
 
             public void OnPointerUp(PointerEventData eventData)
             {
                 Apply(isHovered ? hoverColor : normalColor);
+                ApplyText(isHovered ? hoverTextColor : normalTextColor);
             }
 
             private void Apply(Color color)
@@ -206,6 +228,14 @@ namespace friendlySAIN.Components
                 if (background != null)
                 {
                     background.color = color;
+                }
+            }
+
+            private void ApplyText(Color color)
+            {
+                if (nameLabel != null)
+                {
+                    nameLabel.color = color;
                 }
             }
         }
@@ -2199,14 +2229,15 @@ namespace friendlySAIN.Components
             int siblingIndex = existingTile.GetSiblingIndex();
             Destroy(existingTile.gameObject);
 
-            CreateRosterTile(rosterGridRoot, entry, ++rosterBuildVersion);
-            Transform refreshedTile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{entry.AccountId}");
-            if (refreshedTile == null)
+            // Capture the new tile directly — Destroy() is deferred, so Find() by name would
+            // match the still-alive old tile first, leaving the new tile at the end every time.
+            GameObject createdTile = CreateRosterTile(rosterGridRoot, entry, ++rosterBuildVersion);
+            if (createdTile == null)
             {
                 return false;
             }
 
-            refreshedTile.SetSiblingIndex(siblingIndex);
+            createdTile.transform.SetSiblingIndex(siblingIndex);
             return true;
         }
 
@@ -2352,7 +2383,7 @@ namespace friendlySAIN.Components
             UpdateRosterPanelLayout(isEmpty);
         }
 
-        private void CreateRosterTile(RectTransform parent, SquadRosterEntry entry, int buildVersion)
+        private GameObject CreateRosterTile(RectTransform parent, SquadRosterEntry entry, int buildVersion)
         {
             GameObject tileObject = new GameObject(
                 $"friendlySAIN_RosterTile_{entry.AccountId}",
@@ -2373,7 +2404,7 @@ namespace friendlySAIN.Components
 
             Image tileBackground = tileObject.GetComponent<Image>();
             Color normalColor = new Color(0.045f, 0.045f, 0.045f, 0.97f);
-            Color hoverColor = new Color(0.10f, 0.10f, 0.10f, 0.98f);
+            Color hoverColor = new Color(0.6235f, 0.6157f, 0.5647f, 1f);
             Color pressedColor = new Color(0.16f, 0.16f, 0.16f, 0.99f);
             tileBackground.color = normalColor;
 
@@ -2406,8 +2437,10 @@ namespace friendlySAIN.Components
             button.targetGraphic = tileBackground;
             button.onClick.AddListener(() => OpenProfile(entry.AccountId));
 
+            TextMeshProUGUI nameLabel = CreateRosterNameLabel(tileRect, entry.Nickname);
+
             RosterTileHoverController hoverController = tileObject.AddComponent<RosterTileHoverController>();
-            hoverController.Configure(tileBackground, normalColor, hoverColor, pressedColor);
+            hoverController.Configure(tileBackground, nameLabel, normalColor, hoverColor, pressedColor);
 
             PortraitContextClickController tileContextController = tileObject.AddComponent<PortraitContextClickController>();
             tileContextController.OnRightClick = eventData => ShowPortraitContextMenu(entry, eventData);
@@ -2418,8 +2451,8 @@ namespace friendlySAIN.Components
             CreateRemoveButton(tileRect, entry);
             CreateAutoJoinBadge(tileRect, entry);
             CreateGroupBadge(tileRect, entry.AccountId);
-            CreateRosterNameLabel(tileRect, entry.Nickname);
             EnqueuePortrait(entry.AccountId, iconImage, portraitHost, buildVersion);
+            return tileObject;
         }
 
         private void CreateRemoveButton(RectTransform tileRect, SquadRosterEntry entry)
@@ -2747,6 +2780,8 @@ namespace friendlySAIN.Components
             portraitRoot.sizeDelta = new Vector2(142f, 142f);
             portraitRoot.anchoredPosition = new Vector2(0f, -14f);
 
+            CreatePortraitBorder(portraitRoot);
+
             if (TryCreateStockPortrait(portraitRoot, level, out iconImage))
             {
                 return portraitRoot;
@@ -2781,6 +2816,30 @@ namespace friendlySAIN.Components
             };
 
             return portraitRoot;
+        }
+
+        private static void CreatePortraitBorder(RectTransform portraitRoot)
+        {
+            if (portraitRoot == null)
+            {
+                return;
+            }
+
+            GameObject borderObject = new GameObject("friendlySAIN_PortraitBorder", typeof(RectTransform), typeof(Image), typeof(Outline));
+            borderObject.transform.SetParent(portraitRoot, false);
+            borderObject.transform.SetAsLastSibling();
+
+            RectTransform borderRect = borderObject.GetComponent<RectTransform>();
+            Stretch(borderRect);
+
+            Image borderImage = borderObject.GetComponent<Image>();
+            borderImage.color = new Color(0f, 0f, 0f, 0f);
+            borderImage.raycastTarget = false;
+
+            Outline outline = borderObject.GetComponent<Outline>();
+            outline.effectColor = new Color(1f, 1f, 1f, 1f);
+            outline.effectDistance = new Vector2(1f, -1f);
+            outline.useGraphicAlpha = false;
         }
 
         private bool TryCreateStockPortrait(RectTransform parent, int level, out PlayerIconImage iconImage)
@@ -3053,7 +3112,7 @@ namespace friendlySAIN.Components
             return false;
         }
 
-        private void CreateRosterNameLabel(RectTransform tileRect, string nickname)
+        private TextMeshProUGUI CreateRosterNameLabel(RectTransform tileRect, string nickname)
         {
             GameObject textObject = new GameObject("Name", typeof(RectTransform), typeof(TextMeshProUGUI));
             textObject.transform.SetParent(tileRect, false);
@@ -3079,6 +3138,7 @@ namespace friendlySAIN.Components
             label.enableWordWrapping = true;
             label.overflowMode = TextOverflowModes.Ellipsis;
             label.color = new Color(0.86f, 0.86f, 0.84f, 1f);
+            return label;
         }
 
         private void AttachPortraitProfileTrigger(RectTransform portraitHost, SquadRosterEntry entry)
@@ -3155,7 +3215,9 @@ namespace friendlySAIN.Components
             menuRect.pivot = new Vector2(0f, 1f);
             menuRect.sizeDelta = new Vector2(228f, 0f);
 
-            Vector2 localPoint = eventData.position - new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                overlayRect, eventData.position, eventData.pressEventCamera, out Vector2 localPoint);
+            localPoint.x += 10f;
             menuRect.anchoredPosition = ClampContextMenuPosition(overlayRect.rect, localPoint, 228f, 126f);
 
             Image menuBackground = menuObject.GetComponent<Image>();
@@ -3280,7 +3342,9 @@ namespace friendlySAIN.Components
 
             LayoutRebuilder.ForceRebuildLayoutImmediate(menuRect);
 
-            Vector2 localPoint = eventData.position - new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                overlayRect, eventData.position, eventData.pressEventCamera, out Vector2 localPoint);
+            localPoint.x += 10f;
             Vector2 menuSize = menuRect.rect.size;
             menuRect.anchoredPosition = ClampContextMenuPosition(
                 overlayRect.rect,
