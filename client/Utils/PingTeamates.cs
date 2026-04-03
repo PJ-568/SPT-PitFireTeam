@@ -326,10 +326,18 @@ namespace friendlySAIN.Utils
                     }
                     else if (bt.Data.Memory.HaveEnemy)
                     {
-                        float lastSeenAgo = Time.time - bt.Data.Memory.GoalEnemy.PersonalLastSeenTime;
-                        if (bt.Data.Memory.GoalEnemy.IsVisible || lastSeenAgo < 5f)
+                        EnemyInfo goalEnemy = bt.Data.Memory.GoalEnemy;
+                        if (goalEnemy != null)
                         {
-                            stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Engaged"]);
+                            float lastSeenAgo = Time.time - goalEnemy.PersonalLastSeenTime;
+                            if (goalEnemy.IsVisible || lastSeenAgo < 5f)
+                            {
+                                stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Engaged"]);
+                            }
+                            else
+                            {
+                                stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Alerted"]);
+                            }
                         }
                         else
                         {

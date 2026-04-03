@@ -107,6 +107,69 @@ namespace friendlySAIN.Utils
 
             return pt;
         }
+
+        /**
+         *  Get the closest cover point toward the target direction, choosing the eligible point closest to the target within the search radius around origin.
+         */
+        public static CustomNavigationPoint GetClosestCoverPointTowardPoint(
+            BotOwner botOwner,
+            Vector3 originPosition,
+            Vector3 targetPosition,
+            float searchRadius,
+            Func<CustomNavigationPoint, bool> eligibilityCheck = null,
+            float minForwardDot = 0.1f)
+        {
+            pitAIBossPlayer boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
+
+            searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
+
+            Vector3 targetDirection = targetPosition - originPosition;
+            targetDirection.y = 0f;
+            if (targetDirection.sqrMagnitude <= 0.01f)
+            {
+                return null;
+            }
+
+            targetDirection.Normalize();
+
+            List<CustomNavigationPoint> areaCovers = botOwner.Covers.GetClosePoints(originPosition, searchRadius);
+            areaCovers = areaCovers.OrderBy(cover => (cover.Position - targetPosition).sqrMagnitude).Take(MAX_COVERS_IRT).ToList();
+
+            List<Vector3> friendsPositions = new List<Vector3>();
+            if (boss != null)
+            {
+                friendsPositions.Add(boss.realPlayer.Transform.position);
+                boss.Followers.ForEach(follower =>
+                {
+                    if (follower != botOwner)
+                    {
+                        friendsPositions.Add(follower.GetPlayer.Transform.position);
+                    }
+                });
+            }
+
+            CustomNavigationPoint pt = ClosestPoint(botOwner.Id, botOwner.GetPlayer.Transform.position, targetPosition, areaCovers, point =>
+            {
+                Vector3 pointDirection = point.Position - originPosition;
+                pointDirection.y = 0f;
+                if (pointDirection.sqrMagnitude <= 0.01f)
+                {
+                    return false;
+                }
+
+                pointDirection.Normalize();
+                if (Vector3.Dot(pointDirection, targetDirection) < minForwardDot)
+                {
+                    return false;
+                }
+
+                return eligibilityCheck == null || eligibilityCheck(point);
+            }, 0.7f, friendsPositions.ToArray());
+
+            botOwner.Memory.SetCoverPoints(pt);
+
+            return pt;
+        }
         /**
          * Get all cover poins around the center position
          */

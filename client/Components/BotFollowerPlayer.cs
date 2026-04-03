@@ -75,11 +75,24 @@ namespace friendlySAIN.Components
         private static MethodInfo? _getSainByBotOwnerMethod;
         private static MethodInfo? _getSainByProfileMethod;
         private static bool _sainAddonPatrolBridgeErrorLogged;
+        private float _combatAggression = 50f;
         public bool CanPatrol
         {
             get
             {
                 return _canPatrol;
+            }
+        }
+
+        public float CombatAggression
+        {
+            get
+            {
+                return _combatAggression;
+            }
+            set
+            {
+                _combatAggression = Mathf.Clamp(value, 0f, 100f);
             }
         }
 

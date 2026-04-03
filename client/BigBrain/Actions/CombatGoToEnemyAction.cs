@@ -60,6 +60,7 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
+                BotOwner.SetPose(1f);
                 BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
                 BotOwner.StopMove();
                 AimingAndShoot(data);
@@ -72,11 +73,12 @@ namespace friendlySAIN.BigBrain.Actions
             }
             else if (!hasPath || shouldSprint)
             {
-                BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
+                LookTowardAdvance(goalEnemy);
             }
 
             if (hasPath)
             {
+                BotOwner.SetPose(1f);
                 bool reached = BotOwner.Mover.IsComeTo(BotOwner.Settings.FileSettings.Move.REACH_DIST, false);
                 if (ShouldReloadWhileAdvancing(goalEnemy))
                 {
@@ -94,7 +96,7 @@ namespace friendlySAIN.BigBrain.Actions
                 {
                     ClearCommittedAdvancePoint();
                     BotOwner.StopMove();
-                    BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
+                    LookTowardAdvance(goalEnemy);
                     return;
                 }
 
@@ -107,7 +109,7 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             BotOwner.StopMove();
-            BotOwner.SetPose(0f);
+            BotOwner.SetPose(1f);
         }
 
         public override void Stop()
@@ -176,23 +178,37 @@ namespace friendlySAIN.BigBrain.Actions
         private void AimingAndShoot(CustomLayer.ActionData data)
         {
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
-            if (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible)
+            if (goalEnemy == null)
+            {
+                return;
+            }
+
+            if (goalEnemy.CanShoot && goalEnemy.IsVisible)
             {
                 shootLogic.UpdateNodeByBrain(GetData<GClass27>(data));
                 return;
             }
 
-            Vector3 botPos = BotOwner.GetPlayer.Transform.position;
-            Vector3 corner = BotOwner.Mover.CurrentCornerPoint;
+            // Look toward enemy last known position. Avoid navmesh corner points which are
+            // in the middle of walls and cause the "shooting at the wall" behavior.
+            LookTowardAdvance(goalEnemy);
+        }
 
-            if (Covers.IsPointBetween(corner, botPos, goalEnemy.CurrPosition))
+        private void LookTowardAdvance(EnemyInfo goalEnemy)
+        {
+            if (TryGetOwnedEnemyLookDirection(goalEnemy, out Vector3 lookDirection))
             {
-                BotOwner.Steering.LookToDirection(corner - BotOwner.Position + Vector3.up * 0.5f);
+                BotOwner.Steering.LookToDirection(lookDirection);
+                return;
             }
-            else
+
+            if (BotOwner.Mover.HasPathAndNoComplete)
             {
-                BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
+                BotOwner.Steering.LookToMovingDirection();
+                return;
             }
+
+            BotOwner.Steering.LookToDirection(BotOwner.LookDirection);
         }
 
         private bool TryMoveToEnemy(Vector3 targetPoint)
@@ -404,6 +420,40 @@ namespace friendlySAIN.BigBrain.Actions
         private static bool IsPistol(Weapon weapon)
         {
             return string.Equals(weapon?.Template?.weapClass, "pistol", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool TryGetOwnedEnemyLookDirection(EnemyInfo goalEnemy, out Vector3 lookDirection)
+        {
+            lookDirection = Vector3.zero;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (goalEnemy.IsVisible)
+            {
+                lookDirection = goalEnemy.GetBodyPartPosition() - BotOwner.Position;
+                return lookDirection.sqrMagnitude > 0.01f;
+            }
+
+            if (Time.time - goalEnemy.PersonalLastSeenTime <= 12f)
+            {
+                Vector3 personalLastPos = goalEnemy.PersonalLastPos;
+                if ((personalLastPos - BotOwner.Position).sqrMagnitude > 0.01f)
+                {
+                    lookDirection = personalLastPos - BotOwner.Position;
+                    return true;
+                }
+
+                Vector3 lastKnownPosition = goalEnemy.EnemyLastPositionReal;
+                if ((lastKnownPosition - BotOwner.Position).sqrMagnitude > 0.01f)
+                {
+                    lookDirection = lastKnownPosition - BotOwner.Position;
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }
