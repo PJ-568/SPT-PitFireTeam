@@ -27,6 +27,13 @@ namespace friendlySAIN.Components
         OpenDoor = 6
     }
 
+    public enum FollowerCombatTactic
+    {
+        Balanced = 0,
+        Marksman = 1,
+        Protector = 2,
+    }
+
     public class BotFollowerPlayer
     {
         protected BotOwner _bot;
@@ -66,6 +73,14 @@ namespace friendlySAIN.Components
         private float _commandLookPauseUntil;
         private Vector3 _commandLookOverridePoint;
         private float _commandLookOverrideUntil;
+        private BotLogicDecision? _managerCombatDecision;
+        private string? _managerCombatReason;
+        private string? _managerCombatEnemyProfileId;
+        private Vector3 _managerCombatPoint;
+        private bool _managerCombatHasPoint;
+        private float _managerCombatUntilTime;
+        private string? _pendingManagerSearchEnemyProfileId;
+        private float _pendingManagerSearchUntilTime;
         private string? _knownEnemyProfileId;
         private float _knownEnemySince;
         private bool _knownEnemyLatched;
@@ -76,6 +91,7 @@ namespace friendlySAIN.Components
         private static MethodInfo? _getSainByProfileMethod;
         private static bool _sainAddonPatrolBridgeErrorLogged;
         private float _combatAggression = 50f;
+        private FollowerCombatTactic _combatTactic = FollowerCombatTactic.Balanced;
         public bool CanPatrol
         {
             get
@@ -93,6 +109,18 @@ namespace friendlySAIN.Components
             set
             {
                 _combatAggression = Mathf.Clamp(value, 0f, 100f);
+            }
+        }
+
+        public FollowerCombatTactic CombatTactic
+        {
+            get
+            {
+                return _combatTactic;
+            }
+            set
+            {
+                _combatTactic = value;
             }
         }
 
@@ -546,7 +574,9 @@ namespace friendlySAIN.Components
 
             settings.FileSettings.Look.MINIMUM_VISIBLE_DIST = 15f;
 
-            settings.FileSettings.Core.CanGrenade = friendlySAIN.botGrenades.Value;
+            // Keep follower grenade capability hard-disabled by default.
+            // Runtime code opens a short throw window only for explicit follower grenade actions.
+            settings.FileSettings.Core.CanGrenade = false;
             settings.FileSettings.Core.CanRun = true;
 
             settings.FileSettings.Cover.CHECK_CLOSEST_FRIEND = true;
@@ -627,6 +657,8 @@ namespace friendlySAIN.Components
             settings.FileSettings.Boss.EFFECT_REGENERATION_PER_MIN = 40f;
 
             settings.FileSettings.Grenade.IGNORE_SMOKE_GRENADE = true;
+            settings.FileSettings.Grenade.CAN_THROW_FROM_ANY_PLACE = false;
+            settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT = false;
             settings.FileSettings.Grenade.NO_RUN_FROM_AI_GRENADES = false;
 
             bot.Settings = settings;
@@ -1020,6 +1052,151 @@ namespace friendlySAIN.Components
             return command != FollowerCommandType.None;
         }
 
+        public void SetManagerCombatDecision(
+            BotLogicDecision decision,
+            string reason,
+            string? enemyProfileId = null,
+            Vector3? point = null,
+            float duration = float.PositiveInfinity)
+        {
+            _managerCombatDecision = decision;
+            _managerCombatReason = string.IsNullOrEmpty(reason) ? decision.ToString() : reason;
+            _managerCombatEnemyProfileId = enemyProfileId;
+            _managerCombatHasPoint = point.HasValue;
+            _managerCombatPoint = point ?? Vector3.zero;
+            _managerCombatUntilTime = duration <= 0f
+                ? Time.time
+                : (float.IsPositiveInfinity(duration) ? float.PositiveInfinity : Time.time + duration);
+        }
+
+        public bool HasManagerCombatDecision()
+        {
+            if (_managerCombatDecision == null)
+            {
+                return false;
+            }
+
+            if (Time.time > _managerCombatUntilTime)
+            {
+                ClearManagerCombatDecision("timeout");
+                return false;
+            }
+
+            return true;
+        }
+
+        public bool TryGetManagerCombatDecision(
+            out BotLogicDecision decision,
+            out string reason,
+            out string? enemyProfileId,
+            out Vector3 point,
+            out bool hasPoint)
+        {
+            if (!HasManagerCombatDecision())
+            {
+                decision = default;
+                reason = string.Empty;
+                enemyProfileId = null;
+                point = Vector3.zero;
+                hasPoint = false;
+                return false;
+            }
+
+            decision = _managerCombatDecision!.Value;
+            reason = _managerCombatReason ?? decision.ToString();
+            enemyProfileId = _managerCombatEnemyProfileId;
+            point = _managerCombatPoint;
+            hasPoint = _managerCombatHasPoint;
+            return true;
+        }
+
+        public void RequestManagerSearch(string? enemyProfileId, float duration = 2f)
+        {
+            if (string.IsNullOrEmpty(enemyProfileId))
+            {
+                return;
+            }
+
+            _pendingManagerSearchEnemyProfileId = enemyProfileId;
+            _pendingManagerSearchUntilTime = Time.time + Mathf.Max(0.1f, duration);
+        }
+
+        public bool HasPendingManagerSearchRequest()
+        {
+            if (string.IsNullOrEmpty(_pendingManagerSearchEnemyProfileId))
+            {
+                return false;
+            }
+
+            if (Time.time > _pendingManagerSearchUntilTime)
+            {
+                ClearManagerSearchRequest("timeout");
+                return false;
+            }
+
+            return true;
+        }
+
+        public bool TryGetPendingManagerSearchRequest(out string? enemyProfileId)
+        {
+            if (!HasPendingManagerSearchRequest())
+            {
+                enemyProfileId = null;
+                return false;
+            }
+
+            enemyProfileId = _pendingManagerSearchEnemyProfileId;
+            return true;
+        }
+
+        public void ClearManagerSearchRequest(string reason = "unspecified")
+        {
+            _pendingManagerSearchEnemyProfileId = null;
+            _pendingManagerSearchUntilTime = 0f;
+        }
+
+        public void SetCombatTacticFromString(string? tactic)
+        {
+            _combatTactic = ParseCombatTactic(tactic);
+        }
+
+        public static FollowerCombatTactic ParseCombatTactic(string? tactic)
+        {
+            if (string.IsNullOrWhiteSpace(tactic))
+            {
+                return FollowerCombatTactic.Balanced;
+            }
+
+            switch (tactic.Trim().ToLowerInvariant())
+            {
+                case "marksman":
+                    return FollowerCombatTactic.Marksman;
+
+                case "guard":
+                case "protector":
+                case "holder":
+                case "assist":
+                case "support":
+                    return FollowerCombatTactic.Protector;
+
+                case "default":
+                case "balanced":
+                case "pusher":
+                default:
+                    return FollowerCombatTactic.Balanced;
+            }
+        }
+
+        public void ClearManagerCombatDecision(string reason = "unspecified")
+        {
+            _managerCombatDecision = null;
+            _managerCombatReason = null;
+            _managerCombatEnemyProfileId = null;
+            _managerCombatPoint = Vector3.zero;
+            _managerCombatHasPoint = false;
+            _managerCombatUntilTime = 0f;
+        }
+
         public bool HasKnownEnemy()
         {
             BotOwner owner = _bot;
@@ -1068,6 +1245,21 @@ namespace friendlySAIN.Components
             }
 
             return Time.time - _knownEnemySince >= KnownEnemyAcquireHoldSeconds;
+        }
+
+        public bool IsBotActivelyEngaging(string enemyProfileId)
+        {
+            if (string.IsNullOrEmpty(enemyProfileId) || _bot?.Memory?.GoalEnemy == null)
+            {
+                return false;
+            }
+
+            EnemyInfo goalEnemy = _bot.Memory.GoalEnemy;
+            return !string.IsNullOrEmpty(goalEnemy.ProfileId) &&
+                   string.Equals(goalEnemy.ProfileId, enemyProfileId, StringComparison.Ordinal) &&
+                   ((goalEnemy.IsVisible && goalEnemy.CanShoot) ||
+                    _bot.Memory.IsUnderFire ||
+                    _bot.DogFight?.DogFightState > BotDogFightStatus.none);
         }
 
         private static bool HasLineOfSightToGoalEnemy(BotOwner owner, EnemyInfo goalEnemy)
@@ -1218,6 +1410,7 @@ namespace friendlySAIN.Components
             _commandLookPauseUntil = 0f;
             _commandLookOverridePoint = Vector3.zero;
             _commandLookOverrideUntil = 0f;
+            ClearManagerCombatDecision($"ClearCommand:{reason}");
         }
 
         private void ResetPickupFollowerRuntimeState()

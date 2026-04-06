@@ -14,6 +14,11 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            if (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true)
+            {
+                BotOwner.SetPose(1f);
+            }
+
             baseLogic.UpdateNodeByBrain(GetData<GClass30>(data));
         }
     }

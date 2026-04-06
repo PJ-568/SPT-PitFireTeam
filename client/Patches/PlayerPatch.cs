@@ -120,7 +120,8 @@ namespace friendlySAIN.Patches
 
 
                 return false;
-            } else
+            }
+            else
             {
                 // fix for boss gestures not propagating to followers
                 List<EInteraction> bossInteractions = new List<EInteraction> { EInteraction.ComeWithMeGesture, EInteraction.ThereGesture, EInteraction.HoldGesture };
@@ -374,6 +375,8 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static bool PatchPrefix(Player __instance, Item weapon)
         {
+            pitAIBossPlayer? bossPlayer = BossPlayers.GetBoss(__instance.ProfileId);
+
             foreach (var follower in BossPlayers.GetFollowers())
             {
                 if (!follower.IsSquadMate || follower.GetBot().ProfileId != __instance.ProfileId)

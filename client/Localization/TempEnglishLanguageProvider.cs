@@ -25,7 +25,7 @@ namespace friendlySAIN.Localization
                 testSettings = "Testing",
                 raidSettings = "Raid Settings",
                 equipOptions = new[] { "Default" },
-                tacticOptions = new[] { "Default", "Support", "Marksman", "Pusher", "Holder", "Assist" },
+                tacticOptions = new[] { "Balanced", "Support", "Marksman", "Pusher", "Holder", "Assist" },
 
                 statusSound = Entry(
                     "Enemy Location Volume",
@@ -144,7 +144,8 @@ namespace friendlySAIN.Localization
                     ["PlayerStashPlaceholder"] = "Failed to load cloned stash view.\n{0}",
                     ["BotInventory"] = "Follower Inventory",
                     ["BotInventoryPlaceholder"] = "Failed to load cloned follower inventory.\n{0}",
-                    ["ProfileTactic"] = "Default",
+                    ["ProfileTactic"] = "Balanced",
+                    ["ProfileAggression"] = "Aggression",
                     ["RenameFailed"] = "Could not rename teammate",
                     ["RenameClose"] = "x",
                     ["RemoveTeammateTitle"] = "Remove teammate",

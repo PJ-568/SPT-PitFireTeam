@@ -202,7 +202,7 @@ namespace friendlySAIN.Modules
             Instance = null;
         }
 
-        private BotFollowerPlayer AddBotFollower(BotOwner bot, pitAIBossPlayer player, bool squadMate = false, WildSpawnType role = WildSpawnType.assault, string tactic = "Default")
+        private BotFollowerPlayer AddBotFollower(BotOwner bot, pitAIBossPlayer player, bool squadMate = false, WildSpawnType role = WildSpawnType.assault, string tactic = "Default", float aggression = 50f)
         {
 
             BotFollowerPlayer? _follower = null;
@@ -242,6 +242,10 @@ namespace friendlySAIN.Modules
                 _follower = new BossFollowerPlayer(bot, player, role);
 
             }
+
+            _follower.CombatTactic = BotFollowerPlayer.ParseCombatTactic(tactic);
+            _follower.CombatAggression = aggression;
+
             try
             {
                 _follower.Init();
@@ -652,9 +656,9 @@ namespace friendlySAIN.Modules
             Instance.RemoveBossPlayer(profileId, true);
         }
 
-        public static BotFollowerPlayer AddFollower(BotOwner bot, pitAIBossPlayer player, bool squadMate = false, WildSpawnType role = WildSpawnType.assault, string tactic = "Default")
+        public static BotFollowerPlayer AddFollower(BotOwner bot, pitAIBossPlayer player, bool squadMate = false, WildSpawnType role = WildSpawnType.assault, string tactic = "Default", float aggression = 50f)
         {
-            return Instance.AddBotFollower(bot, player, squadMate, role, tactic);
+            return Instance.AddBotFollower(bot, player, squadMate, role, tactic, aggression);
         }
 
         public static void ShallBeFollower(string profileId)

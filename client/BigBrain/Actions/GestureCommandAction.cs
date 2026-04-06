@@ -106,6 +106,16 @@ namespace friendlySAIN.BigBrain.Actions
 
             EnsureCommandControl();
 
+            if (ShouldInterruptCommandForCombat(command))
+            {
+                ReleaseRegroupReservation();
+                CleanupDoorInteraction();
+                followerData?.ClearCommand($"CommandInterrupt:{command}");
+                BotOwner.StopMove();
+                lastCommand = FollowerCommandType.None;
+                return;
+            }
+
             if (command != lastCommand)
             {
                 if (lastCommand == FollowerCommandType.RegroupNearBoss)
@@ -318,7 +328,74 @@ namespace friendlySAIN.BigBrain.Actions
                 return true;
             }
 
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (goalEnemy != null)
+            {
+                bool visibleFightNow = goalEnemy.IsVisible &&
+                                      goalEnemy.CanShoot &&
+                                      BotOwner.LookSensor.EnoughDistToShoot(out _);
+                bool closeVisibleThreat = goalEnemy.IsVisible && goalEnemy.Distance <= 18f;
+                bool alreadyInCombatAction = currentDecision == BotLogicDecision.dogFight ||
+                                             currentDecision == BotLogicDecision.shootFromPlace ||
+                                             currentDecision == BotLogicDecision.shootFromCover;
+                if (visibleFightNow || closeVisibleThreat || alreadyInCombatAction)
+                {
+                    return true;
+                }
+            }
+
             return false;
+        }
+
+        private bool ShouldInterruptCommandForCombat(FollowerCommandType command)
+        {
+            if (command == FollowerCommandType.HoldPosition)
+            {
+                return false;
+            }
+
+            if (command == FollowerCommandType.RegroupNearBoss)
+            {
+                return ShouldInterruptRegroupForThreatOrState(clearForDanger: true);
+            }
+
+            BotLogicDecision currentDecision = BotOwner.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            bool healing = BotOwner.Medecine?.FirstAid?.Using == true ||
+                           BotOwner.Medecine?.SurgicalKit?.Using == true ||
+                           currentDecision == BotLogicDecision.heal ||
+                           currentDecision == BotLogicDecision.healStimulators;
+            if (healing)
+            {
+                return true;
+            }
+
+            if (BotOwner.BewareGrenade?.ShallRunAway() == true ||
+                BotOwner.BewareBTR?.ShallRunAway() == true ||
+                currentDecision == BotLogicDecision.runAwayGrenade ||
+                currentDecision == BotLogicDecision.runAwayBTR)
+            {
+                return true;
+            }
+
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            bool visibleFightNow = goalEnemy.IsVisible &&
+                                  goalEnemy.CanShoot &&
+                                  BotOwner.LookSensor.EnoughDistToShoot(out _);
+            bool closeVisibleThreat = goalEnemy.IsVisible && goalEnemy.Distance <= 18f;
+            bool urgentCombatAction = currentDecision == BotLogicDecision.dogFight ||
+                                      currentDecision == BotLogicDecision.shootFromPlace ||
+                                      currentDecision == BotLogicDecision.shootFromCover ||
+                                      currentDecision == BotLogicDecision.attackMoving ||
+                                      currentDecision == BotLogicDecision.runToCover ||
+                                      currentDecision == BotLogicDecision.goToEnemy ||
+                                      currentDecision == BotLogicDecision.runToEnemy;
+
+            return visibleFightNow || closeVisibleThreat || urgentCombatAction || BotOwner.Memory.IsUnderFire;
         }
 
         private bool TryGetRegroupTarget(Vector3 bossPos, out Vector3 target)

@@ -48,7 +48,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-03-29  
+**Last updated:** 2026-04-02  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
 ## Project Overview
@@ -226,6 +226,10 @@ Current verified custom teammate feature state:
 **Core Follower Combat Behavior:**
 
 - `FollowerPmcCombatLayer` only runs on the core/vanilla path (`!UseSainFollowerCombat`)
+- Layer activation now uses a valid-living-enemy gate instead of raw `Memory.HaveEnemy`:
+    - stale dead `GoalEnemy` entries should not keep followers in combat,
+    - `FollowerCombatLayer.IsCurrentActionEnding()` now force-ends combat actions when no valid enemy remains,
+    - healing/stimulator actions are the explicit exception and are allowed to finish without a live enemy.
 - Current supported BigBrain combat actions are file-split and mapped from `BotLogicDecision`:
     - `CombatHoldPositionAction`
     - `CombatRunToCoverAction`
@@ -236,24 +240,44 @@ Current verified custom teammate feature state:
     - `CombatGoToEnemyAction`
     - `CombatRunToEnemyAction`
     - `CombatGoToPointAction`
+    - `CombatGoToPointTacticalAction`
+    - `HealAction`
+    - `HealStimulatorsAction`
     - `CombatThrowGrenadeFromPlaceAction`
     - `CombatShootToSmokeAction`
 - `CombatGoToEnemyAction` is now the custom old-plugin-style advance action:
     - cover-aware advance,
     - periodic path refresh,
     - short committed approach point to reduce wall-side dithering,
-    - progress-stall detection to force repath when the bot is not actually advancing.
+    - progress-stall detection to force repath when the bot is not actually advancing,
+    - blind advance now prefers looking toward the current move destination,
+    - a short wall probe flips look control to movement direction when destination-facing would pin the bot into nearby geometry.
 - `CombatRunToEnemyAction` is now also custom-owned on the core path:
     - no longer delegates directly to vanilla `GClass227`,
     - keeps a committed run target,
     - refreshes pathing when stair/vertical pushes stop making progress.
 - `runToEnemy` remains the decisive sprint path and is still allowed to end when the bot reaches a valid firing state.
+- `goToPointTactical` end routing is now split by reason:
+    - `enemySearch` uses old-plugin-style `EndEnemySearch` logic,
+    - other tactical-point usage uses old `EndGoToCoverPointTactical`-style checks,
+    - group-search follower tactical movement no longer relies on a dedicated separate tactical end path.
 - Core combat style now distinguishes `HangBack` vs `MoveForward`:
     - default is boss-anchored protection,
     - when the player leaves the current combat area, followers reanchor to the player area instead of clinging to stale local cover.
-- Push behavior has a short commit window:
-    - initial push is range-gated,
-    - once chosen, the push decision is allowed to run briefly without immediately changing its mind because of distance drift.
+- Persistent push-commit state was removed from `FollowerCombatDefault`:
+    - no remembered enemy-id/decision pair,
+    - push decisions are frame-driven,
+    - end handling now relies on current enemy validity and shared base movement end logic.
+- Combat heal/stim flow now has explicit state handling in `FollowerCombatCommon`:
+    - `healStimulators` is fully wired (decision -> action -> end handler),
+    - stim use no longer preempts pending first-aid/surgery work,
+    - heal-cover movement reuses one committed heal cover instead of repeatedly picking new points,
+    - heal and stim actions have timeout exits to avoid stuck medical states.
+- Escort/boss-position cover behavior is more conservative now:
+    - committed escort cover transitions into `holdPosition` as soon as the bot reaches a valid in-cover state,
+    - escort cover selection rejects boss-out-of-bounds points,
+    - fallback prefers boss-local cover that can hide from the enemy,
+    - if no safe boss-local escort cover exists, follower holds position instead of drifting to an arbitrary move target.
 - Dedicated regular grenade use is now explicit on the core path:
     - no hidden opportunistic grenade throw inside dogfight,
     - grenade throw goes through `throwGrenadeFromPlace` with a dedicated safety gate.
@@ -272,10 +296,16 @@ Current verified custom teammate feature state:
 
 Supported commands via `GestureCommandAction`:
 
-- **HoldPosition** — Stop, crouch, periodic look-around (no timeout, persists until replaced)
+- **HoldPosition** — Stop, optional crouch, periodic look-around (no timeout, persists until replaced)
+    - Standard gesture-initiated: applies crouch by default
+    - Phrase-initiated (STOP): applies no crouch, released by distance >25m or boss out-of-range
 - **ComeCloser** — Move within ~1m of boss, then resume prior hold
 - **MoveToPoint** ("There") — Walk to NavMesh-validated target, brief arrival look-around
+    - Gesture-initiated: single-follower move-to-point
+    - Phrase-initiated (GOFORWARD): broadcast to all followers within range, excludes looked-at follower, uses interaction-ray targeting
 - **LootGeneric** / **LootWeapon** — Closest eligible follower assigned via `InteractableObjects.SetTaker(...)`, moves + inventory transfer
+    - Now resilient to transient state changes: pins selected loot and attempts taker recovery before aborting
+    - Supports all item types with improved state consistency
 - **OpenDoor** — Closest eligible follower assigned via `InteractableObjects.SetOpener(...)`, moves + `DoorOpener.Interact(Open)`
 - **Regroup** — Vanilla: converge to boss-near cover; SAIN: via addon `SAINFollowerCombatRegroupAction`
 - **Attention** (Look) — Clear enemy state, release command, force attention to boss/point
@@ -323,6 +353,7 @@ Supported commands via `GestureCommandAction`:
 - `BotReceiverFollowMeRecruitPatch` — Convert recruit requests to follower
 - `FollowRequestPatch`, `HoldRequestPatch`, `OpenDoorRequestPatch` — Request type routing
 - `BotReceiverGestureOverridePatch` — Gesture override handling
+- `BotReceiverPhraseOverridePatch` — Route STOP phrase through pitAIBossPlayer instead of vanilla BotReceiver
 
 **Spawn/Raid Patches:**
 
@@ -739,6 +770,11 @@ Request/gesture movement:
 - Custom phrases:
     - `CustomPhrases.TeamStatus = 10001`
     - `CustomPhrases.OverThere = 10002`
+    - `EPhraseTrigger.Stop` — Hold position without crouch, broadcast to nearby followers (25m range or looked-at follower)
+    - `EPhraseTrigger.Gogogo` — Forward/advance command, broadcast to followers (not functional yet; routed but behavior not implemented)
+- Phrase broadcast commands (new):
+    - `STOP` (from `EPhraseTrigger.Stop`): Sets all targeted followers to `HoldPosition(infinity, crouch: false)`, released when follower moves >25m from boss or on new command
+    - `GOFORWARD` (from `EPhraseTrigger.Gogogo`): Broadcasts go-to command to all followers within range except looked-at follower, targets boss interaction ray up to configurable distance (default 50m), uses NavMesh validation
 - Custom gesture:
     - `CustomGestures.OverThere = 220` (`EInteraction` is byte-backed, so stay within `0..255`)
 - Vanilla 4.x gestures:

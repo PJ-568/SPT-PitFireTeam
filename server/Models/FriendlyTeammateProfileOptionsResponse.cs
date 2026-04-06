@@ -4,6 +4,10 @@ public record FriendlyTeammateProfileOptionsResponse
 {
     public string CurrentLoadoutId { get; set; } = string.Empty;
 
+    public string CurrentTactic { get; set; } = string.Empty;
+
+    public float Aggression { get; set; } = 50f;
+
     public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; } = [];
 }
 

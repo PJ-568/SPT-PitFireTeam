@@ -8,7 +8,7 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatDogFightAction : FollowerCombatActionBase
     {
-        private readonly GClass183 shootLogic;
+        private readonly GClass178 shootLogic;
         private readonly Queue<Vector3> movementQueue = new Queue<Vector3>();
 
         private bool isMoving;
@@ -40,8 +40,9 @@ namespace friendlySAIN.BigBrain.Actions
 
             BotOwner.Sprint(false, true);
             BotOwner.Mover.SetTargetMoveSpeed(1f);
+            Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.GetBodyPartPosition();
 
-            bool isVeryClose = global::friendlySAIN.Utils.Enemy.Distance(BotOwner) <= global::friendlySAIN.Utils.Enemy.EnemyDistance.VeryClose;
+            bool isVeryClose = Utils.Enemy.Distance(BotOwner) <= Utils.Enemy.EnemyDistance.VeryClose;
             bool tense = goalEnemy.IsVisible && isVeryClose;
             if (tense)
             {
@@ -50,17 +51,27 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (goalEnemy.CanShoot && goalEnemy.IsVisible)
             {
-                if (isVeryClose && nextMovementCheckTime < Time.time)
+
+                if (BotOwner.DoorOpener.DogFightHaveNearestDoor())
                 {
-                    FightMovementClose(goalEnemy);
+                    BotOwner.Mover.Stop();
+                }
+                else
+                {
+                    if (isVeryClose && nextMovementCheckTime < Time.time)
+                    {
+                        FightMovementClose(goalEnemy);
+                    }
+
+                    if (!isMoving)
+                    {
+                        BotOwner.DogFight.Fight();
+                    }
                 }
 
-                if (!isMoving)
-                {
-                    BotOwner.DogFight.Fight();
-                }
 
-                BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
+
+                BotOwner.Steering.LookToPoint(shootPoint);
                 shootLogic.UpdateNodeByBrain(GetData<GClass27>(data));
                 return;
             }
@@ -70,8 +81,13 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.SetPose(1f);
             }
 
+            if (BotOwner.DoorOpener.DogFightHaveNearestDoor())
+            {
+                BotOwner.Mover.Stop();
+            }
+
+            BotOwner.Steering.LookToPoint(shootPoint);
             BotOwner.DogFight.Fight();
-            BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
         }
 
         private void FightMovementClose(EnemyInfo goalEnemy)
@@ -110,12 +126,13 @@ namespace friendlySAIN.BigBrain.Actions
             float strafeSign = Random.value > 0.5f ? 1f : -1f;
             Vector3 strafeDir = Vector3.Cross(toEnemy, Vector3.up) * strafeSign;
 
+            // Only lateral/forward points — no backward retreat.
+            // Backward arc points require ~180° body rotation; aim-clamp cannot maintain
+            // look-at-enemy during that turn, causing the bot to fire in the wrong direction.
             Vector3[] arcMoves = new[]
             {
                 botPos + strafeDir * 2f,
                 botPos + (strafeDir + toEnemy).normalized * 2f,
-                botPos - toEnemy * 2f,
-                botPos + (-strafeDir - toEnemy).normalized * 2f,
                 botPos - strafeDir * 2f
             };
 

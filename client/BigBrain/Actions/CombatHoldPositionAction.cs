@@ -1,16 +1,17 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Utils;
 using UnityEngine;
 
 namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatHoldPositionAction : FollowerCombatActionBase
     {
-        private readonly EnemyFacingHoldLogic baseLogic;
+        private readonly GClass278 baseLogic;
 
         public CombatHoldPositionAction(BotOwner botOwner) : base(botOwner)
         {
-            baseLogic = new EnemyFacingHoldLogic(botOwner);
+            baseLogic = new GClass278(botOwner);
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -21,7 +22,6 @@ namespace friendlySAIN.BigBrain.Actions
 
     internal sealed class EnemyFacingHoldLogic : GClass278
     {
-        private const float SignificantEnemyMoveSqr = 1f;
         private const float SignificantCornerSwitchAngle = 20f;
         private const float CornerSwitchLockDuration = 0.45f;
         private const float CornerSwitchPersistDuration = 0.2f;
@@ -29,9 +29,7 @@ namespace friendlySAIN.BigBrain.Actions
         private const float MinCornerAlignmentScore = 0.05f;
         private const float WallFacingProbeDistance = 1.25f;
         private const float PointLookLockDuration = 0.75f;
-        private const float PointLookSwitchPersistDuration = 0.2f;
-        private const float SignificantPointLookMoveSqr = 9f;
-        private const float SignificantPointLookAngle = 18f;
+        private const float PointLookSectorSwitchPersistDuration = 0.2f;
 
         private EnemyInfo? currentEnemy;
         private LookTargetMode currentLookMode;
@@ -41,12 +39,26 @@ namespace friendlySAIN.BigBrain.Actions
         private int currentCornerSide;
         private int currentCoverPointId = -1;
         private bool currentEnemyVisible;
+        private EnemyLookSector currentEnemySector;
         private float currentCornerAssignedAt;
         private int pendingSwitchSide;
         private float pendingSwitchSince;
         private float currentPointAssignedAt;
-        private Vector3 pendingPointLookPoint;
-        private float pendingPointSwitchSince;
+        private EnemyLookSector pendingPointSector;
+        private float pendingPointSectorSwitchSince;
+
+        private enum EnemyLookSector
+        {
+            None,
+            Top,
+            TopRight,
+            Right,
+            BottomRight,
+            Bottom,
+            BottomLeft,
+            Left,
+            TopLeft,
+        }
 
         public EnemyFacingHoldLogic(BotOwner botOwner) : base(botOwner)
         {
@@ -59,13 +71,7 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            if (BotOwner_0.NeutralsCheskData.ClosestsVisible != null && BotOwner_0.NeutralsCheskData.IsInPeriod())
-            {
-                BotOwner_0.Steering.LookToPoint(BotOwner_0.NeutralsCheskData.ClosestsVisible.Position + Vector3.up);
-                return;
-            }
-
-            base.Look();
+            BotOwner_0.LookData.SetLookPointByHearing(BotOwner_0.Memory.CurCustomCoverPoint);
         }
 
         private bool TryLookTowardEnemy()
@@ -121,19 +127,17 @@ namespace friendlySAIN.BigBrain.Actions
                 return false;
             }
 
-            if (enemy.IsVisible)
-            {
-                pendingPointLookPoint = Vector3.zero;
-                pendingPointSwitchSince = 0f;
-                return (enemyLookPoint - currentLookPoint).sqrMagnitude <= SignificantEnemyMoveSqr;
-            }
-
             if (Time.time - currentPointAssignedAt < PointLookLockDuration)
             {
                 return true;
             }
 
-            if (!ShouldSwitchPointLook(enemyLookPoint))
+            if (!TryGetEnemyLookSector(enemyLookPoint, out EnemyLookSector enemySector))
+            {
+                return false;
+            }
+
+            if (!ShouldSwitchPointLookSector(enemySector))
             {
                 return true;
             }
@@ -141,37 +145,23 @@ namespace friendlySAIN.BigBrain.Actions
             return false;
         }
 
-        private bool ShouldSwitchPointLook(Vector3 enemyLookPoint)
+        private bool ShouldSwitchPointLookSector(EnemyLookSector enemySector)
         {
-            Vector3 currentDirection = currentLookPoint - BotOwner_0.Position;
-            currentDirection.y = 0f;
-            Vector3 nextDirection = enemyLookPoint - BotOwner_0.Position;
-            nextDirection.y = 0f;
-
-            if (currentDirection.sqrMagnitude <= 0.001f || nextDirection.sqrMagnitude <= 0.001f)
+            if (enemySector == EnemyLookSector.None || enemySector == currentEnemySector)
             {
-                pendingPointLookPoint = Vector3.zero;
-                pendingPointSwitchSince = 0f;
+                pendingPointSector = EnemyLookSector.None;
+                pendingPointSectorSwitchSince = 0f;
                 return false;
             }
 
-            float moveDeltaSqr = (enemyLookPoint - currentLookPoint).sqrMagnitude;
-            float angleDelta = Vector3.Angle(currentDirection, nextDirection);
-            if (moveDeltaSqr <= SignificantPointLookMoveSqr && angleDelta <= SignificantPointLookAngle)
+            if (pendingPointSector != enemySector)
             {
-                pendingPointLookPoint = Vector3.zero;
-                pendingPointSwitchSince = 0f;
+                pendingPointSector = enemySector;
+                pendingPointSectorSwitchSince = Time.time;
                 return false;
             }
 
-            if ((pendingPointLookPoint - enemyLookPoint).sqrMagnitude > 0.25f)
-            {
-                pendingPointLookPoint = enemyLookPoint;
-                pendingPointSwitchSince = Time.time;
-                return false;
-            }
-
-            return Time.time - pendingPointSwitchSince >= PointLookSwitchPersistDuration;
+            return Time.time - pendingPointSectorSwitchSince >= PointLookSectorSwitchPersistDuration;
         }
 
         private bool CanKeepCornerLook(EnemyInfo enemy)
@@ -343,6 +333,7 @@ namespace friendlySAIN.BigBrain.Actions
             currentCornerSide = side;
             currentCoverPointId = coverPoint.Id;
             currentEnemyVisible = false;
+            currentEnemySector = GetEnemyLookSectorOrNone(enemy);
             currentCornerAssignedAt = Time.time;
             pendingSwitchSide = 0;
             pendingSwitchSince = 0f;
@@ -355,6 +346,7 @@ namespace friendlySAIN.BigBrain.Actions
             currentLookMode = LookTargetMode.Point;
             currentLookPoint = enemyLookPoint;
             currentEnemyVisible = enemyVisible;
+            currentEnemySector = GetEnemyLookSectorOrNone(enemyLookPoint);
             currentCoverPointId = -1;
             currentCornerSide = 0;
             currentEnemyDirection = Vector3.zero;
@@ -363,8 +355,8 @@ namespace friendlySAIN.BigBrain.Actions
             pendingSwitchSide = 0;
             pendingSwitchSince = 0f;
             currentPointAssignedAt = Time.time;
-            pendingPointLookPoint = Vector3.zero;
-            pendingPointSwitchSince = 0f;
+            pendingPointSector = EnemyLookSector.None;
+            pendingPointSectorSwitchSince = 0f;
         }
 
         private void ApplyCurrentLook()
@@ -409,12 +401,13 @@ namespace friendlySAIN.BigBrain.Actions
             currentCornerSide = 0;
             currentCoverPointId = -1;
             currentEnemyVisible = false;
+            currentEnemySector = EnemyLookSector.None;
             currentCornerAssignedAt = 0f;
             pendingSwitchSide = 0;
             pendingSwitchSince = 0f;
             currentPointAssignedAt = 0f;
-            pendingPointLookPoint = Vector3.zero;
-            pendingPointSwitchSince = 0f;
+            pendingPointSector = EnemyLookSector.None;
+            pendingPointSectorSwitchSince = 0f;
         }
 
         private Vector3 GetEnemyLookPoint(EnemyInfo enemy)
@@ -485,6 +478,74 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             return (point - origin).sqrMagnitude > 0.01f;
+        }
+
+        private EnemyLookSector GetEnemyLookSectorOrNone(EnemyInfo enemy)
+        {
+            return GetEnemyLookSectorOrNone(GetEnemyLookPoint(enemy));
+        }
+
+        private EnemyLookSector GetEnemyLookSectorOrNone(Vector3 enemyLookPoint)
+        {
+            return TryGetEnemyLookSector(enemyLookPoint, out EnemyLookSector sector)
+                ? sector
+                : EnemyLookSector.None;
+        }
+
+        private bool TryGetEnemyLookSector(Vector3 enemyLookPoint, out EnemyLookSector sector)
+        {
+            sector = EnemyLookSector.None;
+
+            Vector3 direction = enemyLookPoint - BotOwner_0.Position;
+            direction.y = 0f;
+            if (direction.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            direction = GClass855.NormalizeFastSelf(direction);
+
+            Vector3 forward = BotOwner_0.Transform.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            forward = GClass855.NormalizeFastSelf(forward);
+            Vector3 right = new Vector3(forward.z, 0f, -forward.x);
+            float angle = Mathf.Atan2(Vector3.Dot(direction, right), Vector3.Dot(direction, forward)) * Mathf.Rad2Deg;
+            if (angle < 0f)
+            {
+                angle += 360f;
+            }
+
+            if (Enemy.Distance(BotOwner_0) <= Enemy.EnemyDistance.VeryClose)
+            {
+                sector = angle switch
+                {
+                    >= 337.5f or < 22.5f => EnemyLookSector.Top,
+                    >= 22.5f and < 67.5f => EnemyLookSector.TopRight,
+                    >= 67.5f and < 112.5f => EnemyLookSector.Right,
+                    >= 112.5f and < 157.5f => EnemyLookSector.BottomRight,
+                    >= 157.5f and < 202.5f => EnemyLookSector.Bottom,
+                    >= 202.5f and < 247.5f => EnemyLookSector.BottomLeft,
+                    >= 247.5f and < 292.5f => EnemyLookSector.Left,
+                    _ => EnemyLookSector.TopLeft,
+                };
+            }
+            else
+            {
+                sector = angle switch
+                {
+                    >= 315f or < 45f => EnemyLookSector.Top,
+                    >= 45f and < 135f => EnemyLookSector.Right,
+                    >= 135f and < 225f => EnemyLookSector.Bottom,
+                    _ => EnemyLookSector.Left,
+                };
+            }
+
+            return true;
         }
 
         private bool IsFacingWall()

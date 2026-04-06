@@ -111,7 +111,7 @@ Add a "my squad settings" button that show up only while in raid and allows the 
 
 # IMPROVE COVER SELECTION
 
-Old plugin had several method for selecting covers and positions from where to shoo, rather than relying on vanilla selection whish sometimes can push the bot behind the boss a lot, leaving him exposed.
+Old plugin had several method for selecting covers and positions from where to shoot, rather than relying on vanilla selection whish sometimes can push the bot behind the boss or in a vulnerable position
 
 # ADD 'AGGRESSION' SETTING
 
@@ -170,13 +170,13 @@ Description:
 - "On your own" - bots no longer care about boss position and fight the enemy on ther own. Regroup resets this commad. On combat end, this command is also reset.
 - CoverMe - srhinks the radious of covers around the boss, makes agression 0 and makes them try to find covers as close as possible to the boss. GetBack resets this command. On combat end, this command is also reset.
 
-# NON-COMBAT COMMANDS
+# (INPROGRESS) - NON-COMBAT COMMANDS
 
-The "Stop" phrase should stop the bot from roaming around near the boss. It is similar to "hold" gesture, except the bot does not go into crouch. If boss gets out of range (25f) he should discard the command and resume following.
+- (DONE) - the "Stop" phrase should stop the bot from roaming around near the boss. It is similar to "hold" gesture, except the bot does not go into crouch. If boss gets out of range (25f) he should discard the command and resume following.
 
 - "On your own" - makes bots enter patrol mode. Check old plugin for how that is done. Regroup resets this command.
 - GetBack - increase following distance. Regroup resets the distance
-- GoForward, same as "There" command but it is for the hole team.
+- (DONE) - GoForward, same as "There" command but it is for the hole team.
 - Silence - followers stop taking. Time should be set via settings, default is 1 minute. Max is 10 minutes. During combat, only "enemy spotted" is allowed on first engagement. And when they report enemy position during status report trigger.
 
 # Combat Tactics

@@ -56,7 +56,7 @@ namespace friendlySAIN.BigBrain
             try
             {
                 BrainManager.RemoveLayers(vanillaLayersToDisable, brains);
-                BrainManager.AddCustomLayer(typeof(FollowerPmcCombatLayer), pmcCombatBrains, FollowerCombatLayerPriority);
+                BrainManager.AddCustomLayer(typeof(FollowerCombatLayer), pmcCombatBrains, FollowerCombatLayerPriority);
                 BrainManager.AddCustomLayer(typeof(FollowerRequestLayer), brains, FollowerRequestLayerPriority);
                 BrainManager.AddCustomLayer(typeof(FollowerPatrolLayer), brains, FollowerLayerPriority);
             }
@@ -454,6 +454,7 @@ namespace friendlySAIN.BigBrain
                 reloadingInProgress = true;
                 nextReloadCheckAt = Time.time + 5f;
                 nextMagazineFillCheckAt = Time.time + 5f;
+                return;
             }
 
             if (
@@ -469,17 +470,16 @@ namespace friendlySAIN.BigBrain
                 triedSwitchToMainWeapon = true;
                 nextReloadCheckAt = Time.time + 5f;
                 nextMagazineFillCheckAt = Time.time + 5f;
+                return;
             }
 
             if (
-                Time.time > nextReloadCheckAt &&
                 (
                     selector.LastEquipmentSlot == EquipmentSlot.FirstPrimaryWeapon ||
                     selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon ||
                     selector.LastEquipmentSlot == EquipmentSlot.Holster
                 ) &&
-                BotOwner.WeaponManager.IsWeaponReady &&
-                (float)BotOwner.WeaponManager.Reload.BulletCount / BotOwner.WeaponManager.Reload.MaxBulletCount < 0.35f
+                ShouldReloadCurrentWeaponOutOfCombat()
             )
             {
                 nextReloadCheckAt = Time.time + 30f;
@@ -503,6 +503,35 @@ namespace friendlySAIN.BigBrain
                 triedFillMagazines = true;
                 nextMagazineFillCheckAt = Time.time + 20f;
             }
+        }
+
+        private bool ShouldReloadCurrentWeaponOutOfCombat()
+        {
+            if (BotOwner?.WeaponManager?.Reload == null)
+            {
+                return false;
+            }
+
+            if (!BotOwner.WeaponManager.HaveBullets)
+            {
+                return true;
+            }
+
+            Weapon currentWeapon = BotOwner.WeaponManager.CurrentWeapon;
+            MagazineItemClass currentMagazine = currentWeapon?.GetCurrentMagazine();
+            if (currentWeapon == null || currentMagazine == null)
+            {
+                return false;
+            }
+
+            int capacity = currentMagazine.MaxCount;
+            if (capacity <= 0)
+            {
+                return false;
+            }
+
+            int currentBullets = currentWeapon.GetCurrentMagazineCount();
+            return (float)currentBullets / capacity < 0.35f;
         }
     }
 

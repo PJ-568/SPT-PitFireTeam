@@ -396,8 +396,17 @@ namespace friendlySAIN.Utils
                         }
                         else
                         {
-                            // Custom follower brain tactics are removed in 4.x path.
                             string tactic = friendlySAIN.optionsLang.tacticOptions[0];
+                            BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(bt.Data);
+                            if (followerData != null)
+                            {
+                                tactic = followerData.CombatTactic switch
+                                {
+                                    FollowerCombatTactic.Marksman => "Marksman",
+                                    FollowerCombatTactic.Protector => "Protector",
+                                    _ => friendlySAIN.optionsLang.tacticOptions[0],
+                                };
+                            }
                             if (tactic != null)
                             {
                                 stringBuilder.Append($" | MD: {tactic}");

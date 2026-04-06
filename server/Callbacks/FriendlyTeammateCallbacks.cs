@@ -100,6 +100,19 @@ public class FriendlyTeammateCallbacks(
         }
     }
 
+    public ValueTask<string> SetAggression(string url, FriendlyTeammateAggressionRequest request, MongoId sessionId)
+    {
+        try
+        {
+            teammateService.SetTeammateAggression(sessionId, request);
+            return new ValueTask<string>(httpResponse.NullResponse());
+        }
+        catch (FriendlyTeammateException ex)
+        {
+            return new ValueTask<string>(httpResponse.GetBody<object?>(null, err: BackendErrorCodes.UnknownTradingError, errmsg: ex.Message));
+        }
+    }
+
     public ValueTask<string> SetAutoJoin(string url, FriendlyTeammateAutoJoinRequest request, MongoId sessionId)
     {
         try

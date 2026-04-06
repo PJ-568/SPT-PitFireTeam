@@ -10,11 +10,24 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatGoToEnemyAction : FollowerCombatActionBase
     {
+        private enum AdvanceLookMode
+        {
+            None,
+            EnemyOwned,
+            AdvancePoint,
+            MovingDirection,
+            KeepCurrent
+        }
+
         private const float VerticalTolerance = 1.25f;
         private const float ProgressCheckInterval = 1.25f;
         private const float MinimumProgressDistance = 0.75f;
         private const int StalledRefreshThreshold = 2;
         private const float TacticalReloadSafeDistance = 25f;
+        private const float WallFacingProbeDistance = 1.25f;
+        private const float WallFacingFallbackDebounceSeconds = 0.2f;
+        private const float LookCommitMinSeconds = 0.2f;
+        private const float LookCommitMaxSeconds = 0.4f;
         private const int LargeMagazineLowAmmoThreshold = 20;
         private const int PistolLargeMagazineLowAmmoThreshold = 10;
 
@@ -26,6 +39,10 @@ namespace friendlySAIN.BigBrain.Actions
         private Vector3 lastProgressPosition;
         private float nextProgressCheckTime;
         private int stalledProgressChecks;
+        private AdvanceLookMode committedLookMode;
+        private float committedLookModeUntil;
+        private float wallFacingSince;
+        private bool wallFacingActive;
 
         public CombatGoToEnemyAction(BotOwner botOwner) : base(botOwner)
         {
@@ -42,6 +59,10 @@ namespace friendlySAIN.BigBrain.Actions
             lastProgressPosition = BotOwner.Position;
             nextProgressCheckTime = 0f;
             stalledProgressChecks = 0;
+            committedLookMode = AdvanceLookMode.None;
+            committedLookModeUntil = 0f;
+            wallFacingSince = 0f;
+            wallFacingActive = false;
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -137,6 +158,13 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
+            // If we already committed a point and it still looks usable, try to re-acquire that path first
+            // instead of clearing and recalculating immediately (reduces repath/look churn).
+            if (TryContinueToCommittedAdvancePoint())
+            {
+                return;
+            }
+
             ClearCommittedAdvancePoint();
             TryMoveToEnemy(BotOwner.Memory.GoalEnemy.CurrPosition);
         }
@@ -196,19 +224,98 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void LookTowardAdvance(EnemyInfo goalEnemy)
         {
+            if (TryApplyCommittedLook(goalEnemy))
+            {
+                return;
+            }
+
             if (TryGetOwnedEnemyLookDirection(goalEnemy, out Vector3 lookDirection))
             {
-                BotOwner.Steering.LookToDirection(lookDirection);
+                CommitLookMode(AdvanceLookMode.EnemyOwned);
+                BotOwner.Steering.LookToDirection(lookDirection.normalized);
+                return;
+            }
+
+            if (TryLookTowardAdvancePoint())
+            {
                 return;
             }
 
             if (BotOwner.Mover.HasPathAndNoComplete)
             {
+                CommitLookMode(AdvanceLookMode.MovingDirection);
                 BotOwner.Steering.LookToMovingDirection();
                 return;
             }
 
+            CommitLookMode(AdvanceLookMode.KeepCurrent);
             BotOwner.Steering.LookToDirection(BotOwner.LookDirection);
+        }
+
+        private bool TryLookTowardAdvancePoint()
+        {
+            Vector3? advanceTarget = GetAdvanceTargetPoint();
+            if (!advanceTarget.HasValue)
+            {
+                return false;
+            }
+
+            Vector3 lookDirection = advanceTarget.Value - BotOwner.Position;
+            if (lookDirection.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            if (IsFacingWall(lookDirection))
+            {
+                if (!wallFacingActive)
+                {
+                    wallFacingActive = true;
+                    wallFacingSince = Time.time;
+                }
+
+                if (Time.time - wallFacingSince >= WallFacingFallbackDebounceSeconds)
+                {
+                    CommitLookMode(AdvanceLookMode.MovingDirection);
+                    BotOwner.Steering.LookToMovingDirection();
+                    return true;
+                }
+
+                CommitLookMode(AdvanceLookMode.AdvancePoint);
+                BotOwner.Steering.LookToPoint(advanceTarget.Value + Vector3.up * 0.5f);
+                return true;
+            }
+
+            wallFacingActive = false;
+            wallFacingSince = 0f;
+
+            CommitLookMode(AdvanceLookMode.AdvancePoint);
+            BotOwner.Steering.LookToPoint(advanceTarget.Value + Vector3.up * 0.5f);
+            return true;
+        }
+
+        private Vector3? GetAdvanceTargetPoint()
+        {
+            if (BotOwner.Mover.TargetPoint.HasValue)
+            {
+                return BotOwner.Mover.TargetPoint.Value;
+            }
+
+            if (hasCommittedAdvancePoint)
+            {
+                return committedAdvancePoint;
+            }
+
+            return null;
+        }
+
+        private bool IsFacingWall(Vector3 lookDirection)
+        {
+            Vector3 origin = BotOwner.WeaponRoot != null
+                ? BotOwner.WeaponRoot.position + Vector3.up * 0.1f
+                : BotOwner.Position + Vector3.up * 1.4f;
+
+            return Physics.Raycast(origin, lookDirection.normalized, WallFacingProbeDistance, LayerMaskClass.HighPolyWithTerrainMask);
         }
 
         private bool TryMoveToEnemy(Vector3 targetPoint)
@@ -319,6 +426,28 @@ namespace friendlySAIN.BigBrain.Actions
             nextProgressCheckTime = Time.time + ProgressCheckInterval;
         }
 
+        private bool TryContinueToCommittedAdvancePoint()
+        {
+            if (!hasCommittedAdvancePoint)
+            {
+                return false;
+            }
+
+            if (!IsFinite(committedAdvancePoint) ||
+                (committedAdvancePoint - BotOwner.Position).sqrMagnitude <= 0.25f)
+            {
+                return false;
+            }
+
+            if (TryGoToPoint(committedAdvancePoint, true))
+            {
+                nextMoveRefreshTime = Time.time + 4f;
+                return true;
+            }
+
+            return false;
+        }
+
         private bool HasCommittedAdvancePoint()
         {
             if (!hasCommittedAdvancePoint)
@@ -346,6 +475,71 @@ namespace friendlySAIN.BigBrain.Actions
         {
             hasCommittedAdvancePoint = false;
             committedAdvancePoint = Vector3.zero;
+        }
+
+        private bool TryApplyCommittedLook(EnemyInfo goalEnemy)
+        {
+            if (committedLookMode == AdvanceLookMode.None || committedLookModeUntil <= Time.time)
+            {
+                return false;
+            }
+
+            switch (committedLookMode)
+            {
+                case AdvanceLookMode.EnemyOwned:
+                    if (TryGetOwnedEnemyLookDirection(goalEnemy, out Vector3 lookDirection))
+                    {
+                        BotOwner.Steering.LookToDirection(lookDirection.normalized);
+                        return true;
+                    }
+                    return false;
+
+                case AdvanceLookMode.AdvancePoint:
+                    if (TryGetAdvanceLookPoint(out Vector3 advancePoint))
+                    {
+                        BotOwner.Steering.LookToPoint(advancePoint + Vector3.up * 0.5f);
+                        return true;
+                    }
+                    return false;
+
+                case AdvanceLookMode.MovingDirection:
+                    if (BotOwner.Mover.HasPathAndNoComplete)
+                    {
+                        BotOwner.Steering.LookToMovingDirection();
+                        return true;
+                    }
+                    return false;
+
+                case AdvanceLookMode.KeepCurrent:
+                    BotOwner.Steering.LookToDirection(BotOwner.LookDirection);
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void CommitLookMode(AdvanceLookMode mode)
+        {
+            if (mode == committedLookMode && committedLookModeUntil > Time.time)
+            {
+                return;
+            }
+
+            committedLookMode = mode;
+            committedLookModeUntil = Time.time + GClass856.Random(LookCommitMinSeconds, LookCommitMaxSeconds);
+        }
+
+        private bool TryGetAdvanceLookPoint(out Vector3 point)
+        {
+            point = Vector3.zero;
+            Vector3? advanceTarget = GetAdvanceTargetPoint();
+            if (!advanceTarget.HasValue || !IsFinite(advanceTarget.Value))
+            {
+                return false;
+            }
+
+            point = advanceTarget.Value;
+            return true;
         }
 
         private void StopAdvance()
@@ -454,6 +648,13 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             return false;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+                   !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
+                   !float.IsNaN(value.z) && !float.IsInfinity(value.z);
         }
     }
 }

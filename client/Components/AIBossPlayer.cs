@@ -75,6 +75,10 @@ namespace friendlySAIN.Components
         private readonly Dictionary<string, StableEnemyReportState> _stableEnemyReportByFollower =
             new Dictionary<string, StableEnemyReportState>(StringComparer.Ordinal);
         private const float StableEnemyReportSeconds = 0.75f;
+        private float _lastCombatSupportCueAt = -999f;
+        private float _lastBossShotAt = -999f;
+        private const float CombatSupportCueWindow = 4f;
+        private const float BossShotRecentWindow = 2.5f;
 
         public pitAIBossPlayer(Player player, BotsController botsController) : base(player)
         {
@@ -328,6 +332,8 @@ namespace friendlySAIN.Components
         {
             if (requester == null) return;
 
+            _lastCombatSupportCueAt = Time.time;
+
             InteractableObjects.CheckSeenEnemies(Player());
             List<Player> seenEnemies = InteractableObjects.GetSeenEnemies();
             if (seenEnemies == null || seenEnemies.Count == 0)
@@ -387,6 +393,57 @@ namespace friendlySAIN.Components
                 }
             }
 
+        }
+
+        public void MarkBossShot()
+        {
+            _lastBossShotAt = Time.time;
+        }
+
+        public bool HasRecentCombatSupportCue()
+        {
+            return Time.time - _lastCombatSupportCueAt <= CombatSupportCueWindow;
+        }
+
+        public bool WasShootingRecentlyForSupport()
+        {
+            return Time.time - _lastBossShotAt <= BossShotRecentWindow;
+        }
+
+        public bool TryGetSupportEnemy(out string enemyProfileId, out Vector3 enemyPosition)
+        {
+            enemyProfileId = string.Empty;
+            enemyPosition = Vector3.zero;
+
+            List<Player> visibleEnemies = GetBossVisibleEnemiesForContact(realPlayer);
+            if (friendlySAIN.IsSAINInstalled && (visibleEnemies == null || visibleEnemies.Count == 0))
+            {
+                visibleEnemies = GetSainContactFallbackEnemies(realPlayer);
+            }
+
+            visibleEnemies = PrioritizeContactEnemies(realPlayer, visibleEnemies);
+            Player enemy = visibleEnemies != null ? visibleEnemies.FirstOrDefault() : null;
+            if (enemy == null)
+            {
+                return false;
+            }
+
+            enemyProfileId = enemy.ProfileId ?? string.Empty;
+            enemyPosition = enemy.Position;
+            return !string.IsNullOrEmpty(enemyProfileId);
+        }
+
+        public bool IsPlayerEngaging(out string enemyProfileId, out Vector3 enemyPosition)
+        {
+            enemyProfileId = string.Empty;
+            enemyPosition = Vector3.zero;
+
+            if (TryGetSupportEnemy(out enemyProfileId, out enemyPosition))
+            {
+                return true;
+            }
+
+            return HasRecentCombatSupportCue() || WasShootingRecentlyForSupport();
         }
 
         private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy, bool prioritizeAsGoal)

@@ -9,7 +9,6 @@ using UnityEngine;
 
 namespace friendlySAIN.Patches
 {
-    
     // Guard vanilla straight-contact grenade logic from null refs (seen in GClass274.UpdateTryThrow).
     internal class GrenadeThrowPatch : ModulePatch
     {
@@ -130,17 +129,17 @@ namespace friendlySAIN.Patches
 
         private static bool IsFollowerGrenadeUseDisabled(BotOwner bot)
         {
-            if (bot == null || friendlySAIN.botGrenades.Value)
+            if (bot == null)
             {
                 return false;
             }
 
-            if (bot.BotFollower == null || bot.IsDead || bot.BotState != EBotState.Active)
+            if (!BossPlayers.IsFollower(bot))
             {
                 return false;
             }
 
-            return BossPlayers.Instance?.GetFollower(bot) != null;
+            return !FollowerGrenadeRuntimeGate.IsThrowAllowed(bot);
         }
 
         private static bool HasEffectiveThrowDistance(AIGreanageThrowData throwData)

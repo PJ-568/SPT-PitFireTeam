@@ -6,6 +6,8 @@ public record FriendlyTeammateFollowerDetailsResponse
 
     public string Tactic { get; set; } = string.Empty;
 
+    public float Aggression { get; set; }
+
     public string Equipment { get; set; } = string.Empty;
 
     public string Voice { get; set; } = string.Empty;

@@ -798,6 +798,7 @@ namespace friendlySAIN.Patches
 
             // remember what tactic this bot is associated with as the tactic will be set after spawn
             Dictionary<string, string> profileTactic = new Dictionary<string, string>();
+            Dictionary<string, float> profileAggression = new Dictionary<string, float>();
 
             // scav players will have random followers that cannot be customized
             if (side == EPlayerSide.Savage)
@@ -835,6 +836,7 @@ namespace friendlySAIN.Patches
                 }
 
                 Dictionary<string, string> botsTactic = new Dictionary<string, string>();
+                Dictionary<string, float> botsAggression = new Dictionary<string, float>();
 
                 try
                 {
@@ -844,6 +846,7 @@ namespace friendlySAIN.Patches
                     foreach (var item in BETactics)
                     {
                         botsTactic[item.Aid] = item.Tactic;
+                        botsAggression[item.Aid] = item.Aggression;
                     }
                 }
                 catch (Exception ex)
@@ -869,6 +872,15 @@ namespace friendlySAIN.Patches
                         else
                         {
                             profileTactic[profile.Id] = "Default";
+                        }
+
+                        if (botsAggression.TryGetValue(aid, out float aggression))
+                        {
+                            profileAggression[profile.Id] = aggression;
+                        }
+                        else
+                        {
+                            profileAggression[profile.Id] = 50f;
                         }
                     }
                 }
@@ -908,6 +920,11 @@ namespace friendlySAIN.Patches
                             profileTactic.TryGetValue(me.Profile.ProfileId, out tactic);
 
                             if (tactic == null) tactic = "Default";
+                            profileAggression.TryGetValue(me.Profile.ProfileId, out float aggression);
+                            if (aggression <= 0f && !profileAggression.ContainsKey(me.Profile.ProfileId))
+                            {
+                                aggression = 50f;
+                            }
 
                             WildSpawnType botType = type;
 
@@ -918,7 +935,7 @@ namespace friendlySAIN.Patches
 
                             Modules.Logger.LogInfo("Tactic is " + tactic);
 
-                            BossPlayers.AddFollower(me, player, true, botType, tactic);
+                            BossPlayers.AddFollower(me, player, true, botType, tactic, aggression);
 
                             TrySayFollowerReadyControlled(me, 2000);
 

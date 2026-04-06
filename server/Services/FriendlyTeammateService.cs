@@ -194,6 +194,7 @@ public class FriendlyTeammateService(
                 {
                     Aid = teammate.Aid?.ToString() ?? string.Empty,
                     Tactic = "Default",
+                    Aggression = NormalizeAggression(settings.Aggression),
                     Equipment = equipmentName,
                     Voice = teammate.Customization?.Voice?.ToString() ?? string.Empty,
                     Head = teammate.Customization?.Head?.ToString() ?? string.Empty,
@@ -222,6 +223,8 @@ public class FriendlyTeammateService(
         var response = new FriendlyTeammateProfileOptionsResponse
         {
             CurrentLoadoutId = selectedLoadoutId,
+            CurrentTactic = "Default",
+            Aggression = NormalizeAggression(GetTeammateSettings(sessionId, teammate).Aggression),
             Loadouts =
             [
                 new FriendlyTeammateLoadoutOption
@@ -304,6 +307,14 @@ public class FriendlyTeammateService(
         settings.SelectedLoadoutId = selectedLoadoutId;
         SaveTeammateSettings(sessionId, teammate, settings);
         SaveTeammate(sessionId, teammate);
+    }
+
+    public void SetTeammateAggression(MongoId sessionId, FriendlyTeammateAggressionRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        var settings = GetTeammateSettings(sessionId, teammate);
+        settings.Aggression = NormalizeAggression(request.Aggression);
+        SaveTeammateSettings(sessionId, teammate, settings);
     }
 
     public void SetTeammateAutoJoin(MongoId sessionId, FriendlyTeammateAutoJoinRequest request)
@@ -1294,15 +1305,20 @@ public class FriendlyTeammateService(
             {
                 SelectedLoadoutId = DefaultLoadoutId,
                 AutoJoinEnabled = false,
+                Aggression = 50f,
             };
         }
 
         FriendlyTeammateSettings? settings = jsonUtil.DeserializeFromFile<FriendlyTeammateSettings>(filePath);
-        return settings ?? new FriendlyTeammateSettings
+        FriendlyTeammateSettings loadedSettings = settings ?? new FriendlyTeammateSettings
         {
             SelectedLoadoutId = DefaultLoadoutId,
             AutoJoinEnabled = false,
+            Aggression = 50f,
         };
+
+        loadedSettings.Aggression = NormalizeAggression(loadedSettings.Aggression);
+        return loadedSettings;
     }
 
     private void SaveTeammateSettings(MongoId sessionId, BotBase teammate, FriendlyTeammateSettings settings)
@@ -1377,6 +1393,16 @@ public class FriendlyTeammateService(
             .Any(build => string.Equals(build.Id.ToString(), selectedLoadoutId, StringComparison.OrdinalIgnoreCase));
 
         return exists ? selectedLoadoutId : DefaultLoadoutId;
+    }
+
+    private static float NormalizeAggression(float value)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value))
+        {
+            return 50f;
+        }
+
+        return Math.Clamp(value, 0f, 100f);
     }
 
     private void ApplyEquipmentBuild(BotBase teammate, EquipmentBuild equipmentBuild, PmcData playerPmc)

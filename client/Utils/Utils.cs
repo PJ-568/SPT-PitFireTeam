@@ -12,6 +12,8 @@ namespace friendlySAIN.Utils
         public string Aid { get; set; }
         public string Tactic { get; set; }
 
+        public float Aggression { get; set; }
+
         public string Equipment { get; set; }
 
         public string Voice { get; set; }

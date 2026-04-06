@@ -6,6 +6,7 @@ using EFT.InputSystem;
 using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.DragAndDrop;
+using EFT.UI.Settings;
 using friendlySAIN.Utils;
 using HarmonyLib;
 using Newtonsoft.Json;
@@ -49,6 +50,8 @@ namespace friendlySAIN.Patches
     internal class FriendlyTeammateProfileOptions
     {
         public string CurrentLoadoutId { get; set; }
+        public string CurrentTactic { get; set; }
+        public float Aggression { get; set; } = 50f;
         public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; }
     }
 
@@ -68,6 +71,12 @@ namespace friendlySAIN.Patches
     {
         public string aid { get; set; }
         public string nickname { get; set; }
+    }
+
+    internal class FriendlyTeammateAggressionRequest
+    {
+        public string aid { get; set; }
+        public float aggression { get; set; }
     }
 
     internal sealed class LoadoutEditorHeaderDragHandle : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
@@ -222,6 +231,7 @@ namespace friendlySAIN.Patches
         private const string SuitRoute = "/singleplayer/friendlysain/teammate/profile/suit";
         private const string RenameRoute = "/singleplayer/friendlysain/teammate/profile/rename";
         private const string LoadoutRoute = "/singleplayer/friendlysain/teammate/profile/loadout";
+        private const string AggressionRoute = "/singleplayer/friendlysain/teammate/profile/aggression";
 
         private static readonly FieldInfo PlayerModelWindowField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow");
         private static readonly FieldInfo ClothingPanelField = AccessTools.Field(typeof(InventoryPlayerModelWithStatsWindow), "_clothingPanel");
@@ -232,6 +242,9 @@ namespace friendlySAIN.Patches
         private static readonly FieldInfo BackButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_backButton");
         private static readonly FieldInfo HideoutButtonField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_hideoutButton");
         private static readonly MethodInfo HideoutButtonHandlerMethod = AccessTools.Method(typeof(OtherPlayerProfileScreen), "method_11");
+        private static readonly FieldInfo SettingsScreenGameTabField = AccessTools.Field(typeof(SettingsScreen), "_gameSettingsScreen");
+        private static readonly FieldInfo GameSettingsSliderTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_fov");
+        private static readonly FieldInfo NumberSliderValueInputField = AccessTools.Field(typeof(NumberSlider), "_valueInput");
         private static readonly FieldInfo ReportPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_reportPanel");
         private static readonly FieldInfo OverallStatsPanelField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_overallStatsPanel");
         private static readonly FieldInfo AchievementsProgressBlockField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_achievementsProgressBlock");
@@ -301,6 +314,7 @@ namespace friendlySAIN.Patches
         public static InventoryController ActiveProfileInventoryController { get; set; }
         public static ISession ActiveProfileSession { get; set; }
         public static Transform LoadoutSelector { get; set; }
+        public static Transform AggressionSelector { get; set; }
         public static DefaultUIButton EditLoadoutButton { get; set; }
         public static Transform EditLoadoutButtonRoot { get; set; }
         public static GameObject LoadoutEditorOverlayRoot { get; set; }
@@ -318,6 +332,8 @@ namespace friendlySAIN.Patches
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
         private static List<GameObject> HiddenRenameButtonDecorations { get; } = new List<GameObject>();
         private static Dictionary<GameObject, bool> HiddenRightSideRoots { get; } = new Dictionary<GameObject, bool>();
+        private static Coroutine PendingAggressionPersistCoroutine { get; set; }
+        private static int PendingAggressionPersistRevision { get; set; }
         internal static Action PendingBackOverrideAction { get; set; }
         internal static Action ActiveBackOverrideAction { get; set; }
 
@@ -418,6 +434,14 @@ namespace friendlySAIN.Patches
                 LoadoutSelector = null;
             }
 
+            if (AggressionSelector != null)
+            {
+                GameObject.Destroy(AggressionSelector.gameObject);
+                AggressionSelector = null;
+            }
+
+            StopPendingAggressionPersist();
+
             RectTransform clone = GameObject.Instantiate(clothingPanel, parent, true);
             clone.name = "friendlySAIN_LoadoutSelector";
             clone.anchoredPosition = clothingPanel.anchoredPosition + new Vector2(0f, -72f);
@@ -436,7 +460,8 @@ namespace friendlySAIN.Patches
                 ConfigureLoadoutPanel(loadoutPanel, clothingSelectionPanel);
                 DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
                 ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
-                CreateEditLoadoutButton(__instance, clone, parent, profile);
+                CreateAggressionSliderRow(__instance, clone, parent, profile, options);
+                CreateEditLoadoutButton(__instance, clone, parent, profile, 2);
                 DisplaySkillsPanel(__instance, profile, session);
             }
             catch (Exception ex)
@@ -446,7 +471,336 @@ namespace friendlySAIN.Patches
             }
         }
 
-        private static void CreateEditLoadoutButton(OtherPlayerProfileScreen screen, RectTransform loadoutSelector, Transform parent, ResultProfile profile)
+        private static RectTransform CreateAggressionSliderRow(
+            OtherPlayerProfileScreen screen,
+            RectTransform loadoutSelector,
+            Transform parent,
+            ResultProfile profile,
+            FriendlyTeammateProfileOptions options)
+        {
+            if (screen == null || loadoutSelector == null || parent == null || profile == null || options == null)
+            {
+                return null;
+            }
+
+            if (AggressionSelector != null)
+            {
+                GameObject.Destroy(AggressionSelector.gameObject);
+                AggressionSelector = null;
+            }
+
+            RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
+            rowClone.name = "friendlySAIN_AggressionRow";
+            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f);
+            rowClone.gameObject.SetActive(true);
+
+            Transform upperRoot = rowClone.Find("Upper");
+            if (upperRoot != null)
+            {
+                upperRoot.gameObject.SetActive(false);
+            }
+
+            Transform lowerRoot = rowClone.Find("Lower");
+            if (lowerRoot != null)
+            {
+                lowerRoot.gameObject.SetActive(false);
+            }
+
+            bool isDefaultTactic = IsDefaultTacticSelection(options.CurrentTactic);
+            float aggressionValue = Mathf.Clamp(options.Aggression, 0f, 100f);
+
+            CreateAggressionRowContent(rowClone, profile, aggressionValue, isDefaultTactic);
+            AggressionSelector = rowClone;
+            return rowClone;
+        }
+
+        private static void CreateAggressionRowContent(RectTransform rowRoot, ResultProfile profile, float aggressionValue, bool interactable)
+        {
+            if (rowRoot == null || profile == null)
+            {
+                return;
+            }
+
+            CustomTextMeshProUGUI label = CreateAggressionLabel(
+                "friendlySAIN_AggressionLabel",
+                rowRoot,
+                GetSocialUiText("ProfileAggression", "Aggression"),
+                new Vector2(0f, 0.5f),
+                new Vector2(0f, 0.5f),
+                new Vector2(0f, 0.5f),
+                new Vector2(44f, 0f),
+                new Vector2(190f, 28f),
+                18f,
+                TextAlignmentOptions.MidlineLeft);
+
+            NumberSlider slider = CloneStockNumberSlider(rowRoot);
+            if (slider == null)
+            {
+                return;
+            }
+
+            RectTransform sliderRoot = slider.transform as RectTransform;
+            if (sliderRoot != null)
+            {
+                sliderRoot.anchorMin = new Vector2(0f, 0.5f);
+                sliderRoot.anchorMax = new Vector2(1f, 0.5f);
+                sliderRoot.pivot = new Vector2(0.5f, 0.5f);
+                sliderRoot.offsetMin = new Vector2(250f, -18f);
+                sliderRoot.offsetMax = new Vector2(-22f, 18f);
+                sliderRoot.localScale = Vector3.one;
+            }
+
+            slider.Show(0f, 100f, "0");
+            slider.UpdateValue(Mathf.Round(aggressionValue), false, 0f, 100f);
+
+            Slider stockSlider = slider.GetComponentInChildren<Slider>(true);
+            TMP_InputField valueInput = NumberSliderValueInputField?.GetValue(slider) as TMP_InputField;
+            if (stockSlider != null)
+            {
+                stockSlider.interactable = interactable;
+            }
+
+            if (valueInput != null)
+            {
+                valueInput.readOnly = !interactable;
+                valueInput.interactable = interactable;
+            }
+            if (!interactable)
+            {
+                Color disabledColor = new Color(0.62f, 0.62f, 0.62f, 1f);
+                if (label != null)
+                {
+                    label.color = disabledColor;
+                }
+            }
+
+            slider.Bind(value =>
+            {
+                int roundedValue = Mathf.RoundToInt(value);
+                if (interactable)
+                {
+                    ScheduleAggressionPersist(profile.AccountId, roundedValue);
+                }
+            });
+        }
+
+        private static CustomTextMeshProUGUI CreateAggressionLabel(
+            string name,
+            RectTransform parent,
+            string text,
+            Vector2 anchorMin,
+            Vector2 anchorMax,
+            Vector2 pivot,
+            Vector2 anchoredPosition,
+            Vector2 size,
+            float fontSize,
+            TextAlignmentOptions alignment)
+        {
+            GameObject labelObject = new GameObject(name, typeof(RectTransform), typeof(CustomTextMeshProUGUI));
+            labelObject.transform.SetParent(parent, false);
+
+            RectTransform rect = labelObject.GetComponent<RectTransform>();
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.pivot = pivot;
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = size;
+            rect.localScale = Vector3.one;
+
+            CustomTextMeshProUGUI label = labelObject.GetComponent<CustomTextMeshProUGUI>();
+            label.text = text;
+            label.fontSize = fontSize;
+            label.alignment = alignment;
+            label.color = new Color(0.87f, 0.87f, 0.84f, 1f);
+            label.raycastTarget = false;
+            return label;
+        }
+
+        private static SettingsScreen ResolveSettingsScreenTemplate()
+        {
+            return Resources.FindObjectsOfTypeAll<SettingsScreen>()
+                .FirstOrDefault(screen =>
+                    screen != null &&
+                    SettingsScreenGameTabField?.GetValue(screen) is GameSettingsTab);
+        }
+
+        private static GameSettingsTab ResolveGameSettingsTabTemplate()
+        {
+            SettingsScreen settingsScreen = ResolveSettingsScreenTemplate();
+            return SettingsScreenGameTabField?.GetValue(settingsScreen) as GameSettingsTab;
+        }
+
+        private static RectTransform ResolveSettingsSliderContainerTemplate()
+        {
+            GameSettingsTab gameSettingsTab = ResolveGameSettingsTabTemplate();
+            if (gameSettingsTab == null)
+            {
+                return null;
+            }
+
+            Transform sliderRoot = gameSettingsTab.transform.Find("Image/Scroll View/Viewport/Other Settings/Scrolls/FOV");
+            if (sliderRoot is RectTransform sliderRect)
+            {
+                return sliderRect;
+            }
+
+            NumberSlider fallbackSlider = ResolveSettingsSliderTemplate();
+            return fallbackSlider?.transform as RectTransform;
+        }
+
+        private static NumberSlider ResolveSettingsSliderTemplate()
+        {
+            GameSettingsTab gameSettingsTab = ResolveGameSettingsTabTemplate();
+            return GameSettingsSliderTemplateField?.GetValue(gameSettingsTab) as NumberSlider;
+        }
+
+        private static NumberSlider CloneStockNumberSlider(RectTransform parent)
+        {
+            RectTransform templateRoot = ResolveSettingsSliderContainerTemplate();
+            if (templateRoot == null)
+            {
+                return null;
+            }
+
+            RectTransform sliderRoot = GameObject.Instantiate(templateRoot, parent, false);
+            NumberSlider slider = sliderRoot.GetComponent<NumberSlider>() ?? sliderRoot.GetComponentInChildren<NumberSlider>(true);
+            if (slider == null)
+            {
+                GameObject.Destroy(sliderRoot.gameObject);
+                return null;
+            }
+
+            slider.name = "friendlySAIN_ProfileAggressionSlider";
+            sliderRoot.localScale = Vector3.one;
+
+            TMP_InputField valueInput = NumberSliderValueInputField?.GetValue(slider) as TMP_InputField;
+            HideStockLabelContainers(sliderRoot, valueInput?.transform);
+
+            slider.gameObject.SetActive(true);
+            return slider;
+        }
+
+        private static void HideStockLabelContainers(Transform root, Transform exemptRoot)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            HashSet<GameObject> hiddenObjects = new HashSet<GameObject>();
+
+            foreach (TMP_Text label in root.GetComponentsInChildren<TMP_Text>(true))
+            {
+                HideStockLabelContainer(root, exemptRoot, label?.transform, hiddenObjects);
+            }
+
+            foreach (Text label in root.GetComponentsInChildren<Text>(true))
+            {
+                HideStockLabelContainer(root, exemptRoot, label?.transform, hiddenObjects);
+            }
+        }
+
+        private static void HideStockLabelContainer(Transform root, Transform exemptRoot, Transform labelTransform, HashSet<GameObject> hiddenObjects)
+        {
+            if (root == null || labelTransform == null)
+            {
+                return;
+            }
+
+            if (exemptRoot != null && (labelTransform == exemptRoot || labelTransform.IsChildOf(exemptRoot)))
+            {
+                return;
+            }
+
+            Transform current = labelTransform;
+            while (current != null && current != root)
+            {
+                if (current.TryGetComponent(out LayoutElement _))
+                {
+                    if (hiddenObjects.Add(current.gameObject))
+                    {
+                        current.gameObject.SetActive(false);
+                    }
+
+                    return;
+                }
+
+                current = current.parent;
+            }
+        }
+
+        private static void ScheduleAggressionPersist(string accountId, int aggression)
+        {
+            StopPendingAggressionPersist();
+
+            if (string.IsNullOrWhiteSpace(accountId) || friendlySAIN.Instance == null)
+            {
+                return;
+            }
+
+            int revision = ++PendingAggressionPersistRevision;
+            PendingAggressionPersistCoroutine = friendlySAIN.Instance.StartCoroutine(
+                PersistAggressionDelayed(accountId, aggression, revision));
+        }
+
+        internal static void StopPendingAggressionPersist()
+        {
+            if (PendingAggressionPersistCoroutine != null && friendlySAIN.Instance != null)
+            {
+                friendlySAIN.Instance.StopCoroutine(PendingAggressionPersistCoroutine);
+            }
+
+            PendingAggressionPersistCoroutine = null;
+        }
+
+        private static System.Collections.IEnumerator PersistAggressionDelayed(string accountId, int aggression, int revision)
+        {
+            yield return new WaitForSecondsRealtime(0.35f);
+
+            if (revision != PendingAggressionPersistRevision)
+            {
+                yield break;
+            }
+
+            PendingAggressionPersistCoroutine = null;
+
+            try
+            {
+                string responseJson = RequestHandler.PostJson(AggressionRoute, SerializeBody(new FriendlyTeammateAggressionRequest
+                {
+                    aid = accountId,
+                    aggression = aggression
+                }));
+                EnsureBodySuccess(responseJson);
+                MarkSquadRosterDirty(accountId);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[UI] Failed to persist teammate aggression change.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static bool IsDefaultTacticSelection(string tactic)
+        {
+            return string.IsNullOrWhiteSpace(tactic)
+                || string.Equals(tactic, "default", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tactic, "balanced", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetTacticDisplayName(string tactic)
+        {
+            if (string.IsNullOrWhiteSpace(tactic))
+            {
+                return GetSocialUiText("ProfileTactic", "Balanced");
+            }
+
+            return IsDefaultTacticSelection(tactic)
+                ? GetSocialUiText("ProfileTactic", "Balanced")
+                : tactic;
+        }
+
+        private static void CreateEditLoadoutButton(OtherPlayerProfileScreen screen, RectTransform loadoutSelector, Transform parent, ResultProfile profile, int rowOffset = 1)
         {
             if (screen == null || loadoutSelector == null || parent == null || profile == null)
             {
@@ -466,7 +820,7 @@ namespace friendlySAIN.Patches
 
             RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
             rowClone.name = "friendlySAIN_LoadoutEdit";
-            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f);
+            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f * Mathf.Max(1, rowOffset));
             rowClone.gameObject.SetActive(true);
 
             Transform upperRoot = rowClone.Find("Upper");
@@ -2548,7 +2902,7 @@ namespace friendlySAIN.Patches
             FriendlyProfileDropdownItem currentTactic = new FriendlyProfileDropdownItem
             {
                 Id = "111111111111111111111111",
-                Name = GetSocialUiText("ProfileTactic", "Default")
+                Name = GetTacticDisplayName(options.CurrentTactic)
             };
 
             CustomDropdownIds.Add(currentTactic.Id);
@@ -2652,6 +3006,7 @@ namespace friendlySAIN.Patches
             OtherPlayerProfileScreenPatch.ActiveProfileInventoryController = null;
             OtherPlayerProfileScreenPatch.ActiveProfileSession = null;
             OtherPlayerProfileScreenPatch.CustomDropdownIds.Clear();
+            OtherPlayerProfileScreenPatch.StopPendingAggressionPersist();
             OtherPlayerProfileScreenPatch.CloseRenameOverlay();
 
             if (OtherPlayerProfileScreenPatch.OriginalNicknameLabel != null)
@@ -2691,6 +3046,12 @@ namespace friendlySAIN.Patches
             {
                 GameObject.Destroy(OtherPlayerProfileScreenPatch.LoadoutSelector.gameObject);
                 OtherPlayerProfileScreenPatch.LoadoutSelector = null;
+            }
+
+            if (OtherPlayerProfileScreenPatch.AggressionSelector != null)
+            {
+                GameObject.Destroy(OtherPlayerProfileScreenPatch.AggressionSelector.gameObject);
+                OtherPlayerProfileScreenPatch.AggressionSelector = null;
             }
 
             if (OtherPlayerProfileScreenPatch.EditLoadoutButtonRoot != null)
