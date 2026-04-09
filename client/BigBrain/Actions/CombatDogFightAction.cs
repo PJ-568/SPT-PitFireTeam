@@ -42,7 +42,7 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.Mover.SetTargetMoveSpeed(1f);
             Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.GetBodyPartPosition();
 
-            bool isVeryClose = Utils.Enemy.Distance(BotOwner) <= Utils.Enemy.EnemyDistance.VeryClose;
+            bool isVeryClose = Utils.Enemy.Distance(goalEnemy) <= Utils.Enemy.EnemyDistance.VeryClose;
             bool tense = goalEnemy.IsVisible && isVeryClose;
             if (tense)
             {

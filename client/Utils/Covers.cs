@@ -119,7 +119,7 @@ namespace friendlySAIN.Utils
             Func<CustomNavigationPoint, bool> eligibilityCheck = null,
             float minForwardDot = 0.1f)
         {
-            pitAIBossPlayer boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
+            pitAIBossPlayer? boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
 
             searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
 
@@ -416,6 +416,78 @@ namespace friendlySAIN.Utils
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Returns true if walking from <paramref name="from"/> to <paramref name="to"/> along the
+        /// NavMesh path exposes the walker to line-of-sight from <paramref name="enemyPosition"/> at
+        /// any of <paramref name="sampleCount"/> evenly-spaced points along the path.
+        /// A standing head-height offset (1.4 m) is applied to both sides before the visibility test.
+        /// Returns true (exposed) when no complete NavMesh path exists.
+        /// </summary>
+        public static bool IsPathExposedToEnemy(
+            Vector3 from,
+            Vector3 to,
+            Vector3 enemyPosition,
+            LayerMask mask,
+            int sampleCount = 4)
+        {
+            NavMeshPath path = new NavMeshPath();
+            if (!NavMesh.CalculatePath(from, to, -1, path) || path.status != NavMeshPathStatus.PathComplete)
+            {
+                return true;
+            }
+
+            Vector3[] corners = path.corners;
+            if (corners.Length < 2)
+            {
+                return false;
+            }
+
+            float totalLength = 0f;
+            for (int i = 1; i < corners.Length; i++)
+            {
+                totalLength += (corners[i] - corners[i - 1]).magnitude;
+            }
+
+            if (totalLength <= 0f)
+            {
+                return false;
+            }
+
+            Vector3 enemyEye = enemyPosition + Vector3.up * 1.4f;
+            float stepLength = totalLength / (sampleCount + 1);
+            float accumulated = 0f;
+            int cornerIdx = 1;
+
+            for (int s = 1; s <= sampleCount; s++)
+            {
+                float targetDist = s * stepLength;
+
+                while (cornerIdx < corners.Length - 1)
+                {
+                    float segLen = (corners[cornerIdx] - corners[cornerIdx - 1]).magnitude;
+                    if (accumulated + segLen >= targetDist)
+                    {
+                        break;
+                    }
+
+                    accumulated += segLen;
+                    cornerIdx++;
+                }
+
+                float seg = (corners[cornerIdx] - corners[cornerIdx - 1]).magnitude;
+                float t = seg > 0f ? (targetDist - accumulated) / seg : 0f;
+                Vector3 sample = Vector3.Lerp(corners[cornerIdx - 1], corners[cornerIdx], Mathf.Clamp01(t));
+                Vector3 sampleEye = sample + Vector3.up * 1.4f;
+
+                if (!Physics.Linecast(enemyEye, sampleEye, mask))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static CustomNavigationPoint FindPointForAssault(BotOwner botOwner)

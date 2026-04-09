@@ -46,7 +46,8 @@ namespace friendlySAIN.Utils
         {
             if (!bot.Memory.HaveEnemy) return false;
 
-            return (Distance(bot) <= EnemyDistance.Close && bot.Memory.GoalEnemy.IsVisible) || Distance(bot) == EnemyDistance.VeryClose;
+            EnemyInfo goalEnemy = bot.Memory.GoalEnemy;
+            return (Distance(goalEnemy) <= EnemyDistance.Close && goalEnemy.IsVisible) || Distance(goalEnemy) == EnemyDistance.VeryClose;
         }
 
         public static ProxyDistance DistanceProxy(BotOwner bot, Vector3 position)
@@ -75,14 +76,15 @@ namespace friendlySAIN.Utils
 
             return ProxyDistance.Far;
         }
-        public static EnemyDistance Distance(BotOwner bot)
+
+        public static EnemyDistance Distance(EnemyInfo goalEnemy)
         {
-            if (!bot.Memory.HaveEnemy) return EnemyDistance.Far;
+            if (goalEnemy == null)
+            {
+                return EnemyDistance.Far;
+            }
 
-            //Vector3 botPosition = bot.GetPlayer.Transform.position;
-            //Vector3 enemyPosition = bot.Memory.GoalEnemy.CurrPosition;
-
-            float distance = bot.Memory.GoalEnemy.Distance;//Utils.GetNavDistance(botPosition, enemyPosition);
+            float distance = goalEnemy.Distance;
 
             if (distance < 18f) return EnemyDistance.VeryClose;
 
@@ -102,7 +104,6 @@ namespace friendlySAIN.Utils
             }
 
             return EnemyDistance.Far;
-
         }
 
         public static float GetEnemiesAtLocation(BotOwner bot, EnemyInfo enemy, Vector3 position, float radius = 17f)

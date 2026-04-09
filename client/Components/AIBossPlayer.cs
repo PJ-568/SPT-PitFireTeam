@@ -181,7 +181,6 @@ namespace friendlySAIN.Components
         {
             InteractableObjects.BossIsDead();
             NpcMessage.PlayerDied();
-
             BossPlayers.KillPlayerBoss(realPlayer.ProfileId);
         }
 
@@ -501,7 +500,9 @@ namespace friendlySAIN.Components
             // Entering combat should break request commands
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
             if (followerData != null &&
-                followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) && follower.Memory.HaveEnemy)
+                followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) &&
+                activeCommand != FollowerCommandType.PushEnemy &&
+                follower.Memory.HaveEnemy)
             {
                 followerData.ClearCommand($"ContactEnemy:RegisterContactEnemyForFollower active={activeCommand}");
             }
@@ -628,6 +629,7 @@ namespace friendlySAIN.Components
                 if (enemy == null) continue;
                 if (enemy.ProfileId == realPlayer.ProfileId) continue;
                 if (Followers.Any(f => f != null && f.ProfileId == enemy.ProfileId)) continue;
+
 
                 if (enemy.MainParts == null) continue;
                 if (!enemy.MainParts.TryGetValue(BodyPartType.head, out _) &&
@@ -1465,26 +1467,33 @@ namespace friendlySAIN.Components
             if (Time.time < _nextThereGestureAt) return;
             _nextThereGestureAt = Time.time + 0.6f;
 
-            if (!TryGetGoToCommandTarget(requester, out Vector3 commandTarget))
-            {
-                return;
-            }
-
-            BotOwner excludedFollower = null;
+            BotOwner focusedFollower = null;
             if (requester is Player requesterPlayer)
             {
-                excludedFollower = FindLookedAtFollower(requesterPlayer, PhraseCommandDistance);
+                focusedFollower = FindLookedAtFollower(requesterPlayer, PhraseCommandDistance);
             }
 
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
-                if (excludedFollower != null && follower == excludedFollower) continue;
-                if (!CanReactToBossPhrase(follower, requester, PhraseCommandDistance)) continue;
-                if (!CanAcceptThereCommand(follower)) continue;
+                if (focusedFollower != null && follower != focusedFollower) continue;
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
+
+                if (follower.Memory?.HaveEnemy == true)
+                {
+                    followerData.SetPushEnemy(12f);
+                    follower.BotTalk.TrySay(EPhraseTrigger.Going, false);
+                    follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                    continue;
+                }
+
+                if (!CanAcceptThereCommand(follower)) continue;
+                if (!TryGetGoToCommandTarget(requester, out Vector3 commandTarget))
+                {
+                    return;
+                }
 
                 followerData.SetMoveToPoint(commandTarget, 0f);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
@@ -1703,7 +1712,7 @@ namespace friendlySAIN.Components
 
         private void SubscribeBossGroupStaticUpdate()
         {
-            if (!friendlySAIN.UseSainFollowerCombat || _bossGroupStaticUpdateSubscribed || _group == null || StaticManager.Instance == null)
+            if (_bossGroupStaticUpdateSubscribed || _group == null || StaticManager.Instance == null)
             {
                 return;
             }
@@ -1736,8 +1745,11 @@ namespace friendlySAIN.Components
             }
 
             _nextBossGroupStaticUpdateAt = Time.time + 0.5f;
-            ReportEnemyToIdleFollowers();
-            SainAddonBridge.RaiseBossGroupStaticUpdate(this);
+            //ReportEnemyToIdleFollowers();
+            if (friendlySAIN.UseSainFollowerCombat)
+            {
+                SainAddonBridge.RaiseBossGroupStaticUpdate(this);
+            }
         }
 
         private void ReportEnemyToIdleFollowers()

@@ -48,7 +48,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-04-02  
+**Last updated:** 2026-04-09  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
 ## Project Overview
@@ -261,27 +261,73 @@ Current verified custom teammate feature state:
     - `enemySearch` uses old-plugin-style `EndEnemySearch` logic,
     - other tactical-point usage uses old `EndGoToCoverPointTactical`-style checks,
     - group-search follower tactical movement no longer relies on a dedicated separate tactical end path.
-- Core combat style now distinguishes `HangBack` vs `MoveForward`:
-    - default is boss-anchored protection,
-    - when the player leaves the current combat area, followers reanchor to the player area instead of clinging to stale local cover.
-- Persistent push-commit state was removed from `FollowerCombatDefault`:
-    - no remembered enemy-id/decision pair,
-    - push decisions are frame-driven,
-    - end handling now relies on current enemy validity and shared base movement end logic.
+- Core combat manager ownership changed:
+    - old `FollowerCombatManager` usage was removed from the core path,
+    - `AIBossPlayer` no longer updates a separate follower combat manager,
+    - combat decisions are now follower-local inside `FollowerCombatDefault`.
+- `FollowerCombatDefault` now uses a simplified local decision order:
+    1. pre-fight and one-shot opener from `PrepareStartDecision`
+    2. committed push continuation
+    3. immediate visible-enemy handling
+    4. committed cover continuation
+    5. recovery / safe-cover behavior
+    6. explicit ordered push (`GoForward` in combat)
+    7. boss-under-attack protection routing
+    8. ally engagement support scan
+    9. generic blind advance / engage
+    10. boss reanchor fallback
+- Visible-enemy handling is now more aggressive:
+    - `ShouldShootImmediately()` is checked before `CanShootFromCurrentCover()`,
+    - visible shootable enemies prefer `shootFromPlace` / `shootFromCover` before passive hold logic,
+    - very-close visible enemies collapse into `dogFight`,
+    - visible but not currently shootable enemies can still hand off into engage pressure.
+- Combat cover is now follower-local and committed:
+    - one cover point is committed and reused until invalid or intentionally abandoned,
+    - the same committed move action/reason is preserved while moving to that cover to reduce stop/recommit thrash,
+    - committed cover reached-state prefers immediate fire, then direct visible fire, then active pressure, before passive `coverHold`.
+- Core push behavior now has committed push state again:
+    - push actions are tagged with stable reasons such as `push.run`, `push.goToEnemy`, `push.attackMoving`, `push.runToCover`, and `push.search`,
+    - once one of those push decisions is chosen, `FollowerCombatDefault` keeps returning the same decision until a hard interrupt or action completion path ends it,
+    - push selection itself is still delegated to the restored `FollowerCombatPush.EngageEnemy(...)` helper.
 - Combat heal/stim flow now has explicit state handling in `FollowerCombatCommon`:
     - `healStimulators` is fully wired (decision -> action -> end handler),
     - stim use no longer preempts pending first-aid/surgery work,
     - heal-cover movement reuses one committed heal cover instead of repeatedly picking new points,
     - heal and stim actions have timeout exits to avoid stuck medical states.
-- Escort/boss-position cover behavior is more conservative now:
-    - committed escort cover transitions into `holdPosition` as soon as the bot reaches a valid in-cover state,
-    - escort cover selection rejects boss-out-of-bounds points,
-    - fallback prefers boss-local cover that can hide from the enemy,
-    - if no safe boss-local escort cover exists, follower holds position instead of drifting to an arbitrary move target.
+- Core combat cover search is currently using EFT/vanilla cover selection for comparison:
+    - `TryCommitCombatCover()` routes through a vanilla `CoverSearchData` / `CoverPointMaster` search instead of the old custom `PointToShoot` / retreat-cover scorer,
+    - the old custom block is left commented in code as a temporary diagnostic reference,
+    - this applies to the current combat-cover experiment, not as a permanent architectural guarantee.
+- Combat cover is no longer boss-leashed by EFT `MAX_DIST_COVER_BOSS_SQRT`:
+    - general combat cover uses a mod-owned 120m max distance from the follower,
+    - a valid shoot/fight cover is allowed even if it is far from the boss.
+- Boss-local reanchor/protection cover is now separate from generic combat cover:
+    - `BossCoverSearchRadius` is 30m,
+    - boss reanchor and boss-protection cover prefer the closest valid cover to the boss within that 30m radius,
+    - if no boss-local cover exists, fallback is a direct move to the boss position.
+- Hold behavior now distinguishes `coverHold` and `bossHold`:
+    - both can break early for renewed combat opportunity,
+    - `bossHold` also breaks when the follower drifts beyond `BossCoverSearchRadius` so reanchor can occur.
 - Dedicated regular grenade use is now explicit on the core path:
     - no hidden opportunistic grenade throw inside dogfight,
     - grenade throw goes through `throwGrenadeFromPlace` with a dedicated safety gate.
 - Combat talk frequency is now gated by the `botTalk` config on both vanilla `BotTalk` and SAIN `PlayerComponent.PlayVoiceLine` follower paths.
+
+**`PrepareStartDecision` — Combat Entry Decision Tree (`FollowerCombatCommon`):**
+
+Called once per combat activation to pick the opening decision stored in `initialDecision`, consumed via `ConsumeInitialDecision()`. Priority order:
+
+1. **Visible + close cover with shoot lane** (`≤25m` nav-path) → `attackMoving` (`startVisCloseCover`)
+2. **Unseen + under fire:**
+    - close cover → `attackMovingWithSuppress` (`startSuppressionCover`)
+    - far cover → `runToCover` (`startUnderFireRunCover`)
+    - no cover → `suppressFire` (`startUnderFireSuppress`)
+3. **Unseen + not under fire + ally actively engaging enemy** (`TryGetAllyEngagementEnemy`):
+    - cover found near ally enemy →`attackMovingWithSuppress` if `≤30m`, else `runToCover` (`startAllySupportSuppress` / `startAllySupportRun`)
+4. **Unseen + low-threat enemy** (`IsEnemyLowThreat`, single enemy) → `goToEnemy` or `runToEnemy` based on distance (`startWeakEnemyPush`)
+5. **Far cover fallback** → `runToCover` (`startVisFarCover` / `startBlindFarCover`)
+
+If none match, `initialDecision` stays null and the layer falls through to `DecideCombat()`.
 
 **Patrol Readiness (Post-Combat Handoff):**
 
@@ -302,7 +348,12 @@ Supported commands via `GestureCommandAction`:
 - **ComeCloser** — Move within ~1m of boss, then resume prior hold
 - **MoveToPoint** ("There") — Walk to NavMesh-validated target, brief arrival look-around
     - Gesture-initiated: single-follower move-to-point
-    - Phrase-initiated (GOFORWARD): broadcast to all followers within range, excludes looked-at follower, uses interaction-ray targeting
+    - Phrase-initiated: still used for explicit point movement when follower has no combat enemy
+- **PushEnemy** (`GoForward` in combat) — Force combat engage routing against the follower's current enemy
+    - `AIBossPlayer.ApplyGoForwardPhrase()` targets the looked-at follower if one is selected, otherwise it broadcasts to active followers
+    - command acceptance is no longer limited by the old phrase-distance gate
+    - if the follower already has an enemy, `GoForward` is converted into `PushEnemy` and handled inside `FollowerCombatDefault` through `FollowerCombatPush.EngageEnemy(true, ...)`
+    - combat hold/committed-cover states now break so the ordered push can take over
 - **LootGeneric** / **LootWeapon** — Closest eligible follower assigned via `InteractableObjects.SetTaker(...)`, moves + inventory transfer
     - Now resilient to transient state changes: pins selected loot and attempts taker recovery before aborting
     - Supports all item types with improved state consistency

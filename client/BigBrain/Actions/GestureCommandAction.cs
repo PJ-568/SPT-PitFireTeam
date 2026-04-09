@@ -287,7 +287,7 @@ namespace friendlySAIN.BigBrain.Actions
 
             // Regroup should be an urgent converge command: run/sprint while closing.
             float regroupDistance = (regroupTarget - BotOwner.Position).magnitude;
-            bool shouldRun = regroupDistance > RegroupRunDistance;
+            bool shouldRun = true; //regroupDistance > RegroupRunDistance; // always sprint on regroup for now, can tweak later if needed
             BotOwner.GoToSomePointData.UpdateToGo(shouldRun, 1, 1f);
             if (shouldRun)
             {

@@ -16,6 +16,7 @@ namespace friendlySAIN.BigBrain
     internal sealed class FollowerCombatLayer : CustomLayer
     {
         private const float PostEnemyKeepActiveSeconds = 3f;
+        private const string LingerReason = "linger";
 
         private static readonly HashSet<BotLogicDecision> LoggedUnsupportedDecisions = new HashSet<BotLogicDecision>();
 
@@ -68,7 +69,7 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            bool isCombatActive = combatLogic.ShallUseNow();
+            bool isCombatActive = ShouldTreatCombatAsActive();
             if (isCombatActive)
             {
                 hadCombatSinceActivation = true;
@@ -128,10 +129,20 @@ namespace friendlySAIN.BigBrain
                 return new Action(typeof(CombatHoldPositionAction), "MissingCombatLogic", new FollowerCombatActionData(null));
             }
 
-            AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision = combatLogic.GetDecision();
-            combatLogic.DecisionChanged(currentDecision, nextDecision);
-            currentDecision = nextDecision;
+            AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision;
+            if (!ShouldTreatCombatAsActive())
+            {
+                // As soon as live enemy is gone, hand off to a short linger hold while the
+                // combat layer remains active for release/handoff timing.
+                nextDecision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, LingerReason);
+            }
+            else
+            {
+                nextDecision = combatLogic.GetDecision();
+                combatLogic.DecisionChanged(currentDecision, nextDecision);
+            }
 
+            currentDecision = nextDecision;
             return CreateBigBrainAction(nextDecision);
         }
 
@@ -152,9 +163,21 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            if (!combatLogic.ShallUseNow() && !isHealingAction && !shouldDelayRegroupHandoff)
+            if (currentDecision.Value.Reason != LingerReason && !ShouldTreatCombatAsActive())
             {
                 return true;
+            }
+
+            // Linger hold: layer is active but no live enemy. End immediately if combat becomes live
+            // again; otherwise end when the linger window expires.
+            if (currentDecision.HasValue && currentDecision.Value.Reason == LingerReason)
+            {
+                if (ShouldTreatCombatAsActive())
+                {
+                    return true;
+                }
+
+                return !IsActive();
             }
 
             if (!IsActive() && !isHealingAction && !shouldDelayRegroupHandoff)
@@ -177,10 +200,42 @@ namespace friendlySAIN.BigBrain
             }
 
             bool actionChanged = currentDecision.Value.Action != lastDecision.Value.Action;
-            bool reasonChanged = currentDecision.Value.Reason != lastDecision.Value.Reason;
-            bool reasonPolicyChanged = reasonChanged && ShouldCompareReasonForEndPolicy(currentDecision.Value.Action);
+            return endResult.Value || actionChanged;
+        }
 
-            return endResult.Value || actionChanged || reasonPolicyChanged;
+        private bool HasLiveEnemy()
+        {
+            return combatLogic?.ShallUseNow() == true;
+        }
+
+        private bool ShouldTreatCombatAsActive()
+        {
+            if (HasLiveEnemy())
+            {
+                return true;
+            }
+
+            EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
+            if (goalEnemy != null && goalEnemy.Person?.HealthController?.IsAlive == true)
+            {
+                if (BotOwner.Memory.HaveEnemy)
+                {
+                    return true;
+                }
+
+                if (goalEnemy.IsVisible || goalEnemy.CanShoot)
+                {
+                    return true;
+                }
+
+                if (currentDecision.HasValue && IsCombatContinuationDecision(currentDecision.Value.Action))
+                {
+                    return true;
+                }
+            }
+
+            return BotOwner?.Memory?.IsUnderFire == true &&
+                   Time.time - BotOwner.Memory.LastTimeHit <= 2f;
         }
 
         private static bool IsHealingDecision(AICoreActionResultStruct<BotLogicDecision, GClass26>? decision)
@@ -192,12 +247,6 @@ namespace friendlySAIN.BigBrain
 
             return decision.Value.Action == BotLogicDecision.heal ||
                    decision.Value.Action == BotLogicDecision.healStimulators;
-        }
-
-        private static bool ShouldCompareReasonForEndPolicy(BotLogicDecision decision)
-        {
-            return decision == BotLogicDecision.holdPosition ||
-                   decision == BotLogicDecision.goToPointTactical;
         }
 
         private bool HasPendingRegroupCommand()
@@ -238,6 +287,17 @@ namespace friendlySAIN.BigBrain
                    decision == BotLogicDecision.suppressFire ||
                    decision == BotLogicDecision.goToEnemy ||
                    decision == BotLogicDecision.runToEnemy;
+        }
+
+        private static bool IsCombatContinuationDecision(BotLogicDecision decision)
+        {
+            return IsActiveEngageDecision(decision) ||
+                   decision == BotLogicDecision.runToCover ||
+                   decision == BotLogicDecision.attackMoving ||
+                   decision == BotLogicDecision.attackMovingWithSuppress ||
+                   decision == BotLogicDecision.goToCoverPoint ||
+                   decision == BotLogicDecision.goToCoverPointTactical ||
+                   decision == BotLogicDecision.holdPosition;
         }
 
         public override void BuildDebugText(StringBuilder stringBuilder)
@@ -329,146 +389,6 @@ namespace friendlySAIN.BigBrain
 
                     return new Action(typeof(CombatHoldPositionAction), $"Unsupported:{decision.Action}", actionData);
             }
-        }
-    }
-
-    internal static class FollowerGroupSearchRuntime
-    {
-        private static readonly Dictionary<string, Dictionary<string, string>> LeaderProfileIdByBossAndEnemy =
-            new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
-
-        public static BotOwner? GetCurrentLeader(pitAIBossPlayer boss, string? enemyProfileId)
-        {
-            if (boss?.realPlayer == null || string.IsNullOrEmpty(enemyProfileId))
-            {
-                return null;
-            }
-
-            string bossProfileId = boss.realPlayer.ProfileId;
-            if (!LeaderProfileIdByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, string>? leadersByEnemy) ||
-                leadersByEnemy == null ||
-                !leadersByEnemy.TryGetValue(enemyProfileId!, out string? leaderProfileId) ||
-                string.IsNullOrEmpty(leaderProfileId))
-            {
-                return null;
-            }
-
-            BotOwner? leader = BossPlayers.GetFollowerByProfileId(leaderProfileId)?.GetBot();
-            if (leader == null || leader.IsDead)
-            {
-                leadersByEnemy.Remove(enemyProfileId!);
-                if (leadersByEnemy.Count == 0)
-                {
-                    LeaderProfileIdByBossAndEnemy.Remove(bossProfileId);
-                }
-                return null;
-            }
-
-            return leader;
-        }
-
-        public static BotOwner? GetOrAssignLeader(pitAIBossPlayer boss, EnemyInfo goalEnemy, Func<BotOwner, EnemyInfo, bool> isValidCandidate)
-        {
-            if (boss?.realPlayer == null || goalEnemy == null || string.IsNullOrEmpty(goalEnemy.ProfileId))
-            {
-                return null;
-            }
-
-            string bossProfileId = boss.realPlayer.ProfileId;
-            string enemyProfileId = goalEnemy.ProfileId;
-            BotOwner? currentLeader = GetCurrentLeader(boss, enemyProfileId);
-
-            if (currentLeader != null &&
-                currentLeader.Memory?.GoalEnemy != null &&
-                currentLeader.Memory.GoalEnemy.ProfileId == enemyProfileId &&
-                CanOwnerLeadSearch(currentLeader) &&
-                isValidCandidate(currentLeader, currentLeader.Memory.GoalEnemy))
-            {
-                return currentLeader;
-            }
-
-            BotOwner? bestLeader = null;
-            bool bestHadPersonal = false;
-            float bestAggression = float.MinValue;
-            float bestPersonalSeenTime = float.MinValue;
-            float bestDistanceSqr = float.MaxValue;
-
-            foreach (BotFollowerPlayer follower in BossPlayers.GetFollowersByBoss(bossProfileId))
-            {
-                BotOwner? owner = follower?.GetBot();
-                EnemyInfo? ownerEnemy = owner?.Memory?.GoalEnemy;
-                if (owner == null ||
-                    ownerEnemy == null ||
-                    ownerEnemy.ProfileId != enemyProfileId ||
-                    !CanOwnerLeadSearch(owner) ||
-                    !isValidCandidate(owner, ownerEnemy))
-                {
-                    continue;
-                }
-
-                bool hadPersonal = Time.time - ownerEnemy.PersonalLastSeenTime <= 12f;
-                float aggression = GetOwnerAggression(owner);
-                float personalSeenTime = ownerEnemy.PersonalLastSeenTime;
-                float distanceSqr = (owner.Position - ownerEnemy.CurrPosition).sqrMagnitude;
-
-                if (bestLeader == null ||
-                    (hadPersonal && !bestHadPersonal) ||
-                    (hadPersonal == bestHadPersonal && aggression > bestAggression + 0.01f) ||
-                    (hadPersonal == bestHadPersonal &&
-                     Mathf.Abs(aggression - bestAggression) <= 0.01f &&
-                     personalSeenTime > bestPersonalSeenTime + 0.01f) ||
-                    (hadPersonal == bestHadPersonal &&
-                     Mathf.Abs(aggression - bestAggression) <= 0.01f &&
-                     Mathf.Abs(personalSeenTime - bestPersonalSeenTime) <= 0.01f &&
-                     distanceSqr < bestDistanceSqr))
-                {
-                    bestLeader = owner;
-                    bestHadPersonal = hadPersonal;
-                    bestAggression = aggression;
-                    bestPersonalSeenTime = personalSeenTime;
-                    bestDistanceSqr = distanceSqr;
-                }
-            }
-
-            if (bestLeader == null)
-            {
-                if (LeaderProfileIdByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, string>? leadersByEnemy) &&
-                    leadersByEnemy != null)
-                {
-                    leadersByEnemy.Remove(enemyProfileId);
-                    if (leadersByEnemy.Count == 0)
-                    {
-                        LeaderProfileIdByBossAndEnemy.Remove(bossProfileId);
-                    }
-                }
-
-                return null;
-            }
-
-            if (!LeaderProfileIdByBossAndEnemy.TryGetValue(bossProfileId, out Dictionary<string, string>? bossLeaders) ||
-                bossLeaders == null)
-            {
-                bossLeaders = new Dictionary<string, string>(StringComparer.Ordinal);
-                LeaderProfileIdByBossAndEnemy[bossProfileId] = bossLeaders;
-            }
-
-            bossLeaders[enemyProfileId] = bestLeader.ProfileId;
-            return bestLeader;
-        }
-
-        private static bool CanOwnerLeadSearch(BotOwner owner)
-        {
-            return GetOwnerAggression(owner) > 0.01f;
-        }
-
-        private static float GetOwnerAggression(BotOwner owner)
-        {
-            if (owner == null || string.IsNullOrEmpty(owner.ProfileId))
-            {
-                return 50f;
-            }
-
-            return BossPlayers.GetFollowerByProfileId(owner.ProfileId)?.CombatAggression ?? 50f;
         }
     }
 

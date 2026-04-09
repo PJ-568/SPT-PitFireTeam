@@ -198,17 +198,45 @@ namespace friendlySAIN.Patches
 
             foreach (string accountId in LoadAutoJoinAccountIds())
             {
-                if (MainMenuControllerPatch.GroupPlayers.Any(player => player?.AccountId == accountId))
+                GroupPlayerViewModelClass teammate = BuildGroupPlayer(accountId, controller.CurrentPlayer);
+                if (teammate == null)
                 {
                     continue;
                 }
 
-                GroupPlayerViewModelClass teammate = BuildGroupPlayer(accountId, controller.CurrentPlayer);
-                if (teammate != null)
+                ReplaceOrAddPlayer(MainMenuControllerPatch.GroupPlayers, teammate);
+
+                if (controller.GroupPlayers != null)
                 {
-                    MainMenuControllerPatch.GroupPlayers.Add(teammate);
+                    ReplaceOrAddPlayer(controller.GroupPlayers, teammate);
                 }
             }
+        }
+
+        private static void ReplaceOrAddPlayer(IList<GroupPlayerViewModelClass> players, GroupPlayerViewModelClass teammate)
+        {
+            if (players == null || teammate == null || string.IsNullOrWhiteSpace(teammate.AccountId))
+            {
+                return;
+            }
+
+            int existingIndex = -1;
+            for (int i = 0; i < players.Count; i++)
+            {
+                if (players[i]?.AccountId == teammate.AccountId)
+                {
+                    existingIndex = i;
+                    break;
+                }
+            }
+
+            if (existingIndex >= 0)
+            {
+                players[existingIndex] = teammate;
+                return;
+            }
+
+            players.Add(teammate);
         }
 
         private static IReadOnlyList<string> LoadAutoJoinAccountIds()
@@ -964,11 +992,24 @@ namespace friendlySAIN.Patches
                 {
                     foreach (var teammate in MainMenuControllerPatch.GroupPlayers)
                     {
-                        if (controller.GroupPlayers.All(x => x.AccountId != teammate.AccountId))
+                        int existingIndex = -1;
+                        for (int i = 0; i < controller.GroupPlayers.Count; i++)
                         {
-                            controller.GroupPlayers.Add(teammate);
-                            friendlySAIN.Log.LogInfo($"[UI] Added teammate {teammate.AccountId} to controller before preview population");
+                            if (controller.GroupPlayers[i]?.AccountId == teammate.AccountId)
+                            {
+                                existingIndex = i;
+                                break;
+                            }
                         }
+
+                        if (existingIndex >= 0)
+                        {
+                            controller.GroupPlayers[existingIndex] = teammate;
+                            continue;
+                        }
+
+                        controller.GroupPlayers.Add(teammate);
+                        friendlySAIN.Log.LogInfo($"[UI] Added teammate {teammate.AccountId} to controller before preview population");
                     }
                 }
             }

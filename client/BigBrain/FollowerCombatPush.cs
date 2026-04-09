@@ -11,6 +11,8 @@ namespace friendlySAIN.BigBrain
     /// </summary>
     internal sealed class FollowerCombatPush
     {
+        private const string PushReasonPrefix = "push.";
+
         private readonly BotOwner botOwner;
         private readonly FollowerCombatCommon combatCommon;
 
@@ -33,7 +35,7 @@ namespace friendlySAIN.BigBrain
             }
 
             bool enemyVisible = goalEnemy.IsVisible;
-            Utils.Enemy.EnemyDistance distanceToEnemy = Utils.Enemy.Distance(botOwner);
+            Utils.Enemy.EnemyDistance distanceToEnemy = Utils.Enemy.Distance(goalEnemy);
             float enemiesAtLocation = enemyLowThreat || string.IsNullOrEmpty(goalEnemy.ProfileId)
                 ? 1f
                 : Utils.Enemy.GetEnemiesAtLocation(botOwner, goalEnemy, goalEnemy.CurrPosition);
@@ -66,7 +68,8 @@ namespace friendlySAIN.BigBrain
                     if (!enemyVisible || pushOrdered)
                     {
                         botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
-                        return new AICoreActionResultStruct<BotLogicDecision, GClass26>(enemyVisible ? BotLogicDecision.goToEnemy : pushDecision, "pushEnemy");
+                        BotLogicDecision moveDecision = enemyVisible ? BotLogicDecision.goToEnemy : pushDecision;
+                        return CreatePushDecision(moveDecision);
                     }
 
                     if (distanceToEnemy >= Utils.Enemy.EnemyDistance.Mid)
@@ -75,10 +78,10 @@ namespace friendlySAIN.BigBrain
                         if (approachPoint != null)
                         {
                             botOwner.Memory.BotCurrentCoverInfo.SetCover(approachPoint, true);
-                            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToCover, "getInCloseFast");
+                            return CreatePushDecision(BotLogicDecision.runToCover);
                         }
 
-                        return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.attackMoving, "getInCloseSlow");
+                        return CreatePushDecision(BotLogicDecision.attackMoving);
                     }
 
                     if (distanceToEnemy == Utils.Enemy.EnemyDistance.VeryClose)
@@ -86,7 +89,7 @@ namespace friendlySAIN.BigBrain
                         return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "pushDogFight");
                     }
 
-                    return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.attackMoving, "pushAdvance");
+                    return CreatePushDecision(BotLogicDecision.attackMoving);
                 }
 
                 // Push wanted but unsafe/imperfect conditions.
@@ -103,22 +106,22 @@ namespace friendlySAIN.BigBrain
                     }
 
                     botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
-                    return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.attackMoving, "pushReposition");
+                    return CreatePushDecision(BotLogicDecision.attackMoving);
                 }
 
                 if (distanceToEnemy <= Utils.Enemy.EnemyDistance.VeryClose)
                 {
-                    return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToEnemy, "pushVeryCloseBlind");
+                    return CreatePushDecision(BotLogicDecision.goToEnemy);
                 }
 
                 CustomNavigationPoint? blindApproach = combatCommon.GetApproachableCover(distanceToEnemy > Utils.Enemy.EnemyDistance.Mid);
                 if (blindApproach != null)
                 {
                     botOwner.Memory.BotCurrentCoverInfo.SetCover(blindApproach, true);
-                    return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToCover, "getInCloseFast");
+                    return CreatePushDecision(BotLogicDecision.runToCover);
                 }
 
-                return EnemySearch();
+                return EnemySearch("push.search");
             }
 
             // Old plugin "intimidation" fallback: maintain pressure from cover or hold lane.
@@ -146,13 +149,13 @@ namespace friendlySAIN.BigBrain
                 if (shootCover != null)
                 {
                     botOwner.Memory.BotCurrentCoverInfo.SetCover(shootCover, true);
-                    return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToCover, "getInCloseFast");
+                    return CreatePushDecision(BotLogicDecision.runToCover);
                 }
 
-                return EnemySearch();
+                return EnemySearch("push.search");
             }
 
-            return EnemySearch();
+            return EnemySearch("push.search");
         }
 
         public AICoreActionResultStruct<BotLogicDecision, GClass26> EnemySearch(string reason = "enemySearch")
@@ -185,6 +188,22 @@ namespace friendlySAIN.BigBrain
             botOwner.GoToSomePointData.SetPoint(searchPoint);
             botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPointTactical, reason);
+        }
+
+        private static AICoreActionResultStruct<BotLogicDecision, GClass26> CreatePushDecision(BotLogicDecision action)
+        {
+            string suffix = action switch
+            {
+                BotLogicDecision.runToEnemy => "run",
+                BotLogicDecision.goToEnemy => "goToEnemy",
+                BotLogicDecision.attackMoving => "attackMoving",
+                BotLogicDecision.attackMovingWithSuppress => "attackMovingSuppress",
+                BotLogicDecision.runToCover => "runToCover",
+                BotLogicDecision.goToPointTactical => "search",
+                _ => action.ToString(),
+            };
+
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(action, $"{PushReasonPrefix}{suffix}");
         }
 
         private static Vector3 GetEnemySearchAnchor(EnemyInfo goalEnemy)

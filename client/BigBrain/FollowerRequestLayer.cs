@@ -66,6 +66,11 @@ namespace friendlySAIN.BigBrain
             }
 
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
+            if (hasCommand && command == FollowerCommandType.PushEnemy)
+            {
+                return false;
+            }
+
             bool allowVanillaCombatRegroup = hasCommand &&
                                             command == FollowerCommandType.RegroupNearBoss &&
                                             !friendlySAIN.UseSainFollowerCombat;
@@ -90,6 +95,11 @@ namespace friendlySAIN.BigBrain
                     {
                         return true;
                     }
+                }
+
+                if (command == FollowerCommandType.PushEnemy)
+                {
+                    return false;
                 }
 
                 InteractableObjects.RemoveTaker(BotOwner);

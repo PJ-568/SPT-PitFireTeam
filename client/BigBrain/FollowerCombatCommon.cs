@@ -4,6 +4,7 @@ using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using System;
 using UnityEngine;
+using Comfort.Common;
 
 namespace friendlySAIN.BigBrain
 {
@@ -11,6 +12,13 @@ namespace friendlySAIN.BigBrain
     {
         private const float StartCloseCoverDistance = 25f;
         private const float StartSupportSuppressDistance = 30f;
+        private const float ShootCoverSuperiorNavImprovementFactor = 0.7f;
+        private const float StableShootCoverRefreshInterval = 1.2f;
+        private const float UnstableShootCoverRefreshInterval = 0.6f;
+        private const float HaveCoverToShootDebounceSeconds = 0.15f;
+        private const float ShootLaneUpgradeHysteresisSeconds = 0.2f;
+        private const float PointToShootUpdateMinDistance = 1.5f;
+        private const float CombatCoverMaxDistance = 120f;
 
         private readonly BotOwner botOwner;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? initialDecision;
@@ -29,6 +37,12 @@ namespace friendlySAIN.BigBrain
         private bool dangerResult = false;
         private bool dangerIgnoreEquipResult = false;
         private CustomNavigationPoint? cachedClosestShootCover;
+        private float inCoverSince = 0f;
+        private Vector3 lastKnownBossPosition;
+        private bool hasLastKnownBossPosition;
+        private bool pendingHaveCoverToShoot;
+        private float pendingHaveCoverToShootSince;
+        private float shootLaneUpgradeSince;
 
         public FollowerCombatCommon(BotOwner botOwner)
         {
@@ -51,6 +65,19 @@ namespace friendlySAIN.BigBrain
             cachedClosestShootCover = null;
             nextClosestShootCoverCheckTime = 0f;
             nextApproachableCoverCheckTime = 0f;
+            inCoverSince = 0f;
+            hasLastKnownBossPosition = false;
+            lastKnownBossPosition = Vector3.zero;
+            pendingHaveCoverToShoot = false;
+            pendingHaveCoverToShootSince = 0f;
+            shootLaneUpgradeSince = 0f;
+        }
+        /// <summary>
+        /// Returns the active tactic so combat branches can bias toward protection or ranged play.
+        /// </summary>
+        public FollowerCombatTactic GetFollowerTactic()
+        {
+            return BossPlayers.Instance?.GetFollower(botOwner)?.CombatTactic ?? FollowerCombatTactic.Balanced;
         }
 
         public bool HaveCoverToShoot { get; private set; }
@@ -74,7 +101,22 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            return goalEnemy.Person?.HealthController?.IsAlive != false;
+            if (goalEnemy.Person?.HealthController?.IsAlive == true)
+            {
+                return true;
+            }
+
+            // EnemyInfo.Person can temporarily be null/stale; resolve against alive players by profile id.
+            if (!string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                Player? alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+                if (alivePlayer?.HealthController?.IsAlive == true)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public void RefreshShootCover()
@@ -84,88 +126,302 @@ namespace friendlySAIN.BigBrain
                 return;
             }
 
-            nextShootCoverCheckTime = Time.time + 1f;
             Vector3 bossPosition = GetBossPosition();
-            PointToShoot = FindFollowerShootCover();
-            if (PointToShoot == null || !PointToShoot.IsFreeById(botOwner.Id) || PointToShoot.IsSpotted)
+            CustomNavigationPoint? candidate = FindFollowerShootCover();
+            bool pointChangedMeaningfully = IsPointMeaningfullyDifferent(PointToShoot, candidate);
+            if (ShouldUpdatePointToShoot(PointToShoot, candidate))
             {
-                HaveCoverToShoot = false;
+                PointToShoot = candidate;
+            }
+
+            if (!IsCoverUsable(candidate, bossPosition))
+            {
+                HaveCoverToShoot = UpdateDebouncedHaveCoverToShoot(false);
+                ScheduleShootCoverRefresh(stable: false);
                 return;
             }
 
-            if ((bossPosition - PointToShoot.Position).sqrMagnitude >= botOwner.Settings.FileSettings.Boss.MAX_DIST_COVER_BOSS_SQRT)
+            if (candidate == null)
             {
-                HaveCoverToShoot = false;
+                HaveCoverToShoot = UpdateDebouncedHaveCoverToShoot(false);
+                ScheduleShootCoverRefresh(stable: false);
                 return;
             }
 
-            HaveCoverToShoot = !ProtectCareKill() || PointToShoot.CanIShootToEnemy;
-            if (HaveCoverToShoot && (botOwner.Memory.CurCustomCoverPoint == null || botOwner.Memory.CurCustomCoverPoint.Id != PointToShoot.Id))
+            bool requireShootLane = ProtectCareKill();
+            bool candidateCanShoot = candidate.CanIShootToEnemy;
+            bool candidateShootLaneStable = !requireShootLane || IsShootLaneUpgradeStable(candidateCanShoot);
+            bool rawHaveCoverToShoot = !requireShootLane || candidateShootLaneStable;
+            HaveCoverToShoot = UpdateDebouncedHaveCoverToShoot(rawHaveCoverToShoot);
+            if (!HaveCoverToShoot)
             {
-                botOwner.Memory.BotCurrentCoverInfo.Spotted();
-                botOwner.Memory.BotCurrentCoverInfo.SetCover(PointToShoot, true);
+                ScheduleShootCoverRefresh(stable: false);
+                return;
             }
+
+            CustomNavigationPoint? current = botOwner.Memory.CurCustomCoverPoint;
+            if (!ShouldCommitRefreshedShootCover(current, candidate, bossPosition, requireShootLane, candidateShootLaneStable))
+            {
+                bool stableSignal = !IsHaveCoverDebouncePending() && !pointChangedMeaningfully;
+                ScheduleShootCoverRefresh(stableSignal);
+                return;
+            }
+
+            if (current != null && current.Id == candidate.Id)
+            {
+                bool stableSignal = !IsHaveCoverDebouncePending() && !pointChangedMeaningfully;
+                ScheduleShootCoverRefresh(stableSignal);
+                return;
+            }
+
+            botOwner.Memory.BotCurrentCoverInfo.Spotted();
+            botOwner.Memory.BotCurrentCoverInfo.SetCover(candidate, true);
+            ScheduleShootCoverRefresh(stable: false);
+        }
+
+        private bool ShouldCommitRefreshedShootCover(
+            CustomNavigationPoint? current,
+            CustomNavigationPoint candidate,
+            Vector3 bossPosition,
+            bool requireShootLane,
+            bool candidateShootLaneStable)
+        {
+            // Rule 1: no current cover or current cover is invalid.
+            if (IsCurrentCoverInvalid(current, bossPosition))
+            {
+                return true;
+            }
+
+            if (current == null)
+            {
+                return true;
+            }
+
+            bool currentCanShoot = current.CanIShootToEnemy;
+            bool candidateCanShoot = candidate.CanIShootToEnemy;
+
+            // Rule 2: current cannot shoot and candidate can.
+            if (!currentCanShoot && candidateCanShoot && candidateShootLaneStable)
+            {
+                return true;
+            }
+
+            bool currentUsable = IsCoverUsable(current, bossPosition);
+            bool candidateUsable = IsCoverUsable(candidate, bossPosition);
+
+            // Rule 3: current violates boss-distance/usability and candidate does not.
+            if (!currentUsable && candidateUsable)
+            {
+                return true;
+            }
+
+            // Rule 4: meaningful superiority only; avoid reshuffle from already-valid shoot-capable cover.
+            if (currentUsable && currentCanShoot)
+            {
+                return false;
+            }
+
+            if (requireShootLane && !candidateShootLaneStable)
+            {
+                return false;
+            }
+
+            return HasMeaningfulNavImprovement(current, candidate);
+        }
+
+        private bool IsCurrentCoverInvalid(CustomNavigationPoint? cover, Vector3 bossPosition)
+        {
+            return cover == null ||
+                   !cover.IsFreeById(botOwner.Id) ||
+                   cover.IsSpotted;
+        }
+
+        private bool IsCoverUsable(CustomNavigationPoint? cover, Vector3 bossPosition)
+        {
+            return cover != null &&
+                   cover.IsFreeById(botOwner.Id) &&
+                   !cover.IsSpotted;
+        }
+
+        private bool HasMeaningfulNavImprovement(CustomNavigationPoint current, CustomNavigationPoint candidate)
+        {
+            float currentNavDistance = GetCoverNavDistance(current);
+            float candidateNavDistance = GetCoverNavDistance(candidate);
+
+            if (!IsFinite(currentNavDistance) || !IsFinite(candidateNavDistance))
+            {
+                return false;
+            }
+
+            return candidateNavDistance <= currentNavDistance * ShootCoverSuperiorNavImprovementFactor;
+        }
+
+        private bool ShouldUpdatePointToShoot(CustomNavigationPoint? currentPoint, CustomNavigationPoint? candidate)
+        {
+            if (candidate == null)
+            {
+                return currentPoint == null;
+            }
+
+            if (currentPoint == null)
+            {
+                return true;
+            }
+
+            if (currentPoint.Id == candidate.Id)
+            {
+                return false;
+            }
+
+            float minDeltaSqr = PointToShootUpdateMinDistance * PointToShootUpdateMinDistance;
+            return (currentPoint.Position - candidate.Position).sqrMagnitude >= minDeltaSqr;
+        }
+
+        private bool IsPointMeaningfullyDifferent(CustomNavigationPoint? currentPoint, CustomNavigationPoint? candidate)
+        {
+            if (currentPoint == null || candidate == null)
+            {
+                return currentPoint != candidate;
+            }
+
+            if (currentPoint.Id == candidate.Id)
+            {
+                return false;
+            }
+
+            float minDeltaSqr = PointToShootUpdateMinDistance * PointToShootUpdateMinDistance;
+            return (currentPoint.Position - candidate.Position).sqrMagnitude >= minDeltaSqr;
+        }
+
+        private bool UpdateDebouncedHaveCoverToShoot(bool rawValue)
+        {
+            if (rawValue == HaveCoverToShoot)
+            {
+                pendingHaveCoverToShoot = rawValue;
+                pendingHaveCoverToShootSince = 0f;
+                return HaveCoverToShoot;
+            }
+
+            if (pendingHaveCoverToShootSince <= 0f || pendingHaveCoverToShoot != rawValue)
+            {
+                pendingHaveCoverToShoot = rawValue;
+                pendingHaveCoverToShootSince = Time.time;
+                return HaveCoverToShoot;
+            }
+
+            if (Time.time - pendingHaveCoverToShootSince < HaveCoverToShootDebounceSeconds)
+            {
+                return HaveCoverToShoot;
+            }
+
+            HaveCoverToShoot = rawValue;
+            pendingHaveCoverToShootSince = 0f;
+            return HaveCoverToShoot;
+        }
+
+        private bool IsHaveCoverDebouncePending()
+        {
+            return pendingHaveCoverToShootSince > 0f && pendingHaveCoverToShoot != HaveCoverToShoot;
+        }
+
+        private bool IsShootLaneUpgradeStable(bool candidateCanShoot)
+        {
+            if (!candidateCanShoot)
+            {
+                shootLaneUpgradeSince = 0f;
+                return false;
+            }
+
+            if (shootLaneUpgradeSince <= 0f)
+            {
+                shootLaneUpgradeSince = Time.time;
+            }
+
+            return Time.time - shootLaneUpgradeSince >= ShootLaneUpgradeHysteresisSeconds;
+        }
+
+        private void ScheduleShootCoverRefresh(bool stable)
+        {
+            nextShootCoverCheckTime = Time.time + (stable ? StableShootCoverRefreshInterval : UnstableShootCoverRefreshInterval);
+        }
+
+        private float GetCoverNavDistance(CustomNavigationPoint cover)
+        {
+            float navDistance = Utils.Utils.GetNavDistance(botOwner.Position, cover.Position);
+            if (IsFinite(navDistance))
+            {
+                return navDistance;
+            }
+
+            return Vector3.Distance(botOwner.Position, cover.Position);
         }
 
         private CustomNavigationPoint? FindFollowerShootCover()
         {
             Vector3 bossPosition = GetBossPosition();
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
-            Vector3 enemyAnchor = goalEnemy?.CurrPosition ?? Vector3.zero;
             ShootPointClass shootPoint = botOwner.CurrentEnemyTargetPosition(true);
-            LayerMask mask = botOwner.LookSensor.Mask;
+
+            // Temporary experiment: let EFT pick follower shoot cover instead of the custom
+            // directional and closest-cover heuristics so the whole combat path uses one system.
+            //
+            // Old custom selection path left here intentionally for comparison while testing:
+            // Vector3 enemyAnchor = goalEnemy?.CurrPosition ?? Vector3.zero;
+            // LayerMask mask = botOwner.LookSensor.Mask;
+            // if (goalEnemy != null)
+            // {
+            //     if (shootPoint != null)
+            //     {
+            //         CustomNavigationPoint? directionalShootCover = Covers.GetClosestCoverPointTowardPoint(
+            //             botOwner, bossPosition, enemyAnchor, 25f,
+            //             cover => Utils.Utils.CanShootToTarget(shootPoint, cover, mask, false));
+            //         if (directionalShootCover != null)
+            //         {
+            //             return directionalShootCover;
+            //         }
+            //     }
+            //
+            //     CustomNavigationPoint? directionalCover = Covers.GetClosestCoverPointTowardPoint(
+            //         botOwner, bossPosition, enemyAnchor, 22f);
+            //     if (directionalCover != null)
+            //     {
+            //         return directionalCover;
+            //     }
+            // }
+            // ...
+            if (TryFindVanillaCover(
+                    bossPosition,
+                    CombatCoverMaxDistance * CombatCoverMaxDistance,
+                    shootPoint,
+                    bossPosition,
+                    allowSpotted: false,
+                    minBossDistanceSqr: null,
+                    maxBossDistanceSqr: CombatCoverMaxDistance * CombatCoverMaxDistance,
+                    label: "FollowerShootCover",
+                    out CustomNavigationPoint? point))
+            {
+                return point;
+            }
 
             if (goalEnemy != null)
             {
-                if (shootPoint != null)
+                Vector3 enemyAnchor = IsFinite(goalEnemy.CurrPosition) ? goalEnemy.CurrPosition : goalEnemy.EnemyLastPositionReal;
+                if (TryFindVanillaCover(
+                        bossPosition,
+                        CombatCoverMaxDistance * CombatCoverMaxDistance,
+                        shootPoint,
+                        enemyAnchor,
+                        allowSpotted: false,
+                        minBossDistanceSqr: null,
+                        maxBossDistanceSqr: CombatCoverMaxDistance * CombatCoverMaxDistance,
+                        label: "FollowerShootCoverEnemyAnchor",
+                        out point))
                 {
-                    CustomNavigationPoint? directionalShootCover = Covers.GetClosestCoverPointTowardPoint(
-                        botOwner, bossPosition, enemyAnchor, 25f,
-                        cover => Utils.Utils.CanShootToTarget(shootPoint, cover, mask, false));
-                    if (directionalShootCover != null)
-                    {
-                        return directionalShootCover;
-                    }
-                }
-
-                CustomNavigationPoint? directionalCover = Covers.GetClosestCoverPointTowardPoint(
-                    botOwner, bossPosition, enemyAnchor, 22f);
-                if (directionalCover != null)
-                {
-                    return directionalCover;
+                    return point;
                 }
             }
 
-            CoverShootType shootType = shootPoint != null ? CoverShootType.shoot : CoverShootType.hide;
-            CoverSearchData searchData = new CoverSearchData(
-                bossPosition,
-                botOwner.CoverSearchInfo,
-                shootType,
-                LocalBotSettingsProviderClass.Core.START_DIST_TO_COV,
-                0f,
-                CoverSearchType.closerToSelectedPoint,
-                shootPoint,
-                null,
-                bossPosition,
-                ECheckSHootHide.shootAndHide,
-                new CoverSearchDefenceDataClass(0f),
-                PointsArrayType.byShootType,
-                true,
-                null,
-                null,
-                "Default");
-
-            CustomNavigationPoint? point = botOwner.BotsGroup.CoverPointMaster.GetCoverPointMain(searchData, true);
-            if (point != null) return point;
-
-            if (shootPoint != null)
-            {
-                point = Covers.GetClosestCoverPoint(botOwner, bossPosition, 25f,
-                    cover => Utils.Utils.CanShootToTarget(shootPoint, cover, mask, false));
-                if (point != null) return point;
-            }
-
-            return Covers.GetClosestCoverPoint(botOwner, bossPosition, 20f);
+            return null;
         }
 
         /// <summary>
@@ -188,30 +444,45 @@ namespace friendlySAIN.BigBrain
                 return null;
             }
 
-            float weaponShootDistMaxSqr = botOwner.LookSensor.MaxShootDist * botOwner.LookSensor.MaxShootDist;
-            cachedClosestShootCover = Covers.GetClosestCoverPoint(
-                botOwner,
+            // Temporary experiment: use vanilla cover search here too so midpoint/approach helpers
+            // stop mixing custom point filters with EFT-selected combat cover.
+            //
+            // Old custom path left commented for comparison:
+            // float weaponShootDistMaxSqr = botOwner.LookSensor.MaxShootDist * botOwner.LookSensor.MaxShootDist;
+            // cachedClosestShootCover = Covers.GetClosestCoverPoint(
+            //     botOwner,
+            //     centerPosition,
+            //     maxDistance,
+            //     point =>
+            //     {
+            //         if (point == null || point.IsSpotted || !point.IsFreeById(botOwner.Id))
+            //         {
+            //             return false;
+            //         }
+            //
+            //         if (inbetween && !Covers.IsPointBetween(point.Position, botOwner.Position, centerPosition))
+            //         {
+            //             return false;
+            //         }
+            //
+            //         if ((point.Position - shootPointClass.Point).sqrMagnitude >= weaponShootDistMaxSqr)
+            //         {
+            //             return false;
+            //         }
+            //
+            //         return Utils.Utils.CanShootToTarget(shootPointClass, point, botOwner.LookSensor.Mask, false);
+            //     });
+            Vector3? pointToBeClose = inbetween ? (botOwner.Position + centerPosition) * 0.5f : centerPosition;
+            TryFindVanillaCover(
                 centerPosition,
-                maxDistance,
-                point =>
-                {
-                    if (point == null || point.IsSpotted || !point.IsFreeById(botOwner.Id))
-                    {
-                        return false;
-                    }
-
-                    if (inbetween && !Covers.IsPointBetween(point.Position, botOwner.Position, centerPosition))
-                    {
-                        return false;
-                    }
-
-                    if ((point.Position - shootPointClass.Point).sqrMagnitude >= weaponShootDistMaxSqr)
-                    {
-                        return false;
-                    }
-
-                    return Utils.Utils.CanShootToTarget(shootPointClass, point, botOwner.LookSensor.Mask, false);
-                });
+                maxDistance * maxDistance,
+                shootPointClass,
+                pointToBeClose,
+                allowSpotted: false,
+                minBossDistanceSqr: null,
+                maxBossDistanceSqr: null,
+                label: "ClosestShootCover",
+                out cachedClosestShootCover);
 
             if (cachedClosestShootCover != null)
             {
@@ -251,7 +522,23 @@ namespace friendlySAIN.BigBrain
             return GetClosestShootCover(midpoint, 120f, inbetween);
         }
 
-        private Vector3 GetBossPosition() => botOwner.BotFollower.BossToFollow?.Position ?? botOwner.Position;
+        private Vector3 GetBossPosition()
+        {
+            Vector3? liveBossPos = botOwner.BotFollower.BossToFollow?.Position;
+            if (liveBossPos.HasValue && IsFinite(liveBossPos.Value))
+            {
+                lastKnownBossPosition = liveBossPos.Value;
+                hasLastKnownBossPosition = true;
+                return liveBossPos.Value;
+            }
+
+            if (hasLastKnownBossPosition && IsFinite(lastKnownBossPosition))
+            {
+                return lastKnownBossPosition;
+            }
+
+            return botOwner.Position;
+        }
 
         public AICoreActionResultStruct<BotLogicDecision, GClass26> ConsumeInitialDecision()
         {
@@ -287,7 +574,83 @@ namespace friendlySAIN.BigBrain
             return null;
         }
 
-        public void PrepareStartDecision(float enemydist = 25f)
+        /// <summary>
+        /// Standalone in-cover ally support check.
+        /// Allows follower to switch targets and support an actively engaged allied enemy
+        /// when:
+        /// 1. Follower is in cover and stably held position (≥1s)
+        /// 2. Current goal enemy is not visible or does not exist
+        /// 3. Not under direct fire
+        /// 4. An ally is clearly engaging an enemy (visible, shootable)
+        /// 5. Support cover for that engagement exists within reasonable distance
+        /// 
+        /// Prevents flip-flopping by:
+        /// - Requiring minimum cover duration
+        /// - Checking recent enemy-seen time (don't abandon hot targets)
+        /// - Requiring good support cover availability
+        /// </summary>
+        public AICoreActionResultStruct<BotLogicDecision, GClass26>? TryGetAllyEngagementSupportDecision()
+        {
+            // Gate 1: Must be in cover and have held it for stability
+            if (!botOwner.Memory.IsInCover)
+            {
+                inCoverSince = 0f;
+                return null;
+            }
+
+            if (inCoverSince <= 0f)
+            {
+                inCoverSince = Time.time;
+            }
+
+            if (Time.time - inCoverSince < 1f)
+            {
+                return null;
+            }
+
+            // Gate 2: Current enemy conditions allow switching
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+
+            // If we can see current enemy, don't switch away
+            if (goalEnemy != null && goalEnemy.IsVisible)
+            {
+                return null;
+            }
+
+            // If under active fire, need to stay focused on threat
+            if (botOwner.Memory.IsUnderFire)
+            {
+                return null;
+            }
+
+            // If current enemy was recently seen, maintain focus (avoid flip-flopping)
+            if (goalEnemy != null && Time.time - goalEnemy.PersonalLastSeenTime < 2.5f)
+            {
+                return null;
+            }
+
+            // Gate 3: An ally must be clearly engaging an enemy (visible + shootable = credible threat)
+            if (!TryGetAllyEngagementEnemy(out _, out Vector3 supportEnemyPosition))
+            {
+                return null;
+            }
+
+            // Gate 4: We must have viable cover to support from
+            if (!TryGetSupportCover(supportEnemyPosition, out CustomNavigationPoint? supportCover, out float supportCoverNavDistance))
+            {
+                return null;
+            }
+
+            // All conditions met: commit to support decision
+            SetCover(supportCover);
+            BotLogicDecision supportDecision = supportCoverNavDistance <= StartSupportSuppressDistance
+                ? BotLogicDecision.attackMovingWithSuppress
+                : BotLogicDecision.runToCover;
+            string reason = supportDecision == BotLogicDecision.runToCover ? "allySupportRun" : "allySupportSuppress";
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(supportDecision, reason);
+        }
+
+        public void PrepareStartDecision(float aggression)
         {
             initialDecision = null;
 
@@ -348,9 +711,9 @@ namespace friendlySAIN.BigBrain
             }
 
             // Decision 4: enemy unseen and low threat -> close pressure/push.
-            if (!goalEnemy.IsVisible && IsEnemyLowThreat(false, 1f))
+            if (!goalEnemy.IsVisible && IsEnemyLowThreat(goalEnemy, aggression > 0.6f, aggression >= 0.8f ? 2f : 1f))
             {
-                BotLogicDecision weakEnemyDecision = goalEnemy.Distance <= enemydist
+                BotLogicDecision weakEnemyDecision = Enemy.Distance(goalEnemy) <= Enemy.EnemyDistance.Close
                     ? BotLogicDecision.goToEnemy
                     : BotLogicDecision.runToEnemy;
 
@@ -415,7 +778,7 @@ namespace friendlySAIN.BigBrain
 
             if (goalEnemy.IsVisible &&
                 goalEnemy.CanShoot &&
-                Enemy.Distance(botOwner) <= Enemy.EnemyDistance.VeryClose)
+                Enemy.Distance(goalEnemy) <= Enemy.EnemyDistance.VeryClose)
             {
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "enemyVeryClose");
             }
@@ -589,7 +952,7 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            if (TryAssignRetreatAttackCover(goalEnemy, false))
+            if (TryAssignRetreatAttackCover(goalEnemy, false, allowSpotted: true))
             {
                 committedHealCover = botOwner.Memory.CurCustomCoverPoint;
                 return true;
@@ -625,6 +988,40 @@ namespace friendlySAIN.BigBrain
                 moveDecision == BotLogicDecision.runToCover ? "runToHeal" : "moveToHeal");
         }
 
+        /// <summary>
+        /// Expands push distance as aggression rises while still respecting follower tactics.
+        /// </summary>
+        public Enemy.EnemyDistance GetMaxPushDistance(float aggression)
+        {
+            float baseDistance = Mathf.Lerp(18f, 42f, aggression);
+            Enemy.EnemyDistance defaultDistance;
+
+            if (aggression <= 0.2f)
+            {
+                defaultDistance = Enemy.EnemyDistance.VeryClose;
+            }
+
+            else if (aggression <= 0.4f)
+            {
+                defaultDistance = Enemy.EnemyDistance.Close;
+            }
+            else if (aggression <= 0.65f)
+            {
+                defaultDistance = Enemy.EnemyDistance.Distant;
+            }
+            else
+            {
+                defaultDistance = Enemy.EnemyDistance.Far;
+            }
+
+            return GetFollowerTactic() switch
+            {
+                FollowerCombatTactic.Protector => Enemy.EnemyDistance.Close,
+                FollowerCombatTactic.Marksman => Enemy.EnemyDistance.VeryClose,
+                _ => defaultDistance,
+            };
+        }
+
         private bool IsCommittedHealCoverValid()
         {
             if (committedHealCover == null)
@@ -632,7 +1029,7 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            if (committedHealCover.IsSpotted || !committedHealCover.IsFreeById(botOwner.Id))
+            if (!committedHealCover.IsFreeById(botOwner.Id))
             {
                 committedHealCover = null;
                 return false;
@@ -650,12 +1047,15 @@ namespace friendlySAIN.BigBrain
         /// Assign a retreat/attack cover point opposite the enemy relative to the boss anchor.
         /// Returns true when a valid cover was assigned to BotCurrentCoverInfo.
         /// </summary>
-        public bool TryAssignRetreatAttackCover(EnemyInfo goalEnemy, bool requireShootLane, float maxBossDistanceSqr = 100f)
+        public bool TryAssignRetreatAttackCover(
+            EnemyInfo goalEnemy,
+            bool requireShootLane,
+            float maxBossDistanceSqr = 100f,
+            bool allowSpotted = false)
         {
             Vector3 bossPosition = GetBossPosition();
-            Vector3 enemyPosition = goalEnemy.CurrPosition;
+            Vector3 enemyPosition = IsFinite(goalEnemy.CurrPosition) ? goalEnemy.CurrPosition : goalEnemy.EnemyLastPositionReal;
             Vector3 awayFromEnemy = bossPosition - enemyPosition;
-
             if (awayFromEnemy.sqrMagnitude < 0.25f)
             {
                 awayFromEnemy = botOwner.Position - enemyPosition;
@@ -667,40 +1067,87 @@ namespace friendlySAIN.BigBrain
             }
 
             Vector3 retreatAnchor = bossPosition + awayFromEnemy.normalized * 6f;
-            ShootPointClass shootPoint = botOwner.CurrentEnemyTargetPosition(true);
-            LayerMask mask = botOwner.LookSensor.Mask;
+            ShootPointClass? shootPoint = requireShootLane ? botOwner.CurrentEnemyTargetPosition(true) : null;
 
-            CustomNavigationPoint? retreatCover = Covers.GetClosestCoverPoint(
-                botOwner,
-                retreatAnchor,
-                18f,
-                point =>
-                {
-                    if (point == null || point.IsSpotted || !point.IsFreeById(botOwner.Id))
-                    {
-                        return false;
-                    }
-
-                    if ((point.Position - bossPosition).sqrMagnitude > maxBossDistanceSqr)
-                    {
-                        return false;
-                    }
-
-                    if (!requireShootLane || shootPoint == null)
-                    {
-                        return true;
-                    }
-
-                    return Utils.Utils.CanShootToTarget(shootPoint, point, mask, false);
-                });
-
-            if (retreatCover == null)
+            // Temporary experiment: replace the retreat/attack helper's custom nearest-cover
+            // filter with EFT's own cover search.
+            if (!TryFindVanillaCover(
+                    retreatAnchor,
+                    18f * 18f,
+                    shootPoint,
+                    retreatAnchor,
+                    allowSpotted,
+                    minBossDistanceSqr: null,
+                    maxBossDistanceSqr,
+                    label: "RetreatAttackCover",
+                    out CustomNavigationPoint? retreatCover))
             {
                 return false;
             }
 
             botOwner.Memory.BotCurrentCoverInfo.Spotted();
             botOwner.Memory.BotCurrentCoverInfo.SetCover(retreatCover, true);
+            return true;
+        }
+
+        private bool TryFindVanillaCover(
+            Vector3 centerPosition,
+            float maxDistSqr,
+            ShootPointClass? shootPoint,
+            Vector3? pointToBeClose,
+            bool allowSpotted,
+            float? minBossDistanceSqr,
+            float? maxBossDistanceSqr,
+            string label,
+            out CustomNavigationPoint? cover)
+        {
+            cover = null;
+
+            CoverShootType shootType = shootPoint != null ? CoverShootType.shoot : CoverShootType.hide;
+            Vector3? friendCover = botOwner.Covers.ClosestFriendCoverPoint();
+            CoverSearchType searchType = pointToBeClose.HasValue ? CoverSearchType.closerToSelectedPoint : CoverSearchType.distToToCenter;
+
+            CoverSearchData searchData = new CoverSearchData(
+                centerPosition,
+                botOwner.CoverSearchInfo,
+                shootType,
+                maxDistSqr,
+                0f,
+                searchType,
+                shootPoint,
+                friendCover,
+                pointToBeClose,
+                ECheckSHootHide.shootAndHide,
+                new CoverSearchDefenceDataClass(botOwner.Settings.FileSettings.Cover.MIN_DEFENCE_LEVEL),
+                PointsArrayType.byShootType,
+                true,
+                null,
+                null,
+                label);
+
+            CustomNavigationPoint? candidate = botOwner.BotsGroup.CoverPointMaster.GetCoverPointMain(searchData, true);
+            if (candidate == null || !candidate.IsFreeById(botOwner.Id))
+            {
+                return false;
+            }
+
+            if (!allowSpotted && candidate.IsSpotted)
+            {
+                return false;
+            }
+
+            float coverDistFromBotSqr = (candidate.Position - botOwner.Position).sqrMagnitude;
+            if (minBossDistanceSqr.HasValue && coverDistFromBotSqr < minBossDistanceSqr.Value)
+            {
+                return false;
+            }
+
+            if (maxBossDistanceSqr.HasValue && coverDistFromBotSqr > maxBossDistanceSqr.Value)
+            {
+                return false;
+            }
+
+            cover = candidate;
             return true;
         }
 
@@ -824,9 +1271,18 @@ namespace friendlySAIN.BigBrain
             return false;
         }
 
+        /// <summary>
+        /// Treats very recent visible contacts as an immediate-fire window so followers do not hesitate
+        /// before taking their first shot.
+        /// </summary>
         public bool ShouldShootImmediately()
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            bool recentVisibleShoot =
+                goalEnemy != null &&
+                goalEnemy.IsVisible &&
+                goalEnemy.CanShoot &&
+                Time.time - goalEnemy.PersonalSeenTime < 1.5f;
             bool shootNow = ((goalEnemy != null && goalEnemy.Distance < botOwner.Settings.FileSettings.Shoot.SHOOT_IMMEDIATELY_DIST) ||
                              botOwner.BotsGroup.AnyBodyShootImmediately) &&
                             goalEnemy != null &&
@@ -834,15 +1290,38 @@ namespace friendlySAIN.BigBrain
                             Time.time - goalEnemy.AddTime < 5f;
 
             bool launcherActive = botOwner.WeaponManager.UnderbarrelLauncherController.IsActive;
-            botOwner.BotsGroup.AnyBodyShootImmediately = shootNow || launcherActive;
+            botOwner.BotsGroup.AnyBodyShootImmediately = shootNow || recentVisibleShoot || launcherActive;
             return botOwner.BotsGroup.AnyBodyShootImmediately;
         }
 
+        /// <summary>
+        /// Verifies that the follower can actually fire from the current cover, with a direct line-of-sight
+        /// fallback when EFT's cover cast says no but the shot is still physically clear.
+        /// </summary>
         public bool CanShootFromCurrentCover(out string cause)
         {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (!HasActiveCombatEnemy(goalEnemy))
+            {
+                cause = "noActiveEnemy";
+                return false;
+            }
+
+            if (!goalEnemy.CanShoot || !goalEnemy.IsVisible)
+            {
+                cause = "enemyNotShootable";
+                return false;
+            }
+
             if (!botOwner.Memory.IsInCover)
             {
                 cause = "IsInCover";
+                return false;
+            }
+
+            if (botOwner.Memory.CurCustomCoverPoint == null)
+            {
+                cause = "noCurrentCoverPoint";
                 return false;
             }
 
@@ -856,8 +1335,13 @@ namespace friendlySAIN.BigBrain
                     botOwner,
                     botOwner.Settings.FileSettings.Cover.DELTA_SEEN_FROM_COVE_LAST_POS))
             {
-                cause = "CanShootToTargetCast";
-                return false;
+                ShootPointClass? shootPoint = botOwner.CurrentEnemyTargetPosition(true);
+                Vector3 firePos = botOwner.WeaponRoot.position;
+                if (shootPoint == null || !Utils.Utils.CanShootToTarget(shootPoint, firePos, botOwner.LookSensor.Mask, false))
+                {
+                    cause = "CanShootToTargetCast";
+                    return false;
+                }
             }
 
             if (botOwner.WeaponManager.Stationary.ShallEndShootFromCurrent())
@@ -900,24 +1384,22 @@ namespace friendlySAIN.BigBrain
         /// <summary>
         /// Check if the current enemy is low threat based on equipment, and number of nearby enemies.
         /// </summary>
-        public bool IsEnemyLowThreat(bool ignoreEquip = false, float maximumEnemies = 2)
+        public bool IsEnemyLowThreat(EnemyInfo goalEnemy, bool ignoreEquip = false, float maximumEnemies = 2)
         {
             if (!ignoreEquip && dangerTimer > Time.time) return dangerResult;
             else if (ignoreEquip && dangerIgnoreEquipTimer > Time.time) return dangerIgnoreEquipResult;
 
-            if (!botOwner.Memory.HaveEnemy) return true;
-
             if (!ignoreEquip)
             {
                 dangerTimer = Time.time + 1f;
-                dangerResult = botOwner.Memory.AttackImmediately && Utils.Enemy.GetEnemiesAtLocation(botOwner, botOwner.Memory.GoalEnemy, botOwner.Memory.GoalEnemy.CurrPosition) <= maximumEnemies;
+                dangerResult = botOwner.Memory.AttackImmediately && Utils.Enemy.GetEnemiesAtLocation(botOwner, goalEnemy, goalEnemy.CurrPosition) <= maximumEnemies;
 
                 return dangerResult;
             }
             else
             {
                 dangerIgnoreEquipTimer = Time.time + 1f;
-                dangerIgnoreEquipResult = Utils.Enemy.GetEnemiesAtLocation(botOwner, botOwner.Memory.GoalEnemy, botOwner.Memory.GoalEnemy.CurrPosition) < 3;
+                dangerIgnoreEquipResult = Utils.Enemy.GetEnemiesAtLocation(botOwner, goalEnemy, goalEnemy.CurrPosition) < 3;
 
                 return dangerIgnoreEquipResult;
             }
@@ -931,11 +1413,6 @@ namespace friendlySAIN.BigBrain
             if (goalEnemy.IsVisible)
             {
                 return true;
-            }
-
-            if (Time.time - goalEnemy.PersonalLastSeenTime > 12f)
-            {
-                return false;
             }
 
             Vector3 personalLastPos = goalEnemy.PersonalLastPos;
@@ -1018,7 +1495,7 @@ namespace friendlySAIN.BigBrain
             {
                 BotLogicDecision.dogFight => EndDogFight(),
                 BotLogicDecision.shootToSmoke => EndImmediately(),
-                BotLogicDecision.runToCover => EndRunToCover(),
+                BotLogicDecision.runToCover => EndRunToCover(currentDecision.Reason),
                 BotLogicDecision.attackMoving => EndAttackMoving(),
                 BotLogicDecision.attackMovingWithSuppress => EndAttackMovingWithSuppress(),
                 BotLogicDecision.shootFromPlace => EndShootFromPlace(),
@@ -1058,7 +1535,7 @@ namespace friendlySAIN.BigBrain
         /// Common run-to-cover stop conditions.
         /// Specialized logic can short-circuit this in its own dispatcher when needed.
         /// </summary>
-        public AICoreActionEndStruct EndRunToCover()
+        public AICoreActionEndStruct EndRunToCover(string? reason = null)
         {
             if (ShouldShootImmediately())
             {
@@ -1081,7 +1558,10 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("dogFightStarted", true);
             }
 
-            if (botOwner.Memory.CurCustomCoverPoint != null && botOwner.Memory.CurCustomCoverPoint.IsSpotted)
+            bool isRunToHeal = string.Equals(reason, "runToHeal", StringComparison.Ordinal);
+            if (!isRunToHeal &&
+                botOwner.Memory.CurCustomCoverPoint != null &&
+                botOwner.Memory.CurCustomCoverPoint.IsSpotted)
             {
                 return new AICoreActionEndStruct("coverSpotted", true);
             }

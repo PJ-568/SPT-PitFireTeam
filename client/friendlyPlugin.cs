@@ -230,10 +230,6 @@ namespace friendlySAIN
             new BotOwnerIsFolowerPatch().Enable();
             new BotOwnerManualUpdatePatch().Enable();
             new BotOwnerActivatePatch().Enable();
-            // Baseline test mode: disable combat manager injection/tick patches.
-            // This keeps follower combat on the core decision path for clean basics testing.
-            // new FollowerCombatManagerAddGameWorldPatch().Enable();
-            // new FollowerCombatManagerWorldTickPatch().Enable();
             new SessionLoadBotsEnglishVoicePatch().Enable();
             new LootPatrolActiveLayerListPatch().Enable();
             new LootPatrolDecisionBypassPatch().Enable();
@@ -281,7 +277,7 @@ namespace friendlySAIN
             // bot misc patches
             new BotTalkTrySayPatch().Enable();
             new BotTalkSayPatch().Enable();
-            new GrenadeThrowPatch().Enable();
+            new FollowerGrenadeAvailabilityPatch().Enable();
             new BulletImpactPatch().Enable();
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();

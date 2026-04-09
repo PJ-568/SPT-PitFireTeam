@@ -34,9 +34,9 @@ namespace friendlySAIN.BigBrain
         public override AICoreActionResultStruct<BotLogicDecision, GClass26> GetDecision()
         {
             EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
-            if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
+            if (goalEnemy == null)
             {
-                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "!haveEnemy");
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "nullEnemy");
             }
 
             try

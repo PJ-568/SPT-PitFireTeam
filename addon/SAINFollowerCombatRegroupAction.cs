@@ -161,7 +161,7 @@ namespace friendlySAIN.SAINAddon
                 }
             }
 
-            bool sprint = leadDist > 20f && (_retreatRunLocked || !canAttackMove);
+            bool sprint = true; // leadDist > 20f && (_retreatRunLocked || !canAttackMove); // always sprint on regroup for now, can tweak later if needed
             if (sprint)
             {
                 _retreatRunLocked = true;

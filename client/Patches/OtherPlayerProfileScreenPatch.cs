@@ -542,12 +542,19 @@ namespace friendlySAIN.Patches
             RectTransform sliderRoot = slider.transform as RectTransform;
             if (sliderRoot != null)
             {
+                float sliderHeight = sliderRoot.sizeDelta.y > 0f ? sliderRoot.sizeDelta.y : 36f;
                 sliderRoot.anchorMin = new Vector2(0f, 0.5f);
-                sliderRoot.anchorMax = new Vector2(1f, 0.5f);
-                sliderRoot.pivot = new Vector2(0.5f, 0.5f);
-                sliderRoot.offsetMin = new Vector2(250f, -18f);
-                sliderRoot.offsetMax = new Vector2(-22f, 18f);
+                sliderRoot.anchorMax = new Vector2(0f, 0.5f);
+                sliderRoot.pivot = new Vector2(0f, 0.5f);
+                sliderRoot.anchoredPosition = new Vector2(243f, 42f);
+                sliderRoot.sizeDelta = new Vector2(300f, sliderHeight);
                 sliderRoot.localScale = Vector3.one;
+            }
+
+            Transform captionRoot = sliderRoot?.Find("Caption");
+            if (captionRoot != null)
+            {
+                GameObject.Destroy(captionRoot.gameObject);
             }
 
             slider.Show(0f, 100f, "0");
@@ -698,6 +705,16 @@ namespace friendlySAIN.Patches
             {
                 HideStockLabelContainer(root, exemptRoot, label?.transform, hiddenObjects);
             }
+
+            foreach (TMP_Text label in root.GetComponentsInChildren<TMP_Text>(true))
+            {
+                DestroyStockLabelObject(exemptRoot, label?.transform);
+            }
+
+            foreach (Text label in root.GetComponentsInChildren<Text>(true))
+            {
+                DestroyStockLabelObject(exemptRoot, label?.transform);
+            }
         }
 
         private static void HideStockLabelContainer(Transform root, Transform exemptRoot, Transform labelTransform, HashSet<GameObject> hiddenObjects)
@@ -727,6 +744,21 @@ namespace friendlySAIN.Patches
 
                 current = current.parent;
             }
+        }
+
+        private static void DestroyStockLabelObject(Transform exemptRoot, Transform labelTransform)
+        {
+            if (labelTransform == null)
+            {
+                return;
+            }
+
+            if (exemptRoot != null && (labelTransform == exemptRoot || labelTransform.IsChildOf(exemptRoot)))
+            {
+                return;
+            }
+
+            GameObject.Destroy(labelTransform.gameObject);
         }
 
         private static void ScheduleAggressionPersist(string accountId, int aggression)

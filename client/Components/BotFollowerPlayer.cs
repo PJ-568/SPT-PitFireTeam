@@ -24,7 +24,8 @@ namespace friendlySAIN.Components
         ComeCloser = 3,
         RegroupNearBoss = 4,
         TakeLootItem = 5,
-        OpenDoor = 6
+        OpenDoor = 6,
+        PushEnemy = 7
     }
 
     public enum FollowerCombatTactic
@@ -73,14 +74,6 @@ namespace friendlySAIN.Components
         private float _commandLookPauseUntil;
         private Vector3 _commandLookOverridePoint;
         private float _commandLookOverrideUntil;
-        private BotLogicDecision? _managerCombatDecision;
-        private string? _managerCombatReason;
-        private string? _managerCombatEnemyProfileId;
-        private Vector3 _managerCombatPoint;
-        private bool _managerCombatHasPoint;
-        private float _managerCombatUntilTime;
-        private string? _pendingManagerSearchEnemyProfileId;
-        private float _pendingManagerSearchUntilTime;
         private string? _knownEnemyProfileId;
         private float _knownEnemySince;
         private bool _knownEnemyLatched;
@@ -454,7 +447,8 @@ namespace friendlySAIN.Components
             settings.FileSettings.Move.REACH_DIST_COVER = 2f;
             settings.FileSettings.Move.REACH_DIST_RUN = 1f;
             settings.FileSettings.Boss.BIG_PIPE_ARTILLERY_COUNT = 1;
-            settings.FileSettings.Mind.PART_PERCENT_TO_HEAL = 0.8f;
+            settings.FileSettings.Mind.PART_PERCENT_TO_HEAL = 0.75f;
+            settings.FileSettings.Mind.DIST_TO_ENEMY_YO_CAN_HEAL = 15f;
 
             settings.FileSettings.Mind.DIST_TO_STOP_RUN_ENEMY = 15f;
             settings.FileSettings.Mind.TIME_TO_FORGOR_ABOUT_ENEMY_SEC = friendlySAIN.enemyRemember.Value;
@@ -559,6 +553,7 @@ namespace friendlySAIN.Components
             settings.FileSettings.Mind.DOG_FIGHT_OUT = 6f;
             settings.FileSettings.Mind.SHOOT_INSTEAD_DOG_FIGHT = 1f;
             settings.FileSettings.Mind.MIN_DAMAGE_SCARE = 20f;
+            settings.FileSettings.Mind.PROTECT_DELTA_HEAL_SEC = 5f;
 
             settings.FileSettings.Patrol.PICKUP_ITEMS_TO_BACKPACK_OR_CONTAINER = true;
             settings.FileSettings.Patrol.CHANCE_TO_PLAY_VOICE_WHEN_CLOSE = 50;
@@ -968,6 +963,19 @@ namespace friendlySAIN.Components
             _resumeHoldAfterComeCloser = false;
         }
 
+        public void SetPushEnemy(float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.PushEnemy)
+            {
+                ClearCommand($"SetPushEnemy:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.PushEnemy;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _resumeHoldAfterComeCloser = false;
+        }
+
         public void CompleteComeCloser()
         {
             if (_activeCommand != FollowerCommandType.ComeCloser)
@@ -1052,109 +1060,6 @@ namespace friendlySAIN.Components
             return command != FollowerCommandType.None;
         }
 
-        public void SetManagerCombatDecision(
-            BotLogicDecision decision,
-            string reason,
-            string? enemyProfileId = null,
-            Vector3? point = null,
-            float duration = float.PositiveInfinity)
-        {
-            _managerCombatDecision = decision;
-            _managerCombatReason = string.IsNullOrEmpty(reason) ? decision.ToString() : reason;
-            _managerCombatEnemyProfileId = enemyProfileId;
-            _managerCombatHasPoint = point.HasValue;
-            _managerCombatPoint = point ?? Vector3.zero;
-            _managerCombatUntilTime = duration <= 0f
-                ? Time.time
-                : (float.IsPositiveInfinity(duration) ? float.PositiveInfinity : Time.time + duration);
-        }
-
-        public bool HasManagerCombatDecision()
-        {
-            if (_managerCombatDecision == null)
-            {
-                return false;
-            }
-
-            if (Time.time > _managerCombatUntilTime)
-            {
-                ClearManagerCombatDecision("timeout");
-                return false;
-            }
-
-            return true;
-        }
-
-        public bool TryGetManagerCombatDecision(
-            out BotLogicDecision decision,
-            out string reason,
-            out string? enemyProfileId,
-            out Vector3 point,
-            out bool hasPoint)
-        {
-            if (!HasManagerCombatDecision())
-            {
-                decision = default;
-                reason = string.Empty;
-                enemyProfileId = null;
-                point = Vector3.zero;
-                hasPoint = false;
-                return false;
-            }
-
-            decision = _managerCombatDecision!.Value;
-            reason = _managerCombatReason ?? decision.ToString();
-            enemyProfileId = _managerCombatEnemyProfileId;
-            point = _managerCombatPoint;
-            hasPoint = _managerCombatHasPoint;
-            return true;
-        }
-
-        public void RequestManagerSearch(string? enemyProfileId, float duration = 2f)
-        {
-            if (string.IsNullOrEmpty(enemyProfileId))
-            {
-                return;
-            }
-
-            _pendingManagerSearchEnemyProfileId = enemyProfileId;
-            _pendingManagerSearchUntilTime = Time.time + Mathf.Max(0.1f, duration);
-        }
-
-        public bool HasPendingManagerSearchRequest()
-        {
-            if (string.IsNullOrEmpty(_pendingManagerSearchEnemyProfileId))
-            {
-                return false;
-            }
-
-            if (Time.time > _pendingManagerSearchUntilTime)
-            {
-                ClearManagerSearchRequest("timeout");
-                return false;
-            }
-
-            return true;
-        }
-
-        public bool TryGetPendingManagerSearchRequest(out string? enemyProfileId)
-        {
-            if (!HasPendingManagerSearchRequest())
-            {
-                enemyProfileId = null;
-                return false;
-            }
-
-            enemyProfileId = _pendingManagerSearchEnemyProfileId;
-            return true;
-        }
-
-        public void ClearManagerSearchRequest(string reason = "unspecified")
-        {
-            _pendingManagerSearchEnemyProfileId = null;
-            _pendingManagerSearchUntilTime = 0f;
-        }
-
         public void SetCombatTacticFromString(string? tactic)
         {
             _combatTactic = ParseCombatTactic(tactic);
@@ -1185,16 +1090,6 @@ namespace friendlySAIN.Components
                 default:
                     return FollowerCombatTactic.Balanced;
             }
-        }
-
-        public void ClearManagerCombatDecision(string reason = "unspecified")
-        {
-            _managerCombatDecision = null;
-            _managerCombatReason = null;
-            _managerCombatEnemyProfileId = null;
-            _managerCombatPoint = Vector3.zero;
-            _managerCombatHasPoint = false;
-            _managerCombatUntilTime = 0f;
         }
 
         public bool HasKnownEnemy()
@@ -1410,7 +1305,6 @@ namespace friendlySAIN.Components
             _commandLookPauseUntil = 0f;
             _commandLookOverridePoint = Vector3.zero;
             _commandLookOverrideUntil = 0f;
-            ClearManagerCombatDecision($"ClearCommand:{reason}");
         }
 
         private void ResetPickupFollowerRuntimeState()

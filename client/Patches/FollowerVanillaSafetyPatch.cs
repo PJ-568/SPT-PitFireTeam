@@ -24,7 +24,14 @@ namespace friendlySAIN.Patches
             }
 
             BotOwner botOwner = Traverse.Create(__instance).Field("BotOwner_0").GetValue<BotOwner>();
-            if (!IsConfirmedFollower(botOwner))
+            if (botOwner == null)
+            {
+                return false;
+            }
+
+            bool isConfirmedFollower = IsConfirmedFollower(botOwner);
+            bool hasFollowerBossLink = botOwner.BotFollower?.BossToFollow != null;
+            if (!isConfirmedFollower && !hasFollowerBossLink)
             {
                 return true;
             }

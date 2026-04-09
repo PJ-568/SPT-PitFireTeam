@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Modules;
 
 namespace friendlySAIN.BigBrain.Actions
 {
@@ -14,6 +15,7 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            FollowerGrenadeRuntimeGate.EnableExplicitThrow(BotOwner);
             baseLogic.UpdateNodeByBrain(GetRawData(data));
         }
     }

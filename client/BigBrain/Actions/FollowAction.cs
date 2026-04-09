@@ -48,9 +48,16 @@ namespace friendlySAIN.BigBrain.Actions
 
         private bool poseCorrected;
 
+        /// <summary>
+        /// Tracks committed cover point and sector anchor for stable hold behavior.
+        /// Prevents constant cover-switching by committing to a cover within a 20m sector.
+        /// </summary>
+        private FollowerCoverCommitment coverCommitment;
+
         public FollowAction(BotOwner botOwner) : base(botOwner)
         {
             patrolPerimeterRadius = friendlySAIN.patrolRadius.Value;
+            coverCommitment = new FollowerCoverCommitment();
         }
 
         public override void Start()
@@ -74,6 +81,8 @@ namespace friendlySAIN.BigBrain.Actions
             lastLeaderCampGridPos = null;
             lastCoverPoint = null;
             noCoverFound = false;
+
+            coverCommitment.ClearCommitment();
 
             ResetPeaceActions();
         }
@@ -139,7 +148,6 @@ namespace friendlySAIN.BigBrain.Actions
             nextFollowUpdateAt = Time.time + Utils.Utils.Random(1f, 2f);
 
             Vector3 leaderPosition = GetLeaderTargetPosition();
-
             float distance = forceFollow
                 ? forcedDistance
                 : Mathf.Abs((leaderPosition - BotOwner.Position).magnitude);
@@ -154,52 +162,82 @@ namespace friendlySAIN.BigBrain.Actions
                     return;
                 }
 
-                if (movingToSettlePoint)
+                // ──────────────────────────────────────────────────────────────────────────
+                // Sector-based cover commitment system
+                // ──────────────────────────────────────────────────────────────────────────
+
+                // Check if boss moved to a new sector (>20m from anchor)
+                if (coverCommitment.SectorChanged(leaderPosition))
                 {
-                    if (BotOwner.GoToSomePointData.IsCome())
+                    coverCommitment.OnSectorChange(leaderPosition);
+                }
+
+                // Validate committed cover; clear if no longer valid
+                if (coverCommitment.IsCommitted && !coverCommitment.IsCoverStillValid(BotOwner, leaderPosition))
+                {
+                    coverCommitment.ClearCommitment();
+                }
+
+                // Determine current strategy
+                FollowerCoverCommitment.FollowStrategy strategy = coverCommitment.GetStrategy();
+
+                if (strategy == FollowerCoverCommitment.FollowStrategy.Move)
+                {
+                    // MOVE: Search for and commit to a new cover in 80m radius
+                    if (nextSettlePointAt > Time.time)
                     {
-                        movingToSettlePoint = false;
+                        return;
+                    }
+
+                    nextSettlePointAt = Time.time + 3f; // Check less frequently during move state
+
+                    CustomNavigationPoint? newCover = TryFindExpandedCoverPoint(leaderPosition);
+                    if (newCover != null)
+                    {
+                        // Commit to this cover for the current sector
+                        coverCommitment.CommitToCover(newCover, leaderPosition);
+                        BotOwner.Memory.SetCoverPoints(newCover);
+                        BotOwner.GoToSomePointData.SetPoint(newCover.Position);
+                        BotOwner.GoToSomePointData.UpdateToGo(false);
+                        BotOwner.Steering.LookToPathDestPoint();
+                        movingToSettlePoint = true;
+                        nextFollowUpdateAt = Time.time + 0.5f;
+                        return;
+                    }
+
+                    // No cover found: follow boss at medium range (boss-proximity mode)
+                    if (TryGetRandomSettlePoint(leaderPosition, DefaultFollowDistance, out Vector3 settlePosition))
+                    {
+                        BotOwner.GoToSomePointData.SetPoint(settlePosition);
+                        BotOwner.GoToSomePointData.UpdateToGo(false);
+                        BotOwner.Steering.LookToPathDestPoint();
+                        movingToSettlePoint = true;
+                        nextFollowUpdateAt = Time.time + 0.5f;
                     }
                     return;
                 }
-
-                if (nextSettlePointAt > Time.time)
+                else
                 {
+                    // HOLD: Bot is committed to a cover. Just hold and scan for engagement/support.
+                    // The combat layer will handle engagement detection while holding.
+                    if (movingToSettlePoint)
+                    {
+                        if (BotOwner.GoToSomePointData.IsCome())
+                        {
+                            movingToSettlePoint = false;
+                            BotOwner.StopMove();
+                        }
+                        return;
+                    }
+
+                    // At committed cover position: hold and let combat layer scan
+                    BotOwner.StopMove();
                     return;
                 }
-
-                nextSettlePointAt = Time.time + 8f;
-                int settleDistance = DefaultFollowDistance;
-
-                CustomNavigationPoint? coverPoint = TryGetSettleCoverPoint(leaderPosition, settleDistance);
-                if (coverPoint != null)
-                {
-                    lastCoverPoint = coverPoint;
-                    BotOwner.Memory.SetCoverPoints(coverPoint);
-                    BotOwner.GoToSomePointData.SetPoint(coverPoint.Position);
-                    BotOwner.GoToSomePointData.UpdateToGo(false);
-                    BotOwner.Steering.LookToPathDestPoint();
-                    movingToSettlePoint = true;
-                    nextFollowUpdateAt = Time.time + 0.5f;
-                    return;
-                }
-
-                noCoverFound = true;
-                if (TryGetRandomSettlePoint(leaderPosition, settleDistance, out Vector3 settlePosition))
-                {
-                    BotOwner.GoToSomePointData.SetPoint(settlePosition);
-                    BotOwner.GoToSomePointData.UpdateToGo(false);
-                    BotOwner.Steering.LookToPathDestPoint();
-                    movingToSettlePoint = true;
-                    nextFollowUpdateAt = Time.time + 0.5f;
-                }
-                return;
             }
 
+            // OUT OF RANGE: Chase boss
             movingToSettlePoint = false;
-            lastCoverPoint = null;
-            noCoverFound = false;
-
             UpdateFollowPath(leaderPosition);
 
             bool shouldSprint = distance > Mathf.Min(DefaultFollowDistance + 3f, 16f);
@@ -208,7 +246,6 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.Mover.SetPose(1f);
             }
             BotOwner.Mover.Sprint(shouldSprint, false);
-
         }
 
         private CustomNavigationPoint? TryGetSettleCoverPoint(Vector3 leaderPosition, int settleDistance)
@@ -238,6 +275,53 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (availableCover.Count == 0) return null;
             return availableCover[UnityEngine.Random.Range(0, availableCover.Count)];
+        }
+
+        /// <summary>
+        /// Find best cover within 80m of boss for sector-based commitment.
+        /// Prefers cover closest to boss to maintain protective positioning.
+        /// Avoids crowded/occupied cover and spotted positions.
+        /// </summary>
+        private CustomNavigationPoint? TryFindExpandedCoverPoint(Vector3 bossPosition)
+        {
+            if (bossPlayer == null) return null;
+
+            float searchRadius = FollowerCoverCommitment.GetCoverSearchRadius();
+            float maxBossDist = FollowerCoverCommitment.GetCoverMaxBossDistance();
+
+            List<CustomNavigationPoint> coverPoints = BotOwner.Covers.GetClosePoints(bossPosition, searchRadius);
+            List<CustomNavigationPoint> validCandidates = new List<CustomNavigationPoint>();
+
+            foreach (var point in coverPoints)
+            {
+                if (point == null) continue;
+                if (!point.IsFreeById(BotOwner.Id)) continue;
+                if (point.IsSpotted) continue;
+                if (!IsSettlePositionClear(point.Position)) continue;
+
+                // Must be within max distance of boss
+                if ((point.Position - bossPosition).sqrMagnitude > maxBossDist * maxBossDist)
+                {
+                    continue;
+                }
+
+                validCandidates.Add(point);
+            }
+
+            if (validCandidates.Count == 0)
+            {
+                return null;
+            }
+
+            // Sort by distance to boss (prefer closest for protective positioning)
+            validCandidates.Sort((a, b) =>
+            {
+                float distA = (a.Position - bossPosition).sqrMagnitude;
+                float distB = (b.Position - bossPosition).sqrMagnitude;
+                return distA.CompareTo(distB);
+            });
+
+            return validCandidates[0];
         }
 
         private bool TryGetRandomSettlePoint(Vector3 leaderPosition, int settleDistance, out Vector3 settlePosition)

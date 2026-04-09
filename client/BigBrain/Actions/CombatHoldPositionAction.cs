@@ -520,7 +520,7 @@ namespace friendlySAIN.BigBrain.Actions
                 angle += 360f;
             }
 
-            if (Enemy.Distance(BotOwner_0) <= Enemy.EnemyDistance.VeryClose)
+            if (Enemy.Distance(BotOwner_0.Memory.GoalEnemy) <= Enemy.EnemyDistance.VeryClose)
             {
                 sector = angle switch
                 {

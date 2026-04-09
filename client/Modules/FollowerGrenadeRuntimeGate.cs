@@ -1,12 +1,12 @@
 using EFT;
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace friendlySAIN.Modules
 {
     internal static class FollowerGrenadeRuntimeGate
     {
-        private static readonly Dictionary<string, float> ThrowAllowedUntilByProfileId = new();
+        private static readonly HashSet<string> AlwaysDisabledByProfileId = new();
+        private static readonly HashSet<string> ExplicitThrowEnabledByProfileId = new();
 
         public static void EnforceDisabled(BotOwner bot)
         {
@@ -15,18 +15,11 @@ namespace friendlySAIN.Modules
                 return;
             }
 
-            if (bot.Settings?.FileSettings?.Core != null)
-            {
-                bot.Settings.FileSettings.Core.CanGrenade = false;
-            }
-
-            if (!string.IsNullOrEmpty(bot.ProfileId))
-            {
-                ThrowAllowedUntilByProfileId.Remove(bot.ProfileId);
-            }
+            SetAlwaysDisabled(bot, true);
+            SetExplicitThrowEnabled(bot, false);
         }
 
-        public static void AllowThrowWindow(BotOwner bot, float seconds = 2.5f)
+        public static void EnableExplicitThrow(BotOwner bot)
         {
             if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
             {
@@ -39,12 +32,8 @@ namespace friendlySAIN.Modules
                 return;
             }
 
-            if (bot.Settings?.FileSettings?.Core != null)
-            {
-                bot.Settings.FileSettings.Core.CanGrenade = true;
-            }
-
-            ThrowAllowedUntilByProfileId[bot.ProfileId] = Time.time + Mathf.Max(0.25f, seconds);
+            SetAlwaysDisabled(bot, false);
+            SetExplicitThrowEnabled(bot, true);
         }
 
         public static bool IsThrowAllowed(BotOwner bot)
@@ -59,18 +48,60 @@ namespace friendlySAIN.Modules
                 return false;
             }
 
-            if (!ThrowAllowedUntilByProfileId.TryGetValue(bot.ProfileId, out float allowedUntil))
+            if (AlwaysDisabledByProfileId.Contains(bot.ProfileId))
             {
                 return false;
             }
 
-            if (allowedUntil < Time.time)
+            return ExplicitThrowEnabledByProfileId.Contains(bot.ProfileId);
+        }
+
+        private static void SetAlwaysDisabled(BotOwner bot, bool disabled)
+        {
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
             {
-                ThrowAllowedUntilByProfileId.Remove(bot.ProfileId);
-                return false;
+                return;
             }
 
-            return true;
+            if (disabled)
+            {
+                AlwaysDisabledByProfileId.Add(bot.ProfileId);
+            }
+            else
+            {
+                AlwaysDisabledByProfileId.Remove(bot.ProfileId);
+            }
+
+            RefreshCoreCanGrenade(bot);
+        }
+
+        private static void SetExplicitThrowEnabled(BotOwner bot, bool enabled)
+        {
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return;
+            }
+
+            if (enabled)
+            {
+                ExplicitThrowEnabledByProfileId.Add(bot.ProfileId);
+            }
+            else
+            {
+                ExplicitThrowEnabledByProfileId.Remove(bot.ProfileId);
+            }
+
+            RefreshCoreCanGrenade(bot);
+        }
+
+        private static void RefreshCoreCanGrenade(BotOwner bot)
+        {
+            if (bot?.Settings?.FileSettings?.Core == null)
+            {
+                return;
+            }
+
+            bot.Settings.FileSettings.Core.CanGrenade = IsThrowAllowed(bot);
         }
     }
 }
