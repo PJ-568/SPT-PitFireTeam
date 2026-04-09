@@ -1,7 +1,6 @@
 using EFT;
 using friendlySAIN.Utils;
 using UnityEngine;
-using UnityEngine.AI;
 
 namespace friendlySAIN.BigBrain
 {
@@ -75,10 +74,9 @@ namespace friendlySAIN.BigBrain
                     if (distanceToEnemy >= Utils.Enemy.EnemyDistance.Mid)
                     {
                         CustomNavigationPoint? approachPoint = combatCommon.GetApproachableCover(true);
-                        if (approachPoint != null)
+                        if (TryCreateApproachCoverDecision(approachPoint, out AICoreActionResultStruct<BotLogicDecision, GClass26> approachDecision))
                         {
-                            botOwner.Memory.BotCurrentCoverInfo.SetCover(approachPoint, true);
-                            return CreatePushDecision(BotLogicDecision.runToCover);
+                            return approachDecision;
                         }
 
                         return CreatePushDecision(BotLogicDecision.attackMoving);
@@ -115,13 +113,12 @@ namespace friendlySAIN.BigBrain
                 }
 
                 CustomNavigationPoint? blindApproach = combatCommon.GetApproachableCover(distanceToEnemy > Utils.Enemy.EnemyDistance.Mid);
-                if (blindApproach != null)
+                if (TryCreateApproachCoverDecision(blindApproach, out AICoreActionResultStruct<BotLogicDecision, GClass26> blindApproachDecision))
                 {
-                    botOwner.Memory.BotCurrentCoverInfo.SetCover(blindApproach, true);
-                    return CreatePushDecision(BotLogicDecision.runToCover);
+                    return blindApproachDecision;
                 }
 
-                return EnemySearch("push.search");
+                return combatCommon.EnemySearch("push.search");
             }
 
             // Old plugin "intimidation" fallback: maintain pressure from cover or hold lane.
@@ -142,52 +139,35 @@ namespace friendlySAIN.BigBrain
 
             if (distanceToEnemy >= Utils.Enemy.EnemyDistance.Mid)
             {
-                Vector3 enemyAnchor = GetEnemySearchAnchor(goalEnemy);
+                Vector3 enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
                 Vector3 centerPosition = (botOwner.Position + enemyAnchor) * 0.5f;
                 float radius = distanceToEnemy >= Utils.Enemy.EnemyDistance.Mid ? 120f : 40f;
                 CustomNavigationPoint? shootCover = combatCommon.GetClosestShootCover(centerPosition, radius);
-                if (shootCover != null)
+                if (TryCreateApproachCoverDecision(shootCover, out AICoreActionResultStruct<BotLogicDecision, GClass26> shootCoverDecision))
                 {
-                    botOwner.Memory.BotCurrentCoverInfo.SetCover(shootCover, true);
-                    return CreatePushDecision(BotLogicDecision.runToCover);
+                    return shootCoverDecision;
                 }
 
-                return EnemySearch("push.search");
+                return combatCommon.EnemySearch("push.search");
             }
 
-            return EnemySearch("push.search");
+            return combatCommon.EnemySearch("push.search");
         }
 
-        public AICoreActionResultStruct<BotLogicDecision, GClass26> EnemySearch(string reason = "enemySearch")
+
+        private bool TryCreateApproachCoverDecision(
+            CustomNavigationPoint? cover,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
-            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
-            if (goalEnemy == null)
+            decision = default;
+            if (cover == null)
             {
-                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "enemySearchNoEnemy");
+                return false;
             }
 
-            Vector3 enemyAnchor = GetEnemySearchAnchor(goalEnemy);
-            Vector3 searchPoint = enemyAnchor;
-
-            // Prefer an approach cover with a clear shot from a nearby tactical point.
-            CustomNavigationPoint? approachCover = combatCommon.GetApproachableCover();
-            if (approachCover != null)
-            {
-                searchPoint = approachCover.Position;
-            }
-            else if (NavMesh.SamplePosition(enemyAnchor, out NavMeshHit hit, 8f, -1))
-            {
-                ShootPointClass shootPoint = new ShootPointClass(enemyAnchor + Vector3.up * 1.1f, 1f);
-                Vector3 firePos = hit.position + Vector3.up * 1.2f;
-                if (Utils.Utils.CanShootToTarget(shootPoint, firePos, botOwner.LookSensor.Mask, false))
-                {
-                    searchPoint = hit.position;
-                }
-            }
-
-            botOwner.GoToSomePointData.SetPoint(searchPoint);
-            botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
-            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPointTactical, reason);
+            combatCommon.AssignCover(cover);
+            decision = CreatePushDecision(BotLogicDecision.runToCover);
+            return true;
         }
 
         private static AICoreActionResultStruct<BotLogicDecision, GClass26> CreatePushDecision(BotLogicDecision action)
@@ -206,17 +186,5 @@ namespace friendlySAIN.BigBrain
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(action, $"{PushReasonPrefix}{suffix}");
         }
 
-        private static Vector3 GetEnemySearchAnchor(EnemyInfo goalEnemy)
-        {
-            Vector3 lastKnown = goalEnemy.EnemyLastPositionReal;
-            if (!float.IsNaN(lastKnown.x) && !float.IsNaN(lastKnown.y) && !float.IsNaN(lastKnown.z) &&
-                !float.IsInfinity(lastKnown.x) && !float.IsInfinity(lastKnown.y) && !float.IsInfinity(lastKnown.z) &&
-                lastKnown != Vector3.zero)
-            {
-                return lastKnown;
-            }
-
-            return goalEnemy.CurrPosition;
-        }
     }
 }

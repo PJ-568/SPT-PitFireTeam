@@ -34,6 +34,11 @@ namespace friendlySAIN.BigBrain
                 }
             }
 
+            if (BotOwner?.Mover?.TargetPose < 0.85f)
+            {
+                BotOwner.SetPose(1f);
+            }
+
             BotOwner?.PatrollingData?.Pause();
 
             if (BotOwner?.BotRequestController?.CurRequest != null)

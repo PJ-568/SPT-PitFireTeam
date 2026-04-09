@@ -44,7 +44,7 @@ namespace friendlySAIN.BigBrain.Actions
         private bool doorInteractIssued;
         private float doorTimeoutAt;
         private FollowerCommandType lastCommand = FollowerCommandType.None;
-        private const float RegroupArriveNavDistance = 6f;
+        private const float RegroupArriveNavDistance = 1.75f;
         private const float RegroupRunDistance = 10f;
         private const float SameLevelTolerance = 1.75f;
         private const float RegroupCoverSearchRadius = 15f;
@@ -326,22 +326,6 @@ namespace friendlySAIN.BigBrain.Actions
             if (dangerNow && clearForDanger)
             {
                 return true;
-            }
-
-            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
-            if (goalEnemy != null)
-            {
-                bool visibleFightNow = goalEnemy.IsVisible &&
-                                      goalEnemy.CanShoot &&
-                                      BotOwner.LookSensor.EnoughDistToShoot(out _);
-                bool closeVisibleThreat = goalEnemy.IsVisible && goalEnemy.Distance <= 18f;
-                bool alreadyInCombatAction = currentDecision == BotLogicDecision.dogFight ||
-                                             currentDecision == BotLogicDecision.shootFromPlace ||
-                                             currentDecision == BotLogicDecision.shootFromCover;
-                if (visibleFightNow || closeVisibleThreat || alreadyInCombatAction)
-                {
-                    return true;
-                }
             }
 
             return false;

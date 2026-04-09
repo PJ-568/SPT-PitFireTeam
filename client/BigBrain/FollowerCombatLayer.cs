@@ -104,6 +104,7 @@ namespace friendlySAIN.BigBrain
             lastDecision = null;
             hadCombatSinceActivation = false;
             noEnemySinceTime = 0f;
+            ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
             combatLogic?.Reset();
             combatLogic?.StartDecision();
@@ -111,6 +112,7 @@ namespace friendlySAIN.BigBrain
 
         public override void Stop()
         {
+            ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
             lastDecision = null;
             hadCombatSinceActivation = false;
@@ -255,6 +257,22 @@ namespace friendlySAIN.BigBrain
             return followerData != null &&
                    followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
                    command == FollowerCommandType.RegroupNearBoss;
+        }
+
+        private void ClearFollowerCommandOnCombatTransition(string reason)
+        {
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData == null)
+            {
+                return;
+            }
+
+            if (!followerData.TryGetActiveCommand(out _, out _))
+            {
+                return;
+            }
+
+            followerData.ClearCommand(reason);
         }
 
         private bool ShouldDelayRegroupHandoff(bool isHealingAction)

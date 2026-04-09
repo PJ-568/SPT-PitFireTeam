@@ -94,13 +94,6 @@ namespace friendlySAIN.SAINAddon
                 return;
             }
 
-            if (UseVanillaBossFallbackMode && _holdInCoverUntil > Time.time)
-            {
-                Bot.Mover.Stop();
-                _retreatRunLocked = false;
-                return;
-            }
-
             if (NeedRetarget(bossPosition) || !HasCompletePath(_targetPosition))
             {
                 if (_haveTarget)
@@ -116,10 +109,10 @@ namespace friendlySAIN.SAINAddon
                 {
                     if (holdInCover)
                     {
-                        _haveTarget = false;
-                        _targetPosition = BotOwner.Position;
-                        _holdInCoverUntil = Time.time + HoldInCoverSeconds;
-                        Bot.Mover.Stop();
+                        _targetPosition = bossPosition;
+                        _haveTarget = true;
+                        _holdInCoverUntil = 0f;
+                        RegisterDestinationClaim(boss, _targetPosition);
                     }
                     else
                     {
@@ -265,7 +258,7 @@ namespace friendlySAIN.SAINAddon
         private bool IsAlreadyInRegroupRange(Vector3 bossPosition)
         {
             float bossDistance = (bossPosition - BotOwner.Position).magnitude;
-            return bossDistance >= MinBossBuffer && bossDistance <= MaxBossBuffer;
+            return bossDistance <= ArriveDistance;
         }
 
         private bool TryGetBoss(out pitAIBossPlayer boss, out Vector3 position)
@@ -348,7 +341,7 @@ namespace friendlySAIN.SAINAddon
 
             if (BotOwner.Memory?.IsInCover == true &&
                 TryGetPathLength(bossPosition, out float bossPathLength) &&
-                bossPathLength <= CloseBossDistance)
+                bossPathLength <= ArriveDistance)
             {
                 holdInCover = true;
                 return true;

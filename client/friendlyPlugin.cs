@@ -251,6 +251,7 @@ namespace friendlySAIN
             new FollowRequestPatch().Enable();
             new HoldRequestPatch().Enable();
             new OpenDoorRequestPatch().Enable();
+            new FollowerDoorAutoClosePatch().Enable();
             new FollowerBotRequestTakePatch().Enable();
             new FollowerBotReceiverHardAimIgnorePatch().Enable();
             new FollowerBotReceiverTiltIgnorePatch().Enable();

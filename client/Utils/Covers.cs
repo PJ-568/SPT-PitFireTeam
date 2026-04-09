@@ -14,6 +14,7 @@ namespace friendlySAIN.Utils
 
         private static float STATIC_DISTANCE = 150f;
         private static float SQUARE_SIZE = 15f;
+        private const float CombatFriendSpacing = 1.5f;
         public static int MAX_COVERS_IRT = 20;
 
         public static void ResetMaxCoversIritation()
@@ -36,27 +37,16 @@ namespace friendlySAIN.Utils
             pitAIBossPlayer boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
 
             searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
-
-            List<CustomNavigationPoint> areaCovers = botOwner.Covers.GetClosePoints(centerPosition, searchRadius);
-            areaCovers = areaCovers.OrderBy(cover => (cover.Position - centerPosition).sqrMagnitude).Take(MAX_COVERS_IRT).ToList();
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, centerPosition, searchRadius, null, centerPosition, "ClosestCoverPoint");
 
             // ensure point is not too close to teammates to avoid clustering
-            List<Vector3> friendsPositions = new List<Vector3>();
-            if (boss != null)
-            {
-                friendsPositions.Add(boss.realPlayer.Transform.position);
-                boss.Followers.ForEach(follower =>
-                {
-                    if (follower != botOwner)
-                        friendsPositions.Add(follower.GetPlayer.Transform.position);
-                });
-            }
+            List<Vector3> friendsPositions = GetFriendsPositions(botOwner, boss);
 
             CustomNavigationPoint pt = ClosestPoint(botOwner.Id, botOwner.GetPlayer.Transform.position, centerPosition, areaCovers, (CustomNavigationPoint point) =>
             {
                 return extraChecks == null ? true : extraChecks(point);
 
-            }, 0.7f, friendsPositions.ToArray());
+            }, CombatFriendSpacing, friendsPositions.ToArray());
 
             botOwner.Memory.SetCoverPoints(pt);
 
@@ -73,28 +63,16 @@ namespace friendlySAIN.Utils
             Vector3 centerPosition = (pointA + pointB) / 2f;
             float searchRadius = Math.Min((pointA - pointB).magnitude, STATIC_DISTANCE);
 
-            List<CustomNavigationPoint> areaCovers = botOwner.Covers.GetClosePoints(centerPosition, searchRadius);
-            areaCovers = areaCovers.OrderBy(cover => (cover.Position - centerPosition).sqrMagnitude).Take(MAX_COVERS_IRT).ToList();
-
-            List<Vector3> friendsPositions = new List<Vector3>();
-            if (boss != null)
-            {
-                friendsPositions.Add(boss.realPlayer.Transform.position);
-                boss.Followers.ForEach(follower =>
-                {
-                    if (follower != botOwner)
-                        friendsPositions.Add(follower.GetPlayer.Transform.position);
-                });
-            }
-
             ShootPointClass shootPointClass = botOwner.CurrentEnemyTargetPosition(true);
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, centerPosition, searchRadius, shootPointClass, centerPosition, "ClosestCoverPointBetween");
+            List<Vector3> friendsPositions = GetFriendsPositions(botOwner, boss);
 
             CustomNavigationPoint pt = ClosestPoint(botOwner.Id, botOwner.GetPlayer.Transform.position, centerPosition, areaCovers, point =>
             {
                 // ensure point is between the two points
                 if (!IsPointBetween(point.Position, pointA, pointB)) return false;
                 // ensure point is not too close to teammates to avoid clustering
-                if (!Utils.IsDangerPositionFarEnough(point.Position, friendsPositions, 0.7f * 0.7f)) return false;
+                if (!Utils.IsDangerPositionFarEnough(point.Position, friendsPositions, CombatFriendSpacing * CombatFriendSpacing)) return false;
                 // ensure point is not too close to the enemy
                 if (!Utils.IsDangerPositionFarEnough(point.Position, new Vector3[] { shootPointClass.Point }, safeDistance * safeDistance)) return false;
 
@@ -132,21 +110,9 @@ namespace friendlySAIN.Utils
 
             targetDirection.Normalize();
 
-            List<CustomNavigationPoint> areaCovers = botOwner.Covers.GetClosePoints(originPosition, searchRadius);
-            areaCovers = areaCovers.OrderBy(cover => (cover.Position - targetPosition).sqrMagnitude).Take(MAX_COVERS_IRT).ToList();
-
-            List<Vector3> friendsPositions = new List<Vector3>();
-            if (boss != null)
-            {
-                friendsPositions.Add(boss.realPlayer.Transform.position);
-                boss.Followers.ForEach(follower =>
-                {
-                    if (follower != botOwner)
-                    {
-                        friendsPositions.Add(follower.GetPlayer.Transform.position);
-                    }
-                });
-            }
+            ShootPointClass shootPoint = botOwner.CurrentEnemyTargetPosition(true);
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, originPosition, searchRadius, shootPoint, targetPosition, "ClosestCoverTowardPoint");
+            List<Vector3> friendsPositions = GetFriendsPositions(botOwner, boss);
 
             CustomNavigationPoint pt = ClosestPoint(botOwner.Id, botOwner.GetPlayer.Transform.position, targetPosition, areaCovers, point =>
             {
@@ -164,7 +130,7 @@ namespace friendlySAIN.Utils
                 }
 
                 return eligibilityCheck == null || eligibilityCheck(point);
-            }, 0.7f, friendsPositions.ToArray());
+            }, CombatFriendSpacing, friendsPositions.ToArray());
 
             botOwner.Memory.SetCoverPoints(pt);
 
@@ -188,8 +154,7 @@ namespace friendlySAIN.Utils
 
             int max_irt = iritations == -1 ? (int)Math.Round(MAX_COVERS_IRT * 1.2f) : iritations;
 
-            List<CustomNavigationPoint> areaCovers = botOwner.Covers.GetClosePoints(targetArea, radius);
-            areaCovers = areaCovers.OrderBy(cover => (cover.Position - centerPosition).sqrMagnitude).Take(max_irt).ToList();
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, targetArea, radius, botOwner.CurrentEnemyTargetPosition(true), centerPosition, "GetCoverPoints", max_irt);
 
             float searchRadiusSqr = searchRadius * searchRadius;
 
@@ -323,6 +288,85 @@ namespace friendlySAIN.Utils
             }
 
             return closest;
+        }
+
+        private static List<Vector3> GetFriendsPositions(BotOwner botOwner, pitAIBossPlayer? boss)
+        {
+            List<Vector3> friendsPositions = new List<Vector3>();
+            if (boss == null)
+            {
+                return friendsPositions;
+            }
+
+            friendsPositions.Add(boss.realPlayer.Transform.position);
+            boss.Followers.ForEach(follower =>
+            {
+                if (follower != botOwner)
+                {
+                    friendsPositions.Add(follower.GetPlayer.Transform.position);
+                }
+            });
+            return friendsPositions;
+        }
+
+        private static List<CustomNavigationPoint> GetVanillaBackedCandidates(
+            BotOwner botOwner,
+            Vector3 centerPosition,
+            float searchRadius,
+            ShootPointClass? shootPoint,
+            Vector3? pointToBeClose,
+            string label,
+            int? maxCandidates = null)
+        {
+            searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
+            int takeCount = maxCandidates ?? MAX_COVERS_IRT;
+            List<CustomNavigationPoint> areaCovers = botOwner.BotsGroup.CoverPointMaster
+                .GetClosePoints(centerPosition, botOwner, searchRadius)
+                .OrderBy(cover => (cover.Position - (pointToBeClose ?? centerPosition)).sqrMagnitude)
+                .Take(takeCount)
+                .ToList();
+
+            CoverSearchData searchData = BuildCoverSearchData(botOwner, centerPosition, searchRadius, shootPoint, pointToBeClose, label, maxCandidates);
+            CustomNavigationPoint? primary = botOwner.BotsGroup.CoverPointMaster.GetCoverPointMain(searchData, false);
+            if (primary != null)
+            {
+                areaCovers.RemoveAll(point => point == null || point.Id == primary.Id);
+                areaCovers.Insert(0, primary);
+            }
+
+            return areaCovers;
+        }
+
+        private static CoverSearchData BuildCoverSearchData(
+            BotOwner botOwner,
+            Vector3 centerPosition,
+            float searchRadius,
+            ShootPointClass? shootPoint,
+            Vector3? pointToBeClose,
+            string label,
+            int? maxIterations = null)
+        {
+            CoverShootType shootType = shootPoint != null ? CoverShootType.shoot : CoverShootType.hide;
+            CoverSearchType searchType = pointToBeClose.HasValue ? CoverSearchType.closerToSelectedPoint : CoverSearchType.distToToCenter;
+            CoverSearchData searchData = new CoverSearchData(
+                centerPosition,
+                botOwner.CoverSearchInfo,
+                shootType,
+                searchRadius * searchRadius,
+                0f,
+                searchType,
+                shootPoint,
+                botOwner.Covers.ClosestFriendCoverPoint(),
+                pointToBeClose,
+                ECheckSHootHide.shootAndHide,
+                new CoverSearchDefenceDataClass(botOwner.Settings.FileSettings.Cover.MIN_DEFENCE_LEVEL),
+                PointsArrayType.byShootType,
+                false,
+                null,
+                maxIterations,
+                label);
+            searchData.UseLineCastToCover = true;
+            return searchData;
         }
 
         public static bool IsPointBetween(Vector3 point, Vector3 start, Vector3 end)

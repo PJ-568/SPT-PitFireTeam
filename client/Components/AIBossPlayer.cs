@@ -816,6 +816,11 @@ namespace friendlySAIN.Components
 
                 FollowerRecovery.SoftReset(follower);
 
+                if (follower.Mover?.TargetPose < 0.85f)
+                {
+                    follower.SetPose(1f);
+                }
+
                 follower?.BotTalk.TrySay(EPhraseTrigger.Roger, true);
             }
         }
@@ -1481,7 +1486,12 @@ namespace friendlySAIN.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                if (follower.Memory?.HaveEnemy == true)
+                EnemyInfo? goalEnemy = follower.Memory?.GoalEnemy;
+                bool hasCombatEnemy =
+                    follower.Memory?.HaveEnemy == true ||
+                    (goalEnemy != null && goalEnemy.Person?.HealthController?.IsAlive == true);
+
+                if (hasCombatEnemy)
                 {
                     followerData.SetPushEnemy(12f);
                     follower.BotTalk.TrySay(EPhraseTrigger.Going, false);

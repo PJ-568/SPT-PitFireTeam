@@ -5,6 +5,7 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatShootFromPlaceAction : FollowerCombatActionBase
     {
+        private const float MinEnemyDistanceForProne = 18f;
         private readonly GClass276 baseLogic;
 
         public CombatShootFromPlaceAction(BotOwner botOwner) : base(botOwner)
@@ -14,19 +15,23 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
-            bool oldCanThrowFromAnyPlace = BotOwner.Settings.FileSettings.Grenade.CAN_THROW_FROM_ANY_PLACE;
-            bool oldCanThrowStraightContact = BotOwner.Settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT;
-            BotOwner.Settings.FileSettings.Grenade.CAN_THROW_FROM_ANY_PLACE = false;
-            BotOwner.Settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT = false;
-            try
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            bool allowProne = goalEnemy == null || goalEnemy.Distance >= MinEnemyDistanceForProne;
+            baseLogic.CanLay = allowProne;
+
+            if (!allowProne && BotOwner.BotLay.IsLay)
             {
-                baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
+                BotOwner.BotLay.GetUp(false);
             }
-            finally
+
+            string? reason = BotOwner.Brain?.Agent?.LastResult().Reason;
+            if (string.Equals(reason, "visibleImmediateShoot", System.StringComparison.Ordinal) &&
+                (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true || BotOwner.Mover.TargetPose < 0.85f))
             {
-                BotOwner.Settings.FileSettings.Grenade.CAN_THROW_FROM_ANY_PLACE = oldCanThrowFromAnyPlace;
-                BotOwner.Settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT = oldCanThrowStraightContact;
+                BotOwner.SetPose(1f);
             }
+
+            baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
         }
     }
 }

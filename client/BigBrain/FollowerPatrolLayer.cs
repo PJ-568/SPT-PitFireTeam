@@ -189,6 +189,10 @@ namespace friendlySAIN.BigBrain
             stoppedForHealDecision = false;
             ResetReloadState();
             BotOwner.Mover.Pause = false;
+            if (BotOwner.Mover.TargetPose < 0.85f)
+            {
+                BotOwner.SetPose(1f);
+            }
 
             BotOwner.PatrollingData?.Pause();
 

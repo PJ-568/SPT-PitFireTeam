@@ -54,6 +54,15 @@ public class FriendlyTeammateService(
     private const string DefaultLoadoutId = "000000000000000000000000";
     private const int RelativeLevelDelta = 5;
     private const int SecureContainerAmmoStackCount = 10;
+    private const string GrizzlyMedicalKitTemplateId = "590c657e86f77412b013051d";
+    private const string Surv12SurgicalKitTemplateId = "5d02797c86f774203f38e30a";
+    private const string CmsSurgicalKitTemplateId = "60d4399358ef941a33423dad";
+
+    private static readonly HashSet<string> SurgicalKitTemplateIds =
+    [
+        Surv12SurgicalKitTemplateId,
+        CmsSurgicalKitTemplateId,
+    ];
 
     public SearchFriendResponse CreateTeammate(MongoId sessionId, FriendlyTeammateCreateRequest request)
     {
@@ -408,39 +417,46 @@ public class FriendlyTeammateService(
             return;
         }
 
+        bool hasGrizzlyInBackpack = HasTemplateInBackpack(profile.Inventory.Items, GrizzlyMedicalKitTemplateId);
+        bool hasSurgeryKitInBackpack = HasAnyTemplateInBackpack(profile.Inventory.Items, SurgicalKitTemplateIds);
+
         ClearSecureContainerContents(profile.Inventory.Items, secureContainerId);
 
-        // Add Grizzly Medical Kit
-        var grizzlyId = new MongoId();
-        profile.Inventory.Items.Add(new Item
+        if (!hasGrizzlyInBackpack)
         {
-            Id = grizzlyId,
-            Template = new MongoId("590c657e86f77412b013051d"), // Grizzly Medical Kit
-            ParentId = secureContainerId,
-            SlotId = "main",
-            Location = null,
-            Upd = new Upd
+            var grizzlyId = new MongoId();
+            profile.Inventory.Items.Add(new Item
             {
-                StackObjectsCount = 1,
-                SpawnedInSession = false,
-            },
-        });
+                Id = grizzlyId,
+                Template = new MongoId(GrizzlyMedicalKitTemplateId),
+                ParentId = secureContainerId,
+                SlotId = "main",
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = 1,
+                    SpawnedInSession = false,
+                },
+            });
+        }
 
-        // Add Surv12 Surgical Kit
-        var surv12Id = new MongoId();
-        profile.Inventory.Items.Add(new Item
+        if (!hasSurgeryKitInBackpack)
         {
-            Id = surv12Id,
-            Template = new MongoId("5d02797c86f774203f38e30a"), // Surv12 Surgical Kit
-            ParentId = secureContainerId,
-            SlotId = "main",
-            Location = null,
-            Upd = new Upd
+            var surv12Id = new MongoId();
+            profile.Inventory.Items.Add(new Item
             {
-                StackObjectsCount = 1,
-                SpawnedInSession = false,
-            },
-        });
+                Id = surv12Id,
+                Template = new MongoId(Surv12SurgicalKitTemplateId),
+                ParentId = secureContainerId,
+                SlotId = "main",
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = 1,
+                    SpawnedInSession = false,
+                },
+            });
+        }
 
         var ammoTemplate = FindMainWeaponAmmoTemplate(profile.Inventory.Items.ToList());
         if (ammoTemplate == null || ammoTemplate.Value.IsEmpty)
@@ -532,6 +548,61 @@ public class FriendlyTeammateService(
         inventoryItems.RemoveAll(item => item?.Id != null && removedIds.Contains(item.Id.ToString()));
     }
 
+    private bool HasTemplateInBackpack(List<Item> inventoryItems, string templateId)
+    {
+        if (string.IsNullOrWhiteSpace(templateId))
+        {
+            return false;
+        }
+
+        return HasAnyTemplateInBackpack(inventoryItems, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { templateId });
+    }
+
+    private bool HasAnyTemplateInBackpack(List<Item> inventoryItems, IReadOnlySet<string> templateIds)
+    {
+        if (inventoryItems == null || templateIds == null || templateIds.Count == 0)
+        {
+            return false;
+        }
+
+        Item? backpack = inventoryItems.FirstOrDefault(item =>
+            string.Equals(item.SlotId, nameof(EquipmentSlots.Backpack), StringComparison.OrdinalIgnoreCase));
+        if (backpack?.Id == null)
+        {
+            return false;
+        }
+
+        var ownedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { backpack.Id.ToString() };
+        var foundChild = true;
+
+        while (foundChild)
+        {
+            foundChild = false;
+            foreach (var item in inventoryItems)
+            {
+                if (item?.Id == null || string.IsNullOrEmpty(item.ParentId) || !ownedIds.Contains(item.ParentId))
+                {
+                    continue;
+                }
+
+                string itemId = item.Id.ToString();
+                if (!ownedIds.Add(itemId))
+                {
+                    continue;
+                }
+
+                foundChild = true;
+
+                if (templateIds.Contains(item.Template.ToString()))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private MongoId? FindMainWeaponAmmoTemplate(List<Item> inventoryItems)
     {
         var mainWeapon = inventoryItems.FirstOrDefault(item => item.SlotId == nameof(EquipmentSlots.FirstPrimaryWeapon))
@@ -587,8 +658,8 @@ public class FriendlyTeammateService(
             // Surgical item template IDs
             var surgicalTemplates = new[]
             {
-                "5d235b4d86f77443f4309c0e", // Surv12 Surgical Kit
-                "60d4399358ef941a33423dad", // CMS Surgical Kit
+                Surv12SurgicalKitTemplateId,
+                CmsSurgicalKitTemplateId,
             };
             return surgicalTemplates.Contains(templateId);
         }
@@ -597,7 +668,7 @@ public class FriendlyTeammateService(
             // Medical item template IDs (non-surgical)
             var medicalTemplates = new[]
             {
-                "60d446124bafe47a209fece4", // Grizzly Medical Kit
+                GrizzlyMedicalKitTemplateId,
                 "544fb3364bdc2dfb738b4567", // Salewa
                 "544fc38949f06fd411383b42", // AI-2 Medkit
                 "5c0e30fa86f77413531e1cd3", // Car First Aid Kit
