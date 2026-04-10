@@ -1,5 +1,6 @@
 ﻿
 using Comfort.Common;
+using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.HealthSystem;
 
@@ -384,13 +385,11 @@ namespace friendlySAIN.Utils
 
                     if (BossPlayers.IsFollower(bt.Data))
                     {
-                        var decision = bt.Data.Brain.Agent.LastResult();
-
-                        if (decision.Action == BotLogicDecision.heal || decision.Action == BotLogicDecision.healStimulators)
+                        if (IsFollowerCurrentlyHealing(bt.Data))
                         {
                             stringBuilder.Append($" | " + friendlySAIN.optionsLang.botStatus["Heal"]);
                         }
-                        else if (decision.Reason == "runToHeal" || decision.Reason == "goforheal")
+                        else if (DoesFollowerWantToHeal(bt.Data))
                         {
                             stringBuilder.Append($" | " + friendlySAIN.optionsLang.botStatus["WantToHeal"]);
                         }
@@ -607,6 +606,56 @@ namespace friendlySAIN.Utils
             {
                 return false;
             }
+        }
+
+        private static bool IsFollowerCurrentlyHealing(BotOwner bot)
+        {
+            if (bot?.Medecine == null)
+            {
+                return false;
+            }
+
+            if (bot.Medecine.Using ||
+                bot.Medecine.FirstAid?.Using == true ||
+                bot.Medecine.SurgicalKit?.Using == true ||
+                bot.Medecine.Stimulators?.Using == true)
+            {
+                return true;
+            }
+
+            var decision = bot.Brain?.Agent?.LastResult();
+            if (decision == null)
+            {
+                return false;
+            }
+
+            return decision.Value.Action == BotLogicDecision.heal
+                || decision.Value.Action == BotLogicDecision.healStimulators
+                || string.Equals(decision.Value.Reason, "Heal", StringComparison.Ordinal)
+                || string.Equals(decision.Value.Reason, "healInCover", StringComparison.Ordinal)
+                || string.Equals(decision.Value.Reason, "healQuick", StringComparison.Ordinal);
+        }
+
+        private static bool DoesFollowerWantToHeal(BotOwner bot)
+        {
+            if (bot?.Medecine == null || IsFollowerCurrentlyHealing(bot))
+            {
+                return false;
+            }
+
+            var decision = bot.Brain?.Agent?.LastResult();
+            if (decision != null)
+            {
+                string reason = decision.Value.Reason ?? string.Empty;
+                if (string.Equals(reason, "runToHeal", StringComparison.Ordinal) ||
+                    string.Equals(reason, "moveToHeal", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return bot.Medecine.FirstAid?.Have2Do == true
+                || bot.Medecine.SurgicalKit?.HaveWork == true;
         }
 
         public static void Enable()

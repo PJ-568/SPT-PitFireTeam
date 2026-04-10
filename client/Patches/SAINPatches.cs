@@ -5,6 +5,7 @@ using friendlySAIN.Modules;
 using HarmonyLib;
 using System;
 using System.Reflection;
+using friendlySAIN.BigBrain;
 
 namespace friendlySAIN.Patches
 {
@@ -26,6 +27,7 @@ namespace friendlySAIN.Patches
         private static Type? sainBotTalkPatch = null;
         private static Type? sainBotTalkManualUpdatePatch = null;
         private static Type? sainPlayerComponentType = null;
+        private static Type? sainMoverClass = null;
         private static PropertyInfo? sainPlayerComponentPlayerProperty = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
@@ -85,6 +87,7 @@ namespace friendlySAIN.Patches
             }
 
             PatchFollowerLayerFallbackIfAddonMissing(harmony);
+            PatchFollowerCombatPatrolStanceWithoutAddon(harmony);
             PatchSainTalkPrefixesForFollowers(harmony);
             PatchSainPlayerVoiceLineForFollowers(harmony);
 
@@ -97,6 +100,19 @@ namespace friendlySAIN.Patches
                     harmony.Patch(assignLeader, new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchAssignSquadLeader), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
                 }
                 Logger.LogInfo("SAIN Patched");
+            }
+        }
+
+        private static void PatchFollowerCombatPatrolStanceWithoutAddon(Harmony harmony)
+        {
+            sainMoverClass ??= Type.GetType("SAIN.SAINComponent.Classes.Mover.SAINMoverClass, SAIN");
+
+            MethodInfo? updateStance = sainMoverClass != null
+                ? AccessTools.Method(sainMoverClass, "UpdateStance", new[] { typeof(float) })
+                : null;
+            if (updateStance != null)
+            {
+                harmony.Patch(updateStance, postfix: new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(ForcePatrolOffForFollowerCombat), BindingFlags.NonPublic | BindingFlags.Static)));
             }
         }
 
@@ -322,6 +338,38 @@ namespace friendlySAIN.Patches
             catch
             {
                 return true;
+            }
+        }
+
+        [HarmonyPostfix]
+        private static void ForcePatrolOffForFollowerCombat(object __instance)
+        {
+            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            {
+                return;
+            }
+
+            try
+            {
+                BotOwner? botOwner = AccessTools.Property(__instance.GetType(), "BotOwner")?.GetValue(__instance) as BotOwner;
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return;
+                }
+
+                MovementContext movementContext = botOwner.GetPlayer?.MovementContext;
+                if (movementContext == null || !movementContext.IsInPatrol)
+                {
+                    return;
+                }
+
+                if (FollowerCombatLayer.IsFollowerCombatLayerActive(botOwner) || botOwner.Memory?.HaveEnemy == true)
+                {
+                    movementContext.SetPatrol(false);
+                }
+            }
+            catch
+            {
             }
         }
     }

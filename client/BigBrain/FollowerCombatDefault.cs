@@ -14,6 +14,8 @@ namespace friendlySAIN.BigBrain
         private const float CoverSearchCooldownSeconds = 0.35f;
         private const float BossCoverSearchRadius = 30f;
         private const float BossHoldSectorRadius = 20f;
+        private const float BossCombatPriorityDeltaMin = 12f;
+        private const float BossCombatPriorityDeltaMax = 30f;
         private const float VisiblePushDistance = 18f;
         private const float BlindPushDistance = 32f;
         private const float RecentSeenPressureSeconds = 2f;
@@ -181,6 +183,16 @@ namespace friendlySAIN.BigBrain
             if (TryGetBossUnderAttackDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> protectBossDecision))
             {
                 return protectBossDecision;
+            }
+
+            // Before generic blind advance, decide whether the follower's real combat objective is to
+            // rejoin the boss's advanced line or retreating line. Low aggression rejoins sooner; high
+            // aggression tolerates a larger separation before abandoning local pressure.
+            // This is the escort-in-combat branch: keep the follower aligned to the boss's line,
+            // but still let visible fire, explicit push orders, and stronger cover/engage states win first.
+            if (TryGetBossCombatObjectiveDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> bossObjectiveDecision))
+            {
+                return bossObjectiveDecision;
             }
 
             // While passively holding in cover, scan for a credible ally support opportunity before
@@ -531,7 +543,7 @@ namespace friendlySAIN.BigBrain
                     return false;
                 }
 
-                if (ShouldBreakCommittedCoverForBossLeash(goalEnemy))
+                if (ShouldBreakCommittedCoverForBossObjective(goalEnemy))
                 {
                     ClearCommittedCover();
                     return false;
@@ -624,6 +636,50 @@ namespace friendlySAIN.BigBrain
 
             bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
             decision = combatPush.EngageEnemy(false, enemyLowThreat);
+            return true;
+        }
+
+        /// <summary>
+        /// Chooses between local engagement and rejoining the boss's combat line. If the boss has
+        /// materially advanced or retreated the line relative to the follower, rejoin takes priority
+        /// before generic blind advance. Ordered push still wins earlier in the tree.
+        /// </summary>
+        private bool TryGetBossCombatObjectiveDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+
+            if (!TryGetBossCombatObjectiveState(
+                goalEnemy,
+                out Vector3 bossPosition,
+                out bool bossAdvanced))
+            {
+                return false;
+            }
+
+            // First prefer a cover step toward the boss so the follower can keep shooting or stay safe
+            // while closing the formation gap.
+            if (TryFindBossCombatObjectiveCover(goalEnemy, bossPosition, bossAdvanced, out CustomNavigationPoint? objectiveCover, out string coverReason))
+            {
+                BotLogicDecision moveAction = combatCommon.SelectCommittedCoverMoveAction(goalEnemy);
+                CommitCover(objectiveCover, moveAction, coverReason);
+                combatCommon.AssignCover(objectiveCover);
+                decision = CreateCommittedCoverMoveDecision();
+                return true;
+            }
+
+            if (NavMesh.SamplePosition(bossPosition, out NavMeshHit bossHit, 2f, -1))
+            {
+                bossPosition = bossHit.position;
+            }
+
+            // If no useful step cover exists, fall back to a direct boss move. The reason still keeps
+            // track of whether this was a forward rejoin or a retreat rejoin.
+            botOwner.GoToSomePointData.SetPoint(bossPosition);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.goToPoint,
+                bossAdvanced ? "bossAdvanceRejoin" : "bossRetreatRejoin");
             return true;
         }
 
@@ -784,6 +840,73 @@ namespace friendlySAIN.BigBrain
         }
 
         /// <summary>
+        /// Forward rejoin prefers a cover step toward the boss that can still open a shot. Retreat
+        /// rejoin prefers a hide-capable cover step toward the boss before falling back to boss-local cover.
+        /// </summary>
+        private bool TryFindBossCombatObjectiveCover(
+            EnemyInfo goalEnemy,
+            Vector3 bossPosition,
+            bool bossAdvanced,
+            out CustomNavigationPoint? cover,
+            out string reason)
+        {
+            cover = null;
+            reason = bossAdvanced ? "bossAdvanceCover" : "bossRetreatCover";
+
+            if (bossAdvanced)
+            {
+                // When the boss has advanced the line, first look for a bossward step that can still
+                // open a shot. If none exists, accept any bossward cover to keep moving up the hill/line.
+                if (combatCommon.TryFindCoverTowardBoss(
+                    goalEnemy,
+                    bossPosition,
+                    BossCoverSearchRadius,
+                    requireShootLane: true,
+                    requireHideFromEnemy: false,
+                    out cover))
+                {
+                    return true;
+                }
+
+                if (combatCommon.TryFindCoverTowardBoss(
+                    goalEnemy,
+                    bossPosition,
+                    BossCoverSearchRadius,
+                    requireShootLane: false,
+                    requireHideFromEnemy: false,
+                    out cover))
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                // When the boss has fallen back, prefer a retreat step that actually hides from the enemy.
+                if (combatCommon.TryFindCoverTowardBoss(
+                    goalEnemy,
+                    bossPosition,
+                    BossCoverSearchRadius,
+                    requireShootLane: false,
+                    requireHideFromEnemy: true,
+                    out cover))
+                {
+                    return true;
+                }
+            }
+
+            // Final fallback is boss-local cover. This keeps the follower near the boss even if there was
+            // no obvious intermediate step cover along the way.
+            if (combatCommon.TryFindBossCover(goalEnemy, bossPosition, BossCoverSearchRadius, out CustomNavigationPoint? bossCover))
+            {
+                cover = bossCover;
+                reason = bossAdvanced ? "bossAdvanceBossCover" : "bossRetreatBossCover";
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Handles the special case where bossHold ended because the boss changed sectors:
         /// first try fresh boss-local cover in the new sector, otherwise keep holding.
         /// </summary>
@@ -911,12 +1034,21 @@ namespace friendlySAIN.BigBrain
                     return new AICoreActionEndStruct("leftCommittedCover", true);
                 }
 
-                if (string.Equals(reason, "coverHold", StringComparison.Ordinal) &&
-                    goalEnemy != null &&
-                    ShouldBreakCommittedCoverForBossLeash(goalEnemy))
+                if (goalEnemy != null &&
+                    (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
+                     string.Equals(reason, "bossHold", StringComparison.Ordinal)) &&
+                    ShouldBreakCommittedCoverForBossObjective(goalEnemy))
                 {
-                    ClearCommittedCover();
-                    return new AICoreActionEndStruct("bossTooFarBreakCoverHold", true);
+                    if (string.Equals(reason, "coverHold", StringComparison.Ordinal))
+                    {
+                        ClearCommittedCover();
+                    }
+
+                    return new AICoreActionEndStruct(
+                        string.Equals(reason, "bossHold", StringComparison.Ordinal)
+                            ? "bossObjectiveBreakBossHold"
+                            : "bossObjectiveBreakCoverHold",
+                        true);
                 }
 
                 if (string.Equals(reason, "bossHold", StringComparison.Ordinal))
@@ -1199,24 +1331,13 @@ namespace friendlySAIN.BigBrain
             return (botOwner.Position - committedCoverPoint.Position).sqrMagnitude <= 2f * 2f;
         }
 
-        private bool ShouldBreakCommittedCoverForBossLeash(EnemyInfo goalEnemy)
+        /// <summary>
+        /// Reuses the boss-relative objective gate as the "leave stale cover/hold and rejoin the boss"
+        /// signal. This only triggers after the initial cover commit window and only when there is no
+        /// stronger local fight to justify staying put.
+        /// </summary>
+        private bool ShouldBreakCommittedCoverForBossObjective(EnemyInfo goalEnemy)
         {
-            if (!IsBotInCommittedCover())
-            {
-                return false;
-            }
-
-            if (Time.time - committedCoverSetAt < CoverCommitLockSeconds)
-            {
-                return false;
-            }
-
-            float bossDistanceSqr = (botOwner.Position - combatCommon.GetBossPosition()).sqrMagnitude;
-            if (bossDistanceSqr <= BossCoverSearchRadius * BossCoverSearchRadius)
-            {
-                return false;
-            }
-
             if (HasActivePushOrder())
             {
                 return false;
@@ -1232,7 +1353,73 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (!TryGetBossCombatObjectiveState(goalEnemy, out _, out _))
+            {
+                return false;
+            }
+
+            // For committed cover specifically, give the follower time to actually use the cover before
+            // escort pressure can pull it out again.
+            if (HasCommittedCover())
+            {
+                if (!IsBotInCommittedCover())
+                {
+                    return false;
+                }
+
+                if (Time.time - committedCoverSetAt < CoverCommitLockSeconds)
+                {
+                    return false;
+                }
+            }
+
             return true;
+        }
+
+        /// <summary>
+        /// Computes whether the boss has materially changed the combat line relative to the follower.
+        /// If true, the follower should prefer rejoining the boss line before generic blind advance.
+        /// </summary>
+        private bool TryGetBossCombatObjectiveState(
+            EnemyInfo goalEnemy,
+            out Vector3 bossPosition,
+            out bool bossAdvanced)
+        {
+            bossPosition = Vector3.zero;
+            bossAdvanced = false;
+
+            if (!combatCommon.TryGetBossRelativeCombatSpacing(
+                goalEnemy,
+                out bossPosition,
+                out _,
+                out float followerBossDistance,
+                out float followerEnemyDistance,
+                out float bossEnemyDistance))
+            {
+                return false;
+            }
+
+            if (followerBossDistance <= BossCoverSearchRadius)
+            {
+                return false;
+            }
+
+            float aggression = combatCommon.GetAggression01();
+            float objectiveDelta = Mathf.Lerp(BossCombatPriorityDeltaMin, BossCombatPriorityDeltaMax, aggression);
+            float lineDelta = followerEnemyDistance - bossEnemyDistance;
+            if (lineDelta >= objectiveDelta)
+            {
+                bossAdvanced = true;
+                return true;
+            }
+
+            if (-lineDelta >= objectiveDelta)
+            {
+                bossAdvanced = false;
+                return true;
+            }
+
+            return false;
         }
 
 

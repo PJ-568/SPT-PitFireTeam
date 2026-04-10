@@ -661,6 +661,99 @@ namespace friendlySAIN.BigBrain
             return botOwner.Position;
         }
 
+        /// <summary>
+        /// Shared boss/follower/enemy spacing snapshot used by combat objective logic.
+        /// This lets the higher-level combat tree compare who currently owns the forward line:
+        /// the boss or the follower.
+        /// </summary>
+        public bool TryGetBossRelativeCombatSpacing(
+            EnemyInfo goalEnemy,
+            out Vector3 bossPosition,
+            out Vector3 enemyAnchor,
+            out float followerBossDistance,
+            out float followerEnemyDistance,
+            out float bossEnemyDistance)
+        {
+            bossPosition = GetBossPosition();
+            enemyAnchor = GetEnemyAnchor(goalEnemy);
+            followerBossDistance = 0f;
+            followerEnemyDistance = 0f;
+            bossEnemyDistance = 0f;
+
+            if (!IsFinite(bossPosition) || !IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            followerBossDistance = Vector3.Distance(botOwner.Position, bossPosition);
+            followerEnemyDistance = Vector3.Distance(botOwner.Position, enemyAnchor);
+            bossEnemyDistance = Vector3.Distance(bossPosition, enemyAnchor);
+            return true;
+        }
+
+        /// <summary>
+        /// Finds a step cover that moves the follower toward the boss while optionally requiring
+        /// either a shoot lane or a hide lane from the active enemy.
+        /// Used by the boss-relative combat objective so rejoin/retreat movement is cover-to-cover
+        /// instead of a blind run straight at the boss.
+        /// </summary>
+        public bool TryFindCoverTowardBoss(
+            EnemyInfo goalEnemy,
+            Vector3 bossPosition,
+            float searchRadius,
+            bool requireShootLane,
+            bool requireHideFromEnemy,
+            out CustomNavigationPoint? cover)
+        {
+            cover = null;
+            if (!IsFinite(bossPosition))
+            {
+                return false;
+            }
+
+            Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
+            ShootPointClass? shootPoint = requireShootLane ? botOwner.CurrentEnemyTargetPosition(true) : null;
+            LayerMask mask = botOwner.LookSensor.Mask;
+
+            // The selector still comes from our custom cover path. The forward direction is bossward,
+            // while the extra checks decide whether this step is a fighting cover or a retreat cover.
+            CustomNavigationPoint? candidate = Covers.GetClosestCoverPointTowardPoint(
+                botOwner,
+                botOwner.Position,
+                bossPosition,
+                searchRadius,
+                point =>
+                {
+                    if (!IsCoverUsable(point, true))
+                    {
+                        return false;
+                    }
+
+                    if (requireHideFromEnemy &&
+                        IsFinite(enemyAnchor) &&
+                        !point.CanIHideFromPos(0f, true, false, enemyAnchor))
+                    {
+                        return false;
+                    }
+
+                    if (shootPoint != null &&
+                        !Utils.Utils.CanShootToTarget(shootPoint, point, mask, false))
+                    {
+                        return false;
+                    }
+
+                    return true;
+                });
+
+            if (candidate == null)
+            {
+                return false;
+            }
+
+            cover = candidate;
+            return true;
+        }
+
         public AICoreActionResultStruct<BotLogicDecision, GClass26> ConsumeInitialDecision()
         {
             AICoreActionResultStruct<BotLogicDecision, GClass26> decision = initialDecision ??

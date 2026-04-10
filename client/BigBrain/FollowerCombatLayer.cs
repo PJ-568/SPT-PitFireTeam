@@ -19,6 +19,7 @@ namespace friendlySAIN.BigBrain
         private const string LingerReason = "linger";
 
         private static readonly HashSet<BotLogicDecision> LoggedUnsupportedDecisions = new HashSet<BotLogicDecision>();
+        private static readonly HashSet<string> ActiveFollowerCombatBots = new HashSet<string>(StringComparer.Ordinal);
 
         private readonly FollowerCombatLogicBase? combatLogic;
         private readonly string brainShortName;
@@ -104,6 +105,8 @@ namespace friendlySAIN.BigBrain
             lastDecision = null;
             hadCombatSinceActivation = false;
             noEnemySinceTime = 0f;
+            MarkActive(true);
+            BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
             combatLogic?.Reset();
@@ -112,6 +115,7 @@ namespace friendlySAIN.BigBrain
 
         public override void Stop()
         {
+            MarkActive(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
             lastDecision = null;
@@ -203,6 +207,30 @@ namespace friendlySAIN.BigBrain
 
             bool actionChanged = currentDecision.Value.Action != lastDecision.Value.Action;
             return endResult.Value || actionChanged;
+        }
+
+        public static bool IsFollowerCombatLayerActive(BotOwner? botOwner)
+        {
+            return botOwner != null
+                && !string.IsNullOrEmpty(botOwner.ProfileId)
+                && ActiveFollowerCombatBots.Contains(botOwner.ProfileId);
+        }
+
+        private void MarkActive(bool active)
+        {
+            if (string.IsNullOrEmpty(BotOwner?.ProfileId))
+            {
+                return;
+            }
+
+            if (active)
+            {
+                ActiveFollowerCombatBots.Add(BotOwner.ProfileId);
+            }
+            else
+            {
+                ActiveFollowerCombatBots.Remove(BotOwner.ProfileId);
+            }
         }
 
         private bool HasLiveEnemy()

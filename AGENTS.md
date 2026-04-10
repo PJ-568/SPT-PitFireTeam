@@ -48,7 +48,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-04-09  
+**Last updated:** 2026-04-10  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
 ## Project Overview
@@ -268,14 +268,15 @@ Current verified custom teammate feature state:
 - `FollowerCombatDefault` now uses a simplified local decision order:
     1. pre-fight and one-shot opener from `PrepareStartDecision`
     2. committed push continuation
-    3. immediate visible-enemy handling
-    4. committed cover continuation
-    5. recovery / safe-cover behavior
-    6. explicit ordered push (`GoForward` in combat)
+    3. explicit ordered push (`GoForward` in combat)
+    4. immediate visible-enemy handling
+    5. committed cover continuation
+    6. recovery / safe-cover behavior
     7. boss-under-attack protection routing
-    8. ally engagement support scan
-    9. generic blind advance / engage
-    10. boss reanchor fallback
+    8. boss-relative combat objective (rejoin boss advanced/retreated combat line)
+    9. ally engagement support scan
+    10. generic blind advance / engage
+    11. boss reanchor fallback
 - Visible-enemy handling is now more aggressive:
     - `ShouldShootImmediately()` is checked before `CanShootFromCurrentCover()`,
     - visible shootable enemies prefer `shootFromPlace` / `shootFromCover` before passive hold logic,
@@ -285,6 +286,7 @@ Current verified custom teammate feature state:
     - one cover point is committed and reused until invalid or intentionally abandoned,
     - the same committed move action/reason is preserved while moving to that cover to reduce stop/recommit thrash,
     - committed cover reached-state prefers immediate fire, then direct visible fire, then active pressure, before passive `coverHold`.
+    - after the initial cover settle/commit window, stale committed cover can be released for boss-leash reanchor if there is no real shooting or push opportunity.
 - Core push behavior now has committed push state again:
     - push actions are tagged with stable reasons such as `push.run`, `push.goToEnemy`, `push.attackMoving`, `push.runToCover`, and `push.search`,
     - once one of those push decisions is chosen, `FollowerCombatDefault` keeps returning the same decision until a hard interrupt or action completion path ends it,
@@ -294,10 +296,10 @@ Current verified custom teammate feature state:
     - stim use no longer preempts pending first-aid/surgery work,
     - heal-cover movement reuses one committed heal cover instead of repeatedly picking new points,
     - heal and stim actions have timeout exits to avoid stuck medical states.
-- Core combat cover search is currently using EFT/vanilla cover selection for comparison:
-    - `TryCommitCombatCover()` routes through a vanilla `CoverSearchData` / `CoverPointMaster` search instead of the old custom `PointToShoot` / retreat-cover scorer,
-    - the old custom block is left commented in code as a temporary diagnostic reference,
-    - this applies to the current combat-cover experiment, not as a permanent architectural guarantee.
+- Core combat cover search is back on the mod-owned routing path:
+    - `TryCommitCombatCover()` again prefers `PointToShoot`, retreat/attack cover, and boss-cover fallback,
+    - `Covers.cs` now seeds candidate space from EFT `CoverSearchData` / `CoverPointMaster`, then applies friendlySAIN filtering and final selection,
+    - so the current experiment is "our routing and filters, vanilla-backed candidate discovery".
 - Combat cover is no longer boss-leashed by EFT `MAX_DIST_COVER_BOSS_SQRT`:
     - general combat cover uses a mod-owned 120m max distance from the follower,
     - a valid shoot/fight cover is allowed even if it is far from the boss.
@@ -305,6 +307,11 @@ Current verified custom teammate feature state:
     - `BossCoverSearchRadius` is 30m,
     - boss reanchor and boss-protection cover prefer the closest valid cover to the boss within that 30m radius,
     - if no boss-local cover exists, fallback is a direct move to the boss position.
+- Boss-relative escort behavior now participates in combat objective selection:
+    - if the boss materially advances the line relative to the follower, the follower can prioritize rejoining the boss's combat position before generic blind push,
+    - if the boss materially retreats the line, the follower can retreat toward the boss cover-to-cover instead of blindly holding forward,
+    - this objective is aggression-sensitive: low aggression rejoins sooner, high aggression tolerates a larger line split before leaving local pressure,
+    - explicit `PushEnemy` still overrides this and forces engagement.
 - Hold behavior now distinguishes `coverHold` and `bossHold`:
     - both can break early for renewed combat opportunity,
     - `bossHold` also breaks when the follower drifts beyond `BossCoverSearchRadius` so reanchor can occur.
@@ -374,6 +381,9 @@ Supported commands via `GestureCommandAction`:
 - `FollowMe` / `Cooperation` phrase (clears request)
 - Timeout or invalid execution state
 - On regroup success: follower says `EPhraseTrigger.OnPosition`
+- Combat transition boundaries now clear outstanding gesture/request commands:
+    - `FollowerCombatLayer.Start()` clears follower commands on combat entry
+    - `FollowerCombatLayer.Stop()` clears follower commands on combat exit
 
 ## 0e) Recruit & Group Patching
 

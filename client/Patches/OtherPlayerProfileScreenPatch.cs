@@ -279,6 +279,7 @@ namespace friendlySAIN.Patches
         private static readonly string GearIconPath = Path.Combine(PluginDirectory, "gear.png");
         private static readonly string BrainIconPath = Path.Combine(PluginDirectory, "brain.png");
         private static readonly Vector2 SkillsScreenOffset = new Vector2(-38f, -100f);
+        private static readonly Vector2 FactionBadgeFollowerOffset = new Vector2(0f, -60f);
         private static readonly EquipmentSlot[] LoadoutEditorContainerSlots =
         {
             EquipmentSlot.TacticalVest,
@@ -327,6 +328,8 @@ namespace friendlySAIN.Patches
         public static GameObject RenameOverlayRoot { get; set; }
         public static NicknameField RenameOverlayField { get; set; }
         public static Vector2? OriginalNicknameAnchoredPosition { get; set; }
+        public static RectTransform FactionBadgeIconsContainer { get; set; }
+        public static Vector2? OriginalFactionBadgeAnchoredPosition { get; set; }
         public static string OriginalHideoutButtonText { get; set; }
         public static int? OriginalHideoutButtonFontSize { get; set; }
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
@@ -418,6 +421,7 @@ namespace friendlySAIN.Patches
             HideProfileActions(__instance);
             ClearProfileRightSideContent(__instance);
             ConfigureNicknameRenameUi(__instance, playerModelWindow, profile);
+            MoveFactionBadgeForFollowerProfile(__instance, playerModelWindow);
 
             clothingPanel.gameObject.SetActive(true);
             DisplayClothingOptions(profile.PlayerVisualRepresentation, playerModelWindow, inventoryController, clothingSelectionPanel);
@@ -2042,6 +2046,7 @@ namespace friendlySAIN.Patches
             ViewedProfile = null;
             ActiveProfileInventoryController = null;
             ActiveProfileSession = null;
+            RestoreFactionBadgePosition();
 
             if (LoadoutSelector != null)
             {
@@ -2062,6 +2067,50 @@ namespace friendlySAIN.Patches
             {
                 clothingPanel.gameObject.SetActive(false);
             }
+        }
+
+        private static void MoveFactionBadgeForFollowerProfile(OtherPlayerProfileScreen screen, InventoryPlayerModelWithStatsWindow playerModelWindow)
+        {
+            RectTransform iconsContainer = FindFactionBadgeIconsContainer(screen, playerModelWindow);
+            if (iconsContainer == null)
+            {
+                return;
+            }
+
+            if (!ReferenceEquals(FactionBadgeIconsContainer, iconsContainer))
+            {
+                RestoreFactionBadgePosition();
+                FactionBadgeIconsContainer = iconsContainer;
+                OriginalFactionBadgeAnchoredPosition = iconsContainer.anchoredPosition;
+            }
+
+            if (OriginalFactionBadgeAnchoredPosition == null)
+            {
+                OriginalFactionBadgeAnchoredPosition = iconsContainer.anchoredPosition;
+            }
+
+            iconsContainer.anchoredPosition = OriginalFactionBadgeAnchoredPosition.Value + FactionBadgeFollowerOffset;
+        }
+
+        public static void RestoreFactionBadgePosition()
+        {
+            if (FactionBadgeIconsContainer != null && OriginalFactionBadgeAnchoredPosition != null)
+            {
+                FactionBadgeIconsContainer.anchoredPosition = OriginalFactionBadgeAnchoredPosition.Value;
+            }
+
+            FactionBadgeIconsContainer = null;
+            OriginalFactionBadgeAnchoredPosition = null;
+        }
+
+        private static RectTransform FindFactionBadgeIconsContainer(OtherPlayerProfileScreen screen, InventoryPlayerModelWithStatsWindow playerModelWindow)
+        {
+            Transform iconsContainer = playerModelWindow?.transform.Find("CharacterPanel/PlayerModelView/IconsContainer")
+                ?? screen?.transform.Find("PlayerModelWithStats/CharacterPanel/PlayerModelView/IconsContainer")
+                ?? FindChildRecursive(playerModelWindow?.transform, "IconsContainer")
+                ?? FindChildRecursive(screen?.transform, "IconsContainer");
+
+            return iconsContainer as RectTransform;
         }
 
         private static Transform FindChildRecursive(Transform root, string childName)
@@ -3040,6 +3089,7 @@ namespace friendlySAIN.Patches
             OtherPlayerProfileScreenPatch.CustomDropdownIds.Clear();
             OtherPlayerProfileScreenPatch.StopPendingAggressionPersist();
             OtherPlayerProfileScreenPatch.CloseRenameOverlay();
+            OtherPlayerProfileScreenPatch.RestoreFactionBadgePosition();
 
             if (OtherPlayerProfileScreenPatch.OriginalNicknameLabel != null)
             {
