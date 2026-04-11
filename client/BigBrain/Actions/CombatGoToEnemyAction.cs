@@ -21,8 +21,8 @@ namespace friendlySAIN.BigBrain.Actions
 
         private const float VerticalTolerance = 1.25f;
         private const float ProgressCheckInterval = 1.25f;
-        private const float MinimumProgressDistance = 0.75f;
-        private const int StalledRefreshThreshold = 2;
+        private const float MinimumProgressDistance = 0.4f;
+        private const int StalledRefreshThreshold = 3;
         private const float TacticalReloadSafeDistance = 25f;
         private const float WallFacingProbeDistance = 1.25f;
         private const float WallFacingFallbackDebounceSeconds = 0.2f;
@@ -79,13 +79,17 @@ namespace friendlySAIN.BigBrain.Actions
             NotMovingCheck();
             bool hasPath = BotOwner.Mover.HasPathAndNoComplete;
 
+            // Visibility alone should not hard-stop an advance. Let end-condition logic decide when
+            // the shot is stable enough to break the push; otherwise keep moving and shoot while advancing.
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 BotOwner.SetPose(1f);
                 BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
-                BotOwner.StopMove();
-                AimingAndShoot(data);
-                return;
+                if (!hasPath)
+                {
+                    AimingAndShoot(data);
+                    return;
+                }
             }
 
             if (!goalEnemy.IsVisible && Time.time - goalEnemy.GroupInfo.EnemyLastSeenTimeSense >= 5f)

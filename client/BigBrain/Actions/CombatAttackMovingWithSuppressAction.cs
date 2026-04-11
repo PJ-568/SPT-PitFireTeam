@@ -16,7 +16,7 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
-            EnemyInfo goalEnemy = BotOwner.Memory?.GoalEnemy;
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
             if (goalEnemy != null && FollowerShotSafety.IsFriendlyInShotLane(BotOwner, goalEnemy.CurrPosition))
             {
                 BotOwner.StopMove();
@@ -31,7 +31,6 @@ namespace friendlySAIN.BigBrain.Actions
         {
             private float nextSuppressToggleTime;
             private bool suppressBurstActive;
-            private float nextLookAtEnemyTime;
 
             public FollowerAttackMovingWithSuppressLogic(BotOwner botOwner) : base(botOwner)
             {
@@ -45,18 +44,21 @@ namespace friendlySAIN.BigBrain.Actions
                     suppressBurstActive = !suppressBurstActive;
                 }
 
-                EnemyInfo goalEnemy = BotOwner_0.Memory?.GoalEnemy;
-                if ((suppressBurstActive) || (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible))
+                EnemyInfo? goalEnemy = BotOwner_0.Memory?.GoalEnemy;
+                if (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible)
                 {
                     Gclass178_0.UpdateNodeByBrain(data as GClass27);
                     return;
                 }
 
-                if (goalEnemy != null && nextLookAtEnemyTime < Time.time)
+                if (suppressBurstActive)
                 {
-                    nextLookAtEnemyTime = Time.time + GClass856.Random(2f, 3f);
-                    BotOwner_0.Steering.LookToPoint(goalEnemy.EnemyLastPositionReal + new Vector3(0f, 0.6f, 0f));
+                    CombatAttackMoveLook.TryLookThreatFacing(BotOwner_0, goalEnemy);
+                    Gclass178_0.UpdateNodeByBrain(data as GClass27);
+                    return;
                 }
+
+                CombatAttackMoveLook.TryLookThreatFacing(BotOwner_0, goalEnemy);
             }
         }
     }

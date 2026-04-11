@@ -62,14 +62,6 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            bool isHealingAction = IsHealingDecision(currentDecision);
-            bool regroupPending = HasPendingRegroupCommand();
-            bool shouldDelayRegroupHandoff = regroupPending && ShouldDelayRegroupHandoff(isHealingAction);
-            if (regroupPending && !shouldDelayRegroupHandoff)
-            {
-                return false;
-            }
-
             bool isCombatActive = ShouldTreatCombatAsActive();
             if (isCombatActive)
             {
@@ -132,7 +124,10 @@ namespace friendlySAIN.BigBrain
 
             if (combatLogic == null)
             {
-                return new Action(typeof(CombatHoldPositionAction), "MissingCombatLogic", new FollowerCombatActionData(null));
+                return new Action(
+                    typeof(CombatHoldPositionAction),
+                    "MissingCombatLogic",
+                    new FollowerCombatActionData(BotLogicDecision.holdPosition, "MissingCombatLogic", null));
             }
 
             AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision;
@@ -161,15 +156,7 @@ namespace friendlySAIN.BigBrain
 
             bool isHealingAction = IsHealingDecision(currentDecision);
 
-            bool regroupPending = HasPendingRegroupCommand();
-            bool shouldDelayRegroupHandoff = regroupPending && ShouldDelayRegroupHandoff(isHealingAction);
-
-            if (regroupPending && !shouldDelayRegroupHandoff)
-            {
-                return true;
-            }
-
-            if (currentDecision.Value.Reason != LingerReason && !ShouldTreatCombatAsActive())
+            if (currentDecision.Value.Reason != LingerReason && !ShouldTreatCombatAsActive() && !isHealingAction)
             {
                 return true;
             }
@@ -186,7 +173,7 @@ namespace friendlySAIN.BigBrain
                 return !IsActive();
             }
 
-            if (!IsActive() && !isHealingAction && !shouldDelayRegroupHandoff)
+            if (!IsActive() && !isHealingAction)
             {
                 return true;
             }
@@ -279,14 +266,6 @@ namespace friendlySAIN.BigBrain
                    decision.Value.Action == BotLogicDecision.healStimulators;
         }
 
-        private bool HasPendingRegroupCommand()
-        {
-            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
-            return followerData != null &&
-                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
-                   command == FollowerCommandType.RegroupNearBoss;
-        }
-
         private void ClearFollowerCommandOnCombatTransition(string reason)
         {
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
@@ -301,28 +280,6 @@ namespace friendlySAIN.BigBrain
             }
 
             followerData.ClearCommand(reason);
-        }
-
-        private bool ShouldDelayRegroupHandoff(bool isHealingAction)
-        {
-            if (isHealingAction)
-            {
-                return true;
-            }
-
-            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
-            if (goalEnemy == null)
-            {
-                return false;
-            }
-
-            if (currentDecision.HasValue && IsActiveEngageDecision(currentDecision.Value.Action) && (goalEnemy.IsVisible || goalEnemy.CanShoot))
-            {
-                return true;
-            }
-
-            float sinceLastSeen = Time.time - goalEnemy.PersonalLastSeenTime;
-            return !goalEnemy.IsVisible && sinceLastSeen >= 1.5f;
         }
 
         private static bool IsActiveEngageDecision(BotLogicDecision decision)
@@ -342,8 +299,7 @@ namespace friendlySAIN.BigBrain
                    decision == BotLogicDecision.attackMoving ||
                    decision == BotLogicDecision.attackMovingWithSuppress ||
                    decision == BotLogicDecision.goToCoverPoint ||
-                   decision == BotLogicDecision.goToCoverPointTactical ||
-                   decision == BotLogicDecision.holdPosition;
+                   decision == BotLogicDecision.goToCoverPointTactical;
         }
 
         public override void BuildDebugText(StringBuilder stringBuilder)
@@ -352,6 +308,18 @@ namespace friendlySAIN.BigBrain
             stringBuilder.Append(brainShortName);
             stringBuilder.Append(" decision=");
             stringBuilder.Append(currentDecision?.Action.ToString() ?? "<none>");
+            stringBuilder.Append(" reason=");
+            stringBuilder.Append(currentDecision?.Reason ?? "<none>");
+
+            if (BotOwner?.BotFollower?.BossToFollow != null)
+            {
+                Vector3 bossPosition = BotOwner.BotFollower.BossToFollow is pitAIBossPlayer boss && boss.realPlayer != null
+                    ? boss.realPlayer.Transform.position
+                    : BotOwner.BotFollower.BossToFollow.Position;
+                float bossNavDistance = Utils.Utils.GetNavDistance(BotOwner.Position, bossPosition);
+                stringBuilder.Append(" bossNav=");
+                stringBuilder.Append(bossNavDistance.ToString("F1"));
+            }
         }
 
         private static FollowerCombatLogicBase? CreateCombatLogic(BotOwner botOwner, string shortName)
@@ -387,7 +355,7 @@ namespace friendlySAIN.BigBrain
 
         private static Action CreateBigBrainAction(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
-            FollowerCombatActionData actionData = new FollowerCombatActionData(decision.Data);
+            FollowerCombatActionData actionData = new FollowerCombatActionData(decision.Action, decision.Reason, decision.Data);
 
             switch (decision.Action)
             {
@@ -410,6 +378,11 @@ namespace friendlySAIN.BigBrain
                 case BotLogicDecision.runToEnemy:
                     return new Action(typeof(CombatRunToEnemyAction), decision.Reason, actionData);
                 case BotLogicDecision.goToPoint:
+                    if (FollowerCombatRegroupObjective.IsRunReason(decision.Reason))
+                    {
+                        return new Action(typeof(CombatRegroupRunAction), decision.Reason, actionData);
+                    }
+
                     return new Action(typeof(CombatGoToPointAction), decision.Reason, actionData);
                 case BotLogicDecision.goToPointTactical:
                     return new Action(typeof(CombatGoToPointTacticalAction), decision.Reason, actionData);
@@ -436,6 +409,7 @@ namespace friendlySAIN.BigBrain
                     return new Action(typeof(CombatHoldPositionAction), $"Unsupported:{decision.Action}", actionData);
             }
         }
+
     }
 
 }

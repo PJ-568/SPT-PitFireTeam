@@ -240,6 +240,7 @@ Current verified custom teammate feature state:
     - `CombatGoToEnemyAction`
     - `CombatRunToEnemyAction`
     - `CombatGoToPointAction`
+    - `CombatRegroupRunAction`
     - `CombatGoToPointTacticalAction`
     - `HealAction`
     - `HealStimulatorsAction`
@@ -265,18 +266,34 @@ Current verified custom teammate feature state:
     - old `FollowerCombatManager` usage was removed from the core path,
     - `AIBossPlayer` no longer updates a separate follower combat manager,
     - combat decisions are now follower-local inside `FollowerCombatDefault`.
-- `FollowerCombatDefault` now uses a simplified local decision order:
-    1. pre-fight and one-shot opener from `PrepareStartDecision`
+- Core combat routing is now objective-based on the vanilla/core path:
+    - `FollowerCombatLogicBase` now owns the shared objective router and objective lifecycle
+    - concrete combat logic classes are expected to supply their own default objective implementation and can reuse the shared regroup objective
+    - `StandardFollowerPmcCombatLogic` currently plugs in `FollowerCombatDefaultObjective` as its default objective
+    - objective selection is combat-owned, not request-layer-owned
+    - regroup command in combat is consumed immediately and converted into the regroup objective state
+    - explicit `PushEnemy` during regroup switches back to default objective, then default handles the push
+- `FollowerCombatDefaultObjective` wraps the existing `FollowerCombatDefault` tree:
+    1. pre-fight grenade check and one-shot opener from `PrepareStartDecision`
     2. committed push continuation
     3. explicit ordered push (`GoForward` in combat)
-    4. immediate visible-enemy handling
-    5. committed cover continuation
+    4. low-aggression regroup trigger
+    5. immediate visible-enemy handling
     6. recovery / safe-cover behavior
     7. boss-under-attack protection routing
-    8. boss-relative combat objective (rejoin boss advanced/retreated combat line)
-    9. ally engagement support scan
-    10. generic blind advance / engage
-    11. boss reanchor fallback
+    8. ally engagement support scan
+    9. generic blind advance / engage
+    10. boss-distance regroup trigger
+    11. committed cover continuation and passive hold fallback
+- `FollowerCombatRegroupObjective` is a separate combat decision stack:
+    - objective is "reach the boss / bossward cover" and it does not re-enter default push/hold logic while active
+    - if enemy contact is still hot:
+        - boss behind follower relative to enemy -> `regroup.withdraw.backward` via `attackMoving`
+        - boss ahead -> `regroup.withdraw.forward` via `attackMoving`
+        - boss lateral -> `regroup.withdraw.side` via `attackMoving`
+        - hot regroup can use bossward cover, but the objective remains regroup-owned
+    - if contact cools off -> `regroup.run` through `CombatRegroupRunAction` toward the boss/nav-sampled boss position, not intermediate cover hops
+    - dogfight and heal/stim interruptions are allowed, but they do not change the regroup objective by themselves
 - Visible-enemy handling is now more aggressive:
     - `ShouldShootImmediately()` is checked before `CanShootFromCurrentCover()`,
     - visible shootable enemies prefer `shootFromPlace` / `shootFromCover` before passive hold logic,
@@ -286,7 +303,7 @@ Current verified custom teammate feature state:
     - one cover point is committed and reused until invalid or intentionally abandoned,
     - the same committed move action/reason is preserved while moving to that cover to reduce stop/recommit thrash,
     - committed cover reached-state prefers immediate fire, then direct visible fire, then active pressure, before passive `coverHold`.
-    - after the initial cover settle/commit window, stale committed cover can be released for boss-leash reanchor if there is no real shooting or push opportunity.
+    - after the initial cover settle/commit window, stale committed cover can be released for boss-distance regroup if there is no real shooting or push opportunity.
 - Core push behavior now has committed push state again:
     - push actions are tagged with stable reasons such as `push.run`, `push.goToEnemy`, `push.attackMoving`, `push.runToCover`, and `push.search`,
     - once one of those push decisions is chosen, `FollowerCombatDefault` keeps returning the same decision until a hard interrupt or action completion path ends it,
@@ -303,18 +320,18 @@ Current verified custom teammate feature state:
 - Combat cover is no longer boss-leashed by EFT `MAX_DIST_COVER_BOSS_SQRT`:
     - general combat cover uses a mod-owned 120m max distance from the follower,
     - a valid shoot/fight cover is allowed even if it is far from the boss.
-- Boss-local reanchor/protection cover is now separate from generic combat cover:
+- Boss-local protection/regroup cover is now separate from generic combat cover:
     - `BossCoverSearchRadius` is 30m,
-    - boss reanchor and boss-protection cover prefer the closest valid cover to the boss within that 30m radius,
+    - boss-protection and hot-regroup cover prefer valid cover near the boss within that radius,
     - if no boss-local cover exists, fallback is a direct move to the boss position.
-- Boss-relative escort behavior now participates in combat objective selection:
-    - if the boss materially advances the line relative to the follower, the follower can prioritize rejoining the boss's combat position before generic blind push,
-    - if the boss materially retreats the line, the follower can retreat toward the boss cover-to-cover instead of blindly holding forward,
-    - this objective is aggression-sensitive: low aggression rejoins sooner, high aggression tolerates a larger line split before leaving local pressure,
+- Boss-distance escort behavior now participates in combat objective selection:
+    - if the follower drifts far enough from the live boss position, default combat switches into the regroup objective instead of issuing one-off reanchor actions,
+    - regroup chooses how to move by classifying the boss as front/back/side relative to the follower and current enemy direction,
+    - low aggression can force regroup sooner unless the enemy is already close enough to demand local engagement,
     - explicit `PushEnemy` still overrides this and forces engagement.
 - Hold behavior now distinguishes `coverHold` and `bossHold`:
     - both can break early for renewed combat opportunity,
-    - `bossHold` also breaks when the follower drifts beyond `BossCoverSearchRadius` so reanchor can occur.
+    - `bossHold` and committed cover/shoot-cover states can break into regroup when boss-distance pressure wins.
 - Dedicated regular grenade use is now explicit on the core path:
     - no hidden opportunistic grenade throw inside dogfight,
     - grenade throw goes through `throwGrenadeFromPlace` with a dedicated safety gate.
@@ -366,6 +383,9 @@ Supported commands via `GestureCommandAction`:
     - Supports all item types with improved state consistency
 - **OpenDoor** — Closest eligible follower assigned via `InteractableObjects.SetOpener(...)`, moves + `DoorOpener.Interact(Open)`
 - **Regroup** — Vanilla: converge to boss-near cover; SAIN: via addon `SAINFollowerCombatRegroupAction`
+    - core-path combat regroup no longer runs through `GestureCommandAction`
+    - during combat it is now an objective trigger consumed by `StandardFollowerPmcCombatLogic`
+    - out of combat it still uses the request-layer regroup command path
 - **Attention** (Look) — Clear enemy state, release command, force attention to boss/point
 
 **Visibility Requirements:**

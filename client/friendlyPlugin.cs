@@ -585,24 +585,10 @@ namespace friendlySAIN
                 foreach (var follower in followers)
                 {
                     var bot = follower.GetBot();
-                    var player = bot.GetPlayer;
 
                     if (follower != null && bot.HealthController.IsAlive)
                     {
-                        foreach (var part in GClass3058.RealBodyParts)
-                        {
-                            if (player.ActiveHealthController.IsBodyPartBroken(part)) player.ActiveHealthController.RemoveNegativeEffects(part);
-                            if (player.ActiveHealthController.IsBodyPartDestroyed(part)) player.ActiveHealthController.RestoreBodyPart(part, 0);
-                        }
-
-                        bot.AIData.Player.ActiveHealthController.RestoreFullHealth();
-
-                        bot.WeaponManager.Selector.TakePrevWeapon();
-
-                        if (bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.FirstPrimaryWeapon)
-                        {
-                            bot.WeaponManager.Selector.TryChangeToMain();
-                        }
+                        global::friendlySAIN.Utils.FollowerMedical.CompleteHealing(bot);
                     }
                 }
             }

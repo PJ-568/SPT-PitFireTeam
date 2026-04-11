@@ -11,8 +11,8 @@ namespace friendlySAIN.BigBrain.Actions
     {
         private const float VerticalTolerance = 1.25f;
         private const float ProgressCheckInterval = 1.25f;
-        private const float MinimumProgressDistance = 0.75f;
-        private const int StalledRefreshThreshold = 2;
+        private const float MinimumProgressDistance = 0.4f;
+        private const int StalledRefreshThreshold = 3;
 
         private float nextMoveRefreshTime;
         private Vector3 committedRunPoint;

@@ -23,6 +23,11 @@ namespace friendlySAIN.BigBrain
         private const float PointToShootUpdateMinDistance = 1.5f;
         private const float CombatCoverMaxDistance = 120f;
         private const float StableVisibleImmediateFireSeconds = 0.3f;
+        private const float HealCoverRetreatDistance = 14f;
+        private const float HealCoverSearchRadius = 30f;
+        private const float HealCoverMaxNavDistance = 35f;
+        private const float HealCoverMinNavDistance = 2f;
+        private const float HealCoverMinEnemyDistanceGain = -2f;
 
         private readonly BotOwner botOwner;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? initialDecision;
@@ -30,6 +35,8 @@ namespace friendlySAIN.BigBrain
         private float healStartedAt;
         private float stimStartedAt;
         private CustomNavigationPoint? committedHealCover;
+        private BotLogicDecision committedHealMoveAction;
+        private string? committedHealMoveReason;
         private bool holdActive;
         private float holdEndTime;
 
@@ -42,8 +49,6 @@ namespace friendlySAIN.BigBrain
         private bool dangerIgnoreEquipResult = false;
         private CustomNavigationPoint? cachedClosestShootCover;
         private float inCoverSince = 0f;
-        private Vector3 lastKnownBossPosition;
-        private bool hasLastKnownBossPosition;
         private bool pendingHaveCoverToShoot;
         private float pendingHaveCoverToShootSince;
         private float shootLaneUpgradeSince;
@@ -55,6 +60,11 @@ namespace friendlySAIN.BigBrain
 
         public bool HasInitialDecision => initialDecision.HasValue;
 
+        public void ClearInitialDecision()
+        {
+            initialDecision = null;
+        }
+
         public void Reset()
         {
             initialDecision = null;
@@ -62,6 +72,8 @@ namespace friendlySAIN.BigBrain
             healStartedAt = 0f;
             stimStartedAt = 0f;
             committedHealCover = null;
+            committedHealMoveAction = default;
+            committedHealMoveReason = null;
             holdActive = false;
             holdEndTime = 0f;
             HaveCoverToShoot = false;
@@ -69,9 +81,6 @@ namespace friendlySAIN.BigBrain
             cachedClosestShootCover = null;
             nextClosestShootCoverCheckTime = 0f;
             nextApproachableCoverCheckTime = 0f;
-            inCoverSince = 0f;
-            hasLastKnownBossPosition = false;
-            lastKnownBossPosition = Vector3.zero;
             pendingHaveCoverToShoot = false;
             pendingHaveCoverToShootSince = 0f;
             shootLaneUpgradeSince = 0f;
@@ -645,20 +654,30 @@ namespace friendlySAIN.BigBrain
 
         public Vector3 GetBossPosition()
         {
+            if (botOwner.BotFollower.BossToFollow is pitAIBossPlayer boss &&
+                boss.realPlayer != null &&
+                IsFinite(boss.realPlayer.Transform.position))
+            {
+                return boss.realPlayer.Transform.position;
+            }
+
             Vector3? liveBossPos = botOwner.BotFollower.BossToFollow?.Position;
             if (liveBossPos.HasValue && IsFinite(liveBossPos.Value))
             {
-                lastKnownBossPosition = liveBossPos.Value;
-                hasLastKnownBossPosition = true;
                 return liveBossPos.Value;
             }
 
-            if (hasLastKnownBossPosition && IsFinite(lastKnownBossPosition))
-            {
-                return lastKnownBossPosition;
-            }
-
             return botOwner.Position;
+        }
+
+        /// <summary>
+        /// Returns boss distance using path distance first. Boss leash decisions should not use only
+        /// straight-line distance because floors, doors, and building routes can make a nearby 3D
+        /// position tactically far away.
+        /// </summary>
+        public float GetBossNavDistance(Vector3 bossPosition)
+        {
+            return Utils.Utils.GetNavDistance(botOwner.Position, bossPosition);
         }
 
         /// <summary>
@@ -685,7 +704,7 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            followerBossDistance = Vector3.Distance(botOwner.Position, bossPosition);
+            followerBossDistance = GetBossNavDistance(bossPosition);
             followerEnemyDistance = Vector3.Distance(botOwner.Position, enemyAnchor);
             bossEnemyDistance = Vector3.Distance(bossPosition, enemyAnchor);
             return true;
@@ -1071,7 +1090,10 @@ namespace friendlySAIN.BigBrain
                     healBlockUntil = Time.time;
                 }
 
-                healStartedAt = Time.time;
+                if (healStartedAt <= 0f)
+                {
+                    healStartedAt = Time.time;
+                }
                 ClearCommittedHealCover();
 
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.heal, "healInCover");
@@ -1085,14 +1107,17 @@ namespace friendlySAIN.BigBrain
             {
                 if (botOwner.Memory.IsInCover && enemyProxyDistance > Enemy.ProxyDistance.VeryClose)
                 {
-                    healStartedAt = Time.time;
+                    if (healStartedAt <= 0f)
+                    {
+                        healStartedAt = Time.time;
+                    }
                     ClearCommittedHealCover();
                     return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.heal, "healInCover");
                 }
 
                 if (TryAssignHealCover(goalEnemy, ref coverTried))
                 {
-                    return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToCover, "runToHeal");
+                    return CreateCommittedHealMoveDecision(goalEnemy);
                 }
 
                 healBlockUntil = Time.time + 3f;
@@ -1105,14 +1130,17 @@ namespace friendlySAIN.BigBrain
                 {
                     if (botOwner.Memory.IsInCover)
                     {
-                        healStartedAt = Time.time;
+                        if (healStartedAt <= 0f)
+                        {
+                            healStartedAt = Time.time;
+                        }
                         ClearCommittedHealCover();
                         return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.heal, "healInCover");
                     }
 
                     if (TryAssignHealCover(goalEnemy, ref coverTried))
                     {
-                        return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToCover, "runToHeal");
+                        return CreateCommittedHealMoveDecision(goalEnemy);
                     }
 
                     healBlockUntil = Time.time + 3f;
@@ -1121,9 +1149,7 @@ namespace friendlySAIN.BigBrain
 
                 if (TryAssignHealCover(goalEnemy, ref coverTried))
                 {
-                    return botOwner.CanSprintPlayer
-                        ? new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToCover, "runToHeal")
-                        : new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.attackMoving, "moveToHeal");
+                    return CreateCommittedHealMoveDecision(goalEnemy);
                 }
 
                 healBlockUntil = Time.time + 3f;
@@ -1132,9 +1158,7 @@ namespace friendlySAIN.BigBrain
 
             if (TryAssignHealCover(goalEnemy, ref coverTried))
             {
-                return botOwner.CanSprintPlayer && enemyProxyDistance > Enemy.ProxyDistance.VeryClose
-                    ? new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToCover, "runToHeal")
-                    : new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.attackMoving, "moveToHeal");
+                return CreateCommittedHealMoveDecision(goalEnemy);
             }
 
             healBlockUntil = Time.time + 3f;
@@ -1160,22 +1184,24 @@ namespace friendlySAIN.BigBrain
 
             coverTried = true;
 
-            if (IsCommittedHealCoverValid())
+            if (IsCommittedHealCoverValid(goalEnemy))
             {
                 SetCover(committedHealCover);
                 return true;
             }
 
-            if (TryAssignRetreatAttackCover(goalEnemy, false, allowSpotted: true))
+            if (TryFindHealCover(goalEnemy, out CustomNavigationPoint? healCover))
             {
-                committedHealCover = botOwner.Memory.CurCustomCoverPoint;
+                SetCover(healCover);
+                committedHealCover = healCover;
+                CommitHealMove(goalEnemy);
                 return true;
             }
 
-            if (TryGetGeneralStartCover(goalEnemy, out CustomNavigationPoint? cover, out _, out _))
+            if (TryAssignRetreatAttackCover(goalEnemy, false, HealCoverMaxNavDistance * HealCoverMaxNavDistance))
             {
-                SetCover(cover);
-                committedHealCover = cover;
+                committedHealCover = botOwner.Memory.CurCustomCoverPoint;
+                CommitHealMove(goalEnemy);
                 return true;
             }
 
@@ -1184,7 +1210,7 @@ namespace friendlySAIN.BigBrain
 
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? TryGetCommittedHealMoveDecision(EnemyInfo? goalEnemy)
         {
-            if (goalEnemy == null || botOwner.Memory.IsInCover || !IsCommittedHealCoverValid())
+            if (goalEnemy == null || botOwner.Memory.IsInCover || !IsCommittedHealCoverValid(goalEnemy))
             {
                 ClearCommittedHealCover();
                 return null;
@@ -1192,14 +1218,29 @@ namespace friendlySAIN.BigBrain
 
             SetCover(committedHealCover);
 
+            return CreateCommittedHealMoveDecision(goalEnemy);
+        }
+
+        private void CommitHealMove(EnemyInfo? goalEnemy)
+        {
             Enemy.ProxyDistance enemyProxyDistance = Enemy.DistanceProxy(botOwner, botOwner.Position);
-            BotLogicDecision moveDecision = botOwner.CanSprintPlayer && enemyProxyDistance > Enemy.ProxyDistance.VeryClose
+            committedHealMoveAction = botOwner.CanSprintPlayer && enemyProxyDistance > Enemy.ProxyDistance.VeryClose
                 ? BotLogicDecision.runToCover
                 : BotLogicDecision.attackMoving;
+            committedHealMoveReason = committedHealMoveAction == BotLogicDecision.runToCover ? "runToHeal" : "moveToHeal";
+        }
 
-            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
-                moveDecision,
-                moveDecision == BotLogicDecision.runToCover ? "runToHeal" : "moveToHeal");
+        private AICoreActionResultStruct<BotLogicDecision, GClass26> CreateCommittedHealMoveDecision(EnemyInfo? goalEnemy)
+        {
+            if (committedHealMoveAction == default)
+            {
+                CommitHealMove(goalEnemy);
+            }
+
+            string reason = !string.IsNullOrEmpty(committedHealMoveReason)
+                ? committedHealMoveReason
+                : "runToHeal";
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(committedHealMoveAction, reason);
         }
 
         /// <summary>
@@ -1236,17 +1277,82 @@ namespace friendlySAIN.BigBrain
             };
         }
 
-        private bool IsCommittedHealCoverValid()
+        private bool TryFindHealCover(EnemyInfo goalEnemy, out CustomNavigationPoint? cover)
+        {
+            cover = null;
+            Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
+            if (!IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            Vector3 awayFromEnemy = botOwner.Position - enemyAnchor;
+            awayFromEnemy.y = 0f;
+            if (awayFromEnemy.sqrMagnitude < 0.25f)
+            {
+                awayFromEnemy = GetBossPosition() - enemyAnchor;
+                awayFromEnemy.y = 0f;
+            }
+
+            if (awayFromEnemy.sqrMagnitude < 0.25f)
+            {
+                return false;
+            }
+
+            Vector3 retreatAnchor = botOwner.Position + awayFromEnemy.normalized * HealCoverRetreatDistance;
+            float currentEnemyDistance = Vector3.Distance(botOwner.Position, enemyAnchor);
+            cover = Covers.GetClosestCoverPoint(
+                botOwner,
+                retreatAnchor,
+                HealCoverSearchRadius,
+                point =>
+                {
+                    if (!IsCoverUsable(point))
+                    {
+                        return false;
+                    }
+
+                    if (!point.CanIHideFromPos(0f, true, false, enemyAnchor))
+                    {
+                        return false;
+                    }
+
+                    float navDistance = Utils.Utils.GetNavDistance(botOwner.Position, point.Position);
+                    if (!IsFinite(navDistance) ||
+                        navDistance < HealCoverMinNavDistance ||
+                        navDistance > HealCoverMaxNavDistance)
+                    {
+                        return false;
+                    }
+
+                    float candidateEnemyDistance = Vector3.Distance(point.Position, enemyAnchor);
+                    return candidateEnemyDistance + HealCoverMinEnemyDistanceGain >= currentEnemyDistance;
+                });
+
+            return cover != null;
+        }
+
+        private bool IsCommittedHealCoverValid(EnemyInfo? goalEnemy = null)
         {
             if (committedHealCover == null)
             {
                 return false;
             }
 
-            if (!committedHealCover.IsFreeById(botOwner.Id))
+            if (!committedHealCover.IsFreeById(botOwner.Id) || committedHealCover.IsSpotted)
             {
                 committedHealCover = null;
                 return false;
+            }
+
+            if (goalEnemy != null)
+            {
+                Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
+                if (IsFinite(enemyAnchor) && !committedHealCover.CanIHideFromPos(0f, true, false, enemyAnchor))
+                {
+                    committedHealCover = null;
+                    return false;
+                }
             }
 
             return true;
@@ -1255,6 +1361,8 @@ namespace friendlySAIN.BigBrain
         private void ClearCommittedHealCover()
         {
             committedHealCover = null;
+            committedHealMoveAction = default;
+            committedHealMoveReason = null;
         }
 
         /// <summary>
@@ -1597,6 +1705,38 @@ namespace friendlySAIN.BigBrain
         }
 
         /// <summary>
+        /// Push movement should only end for a firing transition when the shot is stable enough to
+        /// capitalize on immediately, not on a brief visible/shootable flicker while advancing.
+        /// </summary>
+        public bool ShouldBreakAdvanceForImmediateFire()
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (!HasActiveCombatEnemy(goalEnemy) || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (Enemy.Distance(goalEnemy) > Enemy.EnemyDistance.Close &&
+                Time.time - goalEnemy.PersonalSeenTime < StableVisibleImmediateFireSeconds)
+            {
+                return false;
+            }
+
+            if (!botOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                return false;
+            }
+
+            ShootPointClass? shootPoint = botOwner.CurrentEnemyTargetPosition(true);
+            if (shootPoint == null)
+            {
+                return false;
+            }
+
+            return Utils.Utils.CanShootToTarget(shootPoint, botOwner.WeaponRoot.position, botOwner.LookSensor.Mask, false);
+        }
+
+        /// <summary>
         /// Verifies that the follower can actually fire from the current cover, with a direct line-of-sight
         /// fallback when EFT's cover cast says no but the shot is still physically clear.
         /// </summary>
@@ -1844,15 +1984,15 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("stableImmediateFire", true);
             }
 
-            RefreshShootCover();
+            bool isRunToHeal = string.Equals(reason, "runToHeal", StringComparison.Ordinal);
+            if (!isRunToHeal)
+            {
+                RefreshShootCover();
+            }
+
             if (botOwner.Memory.IsInCover)
             {
                 return new AICoreActionEndStruct("alreadyInCover", true);
-            }
-
-            if (!botOwner.CanSprintPlayer)
-            {
-                return new AICoreActionEndStruct("cannotSprint", true);
             }
 
             if (IsDogFightActive())
@@ -1860,7 +2000,6 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("dogFightStarted", true);
             }
 
-            bool isRunToHeal = string.Equals(reason, "runToHeal", StringComparison.Ordinal);
             if (!isRunToHeal &&
                 botOwner.Memory.CurCustomCoverPoint != null &&
                 botOwner.Memory.CurCustomCoverPoint.IsSpotted)
@@ -1931,20 +2070,27 @@ namespace friendlySAIN.BigBrain
         public AICoreActionEndStruct EndHeal()
         {
             bool haveHealWork = botOwner.Medecine.FirstAid.Have2Do || botOwner.Medecine.SurgicalKit.HaveWork;
+            bool activelyHealing = botOwner.Medecine.FirstAid.Using || botOwner.Medecine.SurgicalKit.Using;
             if (!haveHealWork)
             {
-                CancelActiveHealIfNeeded();
-                healBlockUntil = Time.time + 5f;
-                healStartedAt = 0f;
+                CompleteActiveHeal();
                 return new AICoreActionEndStruct("healCompleted", true);
+            }
+
+            // If the heal action never transitions into active first-aid/surgery use, do not let the
+            // bot sit in healInCover forever waiting on a stuck vanilla node.
+            if (!activelyHealing &&
+                healStartedAt > 0f &&
+                healStartedAt + 3f < Time.time)
+            {
+                CompleteActiveHeal();
+                return new AICoreActionEndStruct("healIdleTimedOut", true);
             }
 
             float timeout = botOwner.Medecine.SurgicalKit.Using ? 20f : 7f;
             if (healStartedAt > 0f && healStartedAt + timeout < Time.time)
             {
-                CancelActiveHealIfNeeded();
-                healBlockUntil = Time.time + 5f;
-                healStartedAt = 0f;
+                CompleteActiveHeal();
                 return new AICoreActionEndStruct("healTimedOut", true);
             }
 
@@ -1999,14 +2145,15 @@ namespace friendlySAIN.BigBrain
         private void CancelActiveHealIfNeeded()
         {
             ClearCommittedHealCover();
-            if (botOwner.Medecine.FirstAid.Using)
-            {
-                botOwner.Medecine.FirstAid.CancelCurrent();
-            }
-            else if (botOwner.Medecine.SurgicalKit.Using)
-            {
-                botOwner.Medecine.SurgicalKit.CancelCurrent();
-            }
+            FollowerMedical.CancelActiveMedical(botOwner);
+        }
+
+        private void CompleteActiveHeal()
+        {
+            ClearCommittedHealCover();
+            FollowerMedical.CompleteHealing(botOwner);
+            healBlockUntil = Time.time + 5f;
+            healStartedAt = 0f;
         }
 
         public AICoreActionEndStruct EndShootFromCover()
@@ -2065,9 +2212,9 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("underFire", true);
             }
 
-            if (goalEnemy.CanShoot && botOwner.LookSensor.EnoughDistToShoot(out _))
+            if (ShouldBreakAdvanceForImmediateFire())
             {
-                return new AICoreActionEndStruct("enemyCanShoot", true);
+                return new AICoreActionEndStruct("stableAdvanceFire", true);
             }
 
             if (!IsDogFightActive() && (!goalEnemy.IsVisible || !goalEnemy.CanShoot))

@@ -76,11 +76,7 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            bool allowVanillaCombatRegroup = hasCommand &&
-                                            command == FollowerCommandType.RegroupNearBoss &&
-                                            !friendlySAIN.UseSainFollowerCombat;
-
-            if (!allowVanillaCombatRegroup && !followerData.IsReadyForPatrolAfterCombat())
+            if (!followerData.IsReadyForPatrolAfterCombat())
             {
                 return false;
             }
@@ -96,10 +92,9 @@ namespace friendlySAIN.BigBrain
                         return false;
                     }
 
-                    if (allowVanillaCombatRegroup)
-                    {
-                        return true;
-                    }
+                    // Core combat regroup is now a combat objective trigger, not a request-layer
+                    // action. Keep the command intact and let the combat logic consume it.
+                    return false;
                 }
 
                 if (command == FollowerCommandType.PushEnemy)

@@ -447,11 +447,15 @@ namespace friendlySAIN.Components
 
         private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy, bool prioritizeAsGoal)
         {
+            EEnemyPartVisibleType visibleType = CanFollowerSeeEnemyForContact(follower, enemy)
+                ? EEnemyPartVisibleType.Visible
+                : EEnemyPartVisibleType.Sence;
 
             try
             {
-                follower.BotsGroup?.AddEnemy(enemy, EBotEnemyCause.addPlayerToBoss);
-                follower.BotsGroup?.ReportAboutEnemy(enemy, EEnemyPartVisibleType.Visible, follower);
+                follower.BotsGroup?.AddEnemy(enemy, EBotEnemyCause.checkAddTODO);
+
+                follower.BotsGroup?.ReportAboutEnemy(enemy, visibleType, follower);
             }
             catch (Exception ex)
             {
@@ -459,7 +463,7 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogError(ex);
             }
 
-            BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.addPlayerToBoss)
+            BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.checkAddTODO)
             {
                 EnemyLastPosition = enemy.Position
             };
@@ -469,10 +473,10 @@ namespace friendlySAIN.Components
             // Contact is an explicit combat cue from boss; force an EnemyInfo to exist now
             // instead of waiting for later controller reconciliation.
             follower.Memory.IsPeace = false;
-            EnemyInfo? trackedEnemy = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.addPlayerToBoss);
+            EnemyInfo? trackedEnemy = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO);
             if (trackedEnemy != null)
             {
-                trackedEnemy.SetVisible(true);
+                trackedEnemy.SetVisible(visibleType == EEnemyPartVisibleType.Visible);
                 trackedEnemy.PersonalLastPos = enemy.Position;
                 trackedEnemy.GroupInfo = botSettings;
             }
@@ -730,6 +734,17 @@ namespace friendlySAIN.Components
             }
 
             return false;
+        }
+
+        private static bool CanFollowerSeeEnemyForContact(BotOwner follower, Player enemy)
+        {
+            if (follower == null || enemy == null)
+            {
+                return false;
+            }
+
+            Vector3 firePos = follower.PlayerBones?.WeaponRoot?.position ?? (follower.Position + Vector3.up * 1.2f);
+            return CanEnemyBeSeenForContact(enemy, firePos);
         }
 
         private bool CanReactToBossGesture(BotOwner follower, IPlayer requester)
@@ -1755,7 +1770,7 @@ namespace friendlySAIN.Components
             }
 
             _nextBossGroupStaticUpdateAt = Time.time + 0.5f;
-            //ReportEnemyToIdleFollowers();
+            ReportEnemyToIdleFollowers();
             if (friendlySAIN.UseSainFollowerCombat)
             {
                 SainAddonBridge.RaiseBossGroupStaticUpdate(this);

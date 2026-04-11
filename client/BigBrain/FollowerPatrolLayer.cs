@@ -346,17 +346,14 @@ namespace friendlySAIN.BigBrain
             // Old EndHeal equivalent: no pending heal work -> end heal action.
             if (!hasPendingHealWork && !isUsingHeal)
             {
-                isHealing = false;
-                HealBot();
+                CompleteHealing();
                 return true;
             }
 
             // If heal work is gone but med action is still "using", cancel to avoid stuck animation/state.
             if (isUsingHeal && !hasPendingHealWork)
             {
-                CancelCurrentHeal();
-                isHealing = false;
-                HealBot();
+                CompleteHealing();
                 return true;
             }
 
@@ -364,52 +361,25 @@ namespace friendlySAIN.BigBrain
             float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 20f : 7f;
             if (healStartAt + healTimeout < Time.time || (isHealing && Time.time > healSoftTimeoutAt))
             {
-                CancelCurrentHeal();
-                isHealing = false;
-                HealBot();
+                CompleteHealing();
                 return true;
             }
 
             if (!IsActive() && isHealAction)
             {
-                CancelCurrentHeal();
-                isHealing = false;
+                CompleteHealing();
                 return true;
             }
             return false;
         }
 
-        private void HealBot()
+        private void CompleteHealing()
         {
-            if (BotOwner == null || BotOwner.GetPlayer == null || !BotOwner.HealthController.IsAlive) return;
-            var player = BotOwner.GetPlayer;
-
-            foreach (var part in GClass3058.RealBodyParts)
-            {
-                if (player.ActiveHealthController.IsBodyPartBroken(part)) player.ActiveHealthController.RemoveNegativeEffects(part);
-                if (player.ActiveHealthController.IsBodyPartDestroyed(part)) player.ActiveHealthController.FullRestoreBodyPart(part);
-            }
-
-            BotOwner.AIData.Player.ActiveHealthController.RestoreFullHealth();
-
-            BotOwner.WeaponManager.Selector.TakePrevWeapon();
-
-            if (BotOwner.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.FirstPrimaryWeapon)
-            {
-                BotOwner.WeaponManager.Selector.TryChangeToMain();
-            }
-        }
-
-        private void CancelCurrentHeal()
-        {
-            if (BotOwner.Medecine.FirstAid.Using)
-            {
-                BotOwner.Medecine.FirstAid.CancelCurrent();
-            }
-            else if (BotOwner.Medecine.SurgicalKit.Using)
-            {
-                BotOwner.Medecine.SurgicalKit.CancelCurrent();
-            }
+            isHealing = false;
+            stoppedForHealDecision = false;
+            healStartAt = 0f;
+            healSoftTimeoutAt = 0f;
+            Utils.FollowerMedical.CompleteHealing(BotOwner);
         }
 
         private void StopMovementForHealDecision()

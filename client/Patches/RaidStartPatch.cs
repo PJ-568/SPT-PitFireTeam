@@ -196,6 +196,7 @@ namespace friendlySAIN.Patches
                 return;
             }
 
+            bool addedSyntheticTeammate = false;
             foreach (string accountId in LoadAutoJoinAccountIds())
             {
                 GroupPlayerViewModelClass teammate = BuildGroupPlayer(accountId, controller.CurrentPlayer);
@@ -210,6 +211,13 @@ namespace friendlySAIN.Patches
                 {
                     ReplaceOrAddPlayer(controller.GroupPlayers, teammate);
                 }
+
+                addedSyntheticTeammate = true;
+            }
+
+            if (addedSyntheticTeammate)
+            {
+                EnsureLocalGroupOwner(controller);
             }
         }
 
@@ -237,6 +245,23 @@ namespace friendlySAIN.Patches
             }
 
             players.Add(teammate);
+        }
+
+        private static void EnsureLocalGroupOwner(MatchmakerPlayerControllerClass controller)
+        {
+            if (controller?.CurrentPlayer == null || controller.GroupPlayers == null || controller.Group == null)
+            {
+                return;
+            }
+
+            if (controller.GroupPlayers.All(player => player?.AccountId != controller.CurrentPlayer.AccountId))
+            {
+                controller.GroupPlayers.Insert(0, controller.CurrentPlayer);
+            }
+
+            controller.CurrentPlayer.IsLeader = true;
+            controller.Group.UpdateOwner(controller.CurrentPlayer);
+            GClass3752.RequestGlobalRedraw();
         }
 
         private static IReadOnlyList<string> LoadAutoJoinAccountIds()
@@ -815,11 +840,37 @@ namespace friendlySAIN.Patches
         }
 
         [PatchPrefix]
-        private static void PatchPrefix(ContextInteractionsClass __instance)
+        private static bool PatchPrefix(ContextInteractionsClass __instance)
         {
             string id = __instance.GroupPlayerDataClass.AccountId;
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                return true;
+            }
+
+            bool isFriendlyTeammate = MainMenuControllerPatch.GroupPlayers.Any(player => player?.AccountId == id);
+            if (!isFriendlyTeammate)
+            {
+                return true;
+            }
+
             TeammateAutoJoinRuntime.MarkSuppressed(id);
-            MainMenuControllerPatch.GroupPlayers.RemoveFirst(x => x.AccountId == id);
+            MainMenuControllerPatch.GroupPlayers.RemoveFirst(x => x?.AccountId == id);
+
+            IMatchmakerPlayersController controller = __instance.IMatchmakerPlayersController;
+            if (controller?.GroupPlayers == null || controller.GroupPlayers.All(player => player?.AccountId != id))
+            {
+                return true;
+            }
+
+            controller.GroupPlayers.RemoveFirst(player => player?.AccountId == id);
+            if (controller.GroupPlayers.Count <= 1)
+            {
+                controller.Group?.RemoveOwner();
+            }
+
+            GClass3752.RequestGlobalRedraw();
+            return false;
         }
     }
 

@@ -13,9 +13,7 @@ namespace friendlySAIN.BigBrain
         private const float CoverCommitLockSeconds = 2.5f;
         private const float CoverSearchCooldownSeconds = 0.35f;
         private const float BossCoverSearchRadius = 30f;
-        private const float BossHoldSectorRadius = 20f;
-        private const float BossCombatPriorityDeltaMin = 12f;
-        private const float BossCombatPriorityDeltaMax = 30f;
+        private const float BossRegroupTriggerDistance = BossCoverSearchRadius * 0.6f;
         private const float VisiblePushDistance = 18f;
         private const float BlindPushDistance = 32f;
         private const float RecentSeenPressureSeconds = 2f;
@@ -33,9 +31,6 @@ namespace friendlySAIN.BigBrain
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedPushDecision;
         private string? committedPushEnemyProfileId;
         private float nextCoverAcquireTime;
-        private Vector3 bossHoldAnchor;
-        private bool hasBossHoldAnchor;
-        private bool bossHoldSectorReanchorPending;
 
         public FollowerCombatDefault(BotOwner botOwner, FollowerCombatCommon combatCommon)
         {
@@ -57,9 +52,6 @@ namespace friendlySAIN.BigBrain
             committedPushDecision = null;
             committedPushEnemyProfileId = null;
             nextCoverAcquireTime = 0f;
-            bossHoldAnchor = Vector3.zero;
-            hasBossHoldAnchor = false;
-            bossHoldSectorReanchorPending = false;
         }
 
         /// <summary>
@@ -97,16 +89,6 @@ namespace friendlySAIN.BigBrain
                 ClearCommittedCover();
             }
 
-            if (string.Equals(nextDecision.Reason, "bossHold", StringComparison.Ordinal))
-            {
-                bossHoldAnchor = combatCommon.GetBossPosition();
-                hasBossHoldAnchor = true;
-            }
-            else
-            {
-                hasBossHoldAnchor = false;
-                bossHoldAnchor = Vector3.zero;
-            }
         }
 
         /// <summary>
@@ -118,8 +100,8 @@ namespace friendlySAIN.BigBrain
         }
 
         /// <summary>
-        /// Main follower combat router: opener first, then visible fire, cover commitment,
-        /// recovery, controlled pushes, and only finally boss reanchoring.
+        /// Main follower combat router: opener first, then push/visible/recovery branches,
+        /// boss-distance regroup triggers, and finally committed cover or passive hold fallback.
         /// </summary>
         public AICoreActionResultStruct<BotLogicDecision, GClass26> GetDecision(EnemyInfo goalEnemy)
         {
@@ -157,18 +139,18 @@ namespace friendlySAIN.BigBrain
                 return orderedPushDecision;
             }
 
+            // Very low aggression followers should treat bossward regroup as their primary objective
+            // unless the enemy is already close enough that local engagement is unavoidable.
+            if (TryGetLowAggressionRegroupDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> lowAggressionRegroup))
+            {
+                return lowAggressionRegroup;
+            }
+
             // First resolve any immediate visible-enemy action: shoot now, take a quick firing cover,
             // or hand off to engage logic if this visible target should be pressed.
             if (TryGetVisibleDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> visibleDecision))
             {
                 return visibleDecision;
-            }
-
-            // If a cover point was already committed earlier, keep following through on it before
-            // inventing a new plan.
-            if (TryGetCommittedCoverDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedDecision))
-            {
-                return committedDecision;
             }
 
             // When exposed, under fire, or hurt, switch to recovery behavior and look for safe cover
@@ -183,16 +165,6 @@ namespace friendlySAIN.BigBrain
             if (TryGetBossUnderAttackDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> protectBossDecision))
             {
                 return protectBossDecision;
-            }
-
-            // Before generic blind advance, decide whether the follower's real combat objective is to
-            // rejoin the boss's advanced line or retreating line. Low aggression rejoins sooner; high
-            // aggression tolerates a larger separation before abandoning local pressure.
-            // This is the escort-in-combat branch: keep the follower aligned to the boss's line,
-            // but still let visible fire, explicit push orders, and stronger cover/engage states win first.
-            if (TryGetBossCombatObjectiveDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> bossObjectiveDecision))
-            {
-                return bossObjectiveDecision;
             }
 
             // While passively holding in cover, scan for a credible ally support opportunity before
@@ -211,18 +183,18 @@ namespace friendlySAIN.BigBrain
                 return advanceDecision;
             }
 
-            // Sector-driven bossHold exits should first try to find a fresh boss-local cover in the
-            // new sector. If none exists, keep holding instead of immediately walking to the boss.
-            if (TryGetPendingBossSectorReanchorDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> sectorBossDecision))
+            // If the boss is outside the combat leash and there is no immediate visible fight to solve
+            // first, switch objectives before stale cover commitments can reselect shootCover/bossHold.
+            if (TryGetBossCombatObjectiveDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> bossObjectiveDecision))
             {
-                return sectorBossDecision;
+                return bossObjectiveDecision;
             }
 
-            // If none of the combat-specific branches apply, pull the follower back toward the boss
-            // so it does not drift out of escort range.
-            if (TryGetBossReanchorDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> bossDecision))
+            // If a cover point was already committed earlier, keep following through on it before
+            // inventing a new plan.
+            if (TryGetCommittedCoverDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedDecision))
             {
-                return bossDecision;
+                return committedDecision;
             }
 
             if (botOwner.Memory.IsInCover)
@@ -253,6 +225,12 @@ namespace friendlySAIN.BigBrain
             {
                 case BotLogicDecision.holdPosition:
                     return EndHoldPosition(currentDecision.Reason);
+                case BotLogicDecision.runToCover:
+                case BotLogicDecision.attackMoving:
+                case BotLogicDecision.attackMovingWithSuppress:
+                    return EndCoverMoveOrAttackMoving(currentDecision);
+                case BotLogicDecision.shootFromCover:
+                    return EndShootFromCover(currentDecision.Reason);
                 case BotLogicDecision.runToEnemy:
                 case BotLogicDecision.goToEnemy:
                     return combatCommon.EndBaseGoToEnemy();
@@ -640,46 +618,64 @@ namespace friendlySAIN.BigBrain
         }
 
         /// <summary>
-        /// Chooses between local engagement and rejoining the boss's combat line. If the boss has
-        /// materially advanced or retreated the line relative to the follower, rejoin takes priority
-        /// before generic blind advance. Ordered push still wins earlier in the tree.
+        /// Converts boss-distance pressure into a regroup objective switch. Ordered push and immediate
+        /// local survival branches run earlier and still win before this objective trigger.
         /// </summary>
         private bool TryGetBossCombatObjectiveDecision(
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+
+            if (!ShouldRegroupForBossDistance())
+            {
+                return false;
+            }
+
+            // Do not try to execute the bossward move here anymore. Default combat only decides that
+            // "bossward regroup should now be the primary objective". The router will immediately swap
+            // objectives and ask regroup for the real move/fire decision in the same frame.
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.standBy,
+                FollowerCombatRegroupObjective.ActivateRegroupReason);
+            return true;
+        }
+
+        /// <summary>
+        /// Low aggression can force regroup as the primary combat objective. This is stronger than the
+        /// normal boss-line split and exists mainly so defensive followers stop solving the fight from
+        /// their current position unless the enemy is already close enough to demand local engagement.
+        /// 0% aggression only fights at VeryClose. Up to 30% aggression only fights at Close.
+        /// </summary>
+        private bool TryGetLowAggressionRegroupDecision(
             EnemyInfo goalEnemy,
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             decision = default;
 
-            if (!TryGetBossCombatObjectiveState(
-                goalEnemy,
-                out Vector3 bossPosition,
-                out bool bossAdvanced))
+            float aggression = combatCommon.GetAggression01();
+            if (aggression > 0.3f)
             {
                 return false;
             }
 
-            // First prefer a cover step toward the boss so the follower can keep shooting or stay safe
-            // while closing the formation gap.
-            if (TryFindBossCombatObjectiveCover(goalEnemy, bossPosition, bossAdvanced, out CustomNavigationPoint? objectiveCover, out string coverReason))
+            Enemy.EnemyDistance maxLocalEngageDistance = aggression <= 0.01f
+                ? Enemy.EnemyDistance.VeryClose
+                : Enemy.EnemyDistance.Close;
+
+            if (Enemy.Distance(goalEnemy) <= maxLocalEngageDistance)
             {
-                BotLogicDecision moveAction = combatCommon.SelectCommittedCoverMoveAction(goalEnemy);
-                CommitCover(objectiveCover, moveAction, coverReason);
-                combatCommon.AssignCover(objectiveCover);
-                decision = CreateCommittedCoverMoveDecision();
-                return true;
+                return false;
             }
 
-            if (NavMesh.SamplePosition(bossPosition, out NavMeshHit bossHit, 2f, -1))
+            Vector3 bossPosition = combatCommon.GetBossPosition();
+            if (combatCommon.GetBossNavDistance(bossPosition) <= BossCoverSearchRadius)
             {
-                bossPosition = bossHit.position;
+                return false;
             }
 
-            // If no useful step cover exists, fall back to a direct boss move. The reason still keeps
-            // track of whether this was a forward rejoin or a retreat rejoin.
-            botOwner.GoToSomePointData.SetPoint(bossPosition);
             decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
-                BotLogicDecision.goToPoint,
-                bossAdvanced ? "bossAdvanceRejoin" : "bossRetreatRejoin");
+                BotLogicDecision.standBy,
+                FollowerCombatRegroupObjective.ActivateRegroupReason);
             return true;
         }
 
@@ -711,11 +707,6 @@ namespace friendlySAIN.BigBrain
             }
 
             float sinceLastSeen = Time.time - goalEnemy.PersonalLastSeenTime;
-            if (botOwner.Memory.HaveEnemy && goalEnemy.IsVisible)
-            {
-                return false;
-            }
-
             if (botOwner.Memory.HaveEnemy && sinceLastSeen > 2.5f)
             {
                 return false;
@@ -739,8 +730,8 @@ namespace friendlySAIN.BigBrain
 
             if (tactic == FollowerCombatTactic.Protector)
             {
-                float bossDistanceSqr = (botOwner.Position - bossPosition).sqrMagnitude;
-                if (bossDistanceSqr > BossCoverSearchRadius * BossCoverSearchRadius &&
+                float bossDistance = combatCommon.GetBossNavDistance(bossPosition);
+                if (bossDistance > BossCoverSearchRadius &&
                     combatCommon.TryFindBossCover(prioritizedEnemy, bossPosition, BossCoverSearchRadius, out CustomNavigationPoint? bossCover))
                 {
                     BotLogicDecision moveAction = combatCommon.SelectCommittedCoverMoveAction(prioritizedEnemy);
@@ -801,138 +792,6 @@ namespace friendlySAIN.BigBrain
 
             bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
             decision = combatPush.EngageEnemy(true, enemyLowThreat);
-            return true;
-        }
-
-        /// <summary>
-        /// Pulls the follower back toward the boss anchor once they drift too far from escort range.
-        /// </summary>
-        private bool TryGetBossReanchorDecision(
-            EnemyInfo goalEnemy,
-            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
-        {
-            decision = default;
-
-            Vector3 bossPosition = combatCommon.GetBossPosition();
-            float bossDistanceSqr = (botOwner.Position - bossPosition).sqrMagnitude;
-            if (bossDistanceSqr <= BossCoverSearchRadius * BossCoverSearchRadius)
-            {
-                return false;
-            }
-
-            if (combatCommon.TryFindBossCover(goalEnemy, bossPosition, BossCoverSearchRadius, out CustomNavigationPoint? bossCover))
-            {
-                BotLogicDecision moveAction = combatCommon.SelectCommittedCoverMoveAction(goalEnemy);
-                CommitCover(bossCover, moveAction, "bossReanchorCover");
-                combatCommon.AssignCover(bossCover);
-                decision = CreateCommittedCoverMoveDecision();
-                return true;
-            }
-
-            if (NavMesh.SamplePosition(bossPosition, out NavMeshHit bossHit, 2f, -1))
-            {
-                bossPosition = bossHit.position;
-            }
-
-            botOwner.GoToSomePointData.SetPoint(bossPosition);
-            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPoint, "bossReanchor");
-            return true;
-        }
-
-        /// <summary>
-        /// Forward rejoin prefers a cover step toward the boss that can still open a shot. Retreat
-        /// rejoin prefers a hide-capable cover step toward the boss before falling back to boss-local cover.
-        /// </summary>
-        private bool TryFindBossCombatObjectiveCover(
-            EnemyInfo goalEnemy,
-            Vector3 bossPosition,
-            bool bossAdvanced,
-            out CustomNavigationPoint? cover,
-            out string reason)
-        {
-            cover = null;
-            reason = bossAdvanced ? "bossAdvanceCover" : "bossRetreatCover";
-
-            if (bossAdvanced)
-            {
-                // When the boss has advanced the line, first look for a bossward step that can still
-                // open a shot. If none exists, accept any bossward cover to keep moving up the hill/line.
-                if (combatCommon.TryFindCoverTowardBoss(
-                    goalEnemy,
-                    bossPosition,
-                    BossCoverSearchRadius,
-                    requireShootLane: true,
-                    requireHideFromEnemy: false,
-                    out cover))
-                {
-                    return true;
-                }
-
-                if (combatCommon.TryFindCoverTowardBoss(
-                    goalEnemy,
-                    bossPosition,
-                    BossCoverSearchRadius,
-                    requireShootLane: false,
-                    requireHideFromEnemy: false,
-                    out cover))
-                {
-                    return true;
-                }
-            }
-            else
-            {
-                // When the boss has fallen back, prefer a retreat step that actually hides from the enemy.
-                if (combatCommon.TryFindCoverTowardBoss(
-                    goalEnemy,
-                    bossPosition,
-                    BossCoverSearchRadius,
-                    requireShootLane: false,
-                    requireHideFromEnemy: true,
-                    out cover))
-                {
-                    return true;
-                }
-            }
-
-            // Final fallback is boss-local cover. This keeps the follower near the boss even if there was
-            // no obvious intermediate step cover along the way.
-            if (combatCommon.TryFindBossCover(goalEnemy, bossPosition, BossCoverSearchRadius, out CustomNavigationPoint? bossCover))
-            {
-                cover = bossCover;
-                reason = bossAdvanced ? "bossAdvanceBossCover" : "bossRetreatBossCover";
-                return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Handles the special case where bossHold ended because the boss changed sectors:
-        /// first try fresh boss-local cover in the new sector, otherwise keep holding.
-        /// </summary>
-        private bool TryGetPendingBossSectorReanchorDecision(
-            EnemyInfo goalEnemy,
-            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
-        {
-            decision = default;
-            if (!bossHoldSectorReanchorPending)
-            {
-                return false;
-            }
-
-            Vector3 bossPosition = combatCommon.GetBossPosition();
-            if (combatCommon.TryFindBossCover(goalEnemy, bossPosition, BossCoverSearchRadius, out CustomNavigationPoint? bossCover))
-            {
-                BotLogicDecision moveAction = combatCommon.SelectCommittedCoverMoveAction(goalEnemy);
-                CommitCover(bossCover, moveAction, "bossReanchorCover");
-                combatCommon.AssignCover(bossCover);
-                bossHoldSectorReanchorPending = false;
-                decision = CreateCommittedCoverMoveDecision();
-                return true;
-            }
-
-            bossHoldSectorReanchorPending = false;
-            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "bossHold");
             return true;
         }
 
@@ -1037,35 +896,29 @@ namespace friendlySAIN.BigBrain
                 if (goalEnemy != null &&
                     (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
                      string.Equals(reason, "bossHold", StringComparison.Ordinal)) &&
+                    ShouldBreakForBossUnderAttack(goalEnemy))
+                {
+                    ClearCommittedCover();
+
+                    return new AICoreActionEndStruct(
+                        string.Equals(reason, "bossHold", StringComparison.Ordinal)
+                            ? "bossUnderAttackBreakBossHold"
+                            : "bossUnderAttackBreakCoverHold",
+                        true);
+                }
+
+                if (goalEnemy != null &&
+                    (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
+                     string.Equals(reason, "bossHold", StringComparison.Ordinal)) &&
                     ShouldBreakCommittedCoverForBossObjective(goalEnemy))
                 {
-                    if (string.Equals(reason, "coverHold", StringComparison.Ordinal))
-                    {
-                        ClearCommittedCover();
-                    }
+                    ClearCommittedCover();
 
                     return new AICoreActionEndStruct(
                         string.Equals(reason, "bossHold", StringComparison.Ordinal)
                             ? "bossObjectiveBreakBossHold"
                             : "bossObjectiveBreakCoverHold",
                         true);
-                }
-
-                if (string.Equals(reason, "bossHold", StringComparison.Ordinal))
-                {
-                    Vector3 bossPosition = combatCommon.GetBossPosition();
-                    if (hasBossHoldAnchor &&
-                        (bossPosition - bossHoldAnchor).sqrMagnitude > BossHoldSectorRadius * BossHoldSectorRadius)
-                    {
-                        bossHoldSectorReanchorPending = true;
-                        return new AICoreActionEndStruct("bossLeftSectorBreakHold", true);
-                    }
-
-                    float bossDistanceSqr = (botOwner.Position - bossPosition).sqrMagnitude;
-                    if (bossDistanceSqr > BossCoverSearchRadius * BossCoverSearchRadius)
-                    {
-                        return new AICoreActionEndStruct("bossTooFarBreakHold", true);
-                    }
                 }
 
                 if (goalEnemy != null && !goalEnemy.IsVisible && combatCommon.ShouldAdvance(goalEnemy))
@@ -1080,6 +933,51 @@ namespace friendlySAIN.BigBrain
             }
 
             return combatCommon.EndBaseHoldPosition(reason);
+        }
+
+        /// <summary>
+        /// Sticky cover movement can otherwise keep feeding the same committed cover even after the
+        /// boss line changed enough to make regroup the real objective.
+        /// </summary>
+        private AICoreActionEndStruct EndCoverMoveOrAttackMoving(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (goalEnemy != null && ShouldBreakForBossUnderAttack(goalEnemy))
+            {
+                ClearCommittedCover();
+                return new AICoreActionEndStruct("bossUnderAttackBreakCoverMove", true);
+            }
+
+            if (ShouldEndCurrentDecisionForBossObjective(currentDecision.Reason, allowMovingCommittedCoverBreak: true))
+            {
+                ClearCommittedCover();
+                return new AICoreActionEndStruct("bossObjectiveBreakCoverMove", true);
+            }
+
+            return combatCommon.ShallEndCurrentDecision(currentDecision);
+        }
+
+        /// <summary>
+        /// Shooting from cover remains sticky while the shot is valid, so it needs the same regroup
+        /// objective escape hatch as coverHold/bossHold.
+        /// </summary>
+        private AICoreActionEndStruct EndShootFromCover(string reason)
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (goalEnemy != null && ShouldBreakForBossUnderAttack(goalEnemy))
+            {
+                ClearCommittedCover();
+                return new AICoreActionEndStruct("bossUnderAttackBreakShootCover", true);
+            }
+
+            if (goalEnemy != null && ShouldBreakCommittedCoverForBossObjective(goalEnemy))
+            {
+                ClearCommittedCover();
+                return new AICoreActionEndStruct("bossObjectiveBreakShootCover", true);
+            }
+
+            return combatCommon.EndShootFromCover();
         }
 
         /// <summary>
@@ -1105,6 +1003,15 @@ namespace friendlySAIN.BigBrain
 
             if (botOwner.GoToSomePointData.IsCome())
             {
+                if (IsEnemySearchPushReason(reason))
+                {
+                    combatCommon.EnemySearch(reason);
+                    if (!botOwner.GoToSomePointData.IsCome())
+                    {
+                        return default;
+                    }
+                }
+
                 return new AICoreActionEndStruct("arrivedAtPoint", true);
             }
 
@@ -1336,7 +1243,7 @@ namespace friendlySAIN.BigBrain
         /// signal. This only triggers after the initial cover commit window and only when there is no
         /// stronger local fight to justify staying put.
         /// </summary>
-        private bool ShouldBreakCommittedCoverForBossObjective(EnemyInfo goalEnemy)
+        private bool ShouldBreakCommittedCoverForBossObjective(EnemyInfo goalEnemy, bool allowMovingCommittedCoverBreak = false)
         {
             if (HasActivePushOrder())
             {
@@ -1348,12 +1255,7 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            if (combatCommon.ShouldAdvance(goalEnemy))
-            {
-                return false;
-            }
-
-            if (!TryGetBossCombatObjectiveState(goalEnemy, out _, out _))
+            if (!ShouldRegroupForBossDistance())
             {
                 return false;
             }
@@ -1364,7 +1266,8 @@ namespace friendlySAIN.BigBrain
             {
                 if (!IsBotInCommittedCover())
                 {
-                    return false;
+                    return allowMovingCommittedCoverBreak &&
+                           Time.time - committedCoverSetAt >= CoverCommitLockSeconds;
                 }
 
                 if (Time.time - committedCoverSetAt < CoverCommitLockSeconds)
@@ -1375,51 +1278,91 @@ namespace friendlySAIN.BigBrain
 
             return true;
         }
+        private bool ShouldBreakForBossUnderAttack(EnemyInfo goalEnemy)
+        {
+            if (HasActivePushOrder())
+            {
+                return false;
+            }
+
+            // Do not abandon a personal shot that is already available; that is still support.
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            float sinceLastSeen = Time.time - goalEnemy.PersonalLastSeenTime;
+            if (botOwner.Memory.HaveEnemy && sinceLastSeen > 2.5f)
+            {
+                return false;
+            }
+
+            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            AIBossPlayerLogic? bossLogic = boss.GetBossLogic();
+            if (bossLogic == null || !bossLogic.IsHitted)
+            {
+                return false;
+            }
+
+            BotOwner? bossEnemy = boss.ClosestEnemy();
+            return bossEnemy != null && bossEnemy.GetPlayer?.HealthController?.IsAlive == true;
+        }
+
+        private bool ShouldEndCurrentDecisionForBossObjective(string reason, bool allowMovingCommittedCoverBreak = false)
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            bool isBossHold = string.Equals(reason, "bossHold", StringComparison.Ordinal);
+            if (isBossHold)
+            {
+                return ShouldBreakCommittedCoverForBossObjective(goalEnemy, allowMovingCommittedCoverBreak);
+            }
+
+            if (!IsCommittedCoverReason(reason))
+            {
+                return false;
+            }
+
+            return ShouldBreakCommittedCoverForBossObjective(goalEnemy, allowMovingCommittedCoverBreak);
+        }
+
+        private static bool IsCommittedCoverReason(string reason)
+        {
+            return string.Equals(reason, "shootCover", StringComparison.Ordinal) ||
+                   string.Equals(reason, "safeCover", StringComparison.Ordinal) ||
+                   string.Equals(reason, "retreatShootCover", StringComparison.Ordinal) ||
+                   string.Equals(reason, "retreatSafeCover", StringComparison.Ordinal) ||
+                   string.Equals(reason, "bossCover", StringComparison.Ordinal) ||
+                   string.Equals(reason, "committedFire", StringComparison.Ordinal);
+        }
 
         /// <summary>
-        /// Computes whether the boss has materially changed the combat line relative to the follower.
-        /// If true, the follower should prefer rejoining the boss line before generic blind advance.
+        /// Computes whether the follower should switch to the regroup objective based on live boss
+        /// nav distance. Regroup itself decides whether that becomes forward, backward, or lateral movement.
         /// </summary>
-        private bool TryGetBossCombatObjectiveState(
-            EnemyInfo goalEnemy,
-            out Vector3 bossPosition,
-            out bool bossAdvanced)
+        private bool ShouldRegroupForBossDistance()
         {
-            bossPosition = Vector3.zero;
-            bossAdvanced = false;
-
-            if (!combatCommon.TryGetBossRelativeCombatSpacing(
-                goalEnemy,
-                out bossPosition,
-                out _,
-                out float followerBossDistance,
-                out float followerEnemyDistance,
-                out float bossEnemyDistance))
+            Vector3 bossPosition = combatCommon.GetBossPosition();
+            if (!IsFinite(bossPosition))
             {
                 return false;
             }
 
-            if (followerBossDistance <= BossCoverSearchRadius)
+            float followerBossDistance = combatCommon.GetBossNavDistance(bossPosition);
+            if (followerBossDistance <= BossRegroupTriggerDistance)
             {
                 return false;
             }
 
-            float aggression = combatCommon.GetAggression01();
-            float objectiveDelta = Mathf.Lerp(BossCombatPriorityDeltaMin, BossCombatPriorityDeltaMax, aggression);
-            float lineDelta = followerEnemyDistance - bossEnemyDistance;
-            if (lineDelta >= objectiveDelta)
-            {
-                bossAdvanced = true;
-                return true;
-            }
-
-            if (-lineDelta >= objectiveDelta)
-            {
-                bossAdvanced = false;
-                return true;
-            }
-
-            return false;
+            return true;
         }
 
 
@@ -1479,6 +1422,12 @@ namespace friendlySAIN.BigBrain
         {
             return !string.IsNullOrEmpty(reason) &&
                    reason.StartsWith(PushReasonPrefix, StringComparison.Ordinal);
+        }
+
+        private static bool IsEnemySearchPushReason(string? reason)
+        {
+            return string.Equals(reason, "startWeakEnemyPush", StringComparison.Ordinal) ||
+                   string.Equals(reason, "push.search", StringComparison.Ordinal);
         }
     }
 }

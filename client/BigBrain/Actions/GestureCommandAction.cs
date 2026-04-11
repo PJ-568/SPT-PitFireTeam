@@ -44,7 +44,7 @@ namespace friendlySAIN.BigBrain.Actions
         private bool doorInteractIssued;
         private float doorTimeoutAt;
         private FollowerCommandType lastCommand = FollowerCommandType.None;
-        private const float RegroupArriveNavDistance = 1.75f;
+        private const float RegroupArriveNavDistance = 4f;
         private const float RegroupRunDistance = 10f;
         private const float SameLevelTolerance = 1.75f;
         private const float RegroupCoverSearchRadius = 15f;

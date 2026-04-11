@@ -623,17 +623,7 @@ namespace friendlySAIN.Utils
                 return true;
             }
 
-            var decision = bot.Brain?.Agent?.LastResult();
-            if (decision == null)
-            {
-                return false;
-            }
-
-            return decision.Value.Action == BotLogicDecision.heal
-                || decision.Value.Action == BotLogicDecision.healStimulators
-                || string.Equals(decision.Value.Reason, "Heal", StringComparison.Ordinal)
-                || string.Equals(decision.Value.Reason, "healInCover", StringComparison.Ordinal)
-                || string.Equals(decision.Value.Reason, "healQuick", StringComparison.Ordinal);
+            return false;
         }
 
         private static bool DoesFollowerWantToHeal(BotOwner bot)
