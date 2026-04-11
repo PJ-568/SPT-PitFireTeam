@@ -644,27 +644,29 @@ namespace friendlySAIN.SAINAddon
 
             var sainEnemy = enemyController.CheckAddEnemy(enemyPlayer);
             var setGoalEnemy = AccessTools.Method(typeof(SAINEnemyController), "setGoalEnemy", new[] { typeof(EnemyInfo) });
-            if (sainEnemy != null)
+            if (sainEnemy == null)
             {
-                sainEnemy.UpdateLastSeenPosition(enemyPlayer.Position, Time.time);
-                bool shouldForceGoal = prioritizeAsGoal || enemyController.GoalEnemy == null;
-                if (shouldForceGoal)
+                return false;
+            }
+
+            sainEnemy.UpdateLastSeenPosition(enemyPlayer.Position, Time.time);
+            bool shouldForceGoal = prioritizeAsGoal || enemyController.GoalEnemy == null;
+            if (shouldForceGoal)
+            {
+                setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
+            }
+            else
+            {
+                enemyController.ChooseEnemy();
+                if (enemyController.GoalEnemy == null)
                 {
                     setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
                 }
-                else
-                {
-                    enemyController.ChooseEnemy();
-                    if (enemyController.GoalEnemy == null)
-                    {
-                        setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
-                    }
-                }
+            }
 
-                if (!bot.IsInCombat)
-                {
-                    bot.BotActivation.SetInCombat(true);
-                }
+            if (!bot.IsInCombat)
+            {
+                bot.BotActivation.SetInCombat(true);
             }
 
             return true;

@@ -343,6 +343,19 @@ namespace friendlySAIN.Components
             {
                 seenEnemies = GetSainContactFallbackEnemies(requester);
             }
+            List<Player> directedVisibleEnemies = GetBossDirectedVisibleEnemyCandidates(requester);
+            if (directedVisibleEnemies.Count > 0)
+            {
+                seenEnemies ??= new List<Player>();
+                foreach (Player directedEnemy in directedVisibleEnemies)
+                {
+                    if (directedEnemy != null &&
+                        !seenEnemies.Any(enemy => enemy != null && enemy.ProfileId == directedEnemy.ProfileId))
+                    {
+                        seenEnemies.Add(directedEnemy);
+                    }
+                }
+            }
             seenEnemies = PrioritizeContactEnemies(requester, seenEnemies);
             Vector3 lookTarget = requester.Transform.position + requester.LookDirection.normalized * ContactLookDistance;
             int followersProcessed = 0;
@@ -463,19 +476,21 @@ namespace friendlySAIN.Components
                 Modules.Logger.LogError(ex);
             }
 
-            BotSettingsClass botSettings = new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.checkAddTODO)
-            {
-                EnemyLastPosition = enemy.Position
-            };
-            botSettings.EnemyLastVisiblePosition = enemy.Position;
-            botSettings.EnemyWeaponRootLastPos = enemy.PlayerBones?.WeaponRoot?.position ?? (enemy.Position + Vector3.up * 1.2f);
-
             // Contact is an explicit combat cue from boss; force an EnemyInfo to exist now
             // instead of waiting for later controller reconciliation.
             follower.Memory.IsPeace = false;
             EnemyInfo? trackedEnemy = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO);
             if (trackedEnemy != null)
             {
+                BotSettingsClass botSettings = GetOrCreateContactEnemyGroupInfo(follower, enemy, trackedEnemy);
+                botSettings.EnemyLastPosition = enemy.Position;
+                if (visibleType == EEnemyPartVisibleType.Visible)
+                {
+                    botSettings.EnemyLastVisiblePosition = enemy.Position;
+                }
+
+                botSettings.EnemyWeaponRootLastPos = enemy.PlayerBones?.WeaponRoot?.position ?? (enemy.Position + Vector3.up * 1.2f);
+
                 trackedEnemy.SetVisible(visibleType == EEnemyPartVisibleType.Visible);
                 trackedEnemy.PersonalLastPos = enemy.Position;
                 trackedEnemy.GroupInfo = botSettings;
@@ -617,6 +632,23 @@ namespace friendlySAIN.Components
                 .ToList();
         }
 
+        private static BotSettingsClass GetOrCreateContactEnemyGroupInfo(BotOwner follower, Player enemy, EnemyInfo trackedEnemy)
+        {
+            if (follower?.BotsGroup?.Enemies != null &&
+                follower.BotsGroup.Enemies.TryGetValue(enemy, out BotSettingsClass groupInfo) &&
+                groupInfo != null)
+            {
+                return groupInfo;
+            }
+
+            if (trackedEnemy?.GroupInfo != null)
+            {
+                return trackedEnemy.GroupInfo;
+            }
+
+            return new BotSettingsClass(enemy, follower.BotsGroup, EBotEnemyCause.checkAddTODO);
+        }
+
         private List<Player> GetBossVisibleEnemiesForContact(IPlayer requester)
         {
             List<Player> result = new List<Player>();
@@ -711,6 +743,136 @@ namespace friendlySAIN.Components
             }
 
             return result;
+        }
+
+        private List<Player> GetBossDirectedVisibleEnemyCandidates(IPlayer requester)
+        {
+            List<Player> result = new List<Player>();
+            if (requester == null || realPlayer == null)
+            {
+                return result;
+            }
+
+            IEnumerable<IPlayer> allPlayers = _botsController?.BotSpawner?.AllPlayers;
+            if (allPlayers == null)
+            {
+                return result;
+            }
+
+            Vector3 requesterPosition = requester.Position;
+            Vector3 lookDirection = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+            Vector3 firePos = requester.PlayerBones?.WeaponRoot?.position ?? (requesterPosition + Vector3.up * 1.2f);
+            float scanDistance = friendlySAIN.scanDistance?.Value ?? ContactLookDistance;
+            float scanDistanceSqr = scanDistance * scanDistance;
+
+            foreach (IPlayer candidateRef in allPlayers)
+            {
+                Player candidate = candidateRef as Player;
+                if (candidate == null || candidate.HealthController?.IsAlive != true)
+                {
+                    continue;
+                }
+
+                if (!IsEligibleBossDirectedContactTarget(requester, candidate))
+                {
+                    continue;
+                }
+
+                Vector3 toCandidate = candidate.Position - requesterPosition;
+                float distanceSqr = toCandidate.sqrMagnitude;
+                if (distanceSqr < 0.01f || distanceSqr > scanDistanceSqr)
+                {
+                    continue;
+                }
+
+                if (Vector3.Dot(lookDirection, toCandidate.normalized) < 0.45f)
+                {
+                    continue;
+                }
+
+                if (!CanEnemyBeSeenForContact(candidate, firePos))
+                {
+                    continue;
+                }
+
+                result.Add(candidate);
+            }
+
+            return result;
+        }
+
+        private bool IsEligibleBossDirectedContactTarget(IPlayer requester, Player candidate)
+        {
+            if (requester == null || candidate == null)
+            {
+                return false;
+            }
+
+            if (candidate.ProfileId == requester.ProfileId || candidate.ProfileId == realPlayer?.ProfileId)
+            {
+                return false;
+            }
+
+            if (Followers.Any(follower => follower != null && follower.ProfileId == candidate.ProfileId))
+            {
+                return false;
+            }
+
+            if (!candidate.IsAI)
+            {
+                return true;
+            }
+
+            BotOwner candidateBot = candidate.AIData?.BotOwner;
+            if (candidateBot == null || candidateBot.IsDead || candidateBot.BotState != EBotState.Active)
+            {
+                return false;
+            }
+
+            if (BossPlayers.IsFollower(candidateBot))
+            {
+                return false;
+            }
+
+            WildSpawnType? role = candidate.Profile?.Info?.Settings?.Role;
+            if (role.HasValue && Props.friendlyBotTypes.Contains(role.Value))
+            {
+                return false;
+            }
+
+            if (bossGroup?.Contains(candidateBot) == true)
+            {
+                return false;
+            }
+
+            bool alreadyHostile = bossGroup?.IsEnemy(candidate) == true ||
+                                   bossGroup?.IsPlayerEnemy(candidate) == true ||
+                                   candidateBot.BotsGroup?.IsEnemy(requester) == true ||
+                                   candidateBot.BotsGroup?.IsPlayerEnemy(requester) == true ||
+                                   candidateBot.Memory?.GoalEnemy?.ProfileId == requester.ProfileId;
+
+            bool samePmcSide = candidate.Side == requester.Side &&
+                               (candidate.Side == EPlayerSide.Bear || candidate.Side == EPlayerSide.Usec);
+            if (samePmcSide && Utils.Utils.FlagGet("friendlySAIN") && !Utils.Utils.FlagGet("isBadGuy") && !alreadyHostile)
+            {
+                return false;
+            }
+
+            if (role.HasValue)
+            {
+                List<WildSpawnType> protectedBossAllies = Props.BossFollowersType.ToList();
+                protectedBossAllies.Add(WildSpawnType.exUsec);
+                if (protectedBossAllies.Contains(role.Value) &&
+                    !alreadyHostile &&
+                    Utils.Utils.PlayerHasKnightQuest(realPlayer.Profile))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool CanEnemyBeSeenForContact(Player enemy, Vector3 firePos)

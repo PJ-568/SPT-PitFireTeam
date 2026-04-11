@@ -21,6 +21,9 @@ namespace friendlySAIN.BigBrain
         private const float HaveCoverToShootDebounceSeconds = 0.15f;
         private const float ShootLaneUpgradeHysteresisSeconds = 0.2f;
         private const float PointToShootUpdateMinDistance = 1.5f;
+        private const float WeakEnemyPushDefaultMaxDistance = 80f;
+        private const float WeakEnemyPushProtectorMaxDistance = 60f;
+        private const float WeakEnemyPushMarksmanMaxDistance = 150f;
         private const float CombatCoverMaxDistance = 120f;
         private const float StableVisibleImmediateFireSeconds = 0.3f;
         private const float HealCoverRetreatDistance = 14f;
@@ -573,7 +576,7 @@ namespace friendlySAIN.BigBrain
         /// Old-plugin equivalent of GetClosestAttackCoverPoint/GetClosestShootCover.
         /// Finds a nearby cover point with a clear shot to the enemy target point.
         /// </summary>
-        public CustomNavigationPoint? GetClosestShootCover(Vector3 centerPosition, float maxDistance = 150f, bool inbetween = false)
+        public CustomNavigationPoint? GetClosestShootCover(Vector3 centerPosition, float maxDistance = 150f, bool inbetween = false, float? maxDistanceFromBot = null)
         {
             if (nextClosestShootCoverCheckTime > Time.time)
             {
@@ -590,6 +593,9 @@ namespace friendlySAIN.BigBrain
             }
 
             float weaponShootDistMaxSqr = botOwner.LookSensor.MaxShootDist * botOwner.LookSensor.MaxShootDist;
+            float? maxDistanceFromBotSqr = maxDistanceFromBot.HasValue
+                ? maxDistanceFromBot.Value * maxDistanceFromBot.Value
+                : null;
             cachedClosestShootCover = Covers.GetClosestCoverPoint(
                 botOwner,
                 centerPosition,
@@ -597,6 +603,12 @@ namespace friendlySAIN.BigBrain
                 point =>
                 {
                     if (point == null || point.IsSpotted || !point.IsFreeById(botOwner.Id))
+                    {
+                        return false;
+                    }
+
+                    if (maxDistanceFromBotSqr.HasValue &&
+                        (point.Position - botOwner.Position).sqrMagnitude > maxDistanceFromBotSqr.Value)
                     {
                         return false;
                     }
@@ -650,6 +662,59 @@ namespace friendlySAIN.BigBrain
 
             Vector3 midpoint = (botOwner.Position + enemyPosition) * 0.5f;
             return GetClosestShootCover(midpoint, 120f, inbetween);
+        }
+
+        public CustomNavigationPoint? GetWeakEnemyPushCover()
+        {
+            float maxDistance = GetWeakEnemyPushMaxDistance();
+            float maxDistanceSqr = maxDistance * maxDistance;
+            CustomNavigationPoint? approachCover = GetApproachableCover(maxDistance);
+            if (approachCover == null)
+            {
+                return null;
+            }
+
+            return (approachCover.Position - botOwner.Position).sqrMagnitude <= maxDistanceSqr
+                ? approachCover
+                : null;
+        }
+
+        private CustomNavigationPoint? GetApproachableCover(float maxDistance, bool inbetween = false)
+        {
+            if (nextApproachableCoverCheckTime > Time.time)
+            {
+                return cachedClosestShootCover != null &&
+                       (cachedClosestShootCover.Position - botOwner.Position).sqrMagnitude <= maxDistance * maxDistance
+                    ? cachedClosestShootCover
+                    : null;
+            }
+
+            nextApproachableCoverCheckTime = Time.time + 1f;
+            nextClosestShootCoverCheckTime = 0f;
+
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                cachedClosestShootCover = null;
+                return null;
+            }
+
+            Vector3 enemyPosition = IsFinite(goalEnemy.EnemyLastPositionReal)
+                ? goalEnemy.EnemyLastPositionReal
+                : goalEnemy.CurrPosition;
+
+            Vector3 midpoint = (botOwner.Position + enemyPosition) * 0.5f;
+            return GetClosestShootCover(midpoint, maxDistance, inbetween, maxDistanceFromBot: maxDistance);
+        }
+
+        private float GetWeakEnemyPushMaxDistance()
+        {
+            return GetFollowerTactic() switch
+            {
+                FollowerCombatTactic.Marksman => WeakEnemyPushMarksmanMaxDistance,
+                FollowerCombatTactic.Protector => WeakEnemyPushProtectorMaxDistance,
+                _ => WeakEnemyPushDefaultMaxDistance,
+            };
         }
 
         public Vector3 GetBossPosition()
@@ -952,6 +1017,7 @@ namespace friendlySAIN.BigBrain
             {
 
                 initialDecision = EnemySearch("startWeakEnemyPush");
+                return;
             }
 
             // Decision 5: any far cover opportunity at combat start -> run to cover.
@@ -1568,7 +1634,9 @@ namespace friendlySAIN.BigBrain
             Vector3 searchPoint = enemyAnchor;
 
             // Prefer an approach cover with a clear shot from a nearby tactical point.
-            CustomNavigationPoint? approachCover = GetApproachableCover();
+            CustomNavigationPoint? approachCover = string.Equals(reason, "startWeakEnemyPush", StringComparison.Ordinal)
+                ? GetWeakEnemyPushCover()
+                : GetApproachableCover();
             if (approachCover != null)
             {
                 searchPoint = approachCover.Position;
@@ -1985,10 +2053,6 @@ namespace friendlySAIN.BigBrain
             }
 
             bool isRunToHeal = string.Equals(reason, "runToHeal", StringComparison.Ordinal);
-            if (!isRunToHeal)
-            {
-                RefreshShootCover();
-            }
 
             if (botOwner.Memory.IsInCover)
             {

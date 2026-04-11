@@ -28,6 +28,7 @@ namespace friendlySAIN.BigBrain
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? lastDecision;
         private bool hadCombatSinceActivation;
         private float noEnemySinceTime;
+        private float lingerUntil;
 
         public FollowerCombatLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
         {
@@ -75,6 +76,19 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (currentDecision.HasValue && currentDecision.Value.Reason == LingerReason && lingerUntil > 0f)
+            {
+                if (Time.time < lingerUntil)
+                {
+                    return true;
+                }
+
+                hadCombatSinceActivation = false;
+                noEnemySinceTime = 0f;
+                lingerUntil = 0f;
+                return false;
+            }
+
             if (noEnemySinceTime <= 0f)
             {
                 noEnemySinceTime = Time.time;
@@ -97,6 +111,7 @@ namespace friendlySAIN.BigBrain
             lastDecision = null;
             hadCombatSinceActivation = false;
             noEnemySinceTime = 0f;
+            lingerUntil = 0f;
             MarkActive(true);
             BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
@@ -113,6 +128,7 @@ namespace friendlySAIN.BigBrain
             lastDecision = null;
             hadCombatSinceActivation = false;
             noEnemySinceTime = 0f;
+            lingerUntil = 0f;
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
             combatLogic?.Reset();
             base.Stop();
@@ -135,10 +151,16 @@ namespace friendlySAIN.BigBrain
             {
                 // As soon as live enemy is gone, hand off to a short linger hold while the
                 // combat layer remains active for release/handoff timing.
+                if (!currentDecision.HasValue || currentDecision.Value.Reason != LingerReason || lingerUntil <= Time.time)
+                {
+                    lingerUntil = Time.time + PostEnemyKeepActiveSeconds;
+                }
+
                 nextDecision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, LingerReason);
             }
             else
             {
+                lingerUntil = 0f;
                 nextDecision = combatLogic.GetDecision();
                 combatLogic.DecisionChanged(currentDecision, nextDecision);
             }
@@ -167,10 +189,25 @@ namespace friendlySAIN.BigBrain
             {
                 if (ShouldTreatCombatAsActive())
                 {
+                    lingerUntil = 0f;
                     return true;
                 }
 
-                return !IsActive();
+                if (lingerUntil <= 0f)
+                {
+                    lingerUntil = Time.time + PostEnemyKeepActiveSeconds;
+                    return false;
+                }
+
+                bool expired = Time.time >= lingerUntil;
+                if (expired)
+                {
+                    hadCombatSinceActivation = false;
+                    noEnemySinceTime = 0f;
+                    lingerUntil = 0f;
+                }
+
+                return expired;
             }
 
             if (!IsActive() && !isHealingAction)
