@@ -146,6 +146,7 @@ namespace friendlySAIN.Localization
                     ["BotInventoryPlaceholder"] = "Failed to load cloned follower inventory.\n{0}",
                     ["ProfileTactic"] = "Balanced",
                     ["ProfileAggression"] = "Aggression",
+                    ["ProfileAggressionMarksmanTooltip"] = "Agression not available for Marksman",
                     ["RenameFailed"] = "Could not rename teammate",
                     ["RenameClose"] = "x",
                     ["RemoveTeammateTitle"] = "Remove teammate",

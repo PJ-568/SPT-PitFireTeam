@@ -83,13 +83,6 @@ namespace friendlySAIN.Patches
                     return;
                 }
 
-                // This sprint-direction nudge is only meant to stabilize peaceful follow chase.
-                // Let vanilla combat fully own movement and steering once the follower has an enemy.
-                if (bot.Memory?.HaveEnemy == true || HasVisibleKnownEnemy(bot))
-                {
-                    return;
-                }
-
                 MovementContext movementContext = __instance.MovementContext;
                 if (!movementContext.IsSprintEnabled || !movementContext.CanSprint || !movementContext.CanWalk)
                 {
@@ -102,7 +95,9 @@ namespace friendlySAIN.Patches
                     return;
                 }
 
-                // Only keep sprint alive when there's clear forward chase intent.
+                // Only keep sprint alive when there's clear forward chase/run intent. Combat run
+                // actions can also hit this zero-direction frame while a valid sprint is already
+                // enabled, so do not exclude them just because the follower has an enemy.
                 if (movementContext.MovementDirection.y <= 0.6f || movementContext.ClampedSpeed <= 0.55f)
                 {
                     return;
@@ -123,30 +118,5 @@ namespace friendlySAIN.Patches
             }
         }
 
-        private static bool HasVisibleKnownEnemy(BotOwner bot)
-        {
-            try
-            {
-                var infos = bot.EnemiesController?.EnemyInfos;
-                if (infos == null || infos.Count == 0)
-                {
-                    return false;
-                }
-
-                foreach (var kv in infos)
-                {
-                    if (kv.Value?.IsVisible == true)
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-                // Keep the movement patch fail-closed on transient enemy-info issues.
-            }
-
-            return false;
-        }
     }
 }

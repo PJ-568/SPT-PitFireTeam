@@ -1737,6 +1737,7 @@ namespace friendlySAIN.Components
                    action != BotLogicDecision.runToEnemyZigZag &&
                    action != BotLogicDecision.attackMoving &&
                    action != BotLogicDecision.attackMovingWithSuppress &&
+                   action != (BotLogicDecision)CustomBotDecisions.attackRetreat &&
                    action != BotLogicDecision.attackMovingFlank;
         }
 

@@ -1,5 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Components;
+using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using System.Collections.Generic;
 using UnityEngine;
@@ -58,16 +60,13 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (canRun && BotOwner.Mover.HasPathAndNoComplete)
             {
-                if (!goalEnemy.IsVisible || !goalEnemy.CanShoot)
-                {
-                    BotOwner.Steering.LookToMovingDirection();
-                }
-                BotOwner.Sprint(true, true);
+                BotOwner.Steering.LookToMovingDirection();
+                SetCombatSprint(true);
             }
             else
             {
                 BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
-                BotOwner.Sprint(false, true);
+                SetCombatSprint(false);
             }
 
             if (!BotOwner.Mover.IsComeTo(BotOwner.Settings.FileSettings.Move.REACH_DIST, false, null))
@@ -239,6 +238,11 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void EnsurePrimaryWeapon()
         {
+            if (BossPlayers.Instance?.GetFollower(BotOwner)?.CombatTactic == FollowerCombatTactic.Marksman)
+            {
+                return;
+            }
+
             if (BotOwner.WeaponManager.IsMelee)
             {
                 BotOwner.WeaponManager.Selector.ChangeToMain();
@@ -250,7 +254,7 @@ namespace friendlySAIN.BigBrain.Actions
             ClearCommittedRunPoint();
             BotOwner.StopMove();
             BotOwner.LookData.SetLookPointByHearing(null);
-            BotOwner.Sprint(false, true);
+            SetCombatSprint(false);
             BotOwner.SetPose(0f);
         }
     }

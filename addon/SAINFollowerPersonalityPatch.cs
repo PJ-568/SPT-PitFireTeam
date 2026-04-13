@@ -43,10 +43,17 @@ namespace friendlySAIN.SAINAddon
                 if (!friendlySAIN.IsSAINInstalled) return;
                 if (bot == null || __result == null || bot.IsDead) return;
 
-                // Only force personality for bots we spawned; recruited followers keep SAIN's lottery result.
-                if (!squadMate) return;
-
-                TryApplyFollowerBigPipeTemplate(bot, tactic);
+                if (squadMate)
+                {
+                    // Squad-mate followers get the full BigPipe template + personality + forget-time override.
+                    TryApplyFollowerBigPipeTemplate(bot, tactic);
+                }
+                else
+                {
+                    // Recruited followers keep SAIN's lottery personality, but still need the
+                    // forget time corrected — SAIN's CalcTimeBeforeSearch overwrites it during init.
+                    OverrideFollowerForgetTime(bot);
+                }
             }
             catch (Exception ex)
             {
@@ -91,6 +98,10 @@ namespace friendlySAIN.SAINAddon
             RebuildSainInfoFromTemplate(info, loadedPreset, followerTemplate, bot);
 
             TryApplySpawnedFollowerPersonality(info, bot);
+
+            // CalcTimeBeforeSearch (called above) overwrites TIME_TO_FORGOR_ABOUT_ENEMY_SEC and
+            // SAIN's ForgetEnemyTime with a SAIN-internal random value. Re-apply our configured value last.
+            OverrideFollowerForgetTime(bot);
         }
 
         private static SAINSettingsClass CloneSettings(SAINSettingsClass source)
@@ -106,6 +117,37 @@ namespace friendlySAIN.SAINAddon
 
             // Keep this method as the single place for follower-specific tuning on top of the BigPipe template.
             // Intentionally empty for now: baseline behavior should mirror followerBigPipe as closely as possible.
+            // Note: forget-time override is applied separately via OverrideFollowerForgetTime after all SAIN init.
+        }
+
+        /// <summary>
+        /// Re-applies the player-configured enemy forget time to both vanilla and SAIN's internal timer.
+        /// Must be called AFTER all SAIN initialization (CalcTimeBeforeSearch etc.) to survive SAIN overwrites.
+        /// </summary>
+        private static void OverrideFollowerForgetTime(BotOwner bot)
+        {
+            float forgetSeconds = (float)friendlySAIN.enemyRemember.Value;
+            if (forgetSeconds <= 0f) return;
+
+            // Vanilla setting — SAIN's CalcTimeBeforeSearch overwrites this, so we restore it here.
+            if (bot?.Settings?.FileSettings?.Mind != null)
+            {
+                bot.Settings.FileSettings.Mind.TIME_TO_FORGOR_ABOUT_ENEMY_SEC = forgetSeconds;
+            }
+
+            // SAIN's EnemyKnownChecker uses Info.ForgetEnemyTime (private setter) independently of the
+            // vanilla field, so we also force that backing field to our value.
+            if (!ResolveSainGetMethods()) return;
+            object? sainBot = GetSainBot(bot);
+            if (sainBot == null) return;
+            object? info = GetInstanceMemberValue(sainBot, "Info");
+            if (info == null) return;
+
+            bool applied = SetInstanceMemberValue(info, "<ForgetEnemyTime>k__BackingField", forgetSeconds);
+            if (!applied)
+            {
+                Modules.Logger.LogInfo("[SAIN] Could not find ForgetEnemyTime backing field on SAINBotInfoClass — forget time may not be respected.");
+            }
         }
 
         private static void TryApplySpawnedFollowerPersonality(object info, BotOwner bot)

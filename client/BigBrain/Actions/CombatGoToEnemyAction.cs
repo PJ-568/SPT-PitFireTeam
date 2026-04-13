@@ -74,7 +74,7 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            BotOwner.Sprint(shouldSprint, true);
+            SetCombatSprint(shouldSprint);
             RefreshProgressState();
             NotMovingCheck();
             bool hasPath = BotOwner.Mover.HasPathAndNoComplete;

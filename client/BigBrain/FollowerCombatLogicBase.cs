@@ -8,7 +8,7 @@ namespace friendlySAIN.BigBrain
     internal abstract class FollowerCombatLogicBase
     {
         // High-level combat intent. Each objective owns its own decision stack and end logic.
-        private enum CombatObjectiveKind
+        protected enum CombatObjectiveKind
         {
             Default,
             Regroup
@@ -18,9 +18,10 @@ namespace friendlySAIN.BigBrain
         protected readonly BotFollower BotFollower;
         protected readonly FollowerCombatCommon combatCommon;
         protected bool errorLogged;
-        private readonly FollowerCombatObjectiveBase defaultObjective;
-        private readonly FollowerCombatObjectiveBase regroupObjective;
-        private CombatObjectiveKind currentObjective = CombatObjectiveKind.Default;
+        protected readonly FollowerCombatObjectiveBase defaultObjective;
+        protected readonly FollowerCombatObjectiveBase sniperObjective;
+        protected readonly FollowerCombatObjectiveBase regroupObjective;
+        protected CombatObjectiveKind currentObjective = CombatObjectiveKind.Default;
 
         protected FollowerCombatLogicBase(BotOwner botOwner)
         {
@@ -28,6 +29,7 @@ namespace friendlySAIN.BigBrain
             BotFollower = botOwner.BotFollower;
             combatCommon = new FollowerCombatCommon(botOwner);
             defaultObjective = CreateDefaultObjective(botOwner, combatCommon);
+            sniperObjective = CreateSniperObjective(botOwner, combatCommon);
             regroupObjective = CreateRegroupObjective(botOwner, combatCommon);
         }
 
@@ -37,6 +39,7 @@ namespace friendlySAIN.BigBrain
         {
             combatCommon.Reset();
             defaultObjective.Reset();
+            sniperObjective.Reset();
             regroupObjective.Reset();
             currentObjective = CombatObjectiveKind.Default;
         }
@@ -46,6 +49,12 @@ namespace friendlySAIN.BigBrain
             EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
             {
+                if (combatCommon.TryGetNoEnemyThreatCoverDecision(
+                        out AICoreActionResultStruct<BotLogicDecision, GClass26> noEnemyThreatDecision))
+                {
+                    return noEnemyThreatDecision;
+                }
+
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "nullEnemy");
             }
 
@@ -55,7 +64,7 @@ namespace friendlySAIN.BigBrain
                 AICoreActionResultStruct<BotLogicDecision, GClass26> decision = GetCurrentObjective().GetDecision(goalEnemy);
                 // Default combat can request an objective switch without leaking a fake action to the layer.
                 // When that happens, activate regroup immediately and return regroup's first real decision.
-                if (currentObjective == CombatObjectiveKind.Default &&
+                if (currentObjective != CombatObjectiveKind.Regroup &&
                     FollowerCombatRegroupObjective.IsRegroupActivationReason(decision.Reason))
                 {
                     ActivateRegroupObjective();
@@ -95,13 +104,23 @@ namespace friendlySAIN.BigBrain
 
         public virtual void StartDecision()
         {
-            currentObjective = CombatObjectiveKind.Default;
-            defaultObjective.StartDecision();
+            ActivatePrimaryObjectiveForStart();
+            GetCurrentObjective().StartDecision();
         }
 
-        protected abstract FollowerCombatObjectiveBase CreateDefaultObjective(
+        protected virtual FollowerCombatObjectiveBase CreateDefaultObjective(
             BotOwner botOwner,
-            FollowerCombatCommon combatCommon);
+            FollowerCombatCommon combatCommon)
+        {
+            return new FollowerCombatDefaultObjective(botOwner, combatCommon);
+        }
+
+        protected virtual FollowerCombatObjectiveBase CreateSniperObjective(
+            BotOwner botOwner,
+            FollowerCombatCommon combatCommon)
+        {
+            return new FollowerCombatSniperObjective(botOwner, combatCommon);
+        }
 
         protected virtual FollowerCombatObjectiveBase CreateRegroupObjective(
             BotOwner botOwner,
@@ -119,10 +138,10 @@ namespace friendlySAIN.BigBrain
                    command == FollowerCommandType.RegroupNearBoss;
         }
 
-        protected virtual bool ShouldReturnToDefaultObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        protected virtual bool ShouldReturnToPrimaryObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
         {
             // Regroup is temporary combat intent: finish it when it completes, combat ends, or
-            // an explicit push order arrives and should hand control back to the default stack.
+            // an explicit push order arrives and should hand control back to the tactic's primary stack.
             return HasActivePushOrder(followerData) ||
                    regroupObjective.IsComplete ||
                    !combatCommon.HasActiveCombatEnemy(goalEnemy);
@@ -137,9 +156,9 @@ namespace friendlySAIN.BigBrain
                 return;
             }
 
-            if (currentObjective == CombatObjectiveKind.Regroup && ShouldReturnToDefaultObjective(followerData, goalEnemy))
+            if (currentObjective == CombatObjectiveKind.Regroup && ShouldReturnToPrimaryObjective(followerData, goalEnemy))
             {
-                ActivateDefaultObjective();
+                ActivatePrimaryObjective();
             }
         }
 
@@ -162,7 +181,12 @@ namespace friendlySAIN.BigBrain
             currentObjective = CombatObjectiveKind.Regroup;
         }
 
-        private void ActivateDefaultObjective()
+        protected void ActivatePrimaryObjectiveForStart()
+        {
+            currentObjective = CombatObjectiveKind.Default;
+        }
+
+        private void ActivatePrimaryObjective()
         {
             if (currentObjective == CombatObjectiveKind.Default)
             {
@@ -170,18 +194,20 @@ namespace friendlySAIN.BigBrain
             }
 
             regroupObjective.Deactivate();
-            // Re-enter default combat with clean local default-objective state, but do not call
+            // Re-enter tactic combat with clean local primary-objective state, but do not call
             // StartDecision() here or the bot would incorrectly get a fresh combat opener.
-            defaultObjective.Activate();
+            GetObjective().Activate();
             currentObjective = CombatObjectiveKind.Default;
         }
 
-        private FollowerCombatObjectiveBase GetCurrentObjective()
+        protected FollowerCombatObjectiveBase GetCurrentObjective()
         {
             return currentObjective == CombatObjectiveKind.Regroup
                 ? regroupObjective
-                : defaultObjective;
+                : GetObjective();
         }
+
+        protected abstract FollowerCombatObjectiveBase GetObjective();
 
         private static bool HasActivePushOrder(BotFollowerPlayer? followerData)
         {

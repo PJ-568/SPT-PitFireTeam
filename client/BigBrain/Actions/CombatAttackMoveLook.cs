@@ -7,7 +7,7 @@ namespace friendlySAIN.BigBrain.Actions
     {
         private const float MaxForcedTurnAngle = 145f;
 
-        public static bool TryLookThreatFacing(BotOwner botOwner, EnemyInfo? goalEnemy)
+        public static bool TryLookThreatFacing(BotOwner botOwner, EnemyInfo? goalEnemy, bool allowHardTurn = false)
         {
             if (goalEnemy == null)
             {
@@ -28,12 +28,14 @@ namespace friendlySAIN.BigBrain.Actions
             // Attack-moving should keep the weapon locked to the threat lane while body/pathing handles
             // strafing or backpedaling. If the threat is too far behind current view, do not force a
             // full backwards twist every tick; let normal movement/look control recover instead.
-            if (Vector3.Angle(botOwner.LookDirection, lookDirection) > MaxForcedTurnAngle)
+            if (!allowHardTurn && Vector3.Angle(botOwner.LookDirection, lookDirection) > MaxForcedTurnAngle)
             {
                 botOwner.LookData.SetLookPointByHearing(null);
                 return false;
             }
 
+            botOwner.LookData.SetLookPointByHearing(null);
+            botOwner.Memory?.botObserveData?.Stop();
             botOwner.Steering.LookToPoint(lookPoint);
             return true;
         }

@@ -13,8 +13,10 @@ namespace friendlySAIN.BigBrain
         // regroup. This should never survive long enough to become a real layer action.
         internal const string ActivateRegroupReason = "objective.regroup";
         private const float CombatRegroupCompleteDistance = 8f;
+        private const float CombatRegroupCompleteDistanceMarksman = 12f;
         private const float CombatRegroupSameLevelTolerance = 1.75f;
         private const float CombatRegroupCoverRadius = 18f;
+        private const float CombatRegroupCoverRadiusMarksman = 24f;
         private const float BossSectorRadius = 20f;
         private const float RegroupHotContactSeconds = 2.5f;
         internal const string RegroupReasonPrefix = "regroup.";
@@ -304,6 +306,7 @@ namespace friendlySAIN.BigBrain
         private bool TryAssignRegroupCover(EnemyInfo goalEnemy, Vector3 bossPosition, RegroupBossDirection bossDirection, out Vector3 targetPosition)
         {
             targetPosition = Vector3.zero;
+            float regroupCoverRadius = GetRegroupCoverRadius();
 
             if (bossDirection == RegroupBossDirection.Back)
             {
@@ -312,7 +315,7 @@ namespace friendlySAIN.BigBrain
                 if (CombatCommon.TryFindCoverTowardBoss(
                     goalEnemy,
                     bossPosition,
-                    CombatRegroupCoverRadius,
+                    regroupCoverRadius,
                     requireShootLane: false,
                     requireHideFromEnemy: true,
                     out CustomNavigationPoint? withdrawCover) &&
@@ -329,7 +332,7 @@ namespace friendlySAIN.BigBrain
                 if (CombatCommon.TryFindCoverTowardBoss(
                     goalEnemy,
                     bossPosition,
-                    CombatRegroupCoverRadius,
+                    regroupCoverRadius,
                     requireShootLane: true,
                     requireHideFromEnemy: false,
                     out CustomNavigationPoint? supportCover) &&
@@ -340,7 +343,7 @@ namespace friendlySAIN.BigBrain
                 }
             }
 
-            if (CombatCommon.TryFindBossCover(goalEnemy, bossPosition, CombatRegroupCoverRadius, out CustomNavigationPoint? bossCover) &&
+            if (CombatCommon.TryFindBossCover(goalEnemy, bossPosition, regroupCoverRadius, out CustomNavigationPoint? bossCover) &&
                 TryAcceptRegroupCover(bossCover, bossPosition, out targetPosition))
             {
                 CombatCommon.AssignCover(bossCover);
@@ -419,7 +422,21 @@ namespace friendlySAIN.BigBrain
             }
 
             float navDistanceToBoss = Utils.Utils.GetNavDistance(BotOwner.Position, bossPosition);
-            return navDistanceToBoss <= CombatRegroupCompleteDistance;
+            return navDistanceToBoss <= GetRegroupCompleteDistance();
+        }
+
+        private float GetRegroupCompleteDistance()
+        {
+            return CombatCommon.GetFollowerTactic() == FollowerCombatTactic.Marksman
+                ? CombatRegroupCompleteDistanceMarksman
+                : CombatRegroupCompleteDistance;
+        }
+
+        private float GetRegroupCoverRadius()
+        {
+            return CombatCommon.GetFollowerTactic() == FollowerCombatTactic.Marksman
+                ? CombatRegroupCoverRadiusMarksman
+                : CombatRegroupCoverRadius;
         }
 
         private bool HasReachedCurrentTarget()
@@ -493,7 +510,8 @@ namespace friendlySAIN.BigBrain
         public static bool IsRegroupReason(string? reason)
         {
             return !string.IsNullOrEmpty(reason) &&
-                   reason.StartsWith(RegroupReasonPrefix, System.StringComparison.Ordinal);
+                reason != null &&
+                reason.StartsWith(RegroupReasonPrefix, System.StringComparison.Ordinal);
         }
 
         public static bool IsRunReason(string? reason)

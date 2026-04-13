@@ -52,6 +52,7 @@ public class FriendlyTeammateService(
     private const string TeammateFolderName = "teammates";
     private const string DefaultLoadoutName = "Default";
     private const string DefaultLoadoutId = "000000000000000000000000";
+    private static readonly string[] TacticOptions = ["Balanced", "Marksman", "Protector"];
     private const int RelativeLevelDelta = 5;
     private const int SecureContainerAmmoStackCount = 10;
     private const string GrizzlyMedicalKitTemplateId = "590c657e86f77412b013051d";
@@ -202,7 +203,7 @@ public class FriendlyTeammateService(
                 return new FriendlyTeammateFollowerDetailsResponse
                 {
                     Aid = teammate.Aid?.ToString() ?? string.Empty,
-                    Tactic = "Default",
+                    Tactic = NormalizeCombatTactic(settings.CombatTactic),
                     Aggression = NormalizeAggression(settings.Aggression),
                     Equipment = equipmentName,
                     Voice = teammate.Customization?.Voice?.ToString() ?? string.Empty,
@@ -232,7 +233,7 @@ public class FriendlyTeammateService(
         var response = new FriendlyTeammateProfileOptionsResponse
         {
             CurrentLoadoutId = selectedLoadoutId,
-            CurrentTactic = "Default",
+            CurrentTactic = NormalizeCombatTactic(GetTeammateSettings(sessionId, teammate).CombatTactic),
             Aggression = NormalizeAggression(GetTeammateSettings(sessionId, teammate).Aggression),
             Loadouts =
             [
@@ -242,6 +243,13 @@ public class FriendlyTeammateService(
                     Name = DefaultLoadoutName,
                 },
             ],
+            Tactics = TacticOptions
+                .Select(tactic => new FriendlyTeammateTacticOption
+                {
+                    Id = tactic,
+                    Name = tactic,
+                })
+                .ToList(),
         };
 
         foreach (var build in GetCustomEquipmentBuilds(profile))
@@ -324,6 +332,15 @@ public class FriendlyTeammateService(
         var settings = GetTeammateSettings(sessionId, teammate);
         settings.Aggression = NormalizeAggression(request.Aggression);
         SaveTeammateSettings(sessionId, teammate, settings);
+    }
+
+    public void SetTeammateTactic(MongoId sessionId, FriendlyTeammateTacticRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        var settings = GetTeammateSettings(sessionId, teammate);
+        settings.CombatTactic = NormalizeCombatTactic(request.Tactic);
+        SaveTeammateSettings(sessionId, teammate, settings);
+        logger.Info($"Set teammate tactic '{settings.CombatTactic}' for aid '{teammate.Aid}' in session '{sessionId}'");
     }
 
     public void SetTeammateAutoJoin(MongoId sessionId, FriendlyTeammateAutoJoinRequest request)
@@ -1377,6 +1394,7 @@ public class FriendlyTeammateService(
                 SelectedLoadoutId = DefaultLoadoutId,
                 AutoJoinEnabled = false,
                 Aggression = 50f,
+                CombatTactic = "Balanced",
             };
         }
 
@@ -1386,9 +1404,11 @@ public class FriendlyTeammateService(
             SelectedLoadoutId = DefaultLoadoutId,
             AutoJoinEnabled = false,
             Aggression = 50f,
+            CombatTactic = "Balanced",
         };
 
         loadedSettings.Aggression = NormalizeAggression(loadedSettings.Aggression);
+        loadedSettings.CombatTactic = NormalizeCombatTactic(loadedSettings.CombatTactic);
         return loadedSettings;
     }
 
@@ -1474,6 +1494,28 @@ public class FriendlyTeammateService(
         }
 
         return Math.Clamp(value, 0f, 100f);
+    }
+
+    private static string NormalizeCombatTactic(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "Balanced";
+        }
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "marksman" => "Marksman",
+            "protector" => "Protector",
+            "guard" => "Protector",
+            "holder" => "Protector",
+            "support" => "Protector",
+            "assist" => "Protector",
+            "balanced" => "Balanced",
+            "default" => "Balanced",
+            "pusher" => "Balanced",
+            _ => "Balanced",
+        };
     }
 
     private void ApplyEquipmentBuild(BotBase teammate, EquipmentBuild equipmentBuild, PmcData playerPmc)

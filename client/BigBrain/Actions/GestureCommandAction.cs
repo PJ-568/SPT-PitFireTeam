@@ -375,6 +375,7 @@ namespace friendlySAIN.BigBrain.Actions
                                       currentDecision == BotLogicDecision.shootFromPlace ||
                                       currentDecision == BotLogicDecision.shootFromCover ||
                                       currentDecision == BotLogicDecision.attackMoving ||
+                                      currentDecision == (BotLogicDecision)CustomBotDecisions.attackRetreat ||
                                       currentDecision == BotLogicDecision.runToCover ||
                                       currentDecision == BotLogicDecision.goToEnemy ||
                                       currentDecision == BotLogicDecision.runToEnemy;

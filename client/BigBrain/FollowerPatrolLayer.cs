@@ -71,17 +71,21 @@ namespace friendlySAIN.BigBrain
 
     internal sealed class FollowerPatrolLayer : CustomLayer
     {
+        private const float OutOfCombatReloadInitialCooldown = 8f;
+        private const float OutOfCombatReloadCheckInterval = 3f;
+        private const float OutOfCombatReloadActionCooldown = 5f;
+        private const float OutOfCombatReloadFullCycleCooldown = 30f;
+
         private float _nextErrorLogAt;
 
         private float healSoftTimeoutAt = 0f;
         private float healStartAt = 0f;
         private bool isHealing = false;
-        private bool triedSwitchToMainWeapon = false;
         private bool triedFillMagazines = false;
         private bool reloadingInProgress = false;
-        private bool triedReloadSecondaryWeapon = false;
         private float nextReloadCheckAt = 0f;
         private float nextMagazineFillCheckAt = 0f;
+        private readonly HashSet<EquipmentSlot> reloadSlotsTried = new HashSet<EquipmentSlot>();
         private float nextHealWorkRefreshAt = 0f;
         private bool stoppedForHealDecision = false;
         private bool sawEnemyDuringCurrentCycle = false;
@@ -397,12 +401,11 @@ namespace friendlySAIN.BigBrain
 
         private void ResetReloadState()
         {
-            triedSwitchToMainWeapon = false;
             triedFillMagazines = false;
             reloadingInProgress = false;
-            triedReloadSecondaryWeapon = false;
-            nextReloadCheckAt = Time.time + 5f;
-            nextMagazineFillCheckAt = Time.time + 5f;
+            reloadSlotsTried.Clear();
+            nextReloadCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
+            nextMagazineFillCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
         }
 
         private void TryHandleOutOfCombatReload()
@@ -413,70 +416,43 @@ namespace friendlySAIN.BigBrain
 
             var selector = BotOwner.WeaponManager.Selector;
 
-            if (
-                !triedReloadSecondaryWeapon &&
-                selector.CanChangeToSecondWeapons &&
-                selector.SecondPrimaryWeaponItem != null &&
-                selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon &&
-                selector.SecondPrimaryWeaponItem.GetCurrentMagazine() != null &&
-                selector.SecondPrimaryWeaponItem is Weapon secondWeapon &&
-                selector.SecondPrimaryWeaponItem.GetCurrentMagazine().MaxCount != secondWeapon.GetCurrentMagazineCount()
-            )
+            // First top spare magazines with loose ammo. If no loose ammo exists, this no-ops, and
+            // the reload pass below will still select the magazine with the most bullets.
+            if (!triedFillMagazines)
             {
-                selector.TryChangeWeapon(true);
-                triedReloadSecondaryWeapon = true;
-                reloadingInProgress = true;
-                nextReloadCheckAt = Time.time + 5f;
-                nextMagazineFillCheckAt = Time.time + 5f;
+                BotOwner.WeaponManager.Reload.TryFillMagazines();
+                triedFillMagazines = true;
+                nextReloadCheckAt = Time.time + OutOfCombatReloadCheckInterval;
+                nextMagazineFillCheckAt = Time.time + OutOfCombatReloadFullCycleCooldown;
                 return;
             }
 
-            if (
-                !reloadingInProgress &&
-                !triedSwitchToMainWeapon &&
-                (
-                    selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon ||
-                    selector.LastEquipmentSlot == EquipmentSlot.Holster
-                )
-            )
+            if (ShouldReloadCurrentWeaponOutOfCombat())
             {
-                selector.TryChangeToMain();
-                triedSwitchToMainWeapon = true;
-                nextReloadCheckAt = Time.time + 5f;
-                nextMagazineFillCheckAt = Time.time + 5f;
+                reloadSlotsTried.Add(selector.LastEquipmentSlot);
+                reloadingInProgress = TryForceReloadCurrentWeaponOutOfCombat();
+                nextReloadCheckAt = Time.time + OutOfCombatReloadActionCooldown;
+                nextMagazineFillCheckAt = Time.time + OutOfCombatReloadActionCooldown;
                 return;
-            }
-
-            if (
-                (
-                    selector.LastEquipmentSlot == EquipmentSlot.FirstPrimaryWeapon ||
-                    selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon ||
-                    selector.LastEquipmentSlot == EquipmentSlot.Holster
-                ) &&
-                ShouldReloadCurrentWeaponOutOfCombat()
-            )
-            {
-                nextReloadCheckAt = Time.time + 30f;
-                reloadingInProgress = BotOwner.WeaponManager.Reload.TryReload();
-                nextMagazineFillCheckAt = Time.time + 10f;
             }
 
             if (reloadingInProgress && !BotOwner.WeaponManager.Reload.Reloading)
             {
                 reloadingInProgress = false;
+                nextReloadCheckAt = Time.time + OutOfCombatReloadCheckInterval;
+                return;
             }
 
-            if (
-                Time.time > nextMagazineFillCheckAt &&
-                BotOwner.WeaponManager.IsWeaponReady &&
-                !BotOwner.WeaponManager.Reload.Reloading &&
-                !triedFillMagazines
-            )
+            if (TrySelectNextWeaponToTopOff(selector))
             {
-                BotOwner.WeaponManager.Reload.TryFillMagazines();
-                triedFillMagazines = true;
-                nextMagazineFillCheckAt = Time.time + 20f;
+                nextReloadCheckAt = Time.time + OutOfCombatReloadActionCooldown;
+                nextMagazineFillCheckAt = Time.time + OutOfCombatReloadActionCooldown;
+                return;
             }
+
+            reloadSlotsTried.Clear();
+            triedFillMagazines = false;
+            nextReloadCheckAt = Time.time + OutOfCombatReloadFullCycleCooldown;
         }
 
         private bool ShouldReloadCurrentWeaponOutOfCombat()
@@ -484,11 +460,6 @@ namespace friendlySAIN.BigBrain
             if (BotOwner?.WeaponManager?.Reload == null)
             {
                 return false;
-            }
-
-            if (!BotOwner.WeaponManager.HaveBullets)
-            {
-                return true;
             }
 
             Weapon currentWeapon = BotOwner.WeaponManager.CurrentWeapon;
@@ -505,7 +476,101 @@ namespace friendlySAIN.BigBrain
             }
 
             int currentBullets = currentWeapon.GetCurrentMagazineCount();
-            return (float)currentBullets / capacity < 0.35f;
+            return currentBullets < capacity;
+        }
+
+        private bool TryForceReloadCurrentWeaponOutOfCombat()
+        {
+            if (BotOwner?.WeaponManager?.Reload == null ||
+                BotOwner.WeaponManager.Reload.Reloading ||
+                BotOwner.WeaponManager.ShootController == null)
+            {
+                return false;
+            }
+
+            Weapon currentWeapon = BotOwner.WeaponManager.CurrentWeapon;
+            MagazineItemClass? currentMagazine = currentWeapon?.GetCurrentMagazine();
+            if (currentWeapon == null || currentMagazine == null || currentMagazine.MaxCount <= 0)
+            {
+                return false;
+            }
+
+            MagazineItemClass? bestMagazine = BotOwner.WeaponManager.Reload.GetMagazineForReload(currentWeapon);
+            if (bestMagazine == null || bestMagazine.Count <= currentWeapon.GetCurrentMagazineCount())
+            {
+                return false;
+            }
+
+            if (!BotOwner.WeaponManager.ShootController.CanStartReload())
+            {
+                return false;
+            }
+
+            BotOwner.WeaponManager.Reload.Reloading = true;
+            BotOwner.WeaponManager.Reload.ReloadMagazine(bestMagazine);
+            return true;
+        }
+
+        private bool TrySelectNextWeaponToTopOff(BotWeaponSelector selector)
+        {
+            EquipmentSlot currentSlot = selector.LastEquipmentSlot;
+
+            if (TrySelectWeaponToTopOff(selector, currentSlot))
+            {
+                return true;
+            }
+
+            return TrySelectWeaponToTopOff(selector, EquipmentSlot.FirstPrimaryWeapon) ||
+                   TrySelectWeaponToTopOff(selector, EquipmentSlot.SecondPrimaryWeapon) ||
+                   TrySelectWeaponToTopOff(selector, EquipmentSlot.Holster);
+        }
+
+        private bool TrySelectWeaponToTopOff(BotWeaponSelector selector, EquipmentSlot slot)
+        {
+            if (reloadSlotsTried.Contains(slot) || !ShouldReloadWeaponInSlot(slot))
+            {
+                return false;
+            }
+
+            if (selector.LastEquipmentSlot == slot)
+            {
+                return true;
+            }
+
+            return slot switch
+            {
+                EquipmentSlot.FirstPrimaryWeapon => selector.ChangeToMain(),
+                EquipmentSlot.SecondPrimaryWeapon => selector.TryChangeToSlot(EquipmentSlot.SecondPrimaryWeapon, false),
+                EquipmentSlot.Holster => selector.TryChangeToSlot(EquipmentSlot.Holster, false),
+                _ => false,
+            };
+        }
+
+        private bool ShouldReloadWeaponInSlot(EquipmentSlot slot)
+        {
+            Weapon? weapon = GetWeaponInSlot(slot);
+            if (weapon == null)
+            {
+                return false;
+            }
+
+            MagazineItemClass? magazine = weapon.GetCurrentMagazine();
+            if (magazine == null || magazine.MaxCount <= 0)
+            {
+                return false;
+            }
+
+            return weapon.GetCurrentMagazineCount() < magazine.MaxCount;
+        }
+
+        private Weapon? GetWeaponInSlot(EquipmentSlot slot)
+        {
+            if (BotOwner?.GetPlayer?.InventoryController?.Inventory?.Equipment == null)
+            {
+                return null;
+            }
+
+            return BotOwner.GetPlayer.InventoryController.Inventory.Equipment.GetSlot(slot)?.ContainedItem as Weapon;
         }
     }
 

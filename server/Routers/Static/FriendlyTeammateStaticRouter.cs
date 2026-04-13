@@ -49,6 +49,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/friendlysain/teammate/profile/aggression",
                 async (url, info, sessionId, output) => await callbacks.SetAggression(url, info, sessionId)
             ),
+            new RouteAction<FriendlyTeammateTacticRequest>(
+                "/singleplayer/friendlysain/teammate/profile/tactic",
+                async (url, info, sessionId, output) => await callbacks.SetTactic(url, info, sessionId)
+            ),
             new RouteAction<FriendlyTeammateAutoJoinRequest>(
                 "/singleplayer/friendlysain/teammate/autojoin",
                 async (url, info, sessionId, output) => await callbacks.SetAutoJoin(url, info, sessionId)
@@ -58,4 +62,5 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 async (url, info, sessionId, output) => await callbacks.Delete(url, info, sessionId)
             ),
         ]
-    ) { }
+    )
+{ }

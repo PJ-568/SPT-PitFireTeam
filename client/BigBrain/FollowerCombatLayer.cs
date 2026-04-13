@@ -21,7 +21,7 @@ namespace friendlySAIN.BigBrain
         private static readonly HashSet<BotLogicDecision> LoggedUnsupportedDecisions = new HashSet<BotLogicDecision>();
         private static readonly HashSet<string> ActiveFollowerCombatBots = new HashSet<string>(StringComparer.Ordinal);
 
-        private readonly FollowerCombatLogicBase? combatLogic;
+        private FollowerCombatLogicBase? combatLogic;
         private readonly string brainShortName;
 
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? currentDecision;
@@ -71,6 +71,14 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
+            if (HasPendingMedicalWork())
+            {
+                hadCombatSinceActivation = false;
+                noEnemySinceTime = 0f;
+                lingerUntil = 0f;
+                return false;
+            }
+
             if (!hadCombatSinceActivation)
             {
                 return false;
@@ -116,6 +124,7 @@ namespace friendlySAIN.BigBrain
             BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
+            combatLogic = CreateCombatLogic(BotOwner, brainShortName);
             combatLogic?.Reset();
             combatLogic?.StartDecision();
         }
@@ -189,6 +198,14 @@ namespace friendlySAIN.BigBrain
             {
                 if (ShouldTreatCombatAsActive())
                 {
+                    lingerUntil = 0f;
+                    return true;
+                }
+
+                if (HasPendingMedicalWork())
+                {
+                    hadCombatSinceActivation = false;
+                    noEnemySinceTime = 0f;
                     lingerUntil = 0f;
                     return true;
                 }
@@ -292,6 +309,15 @@ namespace friendlySAIN.BigBrain
                    Time.time - BotOwner.Memory.LastTimeHit <= 2f;
         }
 
+        private bool HasPendingMedicalWork()
+        {
+            return BotOwner?.Medecine != null &&
+                   (BotOwner.Medecine.FirstAid?.Have2Do == true ||
+                    BotOwner.Medecine.SurgicalKit?.HaveWork == true ||
+                    BotOwner.Medecine.FirstAid?.Using == true ||
+                    BotOwner.Medecine.SurgicalKit?.Using == true);
+        }
+
         private static bool IsHealingDecision(AICoreActionResultStruct<BotLogicDecision, GClass26>? decision)
         {
             if (!decision.HasValue)
@@ -335,6 +361,7 @@ namespace friendlySAIN.BigBrain
                    decision == BotLogicDecision.runToCover ||
                    decision == BotLogicDecision.attackMoving ||
                    decision == BotLogicDecision.attackMovingWithSuppress ||
+                   decision == (BotLogicDecision)CustomBotDecisions.attackRetreat ||
                    decision == BotLogicDecision.goToCoverPoint ||
                    decision == BotLogicDecision.goToCoverPointTactical;
         }
@@ -359,6 +386,20 @@ namespace friendlySAIN.BigBrain
             }
         }
 
+        private static FollowerCombatLogicBase Create(BotOwner botOwner)
+        {
+            BotFollowerPlayer? follower = BossPlayers.Instance?.GetFollower(botOwner);
+            FollowerCombatTactic tactic = follower?.CombatTactic ?? FollowerCombatTactic.Balanced;
+            return tactic switch
+            {
+                FollowerCombatTactic.Balanced => new FollowerPmcCombatLogic(botOwner),
+                // Protector currently uses the default PMC objective until its own objective is implemented.
+                FollowerCombatTactic.Protector => new FollowerPmcCombatLogic(botOwner),
+                FollowerCombatTactic.Marksman => new FollowerSniperCombatLogic(botOwner),
+                _ => throw new ArgumentOutOfRangeException(nameof(tactic), tactic, "Unsupported follower combat tactic"),
+            };
+        }
+
         private static FollowerCombatLogicBase? CreateCombatLogic(BotOwner botOwner, string shortName)
         {
             if (botOwner == null)
@@ -368,10 +409,10 @@ namespace friendlySAIN.BigBrain
 
             return shortName switch
             {
-                "PmcBear" => new StandardFollowerPmcCombatLogic(botOwner),
-                "PmcUsec" => new StandardFollowerPmcCombatLogic(botOwner),
-                "PMC" => new StandardFollowerPmcCombatLogic(botOwner),
-                "ExUsec" => new StandardFollowerPmcCombatLogic(botOwner),
+                "PmcBear" => Create(botOwner),
+                "PmcUsec" => Create(botOwner),
+                "PMC" => Create(botOwner),
+                "ExUsec" => Create(botOwner),
                 _ => CreateCombatLogicByRole(botOwner),
             };
         }
@@ -382,10 +423,10 @@ namespace friendlySAIN.BigBrain
 
             return role switch
             {
-                WildSpawnType.pmcBEAR => new StandardFollowerPmcCombatLogic(botOwner),
-                WildSpawnType.pmcUSEC => new StandardFollowerPmcCombatLogic(botOwner),
-                WildSpawnType.pmcBot => new StandardFollowerPmcCombatLogic(botOwner),
-                WildSpawnType.exUsec => new StandardFollowerPmcCombatLogic(botOwner),
+                WildSpawnType.pmcBEAR => Create(botOwner),
+                WildSpawnType.pmcUSEC => Create(botOwner),
+                WildSpawnType.pmcBot => Create(botOwner),
+                WildSpawnType.exUsec => Create(botOwner),
                 _ => null,
             };
         }
@@ -393,6 +434,11 @@ namespace friendlySAIN.BigBrain
         private static Action CreateBigBrainAction(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             FollowerCombatActionData actionData = new FollowerCombatActionData(decision.Action, decision.Reason, decision.Data);
+
+            if (decision.Action == (BotLogicDecision)CustomBotDecisions.attackRetreat)
+            {
+                return new Action(typeof(CombatAttackRetreatAction), decision.Reason, actionData);
+            }
 
             switch (decision.Action)
             {

@@ -23,6 +23,20 @@ namespace friendlySAIN.BigBrain.Actions
         {
         }
 
+        protected void SetCombatSprint(bool sprint, bool withDebugCallback = false)
+        {
+            if (sprint)
+            {
+                BotOwner.SetPose(1f);
+                BotOwner.SetTargetMoveSpeed(1f);
+            }
+
+            // Use the mover directly for follower combat run actions. BotOwner.Sprint(true)
+            // drops current aiming target every tick, which can fight combat steering and turn
+            // a run decision into a walk-looking movement state.
+            BotOwner.Mover.Sprint(sprint, withDebugCallback);
+        }
+
         protected static GClass26? GetRawData(CustomLayer.ActionData data)
         {
             return (data as FollowerCombatActionData)?.Data;

@@ -47,12 +47,19 @@ namespace friendlySAIN.Patches
         public string Name { get; set; }
     }
 
+    internal class FriendlyTeammateTacticOption
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+    }
+
     internal class FriendlyTeammateProfileOptions
     {
         public string CurrentLoadoutId { get; set; }
         public string CurrentTactic { get; set; }
         public float Aggression { get; set; } = 50f;
         public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; }
+        public List<FriendlyTeammateTacticOption> Tactics { get; set; }
     }
 
     internal class FriendlyTeammateSuitRequest
@@ -77,6 +84,12 @@ namespace friendlySAIN.Patches
     {
         public string aid { get; set; }
         public float aggression { get; set; }
+    }
+
+    internal class FriendlyTeammateTacticRequest
+    {
+        public string aid { get; set; }
+        public string tactic { get; set; }
     }
 
     internal sealed class LoadoutEditorHeaderDragHandle : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
@@ -105,6 +118,41 @@ namespace friendlySAIN.Patches
         public void OnEndDrag(PointerEventData eventData)
         {
             _dragging = false;
+        }
+    }
+
+    internal sealed class ProfileTooltipHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+    {
+        private string tooltipText;
+        private Vector2 tooltipOffset = new Vector2(5f, 7f);
+
+        public void Configure(string text, Vector2? offset = null)
+        {
+            tooltipText = text ?? string.Empty;
+            tooltipOffset = offset ?? new Vector2(5f, 7f);
+        }
+
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            if (string.IsNullOrWhiteSpace(tooltipText))
+            {
+                return;
+            }
+
+            ItemUiContext instance = ItemUiContext.Instance;
+            instance?.Tooltip?.Show(tooltipText, tooltipOffset, 0f, null);
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            ItemUiContext instance = ItemUiContext.Instance;
+            instance?.Tooltip?.Close();
+        }
+
+        private void OnDisable()
+        {
+            ItemUiContext instance = ItemUiContext.Instance;
+            instance?.Tooltip?.Close();
         }
     }
 
@@ -232,6 +280,7 @@ namespace friendlySAIN.Patches
         private const string RenameRoute = "/singleplayer/friendlysain/teammate/profile/rename";
         private const string LoadoutRoute = "/singleplayer/friendlysain/teammate/profile/loadout";
         private const string AggressionRoute = "/singleplayer/friendlysain/teammate/profile/aggression";
+        private const string TacticRoute = "/singleplayer/friendlysain/teammate/profile/tactic";
 
         private static readonly FieldInfo PlayerModelWindowField = AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow");
         private static readonly FieldInfo ClothingPanelField = AccessTools.Field(typeof(InventoryPlayerModelWithStatsWindow), "_clothingPanel");
@@ -510,20 +559,99 @@ namespace friendlySAIN.Patches
                 lowerRoot.gameObject.SetActive(false);
             }
 
-            bool isDefaultTactic = IsDefaultTacticSelection(options.CurrentTactic);
+            bool isMarksmanTactic = IsMarksmanTactic(options.CurrentTactic);
             float aggressionValue = Mathf.Clamp(options.Aggression, 0f, 100f);
 
-            CreateAggressionRowContent(rowClone, profile, aggressionValue, isDefaultTactic);
+            CreateAggressionRowContent(rowClone, profile, aggressionValue, !isMarksmanTactic, isMarksmanTactic);
             AggressionSelector = rowClone;
             return rowClone;
         }
 
-        private static void CreateAggressionRowContent(RectTransform rowRoot, ResultProfile profile, float aggressionValue, bool interactable)
+        private static bool IsMarksmanTactic(string tactic)
+        {
+            return string.Equals(tactic, "marksman", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void SetAggressionRowMarksmanState(bool isMarksman)
+        {
+            if (AggressionSelector == null)
+            {
+                return;
+            }
+
+            CanvasGroup rowCanvasGroup = AggressionSelector.GetComponent<CanvasGroup>() ?? AggressionSelector.gameObject.AddComponent<CanvasGroup>();
+            rowCanvasGroup.alpha = isMarksman ? 0.3f : 1f;
+
+            CustomTextMeshProUGUI label = AggressionSelector.Find("friendlySAIN_AggressionLabel")?.GetComponent<CustomTextMeshProUGUI>();
+            if (label != null)
+            {
+                label.color = isMarksman ? new Color(0.62f, 0.62f, 0.62f, 1f) : Color.white;
+            }
+
+            NumberSlider slider = AggressionSelector.GetComponentsInChildren<NumberSlider>(true)
+                .FirstOrDefault(candidate => candidate != null && string.Equals(candidate.name, "friendlySAIN_ProfileAggressionSlider", StringComparison.Ordinal));
+            if (slider != null)
+            {
+                slider.enabled = !isMarksman;
+
+                Slider stockSlider = slider.GetComponentInChildren<Slider>(true);
+                if (stockSlider != null)
+                {
+                    stockSlider.interactable = !isMarksman;
+                }
+
+                TMP_InputField valueInput = NumberSliderValueInputField?.GetValue(slider) as TMP_InputField;
+                if (valueInput != null)
+                {
+                    valueInput.readOnly = isMarksman;
+                    valueInput.interactable = !isMarksman;
+                }
+            }
+
+            Transform existingTooltip = AggressionSelector.Find("friendlySAIN_AggressionDisabledTooltip");
+            if (!isMarksman)
+            {
+                if (existingTooltip != null)
+                {
+                    GameObject.Destroy(existingTooltip.gameObject);
+                }
+
+                return;
+            }
+
+            RectTransform sliderRoot = slider?.transform as RectTransform;
+            if (existingTooltip != null || sliderRoot == null)
+            {
+                return;
+            }
+
+            GameObject tooltipAreaObject = new GameObject("friendlySAIN_AggressionDisabledTooltip", typeof(RectTransform), typeof(Image));
+            tooltipAreaObject.transform.SetParent(sliderRoot, false);
+
+            RectTransform tooltipAreaRect = tooltipAreaObject.GetComponent<RectTransform>();
+            tooltipAreaRect.anchorMin = Vector2.zero;
+            tooltipAreaRect.anchorMax = Vector2.one;
+            tooltipAreaRect.offsetMin = Vector2.zero;
+            tooltipAreaRect.offsetMax = Vector2.zero;
+            tooltipAreaRect.localScale = Vector3.one;
+
+            Image tooltipAreaImage = tooltipAreaObject.GetComponent<Image>();
+            tooltipAreaImage.color = new Color(0f, 0f, 0f, 0f);
+            tooltipAreaImage.raycastTarget = true;
+
+            ProfileTooltipHoverController tooltipHover = tooltipAreaObject.AddComponent<ProfileTooltipHoverController>();
+            tooltipHover.Configure(GetSocialUiText("ProfileAggressionMarksmanTooltip", "Agression not available for Marksman"));
+        }
+
+        private static void CreateAggressionRowContent(RectTransform rowRoot, ResultProfile profile, float aggressionValue, bool interactable, bool isMarksman)
         {
             if (rowRoot == null || profile == null)
             {
                 return;
             }
+
+            CanvasGroup rowCanvasGroup = rowRoot.GetComponent<CanvasGroup>() ?? rowRoot.gameObject.AddComponent<CanvasGroup>();
+            rowCanvasGroup.alpha = isMarksman ? 0.3f : 1f;
 
             CustomTextMeshProUGUI label = CreateAggressionLabel(
                 "friendlySAIN_AggressionLabel",
@@ -571,6 +699,8 @@ namespace friendlySAIN.Patches
                 stockSlider.interactable = interactable;
             }
 
+            slider.enabled = interactable;
+
             if (valueInput != null)
             {
                 valueInput.readOnly = !interactable;
@@ -582,6 +712,26 @@ namespace friendlySAIN.Patches
                 if (label != null)
                 {
                     label.color = disabledColor;
+                }
+
+                if (sliderRoot != null)
+                {
+                    GameObject tooltipAreaObject = new GameObject("friendlySAIN_AggressionDisabledTooltip", typeof(RectTransform), typeof(Image));
+                    tooltipAreaObject.transform.SetParent(sliderRoot, false);
+
+                    RectTransform tooltipAreaRect = tooltipAreaObject.GetComponent<RectTransform>();
+                    tooltipAreaRect.anchorMin = Vector2.zero;
+                    tooltipAreaRect.anchorMax = Vector2.one;
+                    tooltipAreaRect.offsetMin = Vector2.zero;
+                    tooltipAreaRect.offsetMax = Vector2.zero;
+                    tooltipAreaRect.localScale = Vector3.one;
+
+                    Image tooltipAreaImage = tooltipAreaObject.GetComponent<Image>();
+                    tooltipAreaImage.color = new Color(0f, 0f, 0f, 0f);
+                    tooltipAreaImage.raycastTarget = true;
+
+                    ProfileTooltipHoverController tooltipHover = tooltipAreaObject.AddComponent<ProfileTooltipHoverController>();
+                    tooltipHover.Configure(GetSocialUiText("ProfileAggressionMarksmanTooltip", "Agression not available for Marksman"));
                 }
             }
 
@@ -2955,6 +3105,8 @@ namespace friendlySAIN.Patches
 
             List<dropDownItem> loadoutItems = [];
             HashSet<string> loadoutIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> tacticIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string> tacticValueByDropdownId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             dropDownItem currentLoadout = null;
             foreach (FriendlyTeammateLoadoutOption option in options.Loadouts)
             {
@@ -2980,38 +3132,115 @@ namespace friendlySAIN.Patches
                 return;
             }
 
-            FriendlyProfileDropdownItem currentTactic = new FriendlyProfileDropdownItem
-            {
-                Id = "111111111111111111111111",
-                Name = GetTacticDisplayName(options.CurrentTactic)
-            };
+            List<dropDownItem> tacticItems = [];
+            dropDownItem currentTactic = null;
+            IEnumerable<FriendlyTeammateTacticOption> availableTactics =
+                options.Tactics != null && options.Tactics.Count > 0
+                    ? options.Tactics
+                    : new[]
+                    {
+                        new FriendlyTeammateTacticOption { Id = "Balanced", Name = "Balanced" },
+                        new FriendlyTeammateTacticOption { Id = "Marksman", Name = "Marksman" },
+                        new FriendlyTeammateTacticOption { Id = "Protector", Name = "Protector" },
+                    };
 
-            CustomDropdownIds.Add(currentTactic.Id);
-            List<dropDownItem> tacticItems = new List<dropDownItem> { currentTactic };
+            int tacticIdSeed = 0;
+            string currentTacticValue = options.CurrentTactic?.Trim() ?? string.Empty;
+
+            foreach (FriendlyTeammateTacticOption tactic in availableTactics)
+            {
+                if (string.IsNullOrWhiteSpace(tactic?.Id))
+                {
+                    continue;
+                }
+
+                string tacticValue = string.IsNullOrWhiteSpace(tactic.Name)
+                    ? tactic.Id
+                    : tactic.Name;
+
+                // Dropdown item IDs must be MongoID-compatible (24 hex chars) in this profile UI path.
+                string dropdownId = $"11111111111111111111111{(tacticIdSeed++ % 16):x1}";
+
+                FriendlyProfileDropdownItem tacticItem = new FriendlyProfileDropdownItem
+                {
+                    Id = dropdownId,
+                    Name = GetTacticDisplayName(tacticValue)
+                };
+
+                CustomDropdownIds.Add(tacticItem.Id);
+                tacticIds.Add(tacticItem.Id);
+                tacticValueByDropdownId[tacticItem.Id] = tacticValue;
+                tacticItems.Add(tacticItem);
+
+                if (string.Equals(tactic.Id, currentTacticValue, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(tacticValue, currentTacticValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    currentTactic = tacticItem;
+                }
+            }
+
+            currentTactic ??= tacticItems.FirstOrDefault();
+            if (currentTactic == null)
+            {
+                return;
+            }
 
             panel.Show(loadoutItems, currentLoadout, tacticItems, currentTactic, false, selected =>
             {
-                if (selected == null || !loadoutIds.Contains(selected.Id))
+                if (selected == null)
                 {
                     return;
                 }
 
-                try
+                if (loadoutIds.Contains(selected.Id))
                 {
-                    string responseJson = RequestHandler.PostJson(LoadoutRoute, SerializeBody(new FriendlyTeammateLoadoutRequest
+                    try
                     {
-                        aid = profile.AccountId,
-                        loadoutId = selected.Id
-                    }));
-                    EnsureBodySuccess(responseJson);
+                        string responseJson = RequestHandler.PostJson(LoadoutRoute, SerializeBody(new FriendlyTeammateLoadoutRequest
+                        {
+                            aid = profile.AccountId,
+                            loadoutId = selected.Id
+                        }));
+                        EnsureBodySuccess(responseJson);
 
-                    MarkSquadRosterDirty(profile?.AccountId);
-                    RefreshPlayerVisualization(profile, inventoryController, session, window);
+                        MarkSquadRosterDirty(profile?.AccountId);
+                        RefreshPlayerVisualization(profile, inventoryController, session, window);
+                    }
+                    catch (Exception ex)
+                    {
+                        Modules.Logger.LogError("[UI] Failed to persist teammate loadout change.");
+                        Modules.Logger.LogError(ex);
+                    }
+
+                    return;
                 }
-                catch (Exception ex)
+
+                if (tacticIds.Contains(selected.Id))
                 {
-                    Modules.Logger.LogError("[UI] Failed to persist teammate loadout change.");
-                    Modules.Logger.LogError(ex);
+                    try
+                    {
+                        if (!tacticValueByDropdownId.TryGetValue(selected.Id, out string tacticValue) || string.IsNullOrWhiteSpace(tacticValue))
+                        {
+                            tacticValue = "Balanced";
+                        }
+
+                        string responseJson = RequestHandler.PostJson(TacticRoute, SerializeBody(new FriendlyTeammateTacticRequest
+                        {
+                            aid = profile.AccountId,
+                            tactic = tacticValue
+                        }));
+                        EnsureBodySuccess(responseJson);
+                        Modules.Logger.LogInfo($"[UI] Persisted teammate tactic '{tacticValue}' for '{profile.AccountId}'.");
+
+                        SetAggressionRowMarksmanState(IsMarksmanTactic(tacticValue));
+                        MarkSquadRosterDirty(profile?.AccountId);
+                        RefreshPlayerVisualization(profile, inventoryController, session, window);
+                    }
+                    catch (Exception ex)
+                    {
+                        Modules.Logger.LogError("[UI] Failed to persist teammate tactic change.");
+                        Modules.Logger.LogError(ex);
+                    }
                 }
             });
         }

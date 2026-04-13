@@ -9,9 +9,18 @@ public record FriendlyTeammateProfileOptionsResponse
     public float Aggression { get; set; } = 50f;
 
     public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; } = [];
+
+    public List<FriendlyTeammateTacticOption> Tactics { get; set; } = [];
 }
 
 public record FriendlyTeammateLoadoutOption
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+}
+
+public record FriendlyTeammateTacticOption
 {
     public string Id { get; set; } = string.Empty;
 

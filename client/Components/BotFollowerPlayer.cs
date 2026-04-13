@@ -697,6 +697,54 @@ namespace friendlySAIN.Components
                     field.SetValue(_bot.Profile.FenceInfo.FenceLoyalty, false);
                 }
             }
+
+            // SAIN plugin keeps its own ForgetEnemyTime property (private setter) that drives
+            // EnemyKnownChecker independently of the vanilla TIME_TO_FORGOR_ABOUT_ENEMY_SEC field.
+            // Override it here so both paths use the player-configured value.
+            // This must run after bot.Settings = settings above, and is safe to call before SAIN
+            // AddFollower postfix fires since GetSainBot falls back gracefully when SAIN is absent.
+            if (friendlySAIN.IsSAINInstalled)
+            {
+                TryOverrideSainForgetEnemyTime(bot, friendlySAIN.enemyRemember.Value);
+            }
+        }
+
+        private static void TryOverrideSainForgetEnemyTime(BotOwner bot, float forgetSeconds)
+        {
+            if (bot == null || forgetSeconds <= 0f) return;
+
+            try
+            {
+                object sainBot = GetSainBot(bot);
+                if (sainBot == null) return;
+
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                object info = null;
+                PropertyInfo infoProp = sainBot.GetType().GetProperty("Info", flags);
+                if (infoProp?.CanRead == true) info = infoProp.GetValue(sainBot);
+                if (info == null)
+                {
+                    FieldInfo infoField = sainBot.GetType().GetField("Info", flags);
+                    if (infoField != null) info = infoField.GetValue(sainBot);
+                }
+                if (info == null) return;
+
+                // Override the auto-property backing field; private setter prevents direct set.
+                FieldInfo backingField = info.GetType().GetField("<ForgetEnemyTime>k__BackingField", flags);
+                if (backingField != null)
+                {
+                    backingField.SetValue(info, forgetSeconds);
+                }
+                else
+                {
+                    Modules.Logger.LogInfo("[SAIN] Could not find ForgetEnemyTime backing field — SAIN forget time may not match config.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[SAIN] Failed to override SAINBotInfoClass.ForgetEnemyTime");
+                Modules.Logger.LogError(ex);
+            }
         }
 
         public bool IsBot(BotOwner bot)

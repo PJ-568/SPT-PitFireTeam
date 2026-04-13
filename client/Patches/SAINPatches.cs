@@ -1,5 +1,6 @@
 ﻿using EFT;
 
+using EFT.InventoryLogic;
 using friendlySAIN;
 using friendlySAIN.Modules;
 using HarmonyLib;
@@ -28,6 +29,7 @@ namespace friendlySAIN.Patches
         private static Type? sainBotTalkManualUpdatePatch = null;
         private static Type? sainPlayerComponentType = null;
         private static Type? sainMoverClass = null;
+        private static Type? sainShootDataType = null;
         private static PropertyInfo? sainPlayerComponentPlayerProperty = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {

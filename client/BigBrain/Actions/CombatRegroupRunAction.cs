@@ -25,7 +25,7 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.GoToSomePointData.UpdateToGo(true, 1, 1f);
             if (!BotOwner.Mover.Sprinting)
             {
-                BotOwner.Mover.Sprint(true, false);
+                SetCombatSprint(true);
             }
 
             baseLogic.UpdateNodeByBrain(GetData<GClass30>(data));

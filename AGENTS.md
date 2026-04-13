@@ -6,6 +6,13 @@ Your job is to make safe, context-aware changes that preserve runtime stability,
 
 You must think like a maintainer of a fragile gameplay-AI integration project, not like a generic C# assistant.
 
+## Terminology
+
+- **SAIN Plugin** (or "SAIN mod", "SAIN") — the third-party SAIN mod by Sol (`me.sol.sain`), located at `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`. This is an external dependency.
+- **SAIN Addon** — our own addon DLL (`addon/`, plugin ID `xyz.pit.friendlysain.sainaddon`) that integrates SAIN brain layers with followers. This is our code.
+
+Never confuse these two. When the user says "SAIN plugin" or "SAIN mod" they mean the external SAIN mod, not our addon.
+
 ## Working Rules
 
 Read code first. Assume nothing.
@@ -21,7 +28,7 @@ Never invent APIs, properties, or behaviors that do not exist. Only reference me
 Separate vanilla and SAIN reasoning. Every behavior should be classified as one of:
 
 - vanilla / core plugin path
-- SAIN addon / SAIN-owned path
+- SAIN addon / SAIN-owned path (currently disabled)
 
 Do not mix these paths unless the code clearly bridges them.
 
@@ -48,7 +55,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-04-10  
+**Last updated:** 2026-04-12  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
 
 ## Project Overview
@@ -268,11 +275,22 @@ Current verified custom teammate feature state:
     - combat decisions are now follower-local inside `FollowerCombatDefault`.
 - Core combat routing is now objective-based on the vanilla/core path:
     - `FollowerCombatLogicBase` now owns the shared objective router and objective lifecycle
-    - concrete combat logic classes are expected to supply their own default objective implementation and can reuse the shared regroup objective
-    - `StandardFollowerPmcCombatLogic` currently plugs in `FollowerCombatDefaultObjective` as its default objective
+    - `FollowerCombatLogicBase` constructs the shared objective set: `FollowerCombatDefaultObjective`, `FollowerCombatSniperObjective`, and `FollowerCombatRegroupObjective`
+    - concrete combat logic classes select their primary objective instead of replacing a generic default slot
+    - `FollowerPmcCombatLogic` is the PMC combat entry point and selects the concrete logic from follower tactic
+    - default/balanced PMC logic uses `FollowerCombatDefaultObjective` as its primary objective
+    - marksman PMC logic uses `FollowerCombatSniper` with `FollowerCombatSniperObjective` as its primary objective
+    - both default and marksman logic reuse the same `FollowerCombatRegroupObjective` path through `FollowerCombatLogicBase`
     - objective selection is combat-owned, not request-layer-owned
     - regroup command in combat is consumed immediately and converted into the regroup objective state
-    - explicit `PushEnemy` during regroup switches back to default objective, then default handles the push
+    - explicit `PushEnemy` during regroup switches back to the active tactic's primary objective
+- Combat tactic construction rules:
+    - keep routing/lifecycle in a `FollowerCombatLogicBase` subclass, keep the tactic decision tree in a dedicated class such as `FollowerCombatDefault` or `FollowerCombatSniper`, and keep the objective wrapper thin like `FollowerCombatDefaultObjective` / `FollowerCombatSniperObjective`
+    - do not merge tactic decision trees into each other; `FollowerCombatDefault` and `FollowerCombatSniper` should be separate primary stacks that only share primitives through `FollowerCombatCommon`
+    - `FollowerCombatCommon` should contain shared primitives and reusable decision helpers, not default-only or marksman-only policy
+    - every movement decision that depends on cover or point data must set that destination first through committed cover, assigned cover, `GoToSomePointData.SetPoint(...)`, or a verified action-owned destination path
+    - if a tactic cannot find a valid destination for a movement decision, return false and let the next branch decide instead of emitting a stale/no-target movement action
+    - regroup stays objective-level and shared; default, marksman, protector, and future tactic stacks should activate regroup through `CreateRegroupObjectiveDecision()` rather than duplicating regroup movement logic
 - `FollowerCombatDefaultObjective` wraps the existing `FollowerCombatDefault` tree:
     1. pre-fight grenade check and one-shot opener from `PrepareStartDecision`
     2. committed push continuation
@@ -285,6 +303,11 @@ Current verified custom teammate feature state:
     9. generic blind advance / engage
     10. boss-distance regroup trigger
     11. committed cover continuation and passive hold fallback
+- `FollowerCombatSniper` is separate from default PMC combat logic:
+    - `FollowerCombatSniperObjective` owns the marksman decision stack
+    - marksman ignores explicit push/suppression/grenade orders that should not make a sniper rush
+    - close-quarter marksman handling can switch to a full-auto secondary and avoids forcing `runToEnemy` back to primary
+    - marksman repositioning prefers shoot-capable cover/firing-position movement and hands boss-distance regroup to the shared regroup objective
 - `FollowerCombatRegroupObjective` is a separate combat decision stack:
     - objective is "reach the boss / bossward cover" and it does not re-enter default push/hold logic while active
     - if enemy contact is still hot:
@@ -384,7 +407,7 @@ Supported commands via `GestureCommandAction`:
 - **OpenDoor** — Closest eligible follower assigned via `InteractableObjects.SetOpener(...)`, moves + `DoorOpener.Interact(Open)`
 - **Regroup** — Vanilla: converge to boss-near cover; SAIN: via addon `SAINFollowerCombatRegroupAction`
     - core-path combat regroup no longer runs through `GestureCommandAction`
-    - during combat it is now an objective trigger consumed by `StandardFollowerPmcCombatLogic`
+    - during combat it is now an objective trigger consumed by the active `FollowerCombatLogicBase` implementation
     - out of combat it still uses the request-layer regroup command path
 - **Attention** (Look) — Clear enemy state, release command, force attention to boss/point
 
