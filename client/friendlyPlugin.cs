@@ -278,6 +278,9 @@ namespace friendlySAIN
             // bot misc patches
             new BotTalkTrySayPatch().Enable();
             new BotTalkSayPatch().Enable();
+            new FollowerSupportNoAmmoMainSwitchPolicyPatch().Enable();
+            new FollowerWeaponSwitchTracePatch().Enable();
+            new FollowerHoldLingerReloadSuppressPatch().Enable();
             new FollowerGrenadeAvailabilityPatch().Enable();
             new BulletImpactPatch().Enable();
             new HearingSensorPatch().Enable();

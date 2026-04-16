@@ -14,7 +14,6 @@ namespace friendlySAIN.BigBrain
 {
     internal sealed class FollowerCombatCommon
     {
-        private const float StartCloseCoverDistance = 25f;
         private const float StartSupportSuppressDistance = 30f;
         private const float ShootCoverSuperiorNavImprovementFactor = 0.7f;
         private const float StableShootCoverRefreshInterval = 1.2f;
@@ -25,15 +24,12 @@ namespace friendlySAIN.BigBrain
         private const float WeakEnemyPushDefaultMaxDistance = 80f;
         private const float WeakEnemyPushProtectorMaxDistance = 60f;
         private const float WeakEnemyPushMarksmanMaxDistance = 150f;
-        private const float CombatCoverMaxDistance = 120f;
         private const float StableVisibleImmediateFireSeconds = 0.3f;
         private const float CoverCommitLockSeconds = 2.5f;
         private const float CoverSearchCooldownSeconds = 0.35f;
-        private const float HealCoverRetreatDistance = 14f;
-        private const float HealCoverSearchRadius = 30f;
-        private const float HealCoverMaxNavDistance = 35f;
         private const float HealCoverMinNavDistance = 2f;
         private const float HealCoverMinEnemyDistanceGain = -2f;
+        private const float EnemyFrontCrossGuardMaxDistance = 35f;
         private readonly BotOwner botOwner;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? initialDecision;
         private float healBlockUntil;
@@ -315,6 +311,20 @@ namespace friendlySAIN.BigBrain
 
         public BotLogicDecision SelectCommittedCoverMoveAction(EnemyInfo goalEnemy, CustomNavigationPoint? targetCover)
         {
+            // If this is heal cover and bot has healed enough/threat changed, clear it and return to combat
+            if (targetCover == committedHealCover && ShouldClearHealCover(goalEnemy, out string? clearReason))
+            {
+#if DEBUG
+                global::friendlySAIN.Modules.Logger.LogInfo($"[HealCover] follower={botOwner.name ?? botOwner.Profile?.Nickname ?? "unknown"} reason={clearReason ?? "unknown"}");
+#endif
+                ClearCommittedHealCover();
+                // Fall through to threat-based move decision; likely need to rejoin combat or regroup
+                bool canSprintPlayer = botOwner.CanSprintPlayer;
+                return canSprintPlayer
+                    ? BotLogicDecision.runToCover
+                    : BotLogicDecision.attackMoving;
+            }
+
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 if (IsRetreatCover(goalEnemy, targetCover))
@@ -827,7 +837,7 @@ namespace friendlySAIN.BigBrain
         /// </summary>
         public float GetCombatCoverMaxDistanceSqr()
         {
-            return CombatCoverMaxDistance * CombatCoverMaxDistance;
+            return CombatDistanceConfiguration.Instance.GetCombatCoverMaxDistanceSqr();
         }
 
         private bool HasMeaningfulNavImprovement(CustomNavigationPoint current, CustomNavigationPoint candidate)
@@ -984,7 +994,12 @@ namespace friendlySAIN.BigBrain
         /// Old-plugin equivalent of GetClosestAttackCoverPoint/GetClosestShootCover.
         /// Finds a nearby cover point with a clear shot to the enemy target point.
         /// </summary>
-        public CustomNavigationPoint? GetClosestShootCover(Vector3 centerPosition, float maxDistance = 150f, bool inbetween = false, float? maxDistanceFromBot = null)
+        public CustomNavigationPoint? GetClosestShootCover(
+            Vector3 centerPosition,
+            float maxDistance = 150f,
+            bool inbetween = false,
+            float? maxDistanceFromBot = null,
+            bool avoidCrossingEnemyFront = false)
         {
             if (nextClosestShootCoverCheckTime > Time.time)
             {
@@ -1031,6 +1046,12 @@ namespace friendlySAIN.BigBrain
                         return false;
                     }
 
+                    if (avoidCrossingEnemyFront &&
+                        ShouldAvoidCoverBecauseCrossesEnemyFront(point.Position, shootPointClass.Point))
+                    {
+                        return false;
+                    }
+
                     return Utils.Utils.CanShootToTarget(shootPointClass, point, botOwner.LookSensor.Mask, false);
                 });
 
@@ -1069,7 +1090,7 @@ namespace friendlySAIN.BigBrain
                 : goalEnemy.CurrPosition;
 
             Vector3 midpoint = (botOwner.Position + enemyPosition) * 0.5f;
-            return GetClosestShootCover(midpoint, 120f, inbetween);
+            return GetClosestShootCover(midpoint, 120f, inbetween, avoidCrossingEnemyFront: true);
         }
 
         public CustomNavigationPoint? GetWeakEnemyPushCover()
@@ -1112,7 +1133,71 @@ namespace friendlySAIN.BigBrain
                 : goalEnemy.CurrPosition;
 
             Vector3 midpoint = (botOwner.Position + enemyPosition) * 0.5f;
-            return GetClosestShootCover(midpoint, maxDistance, inbetween, maxDistanceFromBot: maxDistance);
+            return GetClosestShootCover(
+                midpoint,
+                maxDistance,
+                inbetween,
+                maxDistanceFromBot: maxDistance,
+                avoidCrossingEnemyFront: true);
+        }
+
+        private bool ShouldAvoidCoverBecauseCrossesEnemyFront(Vector3 coverPosition, Vector3 enemyPosition)
+        {
+            Vector3 botPosition = botOwner.Position;
+            Vector3 toEnemy = enemyPosition - botPosition;
+            Vector3 toCover = coverPosition - botPosition;
+
+            toEnemy.y = 0f;
+            toCover.y = 0f;
+
+            if (toEnemy.sqrMagnitude < 0.01f || toCover.sqrMagnitude < 0.01f)
+            {
+                return false;
+            }
+
+            // If candidate is not generally toward enemy direction, this check is irrelevant.
+            if (Vector3.Dot(toCover.normalized, toEnemy.normalized) <= 0f)
+            {
+                return false;
+            }
+
+            float enemyDist = toEnemy.magnitude;
+            float coverDist = toCover.magnitude;
+
+            // At longer ranges, a quick crossing segment is usually acceptable and often safer
+            // than over-constraining cover picks.
+            if (enemyDist > EnemyFrontCrossGuardMaxDistance)
+            {
+                return false;
+            }
+
+            // Cover not beyond enemy depth usually does not force a frontal cross.
+            if (coverDist <= enemyDist + 1.5f)
+            {
+                return false;
+            }
+
+            // If the straight path to candidate runs too close to enemy anchor, treat as frontal cross.
+            float enemyDistToPath = DistancePointToSegmentXZ(enemyPosition, botPosition, coverPosition);
+            return enemyDistToPath < 7f;
+        }
+
+        private static float DistancePointToSegmentXZ(Vector3 point, Vector3 segmentStart, Vector3 segmentEnd)
+        {
+            Vector2 p = new Vector2(point.x, point.z);
+            Vector2 a = new Vector2(segmentStart.x, segmentStart.z);
+            Vector2 b = new Vector2(segmentEnd.x, segmentEnd.z);
+
+            Vector2 ab = b - a;
+            float abLenSqr = ab.sqrMagnitude;
+            if (abLenSqr <= 0.0001f)
+            {
+                return Vector2.Distance(p, a);
+            }
+
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / abLenSqr);
+            Vector2 closest = a + ab * t;
+            return Vector2.Distance(p, closest);
         }
 
         private float GetWeakEnemyPushMaxDistance()
@@ -1395,7 +1480,8 @@ namespace friendlySAIN.BigBrain
             }
 
             bool haveCover = TryGetGeneralStartCover(goalEnemy, out CustomNavigationPoint? startCover, out float startCoverNavDistance, out bool startCoverHasShootLane);
-            bool closeCover = haveCover && startCoverNavDistance <= StartCloseCoverDistance;
+            bool closeCover = haveCover &&
+                              startCoverNavDistance <= CombatDistanceConfiguration.Instance.GetStartCloseCoverDistance();
             bool farCover = haveCover && !closeCover;
 
             // Decision 1: enemy visible + close shooting cover -> attack-moving into that cover.
@@ -1463,7 +1549,7 @@ namespace friendlySAIN.BigBrain
             if (!goalEnemy.IsVisible && IsEnemyLowThreat(goalEnemy, aggression > 0.6f, aggression >= 0.8f ? 2f : 1f))
             {
 
-                initialDecision = EnemySearch("startWeakEnemyPush.tactical");
+                initialDecision = EnemySearch("startWeakEnemyPush.tactical", true);
                 return;
             }
 
@@ -1714,7 +1800,8 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            if (TryAssignRetreatAttackCover(goalEnemy, false, HealCoverMaxNavDistance * HealCoverMaxNavDistance))
+            float healCoverMaxNavDistance = CombatDistanceConfiguration.Instance.GetHealCoverMaxNavDistance();
+            if (TryAssignRetreatAttackCover(goalEnemy, false, healCoverMaxNavDistance * healCoverMaxNavDistance))
             {
                 committedHealCover = botOwner.Memory.CurCustomCoverPoint;
                 CommitHealMove(goalEnemy);
@@ -1814,12 +1901,16 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            Vector3 retreatAnchor = botOwner.Position + awayFromEnemy.normalized * HealCoverRetreatDistance;
+            float healCoverRetreatDistance = CombatDistanceConfiguration.Instance.GetHealCoverRetreatDistance();
+            float healCoverSearchRadius = CombatDistanceConfiguration.Instance.GetHealCoverSearchRadius();
+            float healCoverMaxNavDistance = CombatDistanceConfiguration.Instance.GetHealCoverMaxNavDistance();
+
+            Vector3 retreatAnchor = botOwner.Position + awayFromEnemy.normalized * healCoverRetreatDistance;
             float currentEnemyDistance = Vector3.Distance(botOwner.Position, enemyAnchor);
             cover = Covers.GetClosestCoverPoint(
                 botOwner,
                 retreatAnchor,
-                HealCoverSearchRadius,
+                healCoverSearchRadius,
                 point =>
                 {
                     if (!IsCoverUsable(point))
@@ -1835,7 +1926,7 @@ namespace friendlySAIN.BigBrain
                     float navDistance = Utils.Utils.GetNavDistance(botOwner.Position, point.Position);
                     if (!IsFinite(navDistance) ||
                         navDistance < HealCoverMinNavDistance ||
-                        navDistance > HealCoverMaxNavDistance)
+                        navDistance > healCoverMaxNavDistance)
                     {
                         return false;
                     }
@@ -2071,7 +2162,7 @@ namespace friendlySAIN.BigBrain
             return goalEnemy.EnemyLastPositionReal;
         }
 
-        public AICoreActionResultStruct<BotLogicDecision, GClass26> EnemySearch(string reason = "enemySearch")
+        public AICoreActionResultStruct<BotLogicDecision, GClass26> EnemySearch(string reason = "enemySearch", bool weakEnemy = false)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
@@ -2083,7 +2174,7 @@ namespace friendlySAIN.BigBrain
             Vector3 searchPoint = enemyAnchor;
 
             // Prefer an approach cover with a clear shot from a nearby tactical point.
-            CustomNavigationPoint? approachCover = reason.StartsWith("startWeakEnemyPush", StringComparison.Ordinal)
+            CustomNavigationPoint? approachCover = weakEnemy
                 ? GetWeakEnemyPushCover()
                 : GetApproachableCover();
             if (approachCover != null)
@@ -2307,7 +2398,7 @@ namespace friendlySAIN.BigBrain
         /// Marksman close-quarter helper: if the current weapon is not full-auto and the bot has
         /// a loaded full-auto secondary weapon, switch to it.
         /// </summary>
-        public bool TrySwitchToAutomaticSecondaryForCloseCombat(float maxDistance)
+        public bool TrySwitchToAutomaticSecondaryForCloseCombat()
         {
             if (botOwner == null)
             {
@@ -2315,7 +2406,7 @@ namespace friendlySAIN.BigBrain
             }
 
             EnemyInfo? goalEnemy = botOwner?.Memory?.GoalEnemy;
-            if (goalEnemy == null || goalEnemy.Distance > maxDistance)
+            if (goalEnemy == null)
             {
                 return false;
             }
@@ -2356,10 +2447,11 @@ namespace friendlySAIN.BigBrain
 
             if (selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon)
             {
-                selector.TryChangeWeapon(true);
+                selector.ChangeToSecond();
+                return true;
             }
 
-            return selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon || IsCurrentWeaponAutomatic();
+            return false;
         }
 
         public void TrySwitchBackToPrimaryAtRange(EnemyInfo goalEnemy, Enemy.EnemyDistance minDistance)
@@ -2618,8 +2710,8 @@ namespace friendlySAIN.BigBrain
                 BotLogicDecision.dogFight => EndDogFight(),
                 BotLogicDecision.shootToSmoke => EndImmediately(),
                 BotLogicDecision.runToCover => EndRunToCover(currentDecision.Reason),
-                BotLogicDecision.attackMoving => EndAttackMoving(),
-                BotLogicDecision.attackMovingWithSuppress => EndAttackMovingWithSuppress(),
+                BotLogicDecision.attackMoving => EndAttackMoving(currentDecision.Reason),
+                BotLogicDecision.attackMovingWithSuppress => EndAttackMovingWithSuppress(currentDecision.Reason),
                 var decision when decision == (BotLogicDecision)CustomBotDecisions.attackRetreat => EndAttackRetreat(),
                 BotLogicDecision.shootFromPlace => EndShootFromPlace(),
                 BotLogicDecision.heal => EndHeal(),
@@ -2669,7 +2761,33 @@ namespace friendlySAIN.BigBrain
 
             if (botOwner.Memory.IsInCover)
             {
+                if (!isRunToHeal)
+                {
+                    HoldCoverForMaxDuration();
+                }
                 return new AICoreActionEndStruct("alreadyInCover", true);
+            }
+
+            // EFT cover flags can lag while movement has already reached the selected cover point.
+            // Treat committed-cover proximity as arrival so decision routing can transition to hold/scan.
+            if (IsBotInCommittedCover())
+            {
+                if (!isRunToHeal)
+                {
+                    HoldCoverForMaxDuration();
+                }
+                return new AICoreActionEndStruct("arrivedCommittedCover", true);
+            }
+
+            // Some move actions settle at the destination before IsInCover flips.
+            // If the go-to-point path reports arrival, transition out of runToCover.
+            if (botOwner.GoToSomePointData.IsCome())
+            {
+                if (!isRunToHeal)
+                {
+                    HoldCoverForMaxDuration();
+                }
+                return new AICoreActionEndStruct("arrivedCoverPoint", true);
             }
 
             if (IsDogFightActive())
@@ -2693,17 +2811,18 @@ namespace friendlySAIN.BigBrain
             bool continueEnemySearchOnArrival = false)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
-            if (!HasActiveCombatEnemy(goalEnemy))
+            if (goalEnemy == null || !HasActiveCombatEnemy(goalEnemy))
             {
                 return new AICoreActionEndStruct("enemyMissingOrDead", true);
             }
 
             if (endWhenCanShootFromCover && CanShootFromCurrentCover(out _))
             {
+                HoldCoverForMaxDuration();
                 return new AICoreActionEndStruct("foundShootCover", true);
             }
 
-            if (goalEnemy!.IsVisible && goalEnemy.CanShoot)
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 return new AICoreActionEndStruct("enemyVisibleAndShootable", true);
             }
@@ -2724,26 +2843,37 @@ namespace friendlySAIN.BigBrain
                     }
                 }
 
+                if (botOwner.Memory.IsInCover || IsBotInCommittedCover())
+                {
+                    HoldCoverForMaxDuration();
+                }
+
                 return new AICoreActionEndStruct("arrivedAtPoint", true);
             }
 
             return default;
         }
 
-        public AICoreActionEndStruct EndAttackMoving()
+        public AICoreActionEndStruct EndAttackMoving(string? reason = null)
         {
+            bool isMoveToHeal = string.Equals(reason, "moveToHeal", StringComparison.Ordinal);
+
             RefreshShootCover();
             if (HaveCoverToShoot && botOwner.Memory.IsInCover)
             {
+                if (!isMoveToHeal)
+                {
+                    HoldCoverForMaxDuration();
+                }
                 return new AICoreActionEndStruct("foundCoverToShoot", true);
             }
 
-            return EndBaseAttackMoving();
+            return EndBaseAttackMoving(reason);
         }
 
-        public AICoreActionEndStruct EndAttackMovingWithSuppress()
+        public AICoreActionEndStruct EndAttackMovingWithSuppress(string? reason = null)
         {
-            return EndAttackMoving();
+            return EndAttackMoving(reason);
         }
 
         public AICoreActionEndStruct EndAttackRetreat()
@@ -2755,6 +2885,7 @@ namespace friendlySAIN.BigBrain
 
             if (botOwner.Memory.IsInCover)
             {
+                HoldCoverForMaxDuration();
                 return new AICoreActionEndStruct("inCover", true);
             }
 
@@ -2960,8 +3091,10 @@ namespace friendlySAIN.BigBrain
             return new AICoreActionEndStruct("dogFightConditionsMet", true);
         }
 
-        public AICoreActionEndStruct EndBaseAttackMoving()
+        public AICoreActionEndStruct EndBaseAttackMoving(string? reason = null)
         {
+            bool isMoveToHeal = string.Equals(reason, "moveToHeal", StringComparison.Ordinal);
+
             if (IsDogFightActive())
             {
                 return new AICoreActionEndStruct("dogFightActive", true);
@@ -2969,6 +3102,10 @@ namespace friendlySAIN.BigBrain
 
             if (botOwner.Memory.IsInCover)
             {
+                if (!isMoveToHeal)
+                {
+                    HoldCoverForMaxDuration();
+                }
                 return new AICoreActionEndStruct("inCover", true);
             }
 
@@ -2989,6 +3126,20 @@ namespace friendlySAIN.BigBrain
 
             holdEndTime = Time.time + seconds;
             holdActive = true;
+        }
+
+        /// <summary>
+        /// Hold in cover for a tactic/aggression-aware duration. Marksman holds longer; aggressive follows hold shorter.
+        /// Use this instead of explicit seconds for follower combat hold decisions to respect tactic intent.
+        /// </summary>
+        public void HoldCoverForMaxDuration()
+        {
+            if (holdActive && holdEndTime > Time.time)
+            {
+                return;
+            }
+
+            HoldFor(GetMaxCoverHoldDuration());
         }
 
         public static bool IsStableNoCoverHoldReason(string reason)
@@ -3048,5 +3199,71 @@ namespace friendlySAIN.BigBrain
         public static AICoreActionEndStruct EndImmediately() => new AICoreActionEndStruct(string.Empty, true);
 
         private static AICoreActionEndStruct Continue() => default;
+
+        /// <summary>
+        /// Determines if heal cover should be cleared due to improved health, increased threat, or exceeded duration.
+        /// </summary>
+        private bool ShouldClearHealCover(EnemyInfo? goalEnemy, out string? clearReason)
+        {
+            clearReason = null;
+
+            if (committedHealCover == null)
+            {
+                return false;
+            }
+
+            // Exit if health status now healthy (healed enough to rejoin)
+            if (botOwner.GetPlayer?.HealthStatus == ETagStatus.Healthy)
+            {
+                clearReason = "healthy";
+                return true;
+            }
+
+            // Exit if enemy pushed closer (cover ineffective against new threat)
+            if (goalEnemy != null && goalEnemy.IsVisible)
+            {
+                float enemyDist = Vector3.Distance(botOwner.Position, goalEnemy.CurrPosition);
+                if (enemyDist < CombatDistanceConfiguration.Instance.GetHealCoverRetreatDistance() * 0.6f)  // Enemy too close relative to retreat distance
+                {
+                    clearReason = "enemyClose";
+                    return true;
+                }
+            }
+
+            // Exit if heal cycle exceeded reasonable max duration (prevents indefinite heal holds)
+            const float MaxHealDurationSeconds = 20f;
+            if (Time.time - healStartedAt > MaxHealDurationSeconds)
+            {
+                clearReason = "timeout";
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the maximum time a follower should hold in cover based on tactic and aggression.
+        /// Marksman holds longer to provide sniper support; defensive followers hold at assigned positions.
+        /// </summary>
+        private float GetMaxCoverHoldDuration()
+        {
+            FollowerCombatTactic tactic = GetFollowerTactic();
+            float aggression = GetAggression01();
+
+            // Base hold duration by tactic
+            float baseDuration = tactic switch
+            {
+                FollowerCombatTactic.Marksman => 12f,      // Snipers hold longer for optimal shots and teammate support
+                FollowerCombatTactic.Protector => 8f,      // Defensive followers hold their assigned position
+                FollowerCombatTactic.Balanced => 6f,       // Balanced, more active repositioning
+                _ => 6f
+            };
+
+            // Aggression multiplier (lower aggression = longer hold, higher = shorter)
+            // Range: 1.5x (very passive) to 1.0x (very aggressive)
+            float aggressionMultiplier = 1f + (0.5f * (1f - Mathf.Clamp01(aggression)));
+
+            return baseDuration * aggressionMultiplier;
+        }
     }
 }

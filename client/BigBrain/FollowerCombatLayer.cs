@@ -241,13 +241,7 @@ namespace friendlySAIN.BigBrain
                 BotOwner.BotRun.EndMove();
             }
 
-            if (!lastDecision.HasValue || !currentDecision.HasValue)
-            {
-                return endResult.Value;
-            }
-
-            bool actionChanged = currentDecision.Value.Action != lastDecision.Value.Action;
-            return endResult.Value || actionChanged;
+            return endResult.Value;
         }
 
         public static bool IsFollowerCombatLayerActive(BotOwner? botOwner)
@@ -431,7 +425,7 @@ namespace friendlySAIN.BigBrain
             };
         }
 
-        private static Action CreateBigBrainAction(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        private Action CreateBigBrainAction(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             FollowerCombatActionData actionData = new FollowerCombatActionData(decision.Action, decision.Reason, decision.Data);
 
@@ -468,6 +462,10 @@ namespace friendlySAIN.BigBrain
 
                     return new Action(typeof(CombatGoToPointAction), decision.Reason, actionData);
                 case BotLogicDecision.goToPointTactical:
+                    /* if (string.Equals(decision.Reason, "sniper.closeSearch", StringComparison.Ordinal))
+                    {
+                        return new Action(typeof(CombatSearchAction), decision.Reason, actionData);
+                    } */
                     return new Action(typeof(CombatGoToPointTacticalAction), decision.Reason, actionData);
                 case BotLogicDecision.heal:
                     return new Action(typeof(HealAction), decision.Reason, actionData);

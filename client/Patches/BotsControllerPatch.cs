@@ -1273,11 +1273,14 @@ namespace friendlySAIN.Patches
                     Controller = __instance;
 
                     string locationId = Singleton<GameWorld>.Instance.LocationId;
+                    CombatDistanceConfiguration.Instance.UpdateForCurrentMap(locationId);
 
                     if (locationId == "factory4_day" || locationId == "factory4_night")
                     {
                         Props.FactoryMapSett();
                     }
+
+                    Modules.Logger.LogInfo($"[CombatDistances] map={locationId} factoryMode={CombatDistanceConfiguration.Instance.IsFactoryMode}");
 
                     Modules.Logger.LogInfo("Raid Started");
                 }

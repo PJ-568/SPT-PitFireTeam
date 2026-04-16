@@ -110,7 +110,7 @@ namespace friendlySAIN.BigBrain
             Vector3 bossPosition = CombatCommon.GetBossPosition();
             if (HasReachedBoss(bossPosition))
             {
-                complete = true;
+                CombatCommon.HoldCoverForMaxDuration();
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "regroup.arrived");
             }
 
@@ -220,6 +220,17 @@ namespace friendlySAIN.BigBrain
                 }
 
                 return default;
+            }
+
+            if (string.Equals(currentDecision.Reason, "regroup.arrived", System.StringComparison.Ordinal))
+            {
+                AICoreActionEndStruct arrivedEnd = CombatCommon.EndBaseHoldPosition("regroup.arrived");
+                if (arrivedEnd.Value)
+                {
+                    complete = true;
+                }
+
+                return arrivedEnd;
             }
 
             return CombatCommon.ShallEndCurrentDecision(currentDecision);

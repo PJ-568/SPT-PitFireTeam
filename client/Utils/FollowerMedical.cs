@@ -36,8 +36,14 @@ namespace friendlySAIN.Utils
             bot.Mover.Pause = false;
             bot.Mover.SetTargetMoveSpeed(1f);
             bot.GetPlayer.EnableSprint(true);
-
-            TryReturnToMainWeapon(bot);
+            if (
+                bot.WeaponManager?.Selector != null &&
+                bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.FirstPrimaryWeapon &&
+                 bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon
+            )
+            {
+                TryReturnToMainWeapon(bot);
+            }
         }
 
         public static void CancelActiveMedical(BotOwner bot)

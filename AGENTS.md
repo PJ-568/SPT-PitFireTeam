@@ -291,6 +291,65 @@ Current verified custom teammate feature state:
     - every movement decision that depends on cover or point data must set that destination first through committed cover, assigned cover, `GoToSomePointData.SetPoint(...)`, or a verified action-owned destination path
     - if a tactic cannot find a valid destination for a movement decision, return false and let the next branch decide instead of emitting a stale/no-target movement action
     - regroup stays objective-level and shared; default, marksman, protector, and future tactic stacks should activate regroup through `CreateRegroupObjectiveDecision()` rather than duplicating regroup movement logic
+
+## 0c-1) Cover Contract (Authoritative)
+
+All follower combat tactics must treat cover as a shared lifecycle contract, not tactic-local ad hoc behavior.
+
+Required cover lifecycle:
+
+1. select cover
+2. move to cover
+3. detect arrival (`IsInCover`, committed-cover proximity, or arrived point)
+4. transition into hold/think window (`HoldFor`/`HoldCoverForMaxDuration`)
+5. allow break into next decision when higher-priority conditions appear
+
+Mandatory break priority while holding in cover:
+
+- immediate fire opportunity (`ShouldShootImmediately` / valid visible shoot lane)
+- taking fire or recent hit pressure
+- ally engagement support opportunity
+- boss-under-attack support/protection opportunity
+- cover compromised while under pressure (left cover / unstable no-cover hold under fire)
+- boss-distance regroup objective pressure when no stronger local fight reason exists
+
+Heal-cover exception:
+
+- heal cover movement (`runToHeal` / `moveToHeal`) must break immediately on arrival and hand off to heal decision.
+- do not force a normal hold-think timer before `healInCover`.
+
+Implementation guidance:
+
+- keep arrival detection and hold arming in shared `FollowerCombatCommon` end-condition paths so all tactics inherit consistent behavior.
+- tactic classes should only add/override policy-level break gating; do not fork base arrival semantics unless strictly necessary.
+- do not leave movement actions running after destination arrival due to delayed EFT cover flags; use committed-cover/proximity and arrived-point fallbacks.
+
+## 0c-2) Tactic-Specific Cover Usage
+
+`Balanced` / default tactic:
+
+- uses committed cover as primary stabilization primitive.
+- on reached cover, should hold briefly and continuously rescan: immediate fire, visible fire, ally support, boss-under-attack, regroup pressure.
+
+`Protector` tactic:
+
+- prioritizes boss-local support cover and boss protection over generic pressure cover.
+- when boss-under-attack is active, protection support routes should preempt passive hold.
+
+`Marksman` tactic:
+
+- prefers shoot-capable firing positions and sticky support/reposition holds.
+- still must honor the same arrival -> hold -> break contract.
+- sticky cover/cooldown behavior must not block valid regroup break conditions once no higher-priority fire/support action exists.
+
+`Regroup` objective:
+
+- regroup owns bossward movement/cover selection and should not re-enter default/sniper push stacks while active.
+- regroup may use bossward cover in hot contact, but completion remains objective-owned.
+
+Cross-tactic rule:
+
+- any new tactic (or objective) must explicitly define how it uses shared cover lifecycle hooks, and must preserve the mandatory hold break priorities above.
 - `FollowerCombatDefaultObjective` wraps the existing `FollowerCombatDefault` tree:
     1. pre-fight grenade check and one-shot opener from `PrepareStartDecision`
     2. committed push continuation

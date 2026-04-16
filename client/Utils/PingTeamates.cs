@@ -331,7 +331,7 @@ namespace friendlySAIN.Utils
                         if (goalEnemy != null)
                         {
                             float lastSeenAgo = Time.time - goalEnemy.PersonalLastSeenTime;
-                            if (goalEnemy.IsVisible || lastSeenAgo < 5f)
+                            if (IsEnemyReliablyVisibleForMarker(bt.Data, goalEnemy) || lastSeenAgo < 5f)
                             {
                                 stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Engaged"]);
                             }
@@ -459,7 +459,9 @@ namespace friendlySAIN.Utils
                     bt.EnemyPos = enemyPosition.Value + (Vector3.up * 1.6f);
                 }
 
-                Color marker = bt.Data.Memory.GoalEnemy.IsVisible ? Color.red : Color.yellow;
+                Color marker = IsEnemyReliablyVisibleForMarker(bt.Data, bt.Data.Memory.GoalEnemy)
+                    ? Color.red
+                    : Color.yellow;
 
                 foreach (var item in botMap)
                 {
@@ -606,6 +608,42 @@ namespace friendlySAIN.Utils
             {
                 return false;
             }
+        }
+
+        private static bool IsEnemyReliablyVisibleForMarker(BotOwner bot, EnemyInfo goalEnemy)
+        {
+            if (bot == null || goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (!goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            // UI red should mean "actively visible now", not stale memory visibility.
+            if (Time.time - goalEnemy.PersonalLastSeenTime > 0.35f)
+            {
+                return false;
+            }
+
+            if (bot.LookSensor == null || !bot.LookSensor.EnoughDistToShoot(out _))
+            {
+                return false;
+            }
+
+            ShootPointClass? shootPoint = bot.CurrentEnemyTargetPosition(true);
+            if (shootPoint == null)
+            {
+                return false;
+            }
+
+            return global::friendlySAIN.Utils.Utils.CanShootToTarget(
+                shootPoint,
+                bot.WeaponRoot.position,
+                bot.LookSensor.Mask,
+                false);
         }
 
         private static bool IsFollowerCurrentlyHealing(BotOwner bot)

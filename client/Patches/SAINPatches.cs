@@ -5,13 +5,16 @@ using friendlySAIN;
 using friendlySAIN.Modules;
 using HarmonyLib;
 using System;
+using System.Linq;
 using System.Reflection;
 using friendlySAIN.BigBrain;
+using UnityEngine;
 
 namespace friendlySAIN.Patches
 {
     internal class SAINPatch
     {
+        private const float FollowerCloseIntentRecentSeenSeconds = 2.25f;
         private static Type? squadType = null;
         private static Type? SAINEnableClass = null;
         private static Type? combatSoloLayerType = null;
@@ -29,6 +32,7 @@ namespace friendlySAIN.Patches
         private static Type? sainBotTalkManualUpdatePatch = null;
         private static Type? sainPlayerComponentType = null;
         private static Type? sainMoverClass = null;
+        private static Type? selfActionDecisionClassType = null;
         private static Type? sainShootDataType = null;
         private static PropertyInfo? sainPlayerComponentPlayerProperty = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
@@ -90,6 +94,8 @@ namespace friendlySAIN.Patches
 
             PatchFollowerLayerFallbackIfAddonMissing(harmony);
             PatchFollowerCombatPatrolStanceWithoutAddon(harmony);
+            PatchFollowerReloadBlockIfAddonMissing(harmony);
+            PatchFollowerWeaponSelectionGuard(harmony);
             PatchSainTalkPrefixesForFollowers(harmony);
             PatchSainPlayerVoiceLineForFollowers(harmony);
 
@@ -101,7 +107,7 @@ namespace friendlySAIN.Patches
                 {
                     harmony.Patch(assignLeader, new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(PatchAssignSquadLeader), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)));
                 }
-                Logger.LogInfo("SAIN Patched");
+                Modules.Logger.LogInfo("SAIN Patched");
             }
         }
 
@@ -115,6 +121,45 @@ namespace friendlySAIN.Patches
             if (updateStance != null)
             {
                 harmony.Patch(updateStance, postfix: new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(ForcePatrolOffForFollowerCombat), BindingFlags.NonPublic | BindingFlags.Static)));
+            }
+        }
+
+        private static void PatchFollowerReloadBlockIfAddonMissing(Harmony harmony)
+        {
+            selfActionDecisionClassType ??= Type.GetType("SAIN.SAINComponent.Classes.Decision.SelfActionDecisionClass, SAIN");
+            if (selfActionDecisionClassType == null)
+            {
+                return;
+            }
+
+            MethodInfo? tryReload = AccessTools.GetDeclaredMethods(selfActionDecisionClassType)
+                .FirstOrDefault(method =>
+                    method.Name == "TryReload" &&
+                    method.GetParameters().Length == 2 &&
+                    method.GetParameters()[0].ParameterType == typeof(BotOwner));
+
+            if (tryReload != null)
+            {
+                harmony.Patch(
+                    tryReload,
+                    prefix: new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(BlockFollowerSainReloadIfAddonMissing), BindingFlags.NonPublic | BindingFlags.Static)));
+            }
+        }
+
+        private static void PatchFollowerWeaponSelectionGuard(Harmony harmony)
+        {
+            sainShootDataType ??= Type.GetType("SAIN.SAINComponent.Classes.SAINShootData, SAIN");
+            if (sainShootDataType == null)
+            {
+                return;
+            }
+
+            MethodInfo? tryChangeWeapon = AccessTools.Method(sainShootDataType, "TryChangeWeapon", new[] { typeof(EquipmentSlot) });
+            if (tryChangeWeapon != null)
+            {
+                harmony.Patch(
+                    tryChangeWeapon,
+                    prefix: new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(GuardFollowerSainWeaponSelection), BindingFlags.NonPublic | BindingFlags.Static)));
             }
         }
 
@@ -373,6 +418,94 @@ namespace friendlySAIN.Patches
             catch
             {
             }
+        }
+
+        [HarmonyPrefix]
+        private static bool BlockFollowerSainReloadIfAddonMissing(BotOwner botOwner)
+        {
+            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            {
+                return true;
+            }
+
+            try
+            {
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return true;
+                }
+
+                // SAIN self-action reload can call into BotReload.CanReload(), which in turn
+                // can trigger a forced switch back to the main weapon. Keep the rest of SAIN's
+                // decision tick alive so enemy acquisition and other passive bookkeeping still run.
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        [HarmonyPrefix]
+        private static bool GuardFollowerSainWeaponSelection(object __instance, EquipmentSlot slot)
+        {
+            if (!friendlySAIN.IsSAINInstalled)
+            {
+                return true;
+            }
+
+            try
+            {
+                if (slot != EquipmentSlot.FirstPrimaryWeapon)
+                {
+                    return true;
+                }
+
+                BotOwner? botOwner = AccessTools.Property(__instance.GetType(), "BotOwner")?.GetValue(__instance) as BotOwner;
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return true;
+                }
+
+                var selector = botOwner.WeaponManager?.Selector;
+                if (selector == null || selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon)
+                {
+                    return true;
+                }
+
+                EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
+                if (goalEnemy == null)
+                {
+                    return true;
+                }
+
+                if (ShouldHoldFollowerSecondary(goalEnemy))
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            return true;
+        }
+
+        private static bool ShouldHoldFollowerSecondary(EnemyInfo goalEnemy)
+        {
+            float closeQuarterDistance = CombatDistanceConfiguration.Instance.GetCloseQuarterDistance();
+            if (goalEnemy.Distance <= closeQuarterDistance)
+            {
+                return true;
+            }
+
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return true;
+            }
+
+            return Time.time - goalEnemy.PersonalSeenTime <= FollowerCloseIntentRecentSeenSeconds;
         }
     }
 }

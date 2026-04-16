@@ -11,136 +11,17 @@ Behavior target:
 - Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
 - Keep this compatible with both vanilla and SAIN runtime paths.
 
-# (IN PROGRESS) - Team management
-
-Goal:
-
-- Replace the old terminal/chatbot-heavy squad management flow with a proper FE + BE teammate management flow that still preserves the core old-plugin experience:
-    - add teammate from social UI
-    - customize/view teammate from profile screen
-    - invite teammate to group
-    - see player + teammates on the pre-raid ready and loading screens
-    - spawn saved teammate bot in raid
-
-Implemented so far:
-
-- Friends list:
-    - localized `Add Teammate` entry is injected into the friends list
-    - button opens teammate creation flow
-- Creation flow:
-    - uses stock appearance UI
-    - player side is forced automatically
-    - collects nickname, head, and voice
-    - posts data to BE
-- Backend:
-    - creates a same-side PMC bot profile
-    - overwrites nickname, voice, and head
-    - saves teammate as mod-owned JSON under `friendlySAIN-ServerMod`
-    - exposes teammate social/profile/delete routes
-    - exposes legacy-compatible `/client/game/bot/followergenerate` and `/client/game/bot/followerdetails`
-    - stores generated default equipment snapshot separately so `Default` can restore the original generated kit
-    - uses stock-style server account-id generation for teammate `aid` allocation instead of custom max-id logic
-- Social/profile:
-    - teammate appears in friends list
-    - teammate can be viewed from profile
-    - teammate can be deleted from friends list
-    - friends list refreshes after teammate create
-- Profile customization:
-    - hideout/report hidden
-    - clothes dropdowns active
-    - loadout dropdown active and persisted
-    - rename teammate overlay works from profile view and persists to backend
-- Grouping/runtime:
-    - teammate can be invited to group
-    - teammate can appear on ready screen and loading screen
-    - teammate can spawn in raid from saved backend profile
-    - local/offline raid guard exists and has been adjusted to preserve solo flow
-    - insurance screen must still appear before the custom teammate ready screen
-    - 4.x invite popup now uses a filtered teammate-aware list so stock chat-bot `aid` collisions do not break it
-
-Still to do:
-
-- (DONE) Add right-click context for protrait where you can invite to group, view profile or toggle "auto join" on/off. Auto joins was implemented in the old plugin making follower automatically join the next raid. They would show up in the "match maker ready" screen. If player kicked them out, they would not join until either manually added again, raid finished or game restarted.
-- (DONE) bring the stock `InventoryScreen` skills list (`Common UI/Common UI/InventoryScreen/SkillsAndMasteringPanel/BottomPanel/SkillsPanel/Lower Part/Scrollview/Content/Skill List`) into the `OtherPlayerProfileScreen` right-side area for teammate/bot profiles
-- Bot tactic implementation (runtime/brain):
-    - implement tactic behavior in follower AI/brain logic (not only team-management UI).
-    - keep tactic persistence wiring aligned with runtime behavior (`Default`, `Support`, `Marksman`, `Holder`, `Pusher`).
-
-Next active FE focus:
-
-- implement tactic behavior in the bot brain/runtime path and keep it in sync with management/persistence
-
-Notes from old plugin / description:
-
-- Old plugin exposed squad management through a `Squad Manager` messenger/chatbot.
-- Right-click `Invite to group` was the main way to bring a saved member into the next raid.
-- Old plugin had a few other commands available through the chatbot, biggest being the restriction mode that will also need to be implemented in the new plugin
-- The intended user experience is that teammate raids feel like the normal solo pre-raid flow, except the ready/loading screens show the squad instead of only the player.
-
-# (DONE) FOLLOWER LEVEL PROGRESS
-
-Old plugin had follower level up his skills and level experience during raids. Needs to be implemented in the new plugin as well, with the same persistence and progression logic.
-
-# (DONE) FOLLOWER QUESTS PROGRESS
-
-Old plugin allowwed followers kills to be counted as progress for kill quest of the player, granted they meet the requirements. Needs to be implemented in the new plugin as well.
-
-# (DONE) FOLLOWER TRANSIT
-
-Old plugin made it possible for followers to transit with the user between maps. Needs to be implemented in the new plugin as well.
-
 # LANGUAGE SUPPORT
 
 - ensure new plugin gets all it's text from the language
 - following the old plugin add language support for various language
 - observe game language setting and update according to the changes of it
 
-# (DONE) ADD ICON GROUP TO FOLLOWER PORTRAT
-
-Add an icon similar to the "auto join" icon to the roaster tile of followers that will show when the follower is present in the group. THe resource to use is "icon_group.png". This one will be in the lower left corner of the title. You must keep it in sync with the status of the group followers. I can invite a follower to the group fia right click on the tile or on the invite group component. When follower is added or remove there, this icon must update if I am already on the screen.
-
 # (IN PROGRESS) ADD SUPPORT FOR CUSTOM EQUIPMENT
 
 In addition to the way we select equipment preset for followers, we should also allow for custom equipment to be done on the followers. We can do this by adding a "Edit Loadout" button next to the equipment dropdown where when press, it will open to the right the bot's inventory like when you loot a corpse. And to the left, instead of player investory we show the player's stash. Then user can move items from stash to bot inventory and vice versa. When user is done, they can press a "Done" button and this will be saved as "Custom" preset for the bot. It is important to note that once saved, the items the player picked will not actually be removed from his stash. This is a clone move. WHen player moves an item from the stash to the bot, it appears on the bot investory, but does not go away from the stash. When the player moves an item from the bot's inventory it goes away from that inventory and will temporarly appear in the player stash (until done is pressed), if that item was originally in the bot inventory (meaning it was part of bot's default loadout). When player press "done" such items disappear from the player stash and the bot's "default" loadout remains unchanged.
 If player edit default's bot invetory or does a combination (as he can move back and forth in the screen) where among the items in the new loadout. when he saves, we must remember the "default" items so the player cannot comeback later and edit the custom layout and now, because it is custom and not default, he is able to perform an exploit and retain the itmes.
 So in short, if we allow custom loadout, the bot cannot actually take items from the player stash, but only clone them. The player also cannot take bot's default items, but only move them as he make changes, because for example he may take out the default weapon and put one of this own. When he says, that default weapon will not stay in the stash and neither will the player's weapon be removed from the stash.
-
-# (DONE) ADD MY SQUAD SETTINGS BUTTON
-
-Add a "my squad settings" button that show up only while in raid and allows the view of the settings page of the squad screen. We could centralize this so that his button opens a full screen overlay (like the old screen) and has just settings components. While the squad screen has the full squad management components. Should be, below "resume" button and with a 10px top offset
-
-# IMPROVE COVER SELECTION
-
-Old plugin had several method for selecting covers and positions from where to shoot, rather than relying on vanilla selection whish sometimes can push the bot behind the boss or in a vulnerable position
-
-# ADD 'AGGRESSION' SETTING
-
-Add a slider meant to determine the agressiveness of a follower. This will be seen in the "other profile" screen, after "Edit loadout". This controls how frequent he will try to push an enemy by going to him. With 100% this should mean that the bot should not care at all if enemy is outside the radius of the boss, he should still try to push him. With 50% it should act as it is now, with 0% it should mean no push, always stay around boss. Every increase, increases the the outside radius he can go to. Beyond 80%, bot does not care how far the enemy is.
-
-# Implement Enemy Push command
-
-Old Plugin Push Flow:
-
-- Triggered by `EPhraseTrigger.GoForward` in `FollowerReceiver`.
-- If follower has enemy:
-- Creates `FollowerRushEnemy` request (`BotRequestType.attackClose`) with ~4s timeout.
-- Main behavior is decided by `FollowerFightLayer` + `FollowerPusherLayer.EngageEnemy(pushOrdered: true)`.
-- Push is gated, not blind:
-- Ordered push only if enemies at location `< 4`.
-- Non-ordered/aggressive push generally needs close range and enemies at location `< 2`.
-- Enemy density is computed with `Utils.Enemy.GetEnemiesAtLocation(...)`.
-- If unsafe/not favorable, logic falls back to cover/search/attack-moving decisions instead of hard rush.
-- `IsEnemyLowThreat()` gates default push tendency using `Memory.AttackImmediately` + local enemy count threshold.
-- No explicit plugin-level direct gear-score comparison found; “weaker enemy” behavior is effectively mediated via `AttackImmediately` and enemy-count pressure.
-- Marksman/assist-style tactics suppress push behavior.
-
-New Plugin Push Flow:
-
-Very similar to old flow, but with some adjustments:
-
-- Triggered by `EPhraseTrigger.Gogogo` but in the "transmision flow" is in the matter the others are in friendlySAIN (like EPhraseTrigger.OnRepeatedContact or EPhraseTrigger.Regroup)
-- Set aggression to 100% until enemy is dead or boss issues new command
-- Does nothing out of combat
 
 # Implement Hold Position command
 
@@ -228,3 +109,120 @@ Description:
 # FUTURE IDEAS
 
 - Hide the main menu bottom navigation bar when `My Squad` screen is open (same as it is hidden when the Add Teammate character creation screen opens).
+
+# (DONE) - Team management
+
+Goal:
+
+- Replace the old terminal/chatbot-heavy squad management flow with a proper FE + BE teammate management flow that still preserves the core old-plugin experience:
+    - add teammate from social UI
+    - customize/view teammate from profile screen
+    - invite teammate to group
+    - see player + teammates on the pre-raid ready and loading screens
+    - spawn saved teammate bot in raid
+
+Implemented so far:
+
+- Friends list:
+    - localized `Add Teammate` entry is injected into the friends list
+    - button opens teammate creation flow
+- Creation flow:
+    - uses stock appearance UI
+    - player side is forced automatically
+    - collects nickname, head, and voice
+    - posts data to BE
+- Backend:
+    - creates a same-side PMC bot profile
+    - overwrites nickname, voice, and head
+    - saves teammate as mod-owned JSON under `friendlySAIN-ServerMod`
+    - exposes teammate social/profile/delete routes
+    - exposes legacy-compatible `/client/game/bot/followergenerate` and `/client/game/bot/followerdetails`
+    - stores generated default equipment snapshot separately so `Default` can restore the original generated kit
+    - uses stock-style server account-id generation for teammate `aid` allocation instead of custom max-id logic
+- Social/profile:
+    - teammate appears in friends list
+    - teammate can be viewed from profile
+    - teammate can be deleted from friends list
+    - friends list refreshes after teammate create
+- Profile customization:
+    - hideout/report hidden
+    - clothes dropdowns active
+    - loadout dropdown active and persisted
+    - rename teammate overlay works from profile view and persists to backend
+- Grouping/runtime:
+    - teammate can be invited to group
+    - teammate can appear on ready screen and loading screen
+    - teammate can spawn in raid from saved backend profile
+    - local/offline raid guard exists and has been adjusted to preserve solo flow
+    - insurance screen must still appear before the custom teammate ready screen
+    - 4.x invite popup now uses a filtered teammate-aware list so stock chat-bot `aid` collisions do not break it
+
+- (DONE) Add right-click context for protrait where you can invite to group, view profile or toggle "auto join" on/off. Auto joins was implemented in the old plugin making follower automatically join the next raid. They would show up in the "match maker ready" screen. If player kicked them out, they would not join until either manually added again, raid finished or game restarted.
+- (DONE) bring the stock `InventoryScreen` skills list (`Common UI/Common UI/InventoryScreen/SkillsAndMasteringPanel/BottomPanel/SkillsPanel/Lower Part/Scrollview/Content/Skill List`) into the `OtherPlayerProfileScreen` right-side area for teammate/bot profiles
+- (DONE) Bot tactic implementation (runtime/brain):
+    - implement tactic behavior in follower AI/brain logic (not only team-management UI).
+    - keep tactic persistence wiring aligned with runtime behavior (`Default`, `Support`, `Marksman`, `Holder`, `Pusher`).
+
+Next active FE focus:
+
+- implement tactic behavior in the bot brain/runtime path and keep it in sync with management/persistence
+
+Notes from old plugin / description:
+
+- Old plugin exposed squad management through a `Squad Manager` messenger/chatbot.
+- Right-click `Invite to group` was the main way to bring a saved member into the next raid.
+- Old plugin had a few other commands available through the chatbot, biggest being the restriction mode that will also need to be implemented in the new plugin
+- The intended user experience is that teammate raids feel like the normal solo pre-raid flow, except the ready/loading screens show the squad instead of only the player.
+
+# (DONE) FOLLOWER LEVEL PROGRESS
+
+Old plugin had follower level up his skills and level experience during raids. Needs to be implemented in the new plugin as well, with the same persistence and progression logic.
+
+# (DONE) FOLLOWER QUESTS PROGRESS
+
+Old plugin allowwed followers kills to be counted as progress for kill quest of the player, granted they meet the requirements. Needs to be implemented in the new plugin as well.
+
+# (DONE) FOLLOWER TRANSIT
+
+Old plugin made it possible for followers to transit with the user between maps. Needs to be implemented in the new plugin as well.
+
+# (DONE) ADD ICON GROUP TO FOLLOWER PORTRAT
+
+Add an icon similar to the "auto join" icon to the roaster tile of followers that will show when the follower is present in the group. THe resource to use is "icon_group.png". This one will be in the lower left corner of the title. You must keep it in sync with the status of the group followers. I can invite a follower to the group fia right click on the tile or on the invite group component. When follower is added or remove there, this icon must update if I am already on the screen.
+
+# (DONE) ADD MY SQUAD SETTINGS BUTTON
+
+Add a "my squad settings" button that show up only while in raid and allows the view of the settings page of the squad screen. We could centralize this so that his button opens a full screen overlay (like the old screen) and has just settings components. While the squad screen has the full squad management components. Should be, below "resume" button and with a 10px top offset
+
+# (DONE) IMPROVE COVER SELECTION
+
+Old plugin had several method for selecting covers and positions from where to shoot, rather than relying on vanilla selection whish sometimes can push the bot behind the boss or in a vulnerable position
+
+# (DONE) ADD 'AGGRESSION' SETTING
+
+Add a slider meant to determine the agressiveness of a follower. This will be seen in the "other profile" screen, after "Edit loadout". This controls how frequent he will try to push an enemy by going to him. With 100% this should mean that the bot should not care at all if enemy is outside the radius of the boss, he should still try to push him. With 50% it should act as it is now, with 0% it should mean no push, always stay around boss. Every increase, increases the the outside radius he can go to. Beyond 80%, bot does not care how far the enemy is.
+
+# (DONE) Implement Enemy Push command
+
+Old Plugin Push Flow:
+
+- Triggered by `EPhraseTrigger.GoForward` in `FollowerReceiver`.
+- If follower has enemy:
+- Creates `FollowerRushEnemy` request (`BotRequestType.attackClose`) with ~4s timeout.
+- Main behavior is decided by `FollowerFightLayer` + `FollowerPusherLayer.EngageEnemy(pushOrdered: true)`.
+- Push is gated, not blind:
+- Ordered push only if enemies at location `< 4`.
+- Non-ordered/aggressive push generally needs close range and enemies at location `< 2`.
+- Enemy density is computed with `Utils.Enemy.GetEnemiesAtLocation(...)`.
+- If unsafe/not favorable, logic falls back to cover/search/attack-moving decisions instead of hard rush.
+- `IsEnemyLowThreat()` gates default push tendency using `Memory.AttackImmediately` + local enemy count threshold.
+- No explicit plugin-level direct gear-score comparison found; “weaker enemy” behavior is effectively mediated via `AttackImmediately` and enemy-count pressure.
+- Marksman/assist-style tactics suppress push behavior.
+
+New Plugin Push Flow:
+
+Very similar to old flow, but with some adjustments:
+
+- Triggered by `EPhraseTrigger.Gogogo` but in the "transmision flow" is in the matter the others are in friendlySAIN (like EPhraseTrigger.OnRepeatedContact or EPhraseTrigger.Regroup)
+- Set aggression to 100% until enemy is dead or boss issues new command
+- Does nothing out of combat

@@ -11,9 +11,13 @@ namespace friendlySAIN.BigBrain.Actions
     {
         private readonly FollowerAttackMovingLogic baseLogic;
 
-        protected CombatAttackMovingAction(BotOwner botOwner, bool withSuppress, bool autoCover = true) : base(botOwner)
+        protected CombatAttackMovingAction(
+            BotOwner botOwner,
+            bool withSuppress,
+            bool autoCover = true,
+            bool forceThreatLookWhenShootable = false) : base(botOwner)
         {
-            baseLogic = new FollowerAttackMovingLogic(botOwner, withSuppress, autoCover);
+            baseLogic = new FollowerAttackMovingLogic(botOwner, withSuppress, autoCover, forceThreatLookWhenShootable);
         }
 
         public CombatAttackMovingAction(BotOwner botOwner) : this(botOwner, withSuppress: false)
@@ -28,15 +32,21 @@ namespace friendlySAIN.BigBrain.Actions
         private sealed class FollowerAttackMovingLogic : GClass205
         {
             private readonly bool autoCover;
+            private readonly bool forceThreatLookWhenShootable;
             private readonly bool withSuppress;
             private float nextSuppressToggleTime;
             private bool suppressBurstActive;
             private float nextThreatLookTime;
 
-            public FollowerAttackMovingLogic(BotOwner botOwner, bool withSuppress, bool autoCover) : base(botOwner)
+            public FollowerAttackMovingLogic(
+                BotOwner botOwner,
+                bool withSuppress,
+                bool autoCover,
+                bool forceThreatLookWhenShootable) : base(botOwner)
             {
                 this.withSuppress = withSuppress;
                 this.autoCover = autoCover;
+                this.forceThreatLookWhenShootable = forceThreatLookWhenShootable;
             }
 
             public override void UpdateNodeByBrain(GClass26 data)
@@ -61,6 +71,11 @@ namespace friendlySAIN.BigBrain.Actions
                 if ((withSuppress && suppressBurstActive) ||
                     (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible))
                 {
+                    if (forceThreatLookWhenShootable && goalEnemy != null)
+                    {
+                        BotOwner_0.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
+                    }
+
                     Gclass178_0.UpdateNodeByBrain(data as GClass27);
                     return;
                 }

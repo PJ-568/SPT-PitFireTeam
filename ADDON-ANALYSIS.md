@@ -567,3 +567,34 @@ SAINAddonPlugin.Awake()
 
 5. **Enemy Retention Gates**
     - Extend `ShouldAllow*` logic in `SAINFollowerEnemyRetentionService`
+
+---
+
+## 12. Known Issues (When Addon Enabled)
+
+### SAIN Forced Weapon Switch on Marksman Followers
+
+**Problem:**
+
+- During active reload (`SAIN.SelfActionDecisionClass.TryReload()`), SAIN's reload feasibility check (`BotReload.CanReload()`) calls `BotWeaponSelector.TryChangeToMain()`
+- For marksman followers on secondary weapons (e.g., slug shotgun at close range), this triggers an unwanted switch back to primary weapon mid-combat
+- Disrupts intended secondary weapon usage and breaks follower tactical positioning
+
+**Stack Trace Path:**
+
+```
+GClass461.CanReload()
+  → TryChangeToMain()  ← SAIN reload system
+    → BotWeaponSelector.ChangeToMain()
+```
+
+**Impact:**
+
+- Marksman followers inappropriately switch from secondary to primary during reload operations
+- Especially problematic in close-quarter CQB scenarios where secondary weapon (e.g., shotgun) is intentional choice
+
+**Recommendation:**
+
+- When addon is enabled, consider patching `BotReload.CanReload()` or `BotWeaponSelector.TryChangeToMain()` to respect follower tactic context
+- Suppress main-weapon switch when follower is explicitly using secondary (e.g., marksman tactic in close proximity)
+- Alternative: Gate reload consideration based on current weapon slot to avoid triggering weapon switch logic during secondary-weapon reload
