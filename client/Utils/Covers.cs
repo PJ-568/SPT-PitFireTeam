@@ -32,12 +32,12 @@ namespace friendlySAIN.Utils
         /**
          *  Get closest cover point for the bot to given to the position, within the search radius, optionally filtered by an extra check function
          */
-        public static CustomNavigationPoint GetClosestCoverPoint(BotOwner botOwner, Vector3 centerPosition, float searchRadius, Func<CustomNavigationPoint, bool> extraChecks = null)
+        public static CustomNavigationPoint GetClosestCoverPoint(BotOwner botOwner, Vector3 centerPosition, float searchRadius, Func<CustomNavigationPoint, bool>? extraChecks = null, CoverSearchType? searchTypeOverride = null)
         {
             pitAIBossPlayer boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
 
             searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
-            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, centerPosition, searchRadius, null, centerPosition, "ClosestCoverPoint");
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, centerPosition, searchRadius, null, centerPosition, "ClosestCoverPoint", null, searchTypeOverride);
 
             // ensure point is not too close to teammates to avoid clustering
             List<Vector3> friendsPositions = GetFriendsPositions(botOwner, boss);
@@ -55,7 +55,7 @@ namespace friendlySAIN.Utils
         /**
          *  Get closest cover point for the bot to pointA within the area between pointA and pointB, at a min safe distance from danger and optionally filtered by an extra check function 
          */
-        public static CustomNavigationPoint GetClosestCoverPointBetween(BotOwner botOwner, Vector3 pointA, Vector3 pointB, float safeDistance = 5f, Func<GroupPoint, bool> eligibilityCheck = null)
+        public static CustomNavigationPoint GetClosestCoverPointBetween(BotOwner botOwner, Vector3 pointA, Vector3 pointB, float safeDistance = 5f, Func<GroupPoint, bool>? eligibilityCheck = null, CoverSearchType? searchTypeOverride = null)
         {
             pitAIBossPlayer boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
 
@@ -64,7 +64,7 @@ namespace friendlySAIN.Utils
             float searchRadius = Math.Min((pointA - pointB).magnitude, STATIC_DISTANCE);
 
             ShootPointClass shootPointClass = botOwner.CurrentEnemyTargetPosition(true);
-            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, centerPosition, searchRadius, shootPointClass, centerPosition, "ClosestCoverPointBetween");
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, centerPosition, searchRadius, shootPointClass, centerPosition, "ClosestCoverPointBetween", null, searchTypeOverride);
             List<Vector3> friendsPositions = GetFriendsPositions(botOwner, boss);
 
             CustomNavigationPoint pt = ClosestPoint(botOwner.Id, botOwner.GetPlayer.Transform.position, centerPosition, areaCovers, point =>
@@ -94,8 +94,9 @@ namespace friendlySAIN.Utils
             Vector3 originPosition,
             Vector3 targetPosition,
             float searchRadius,
-            Func<CustomNavigationPoint, bool> eligibilityCheck = null,
-            float minForwardDot = 0.1f)
+            Func<CustomNavigationPoint, bool>? eligibilityCheck = null,
+            float minForwardDot = 0.1f,
+            CoverSearchType? searchTypeOverride = null)
         {
             pitAIBossPlayer? boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
 
@@ -111,7 +112,7 @@ namespace friendlySAIN.Utils
             targetDirection.Normalize();
 
             ShootPointClass shootPoint = botOwner.CurrentEnemyTargetPosition(true);
-            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, originPosition, searchRadius, shootPoint, targetPosition, "ClosestCoverTowardPoint");
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, originPosition, searchRadius, shootPoint, targetPosition, "ClosestCoverTowardPoint", null, searchTypeOverride);
             List<Vector3> friendsPositions = GetFriendsPositions(botOwner, boss);
 
             CustomNavigationPoint pt = ClosestPoint(botOwner.Id, botOwner.GetPlayer.Transform.position, targetPosition, areaCovers, point =>
@@ -139,7 +140,7 @@ namespace friendlySAIN.Utils
         /**
          * Get all cover poins around the center position
          */
-        public static List<CustomNavigationPoint> GetCoverPoints(BotOwner botOwner, Vector3 centerPosition, float searchRadius, Func<CustomNavigationPoint, bool> eligibilityCheck = null, int iritations = -1)
+        public static List<CustomNavigationPoint> GetCoverPoints(BotOwner botOwner, Vector3 centerPosition, float searchRadius, Func<CustomNavigationPoint, bool>? eligibilityCheck = null, int iritations = -1, CoverSearchType? searchTypeOverride = null)
         {
             List<CustomNavigationPoint> points = new List<CustomNavigationPoint>();
 
@@ -154,7 +155,7 @@ namespace friendlySAIN.Utils
 
             int max_irt = iritations == -1 ? (int)Math.Round(MAX_COVERS_IRT * 1.2f) : iritations;
 
-            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, targetArea, radius, botOwner.CurrentEnemyTargetPosition(true), centerPosition, "GetCoverPoints", max_irt);
+            List<CustomNavigationPoint> areaCovers = GetVanillaBackedCandidates(botOwner, targetArea, radius, botOwner.CurrentEnemyTargetPosition(true), centerPosition, "GetCoverPoints", max_irt, searchTypeOverride);
 
             float searchRadiusSqr = searchRadius * searchRadius;
 
@@ -173,11 +174,11 @@ namespace friendlySAIN.Utils
         /**
          *  Get a random cover point for the bot around the given position, within the specified radius
          */
-        public static CustomNavigationPoint GetCoverPoint(BotOwner botOwner, Vector3 centerPosition, float searchRadius, Func<CustomNavigationPoint, bool> eligibilityCheck = null)
+        public static CustomNavigationPoint GetCoverPoint(BotOwner botOwner, Vector3 centerPosition, float searchRadius, Func<CustomNavigationPoint, bool>? eligibilityCheck = null, CoverSearchType? searchTypeOverride = null)
         {
             searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
 
-            List<CustomNavigationPoint> points = GetCoverPoints(botOwner, centerPosition, searchRadius, eligibilityCheck);
+            List<CustomNavigationPoint> points = GetCoverPoints(botOwner, centerPosition, searchRadius, eligibilityCheck, -1, searchTypeOverride);
 
             CustomNavigationPoint point = null;
 
@@ -316,7 +317,8 @@ namespace friendlySAIN.Utils
             ShootPointClass? shootPoint,
             Vector3? pointToBeClose,
             string label,
-            int? maxCandidates = null)
+            int? maxCandidates = null,
+            CoverSearchType? searchTypeOverride = null)
         {
             searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
             int takeCount = maxCandidates ?? MAX_COVERS_IRT;
@@ -326,7 +328,7 @@ namespace friendlySAIN.Utils
                 .Take(takeCount)
                 .ToList();
 
-            CoverSearchData searchData = BuildCoverSearchData(botOwner, centerPosition, searchRadius, shootPoint, pointToBeClose, label, maxCandidates);
+            CoverSearchData searchData = BuildCoverSearchData(botOwner, centerPosition, searchRadius, shootPoint, pointToBeClose, label, maxCandidates, searchTypeOverride);
             CustomNavigationPoint? primary = botOwner.BotsGroup.CoverPointMaster.GetCoverPointMain(searchData, false);
             if (primary != null)
             {
@@ -344,10 +346,11 @@ namespace friendlySAIN.Utils
             ShootPointClass? shootPoint,
             Vector3? pointToBeClose,
             string label,
-            int? maxIterations = null)
+            int? maxIterations = null,
+            CoverSearchType? searchTypeOverride = null)
         {
             CoverShootType shootType = shootPoint != null ? CoverShootType.shoot : CoverShootType.hide;
-            CoverSearchType searchType = pointToBeClose.HasValue ? CoverSearchType.closerToSelectedPoint : CoverSearchType.distToToCenter;
+            CoverSearchType searchType = searchTypeOverride ?? (pointToBeClose.HasValue ? CoverSearchType.closerToSelectedPoint : CoverSearchType.distToToCenter);
             CoverSearchData searchData = new CoverSearchData(
                 centerPosition,
                 botOwner.CoverSearchInfo,
@@ -532,6 +535,69 @@ namespace friendlySAIN.Utils
             }
 
             return false;
+        }
+
+        public static bool IsPathTooCloseToEnemy(
+            Vector3 from,
+            Vector3 to,
+            Vector3 enemyPosition,
+            float minDistance)
+        {
+            NavMeshPath path = new NavMeshPath();
+            if (!NavMesh.CalculatePath(from, to, -1, path) || path.status != NavMeshPathStatus.PathComplete)
+            {
+                return true;
+            }
+
+            Vector3[] corners = path.corners;
+            if (corners.Length == 0)
+            {
+                return false;
+            }
+
+            float minDistanceSqr = minDistance * minDistance;
+            for (int i = 0; i < corners.Length; i++)
+            {
+                if (DistanceXZSqr(corners[i], enemyPosition) < minDistanceSqr)
+                {
+                    return true;
+                }
+            }
+
+            for (int i = 1; i < corners.Length; i++)
+            {
+                if (DistancePointToSegmentXZSqr(enemyPosition, corners[i - 1], corners[i]) < minDistanceSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static float DistanceXZSqr(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x;
+            float dz = a.z - b.z;
+            return dx * dx + dz * dz;
+        }
+
+        private static float DistancePointToSegmentXZSqr(Vector3 point, Vector3 segmentStart, Vector3 segmentEnd)
+        {
+            Vector2 p = new Vector2(point.x, point.z);
+            Vector2 a = new Vector2(segmentStart.x, segmentStart.z);
+            Vector2 b = new Vector2(segmentEnd.x, segmentEnd.z);
+
+            Vector2 ab = b - a;
+            float abLenSqr = ab.sqrMagnitude;
+            if (abLenSqr <= 0.0001f)
+            {
+                return (p - a).sqrMagnitude;
+            }
+
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / abLenSqr);
+            Vector2 closest = a + ab * t;
+            return (p - closest).sqrMagnitude;
         }
 
         public static CustomNavigationPoint FindPointForAssault(BotOwner botOwner)

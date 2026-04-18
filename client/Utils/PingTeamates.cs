@@ -70,7 +70,7 @@ namespace friendlySAIN.Utils
         public static PingTeamates Instance = null;
 
         private static RadioSound radioSound;
-        private const float MaxSpatialPingDistance = 50f;
+        private const float MaxSpatialPingDistance = 40f;
         private const float DirectionCalloutCooldownSeconds = 15f;
 
         private bool locationPing = false;
@@ -135,12 +135,13 @@ namespace friendlySAIN.Utils
                     closestEnemySpeakerSqr = enemySpeakerSqr;
                 }
 
-                if (!locationPing)
-                {
-                    locationPing = true;
-                    Vector3 position = GetLimitedHorizontalPosition(player.Position, enemyPosition, MaxSpatialPingDistance);
-                    radioSound.PlayLocationSound(position);
-                }
+                locationPing = true;
+            }
+
+            if (radioSound != null && locationPing)
+            {
+                Vector3 position = GetLimitedPosition(player.Position, closestEnemyPosition, MaxSpatialPingDistance);
+                radioSound.PlayLocationSound(position);
             }
 
             if (closestEnemySpeaker != null && Time.time >= _nextDirectionCalloutTime)
@@ -154,7 +155,7 @@ namespace friendlySAIN.Utils
                 if (HasAnyAliveFollower())
                 {
                     Vector3 closestFollowerPos = GetClosestFollowerPosition(player.Position);
-                    Vector3 clampedRadioPos = GetLimitedHorizontalPosition(player.Position, closestFollowerPos, MaxSpatialPingDistance);
+                    Vector3 clampedRadioPos = GetLimitedPosition(player.Position, closestFollowerPos, MaxSpatialPingDistance);
                     radioSound.PlayRadioSound(clampedRadioPos);
                 }
                 else
@@ -697,16 +698,13 @@ namespace friendlySAIN.Utils
                 radioSound.Enable();
             }
         }
-        private Vector3 GetLimitedHorizontalPosition(Vector3 origin, Vector3 target, float maxHorizontalDistance)
+        private Vector3 GetLimitedPosition(Vector3 origin, Vector3 target, float maxDistance)
         {
-            Vector3 planarDelta = new Vector3(target.x - origin.x, 0f, target.z - origin.z);
-            float planarDistance = planarDelta.magnitude;
-            if (planarDistance > maxHorizontalDistance && planarDistance > 0.001f)
+            Vector3 delta = target - origin;
+            float distance = delta.magnitude;
+            if (distance > maxDistance && distance > 0.001f)
             {
-                Vector3 planarDir = planarDelta / planarDistance;
-                Vector3 clamped = origin + planarDir * maxHorizontalDistance;
-                clamped.y = target.y;
-                return clamped;
+                return origin + (delta / distance) * maxDistance;
             }
 
             return target;

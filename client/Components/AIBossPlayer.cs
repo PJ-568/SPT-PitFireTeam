@@ -378,14 +378,55 @@ namespace friendlySAIN.Components
                     continue;
                 }
 
-                // Make followers orient toward boss reported direction.
-                follower.Steering.LookToPoint(lookTarget);
+                bool hasOwnVisibleGoal = TryGetLiveVisibleEnemy(follower, out string ownVisibleGoalId);
+                if (!hasOwnVisibleGoal)
+                {
+                    // Make followers orient toward boss reported direction when they do not already have visual contact.
+                    follower.Steering.LookToPoint(lookTarget);
 
-                float lookOverrideDuration = Utils.Utils.Random(2f, 4f);
-                followerData?.SetCommandLookOverride(lookTarget, lookOverrideDuration);
+                    float lookOverrideDuration = Utils.Utils.Random(2f, 4f);
+                    followerData?.SetCommandLookOverride(lookTarget, lookOverrideDuration);
+                }
                 followersProcessed++;
 
                 if (seenEnemies == null || seenEnemies.Count == 0) continue;
+
+                Player? prioritizedGoalEnemy = null;
+                for (int i = 0; i < seenEnemies.Count; i++)
+                {
+                    Player enemy = seenEnemies[i];
+                    if (enemy == null || enemy.ProfileId == follower.ProfileId || enemy.ProfileId == realPlayer.ProfileId) continue;
+                    if (enemy.IsAI)
+                    {
+                        WildSpawnType? role = enemy.Profile?.Info?.Settings?.Role;
+                        if (role.HasValue && Props.friendlyBotTypes.Contains(role.Value))
+                        {
+                            continue;
+                        }
+                    }
+
+                    if (hasOwnVisibleGoal)
+                    {
+                        if (string.Equals(enemy.ProfileId, ownVisibleGoalId, StringComparison.Ordinal))
+                        {
+                            prioritizedGoalEnemy = enemy;
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    if (prioritizedGoalEnemy == null)
+                    {
+                        prioritizedGoalEnemy = enemy;
+                    }
+
+                    if (CanFollowerSeeEnemyForContact(follower, enemy))
+                    {
+                        prioritizedGoalEnemy = enemy;
+                        break;
+                    }
+                }
 
                 for (int i = 0; i < seenEnemies.Count; i++)
                 {
@@ -400,7 +441,15 @@ namespace friendlySAIN.Components
                         }
                     }
 
-                    RegisterContactEnemyForFollower(follower, enemy, i == 0);
+                    if (hasOwnVisibleGoal &&
+                        !string.Equals(enemy.ProfileId, ownVisibleGoalId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    bool prioritizeAsGoal = prioritizedGoalEnemy != null &&
+                                            enemy.ProfileId == prioritizedGoalEnemy.ProfileId;
+                    RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal, true);
                     enemiesInjected++;
                 }
             }
@@ -458,11 +507,14 @@ namespace friendlySAIN.Components
             return HasRecentCombatSupportCue() || WasShootingRecentlyForSupport();
         }
 
-        private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy, bool prioritizeAsGoal)
+        private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy, bool prioritizeAsGoal, bool allowGoalPromotion)
         {
             EEnemyPartVisibleType visibleType = CanFollowerSeeEnemyForContact(follower, enemy)
                 ? EEnemyPartVisibleType.Visible
                 : EEnemyPartVisibleType.Sence;
+            bool visibleForContact = visibleType == EEnemyPartVisibleType.Visible;
+            string beforeGoalId = follower.Memory?.GoalEnemy?.ProfileId ?? "<null>";
+            bool beforeHaveEnemy = follower.Memory?.HaveEnemy == true;
 
             try
             {
@@ -484,36 +536,59 @@ namespace friendlySAIN.Components
             {
                 BotSettingsClass botSettings = GetOrCreateContactEnemyGroupInfo(follower, enemy, trackedEnemy);
                 botSettings.EnemyLastPosition = enemy.Position;
-                if (visibleType == EEnemyPartVisibleType.Visible)
+                botSettings.IsHaveSeen = visibleForContact;
+                botSettings.EnemyLastSeenTimeSense = Time.time;
+                if (visibleForContact)
                 {
                     botSettings.EnemyLastVisiblePosition = enemy.Position;
                 }
 
                 botSettings.EnemyWeaponRootLastPos = enemy.PlayerBones?.WeaponRoot?.position ?? (enemy.Position + Vector3.up * 1.2f);
 
-                trackedEnemy.SetVisible(visibleType == EEnemyPartVisibleType.Visible);
+                follower.Memory.AddEnemy(enemy, botSettings, false);
+
+                trackedEnemy.SetVisible(visibleForContact);
                 trackedEnemy.PersonalLastPos = enemy.Position;
                 trackedEnemy.GroupInfo = botSettings;
             }
 
-            if (prioritizeAsGoal)
+            if (allowGoalPromotion && prioritizeAsGoal)
             {
                 PromoteEnemyAsGoal(follower, enemy.ProfileId);
             }
-            else if (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null)
+            else if (allowGoalPromotion && (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null))
             {
                 PromoteEnemyAsGoal(follower, enemy.ProfileId);
+            }
+
+            if (trackedEnemy != null &&
+                allowGoalPromotion &&
+                (prioritizeAsGoal || follower.Memory.GoalEnemy == null || follower.Memory.GoalEnemy.ProfileId == enemy.ProfileId))
+            {
+                trackedEnemy.PriorityIndex = 0;
+                trackedEnemy.SetVisible(visibleForContact);
+                follower.Memory.GoalEnemy = trackedEnemy;
+            }
+
+            if (allowGoalPromotion)
+            {
+                FollowerContactEnemyRetention.Register(follower, enemy, visibleForContact, prioritizeAsGoal);
             }
 
             BotOwner? enemyBot = enemy.AIData?.BotOwner;
 
-            if (enemyBot != null)
+            if (allowGoalPromotion && enemyBot != null)
             {
                 PrioritizeEnemy(follower, enemyBot);
             }
 
 
-            TrySyncSainEnemyState(follower, enemy, prioritizeAsGoal);
+            bool sainSynced = TrySyncSainEnemyState(follower, enemy, prioritizeAsGoal);
+            friendlySAIN.Log?.LogInfo(
+                $"[ContactSync] follower={follower.Profile?.Nickname ?? follower.ProfileId ?? "<null>"} enemy={enemy.ProfileId ?? "<null>"} visibleType={visibleType} prioritize={prioritizeAsGoal} " +
+                $"allowGoal={allowGoalPromotion} " +
+                $"beforeHave={beforeHaveEnemy} beforeGoal={beforeGoalId} afterHave={follower.Memory?.HaveEnemy == true} afterGoal={follower.Memory?.GoalEnemy?.ProfileId ?? "<null>"} " +
+                $"afterVisible={follower.Memory?.GoalEnemy?.IsVisible == true} useSain={friendlySAIN.UseSainFollowerCombat} bridge={SainAddonBridge.HasRuntimeCallbacks} sainSynced={sainSynced}");
 
 
             // Entering combat should break request commands
@@ -525,6 +600,45 @@ namespace friendlySAIN.Components
             {
                 followerData.ClearCommand($"ContactEnemy:RegisterContactEnemyForFollower active={activeCommand}");
             }
+        }
+
+        private static bool TryGetLiveVisibleEnemy(BotOwner follower, out string enemyProfileId)
+        {
+            enemyProfileId = string.Empty;
+            EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
+            if (IsLiveVisibleEnemy(goalEnemy))
+            {
+                enemyProfileId = goalEnemy.ProfileId ?? string.Empty;
+                if (!string.IsNullOrEmpty(enemyProfileId))
+                {
+                    return true;
+                }
+            }
+
+            if (follower?.EnemiesController?.EnemyInfos == null)
+            {
+                return false;
+            }
+
+            foreach (var item in follower.EnemiesController.EnemyInfos)
+            {
+                EnemyInfo? enemyInfo = item.Value;
+                if (!IsLiveVisibleEnemy(enemyInfo))
+                {
+                    continue;
+                }
+
+                enemyProfileId = enemyInfo.ProfileId ?? item.Key?.ProfileId ?? string.Empty;
+                return !string.IsNullOrEmpty(enemyProfileId);
+            }
+
+            return false;
+        }
+
+        private static bool IsLiveVisibleEnemy(EnemyInfo? enemyInfo)
+        {
+            return enemyInfo?.Person?.HealthController?.IsAlive == true &&
+                   (enemyInfo.IsVisible || enemyInfo.CanShoot);
         }
 
         private static EnemyInfo? GetTrackedEnemyInfo(BotOwner follower, string enemyProfileId)
