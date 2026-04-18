@@ -14,7 +14,6 @@ namespace friendlySAIN.Patches
 {
     internal class SAINPatch
     {
-        private const float FollowerCloseIntentRecentSeenSeconds = 2.25f;
         private static Type? squadType = null;
         private static Type? SAINEnableClass = null;
         private static Type? combatSoloLayerType = null;
@@ -24,6 +23,7 @@ namespace friendlySAIN.Patches
         private static Type? extractLayerType = null;
         private static Type? flashBangedLayerType = null;
         private static Type? debugLayerType = null;
+        private static Type? sainEnemyControllerType = null;
 
         private static Type? enemyTalk = null;
         private static Type? GroupClass = null;
@@ -93,6 +93,7 @@ namespace friendlySAIN.Patches
             }
 
             PatchFollowerLayerFallbackIfAddonMissing(harmony);
+            PatchFollowerEnemyClearGuardIfAddonMissing(harmony);
             PatchFollowerCombatPatrolStanceWithoutAddon(harmony);
             PatchFollowerReloadBlockIfAddonMissing(harmony);
             PatchFollowerWeaponSelectionGuard(harmony);
@@ -182,6 +183,22 @@ namespace friendlySAIN.Patches
             PatchLayerIsActive(harmony, extractLayerType, disablePrefix);
             PatchLayerIsActive(harmony, flashBangedLayerType, disablePrefix);
             PatchLayerIsActive(harmony, debugLayerType, disablePrefix);
+        }
+
+        private static void PatchFollowerEnemyClearGuardIfAddonMissing(Harmony harmony)
+        {
+            sainEnemyControllerType ??= Type.GetType("SAIN.SAINComponent.Classes.EnemyClasses.SAINEnemyController, SAIN");
+            MethodInfo? clearEnemy = sainEnemyControllerType != null
+                ? AccessTools.Method(sainEnemyControllerType, "ClearEnemy")
+                : null;
+            if (clearEnemy == null)
+            {
+                return;
+            }
+
+            harmony.Patch(
+                clearEnemy,
+                prefix: new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(BlockFollowerSainClearEnemyIfRetained), BindingFlags.NonPublic | BindingFlags.Static)));
         }
 
         private static void PatchLayerIsActive(Harmony harmony, Type? layerType, HarmonyMethod disablePrefix)
@@ -320,7 +337,8 @@ namespace friendlySAIN.Patches
                     return false;
                 }
 
-                if (phrase == EPhraseTrigger.OnRepeatedContact && !FollowerContactPhraseGate.ShouldAllow(botOwner))
+                if ((phrase == EPhraseTrigger.OnFirstContact || phrase == EPhraseTrigger.OnRepeatedContact) &&
+                    !FollowerContactPhraseGate.ShouldAllow(botOwner))
                 {
                     __result = false;
                     return false;
@@ -381,6 +399,30 @@ namespace friendlySAIN.Patches
 
                 __result = false;
                 return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        [HarmonyPrefix]
+        private static bool BlockFollowerSainClearEnemyIfRetained(object __instance)
+        {
+            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            {
+                return true;
+            }
+
+            try
+            {
+                BotOwner? botOwner = AccessTools.Property(__instance.GetType(), "BotOwner")?.GetValue(__instance) as BotOwner;
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return true;
+                }
+
+                return !FollowerContactEnemyRetention.HasActiveRetainedContact(botOwner);
             }
             catch
             {
@@ -456,33 +498,13 @@ namespace friendlySAIN.Patches
 
             try
             {
-                if (slot != EquipmentSlot.FirstPrimaryWeapon)
-                {
-                    return true;
-                }
-
                 BotOwner? botOwner = AccessTools.Property(__instance.GetType(), "BotOwner")?.GetValue(__instance) as BotOwner;
                 if (botOwner == null || !BossPlayers.IsFollower(botOwner))
                 {
                     return true;
                 }
 
-                var selector = botOwner.WeaponManager?.Selector;
-                if (selector == null || selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon)
-                {
-                    return true;
-                }
-
-                EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
-                if (goalEnemy == null)
-                {
-                    return true;
-                }
-
-                if (ShouldHoldFollowerSecondary(goalEnemy))
-                {
-                    return false;
-                }
+                return false;
             }
             catch
             {
@@ -490,22 +512,6 @@ namespace friendlySAIN.Patches
             }
 
             return true;
-        }
-
-        private static bool ShouldHoldFollowerSecondary(EnemyInfo goalEnemy)
-        {
-            float closeQuarterDistance = CombatDistanceConfiguration.Instance.GetCloseQuarterDistance();
-            if (goalEnemy.Distance <= closeQuarterDistance)
-            {
-                return true;
-            }
-
-            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
-            {
-                return true;
-            }
-
-            return Time.time - goalEnemy.PersonalSeenTime <= FollowerCloseIntentRecentSeenSeconds;
         }
     }
 }

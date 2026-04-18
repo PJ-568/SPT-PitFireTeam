@@ -50,4 +50,37 @@ namespace friendlySAIN.Patches
             }
         }
     }
+
+    internal sealed class FollowerGoalEnemyClearRetentionPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.PropertySetter(typeof(BotMemoryClass), nameof(BotMemoryClass.GoalEnemy));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(BotMemoryClass __instance, EnemyInfo value)
+        {
+            try
+            {
+                if (value != null)
+                {
+                    return true;
+                }
+
+                BotOwner botOwner = AccessTools.Field(typeof(BotMemoryClass), "BotOwner_0").GetValue(__instance) as BotOwner;
+                if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+                {
+                    return true;
+                }
+
+                return !FollowerContactEnemyRetention.ShouldBlockGoalEnemyClear(botOwner, __instance.GoalEnemy);
+            }
+            catch (System.Exception e)
+            {
+                Modules.Logger.LogError(e);
+                return true;
+            }
+        }
+    }
 }

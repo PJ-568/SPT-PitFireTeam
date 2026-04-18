@@ -97,6 +97,8 @@ namespace friendlySAIN.Patches
 
     internal static class FollowerContactPhraseGate
     {
+        private const float StableSeenWindowSeconds = 1.25f;
+
         private sealed class ContactState
         {
             public string LastEnemyProfileId;
@@ -117,7 +119,17 @@ namespace friendlySAIN.Patches
                 return false;
             }
 
-            string enemyId = owner.Memory.GoalEnemy.ProfileId;
+            EnemyInfo goalEnemy = owner.Memory.GoalEnemy;
+            bool stableContact =
+                goalEnemy.IsVisible ||
+                (goalEnemy.PersonalLastSeenTime > 0f &&
+                 UnityEngine.Time.time - goalEnemy.PersonalLastSeenTime <= StableSeenWindowSeconds);
+            if (!stableContact)
+            {
+                return false;
+            }
+
+            string enemyId = goalEnemy.ProfileId;
             if (string.IsNullOrEmpty(enemyId))
             {
                 enemyId = "<unknown>";
@@ -178,7 +190,8 @@ namespace friendlySAIN.Patches
 
             if (__instance.IsSilenced) return false;
 
-            if (type == EPhraseTrigger.OnRepeatedContact && BossPlayers.IsFollower(__instance.BotOwner_0))
+            if ((type == EPhraseTrigger.OnFirstContact || type == EPhraseTrigger.OnRepeatedContact) &&
+                BossPlayers.IsFollower(__instance.BotOwner_0))
             {
                 if (!FollowerContactPhraseGate.ShouldAllow(__instance.BotOwner_0))
                 {
@@ -217,7 +230,8 @@ namespace friendlySAIN.Patches
 
             if (__instance.IsSilenced) return false;
 
-            if (type == EPhraseTrigger.OnRepeatedContact && BossPlayers.IsFollower(__instance.BotOwner_0))
+            if ((type == EPhraseTrigger.OnFirstContact || type == EPhraseTrigger.OnRepeatedContact) &&
+                BossPlayers.IsFollower(__instance.BotOwner_0))
             {
                 if (!FollowerContactPhraseGate.ShouldAllow(__instance.BotOwner_0))
                 {
