@@ -26,14 +26,20 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            baseLogic.SetCurrentReason(GetReason(data));
             baseLogic.UpdateNodeByBrain(GetRawData(data));
         }
 
         private sealed class FollowerAttackMovingLogic : GClass205
         {
+            private const float ArrivalThreatLookAngle = 95f;
+            private const float NearCoverDistance = 2f;
+            private const float RecentThreatLookSeconds = 2.5f;
+
             private readonly bool autoCover;
             private readonly bool forceThreatLookWhenShootable;
             private readonly bool withSuppress;
+            private string? currentReason;
             private float nextSuppressToggleTime;
             private bool suppressBurstActive;
             private float nextThreatLookTime;
@@ -47,6 +53,11 @@ namespace friendlySAIN.BigBrain.Actions
                 this.withSuppress = withSuppress;
                 this.autoCover = autoCover;
                 this.forceThreatLookWhenShootable = forceThreatLookWhenShootable;
+            }
+
+            public void SetCurrentReason(string? reason)
+            {
+                currentReason = reason;
             }
 
             public override void UpdateNodeByBrain(GClass26 data)
@@ -68,6 +79,8 @@ namespace friendlySAIN.BigBrain.Actions
                 }
 
                 EnemyInfo? goalEnemy = BotOwner_0.Memory?.GoalEnemy;
+                TryMaintainThreatFacing(goalEnemy);
+
                 if ((withSuppress && suppressBurstActive) ||
                     (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible))
                 {
@@ -85,6 +98,64 @@ namespace friendlySAIN.BigBrain.Actions
                     nextThreatLookTime = Time.time + GClass856.Random(2f, 3f);
                     BotOwner_0.Steering.LookToPoint(goalEnemy.EnemyLastPosition + new Vector3(0f, 0.6f, 0f));
                 }
+            }
+
+            private void TryMaintainThreatFacing(EnemyInfo? goalEnemy)
+            {
+                if (goalEnemy == null || !ShouldCorrectArrivalLook(goalEnemy))
+                {
+                    return;
+                }
+
+                Vector3 threatPoint = goalEnemy.IsVisible
+                    ? goalEnemy.GetBodyPartPosition()
+                    : goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
+                Vector3 lookDirection = threatPoint - BotOwner_0.Position;
+                if (lookDirection.sqrMagnitude < 0.01f)
+                {
+                    return;
+                }
+
+                if (Vector3.Angle(BotOwner_0.LookDirection, lookDirection) < ArrivalThreatLookAngle)
+                {
+                    return;
+                }
+
+                bool allowHardTurn =
+                    forceThreatLookWhenShootable ||
+                    BotOwner_0.Memory.IsInCover ||
+                    global::friendlySAIN.BigBrain.FollowerCombatRegroupObjective.IsRegroupReason(currentReason);
+
+                CombatAttackMoveLook.TryLookThreatFacing(BotOwner_0, goalEnemy, allowHardTurn);
+            }
+
+            private bool ShouldCorrectArrivalLook(EnemyInfo goalEnemy)
+            {
+                if (!goalEnemy.IsVisible &&
+                    Time.time - goalEnemy.PersonalLastSeenTime > RecentThreatLookSeconds)
+                {
+                    return false;
+                }
+
+                if (BotOwner_0.Memory.IsInCover)
+                {
+                    return true;
+                }
+
+                if (global::friendlySAIN.BigBrain.FollowerCombatRegroupObjective.IsRegroupReason(currentReason) &&
+                    BotOwner_0.GoToSomePointData != null &&
+                    BotOwner_0.GoToSomePointData.IsCome())
+                {
+                    return true;
+                }
+
+                CustomNavigationPoint? cover = BotOwner_0.Memory?.CurCustomCoverPoint;
+                if (cover == null)
+                {
+                    return false;
+                }
+
+                return (BotOwner_0.Position - cover.Position).sqrMagnitude <= NearCoverDistance * NearCoverDistance;
             }
 
             private void ForceCurrentCoverDestination()

@@ -15,6 +15,11 @@ namespace friendlySAIN.BigBrain.Actions
         private const float ProgressCheckInterval = 1.25f;
         private const float MinimumProgressDistance = 0.4f;
         private const int StalledRefreshThreshold = 3;
+        private const float MinEnemyRunPointDistance = 5f;
+        private const float MaxEnemyRunPointDistance = 10f;
+        private const float RunPointNavSampleRadius = 2.25f;
+        private static readonly float[] RunPointDistances = { 8f, 10f, 6.5f, 5f };
+        private static readonly float[] RunPointAngles = { 0f, -25f, 25f, -50f, 50f, -90f, 90f, 180f };
 
         private float nextMoveRefreshTime;
         private Vector3 committedRunPoint;
@@ -36,6 +41,12 @@ namespace friendlySAIN.BigBrain.Actions
             lastProgressPosition = BotOwner.Position;
             nextProgressCheckTime = 0f;
             stalledProgressChecks = 0;
+
+            EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
+            if (goalEnemy != null)
+            {
+                TryMoveToEnemy(goalEnemy);
+            }
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -44,6 +55,12 @@ namespace friendlySAIN.BigBrain.Actions
             if (goalEnemy == null)
             {
                 StopAdvance();
+                return;
+            }
+
+            if (!HasCommittedRunPoint() && ShouldStopForImmediateFire(goalEnemy))
+            {
+                StopRunForFire(goalEnemy);
                 return;
             }
 
@@ -76,6 +93,10 @@ namespace friendlySAIN.BigBrain.Actions
 
             ClearCommittedRunPoint();
             BotOwner.StopMove();
+            if (!TryContinueAdvance(goalEnemy))
+            {
+                BotOwner.StopMove();
+            }
         }
 
         public override void Stop()
@@ -98,13 +119,66 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             ClearCommittedRunPoint();
-            TryMoveToEnemy(goalEnemy.CurrPosition);
+            TryMoveToEnemy(goalEnemy);
         }
 
-        private bool TryMoveToEnemy(Vector3 targetPoint)
+        private bool TryContinueAdvance(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            nextMoveRefreshTime = Time.time + 0.25f;
+            return TryMoveToEnemy(goalEnemy);
+        }
+
+        private bool ShouldStopForImmediateFire(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy == null || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!BotOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                return false;
+            }
+
+            ShootPointClass? shootPoint = BotOwner.CurrentEnemyTargetPosition(true);
+            return shootPoint != null &&
+                   Utils.Utils.CanShootToTarget(shootPoint, BotOwner.WeaponRoot.position, BotOwner.LookSensor.Mask, false);
+        }
+
+        private void StopRunForFire(EnemyInfo goalEnemy)
+        {
+            ClearCommittedRunPoint();
+            BotOwner.StopMove();
+            SetCombatSprint(false);
+            BotOwner.SetPose(1f);
+            BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
+        }
+
+        private bool TryMoveToEnemy(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (TryFindEnemyRunPoint(goalEnemy, out Vector3 attackPoint) &&
+                TryMoveToPoint(attackPoint))
+            {
+                return true;
+            }
+
+            return TryMoveToEnemyFallback(goalEnemy.CurrPosition);
+        }
+
+        private bool TryMoveToEnemyFallback(Vector3 targetPoint)
         {
             if (BotOwner.MoveToEnemyData.method_0(targetPoint, out Vector3 currentTargetPos) &&
-                TryGoToPoint(currentTargetPos, true))
+                TryMoveToPoint(currentTargetPos))
             {
                 return true;
             }
@@ -124,13 +198,14 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             if (NavMesh.SamplePosition(targetPoint, out NavMeshHit navMeshHit, 2.6f, -1) &&
-                TryGoToPoint(navMeshHit.position, false))
+                TryMoveToPoint(navMeshHit.position, false))
             {
                 return true;
             }
 
             CustomNavigationPoint fallbackPoint = null;
-            List<CustomNavigationPoint> closePoints = Covers.GetCoverPoints(BotOwner, targetPoint, 20f);
+            CoverSearchType searchType = SetAttackCoverSearchType(CoverShootType.hide);
+            List<CustomNavigationPoint> closePoints = Covers.GetCoverPoints(BotOwner, targetPoint, 20f, searchTypeOverride: searchType);
             if (closePoints.Count > 0)
             {
                 fallbackPoint = closePoints.RandomElement();
@@ -138,12 +213,12 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (fallbackPoint == null)
             {
-                fallbackPoint = Covers.GetClosestCoverPoint(BotOwner, targetPoint, 30f);
+                fallbackPoint = Covers.GetClosestCoverPoint(BotOwner, targetPoint, 30f, searchTypeOverride: searchType);
             }
 
             if (fallbackPoint != null &&
                 Mathf.Abs(fallbackPoint.Position.y - targetPoint.y) <= VerticalTolerance &&
-                TryGoToPoint(fallbackPoint.Position, true))
+                TryMoveToPoint(fallbackPoint.Position))
             {
                 return true;
             }
@@ -151,7 +226,7 @@ namespace friendlySAIN.BigBrain.Actions
             return false;
         }
 
-        private bool TryGoToPoint(Vector3 targetPoint, bool withAttack)
+        private bool TryMoveToPoint(Vector3 targetPoint, bool withAttack = true)
         {
             if (BotOwner.GoToPoint(targetPoint, withAttack, -1f, false, false) != NavMeshPathStatus.PathComplete)
             {
@@ -230,6 +305,95 @@ namespace friendlySAIN.BigBrain.Actions
             return true;
         }
 
+        private bool TryFindEnemyRunPoint(EnemyInfo goalEnemy, out Vector3 point)
+        {
+            point = Vector3.zero;
+            Vector3 enemyPosition = goalEnemy.CurrPosition;
+            if (!IsFinite(enemyPosition))
+            {
+                return false;
+            }
+
+            Vector3 baseDirection = BotOwner.Position - enemyPosition;
+            baseDirection.y = 0f;
+            if (baseDirection.sqrMagnitude <= 0.01f)
+            {
+                baseDirection = BotOwner.Transform != null ? -BotOwner.Transform.forward : -Vector3.forward;
+                baseDirection.y = 0f;
+            }
+
+            if (baseDirection.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            baseDirection.Normalize();
+            ShootPointClass shootPoint = BotOwner.CurrentEnemyTargetPosition(true) ?? new ShootPointClass(goalEnemy.GetBodyPartPosition(), 1f);
+
+            Vector3 fallbackPoint = Vector3.zero;
+            bool hasFallbackPoint = false;
+            for (int distanceIndex = 0; distanceIndex < RunPointDistances.Length; distanceIndex++)
+            {
+                float distance = RunPointDistances[distanceIndex];
+                for (int angleIndex = 0; angleIndex < RunPointAngles.Length; angleIndex++)
+                {
+                    Vector3 direction = Quaternion.Euler(0f, RunPointAngles[angleIndex], 0f) * baseDirection;
+                    Vector3 candidate = enemyPosition + direction * distance;
+                    if (!TrySampleRunPoint(candidate, enemyPosition, out Vector3 navPoint))
+                    {
+                        continue;
+                    }
+
+                    if (!hasFallbackPoint)
+                    {
+                        fallbackPoint = navPoint;
+                        hasFallbackPoint = true;
+                    }
+
+                    if (CanShootEnemyFromPoint(shootPoint, navPoint))
+                    {
+                        point = navPoint;
+                        return true;
+                    }
+                }
+            }
+
+            if (hasFallbackPoint)
+            {
+                point = fallbackPoint;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TrySampleRunPoint(Vector3 candidate, Vector3 enemyPosition, out Vector3 navPoint)
+        {
+            navPoint = Vector3.zero;
+            if (!NavMesh.SamplePosition(candidate, out NavMeshHit navMeshHit, RunPointNavSampleRadius, NavMesh.AllAreas))
+            {
+                return false;
+            }
+
+            Vector3 sampledPoint = navMeshHit.position;
+            float enemyDistanceSqr = (sampledPoint - enemyPosition).sqrMagnitude;
+            return enemyDistanceSqr >= MinEnemyRunPointDistance * MinEnemyRunPointDistance &&
+                   enemyDistanceSqr <= MaxEnemyRunPointDistance * MaxEnemyRunPointDistance &&
+                   Mathf.Abs(sampledPoint.y - enemyPosition.y) <= VerticalTolerance;
+        }
+
+        private bool CanShootEnemyFromPoint(ShootPointClass shootPoint, Vector3 point)
+        {
+            if (shootPoint == null)
+            {
+                return false;
+            }
+
+            Vector3 weaponOffset = BotOwner.ShootData != null ? BotOwner.ShootData.WeaponRootOffset : Vector3.up * 1.4f;
+            return Utils.Utils.CanShootToTarget(shootPoint, point + weaponOffset, BotOwner.LookSensor.Mask, false) ||
+                   Utils.Utils.CanShootToTarget(shootPoint, point + weaponOffset * 0.5f, BotOwner.LookSensor.Mask, false);
+        }
+
         private void ClearCommittedRunPoint()
         {
             hasCommittedRunPoint = false;
@@ -256,6 +420,13 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.LookData.SetLookPointByHearing(null);
             SetCombatSprint(false);
             BotOwner.SetPose(0f);
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+                   !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
+                   !float.IsNaN(value.z) && !float.IsInfinity(value.z);
         }
     }
 }

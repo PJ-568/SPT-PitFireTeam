@@ -11,12 +11,14 @@ namespace friendlySAIN.BigBrain.Actions
 
         public CombatHoldPositionAction(BotOwner botOwner) : base(botOwner)
         {
-            baseLogic = new GClass278(botOwner);
+            baseLogic = new EnemyFacingHoldLogic(botOwner);
         }
 
         public override void Update(CustomLayer.ActionData data)
         {
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
+
+            FollowerCombatCommon.TryRaiseForStandingCoverShot(BotOwner, out _);
         }
     }
 
@@ -417,13 +419,19 @@ namespace friendlySAIN.BigBrain.Actions
                 return enemy.GetBodyPartPosition();
             }
 
-            Vector3 lastKnownPoint = enemy.EnemyLastPositionReal + Vector3.up * 0.8f;
-            if (!IsUsableDirectionPoint(lastKnownPoint, BotOwner_0.Position))
+            Vector3 enemyPoint = enemy.EnemyLastPositionReal;
+            if (!IsUsableDirectionPoint(enemyPoint, BotOwner_0.Position))
+            {
+                enemyPoint = enemy.CurrPosition;
+            }
+
+            Vector3 lookPoint = enemyPoint + Vector3.up * 0.8f;
+            if (!IsUsableDirectionPoint(lookPoint, BotOwner_0.Position))
             {
                 return Vector3.zero;
             }
 
-            return lastKnownPoint;
+            return lookPoint;
         }
 
         private bool TryGetEnemyDirection(EnemyInfo enemy, CustomNavigationPoint coverPoint, out Vector3 enemyDirection)

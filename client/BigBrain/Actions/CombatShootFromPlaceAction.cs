@@ -7,6 +7,8 @@ namespace friendlySAIN.BigBrain.Actions
     {
         private const float MinEnemyDistanceForProne = 18f;
         private readonly GClass276 baseLogic;
+        private float aimAlignStartedAt;
+        private string? aimAlignEnemyId;
 
         public CombatShootFromPlaceAction(BotOwner botOwner) : base(botOwner)
         {
@@ -29,6 +31,11 @@ namespace friendlySAIN.BigBrain.Actions
                 (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true || BotOwner.Mover.TargetPose < 0.85f))
             {
                 BotOwner.SetPose(1f);
+            }
+
+            if (WaitForEnemyAimAlignment(ref aimAlignStartedAt, ref aimAlignEnemyId))
+            {
+                return;
             }
 
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));

@@ -16,8 +16,41 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            baseLogic.SetCurrentReason(GetReason(data));
+
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (ShouldStopForImmediateFire(goalEnemy))
+            {
+                StopTacticalMoveForFire(goalEnemy!);
+                return;
+            }
 
             baseLogic.UpdateNodeByBrain(GetData<GClass30>(data));
+        }
+
+        private bool ShouldStopForImmediateFire(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!BotOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                return false;
+            }
+
+            ShootPointClass? shootPoint = BotOwner.CurrentEnemyTargetPosition(true);
+            return shootPoint != null &&
+                   Utils.Utils.CanShootToTarget(shootPoint, BotOwner.WeaponRoot.position, BotOwner.LookSensor.Mask, false);
+        }
+
+        private void StopTacticalMoveForFire(EnemyInfo goalEnemy)
+        {
+            BotOwner.StopMove();
+            SetCombatSprint(false);
+            BotOwner.SetPose(1f);
+            BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
         }
 
         private sealed class FollowerGoToPointTacticalNode : GClass239
@@ -29,9 +62,15 @@ namespace friendlySAIN.BigBrain.Actions
             private const float ThreatLookIntervalMax = 3f;
 
             private float nextThreatLookTime;
+            private string? currentReason;
 
             public FollowerGoToPointTacticalNode(BotOwner botOwner) : base(botOwner)
             {
+            }
+
+            public void SetCurrentReason(string? reason)
+            {
+                currentReason = reason;
             }
 
             public override void UpdateNodeByBrain(GClass26 data)
@@ -61,6 +100,12 @@ namespace friendlySAIN.BigBrain.Actions
                 Vector3 currentCorner = BotOwner_0.Mover.CurrentCornerPoint;
                 Vector3 destinationLook = destination - lookOrigin;
                 bool hasThreatLook = TryGetThreatLookDirection(lookOrigin, out Vector3 threatLook);
+                if (IsCloseSearchReason(currentReason) && hasThreatLook)
+                {
+                    BotObserveDataClass.SetVectorToLook(threatLook);
+                    BotObserveDataClass.Update();
+                    return;
+                }
 
                 if (ShouldUseCornerLook(currentCorner, lookOrigin, destination))
                 {
@@ -142,6 +187,13 @@ namespace friendlySAIN.BigBrain.Actions
 
                 threatLook = dir;
                 return true;
+            }
+
+            private static bool IsCloseSearchReason(string? reason)
+            {
+                return !string.IsNullOrEmpty(reason) &&
+                       (reason.StartsWith("sniper.startCloseSearch", System.StringComparison.Ordinal) ||
+                        reason.StartsWith("sniper.closeSearch", System.StringComparison.Ordinal));
             }
 
             private static bool IsCornerLookAlignedWithThreat(Vector3 cornerDirection, Vector3 threatDirection)

@@ -188,10 +188,11 @@ namespace friendlySAIN.BigBrain.Actions
                 : enemyPos;
 
             ShootPointClass shootPoint = BotOwner.CurrentEnemyTargetPosition(true);
+            CoverSearchType searchType = SetAttackCoverSearchType(CoverShootType.shoot);
             CustomNavigationPoint point = Covers.GetClosestCoverPoint(BotOwner, centerPos, 50f, cover =>
             {
                 return Utils.Utils.CanShootToTarget(shootPoint, cover, BotOwner.LookSensor.Mask, false);
-            });
+            }, searchType);
 
             if (point != null)
             {
@@ -352,7 +353,8 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             CustomNavigationPoint customNavigationPoint = null;
-            List<CustomNavigationPoint> closePoints = Covers.GetCoverPoints(BotOwner, targetPoint, 20f);
+            CoverSearchType searchType = SetAttackCoverSearchType(CoverShootType.hide);
+            List<CustomNavigationPoint> closePoints = Covers.GetCoverPoints(BotOwner, targetPoint, 20f, searchTypeOverride: searchType);
             if (closePoints.Count > 0)
             {
                 customNavigationPoint = closePoints.RandomElement();
@@ -360,7 +362,7 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (customNavigationPoint == null)
             {
-                customNavigationPoint = Covers.GetClosestCoverPoint(BotOwner, targetPoint, 30f);
+                customNavigationPoint = Covers.GetClosestCoverPoint(BotOwner, targetPoint, 30f, searchTypeOverride: searchType);
             }
 
             if (customNavigationPoint != null &&
