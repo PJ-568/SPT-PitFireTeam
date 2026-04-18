@@ -1,5 +1,6 @@
 using EFT;
 using EFT.InventoryLogic;
+using friendlySAIN.BigBrain;
 using friendlySAIN.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
@@ -108,6 +109,80 @@ namespace friendlySAIN.Patches
         private static string GetFollowerKey(BotOwner botOwner)
         {
             return botOwner?.ProfileId ?? botOwner?.Profile?.Id ?? string.Empty;
+        }
+
+        public static bool ShouldSuppressFollowerWeaponSelectorManualUpdate(BotWeaponSelector selector)
+        {
+            if (selector == null)
+            {
+                return false;
+            }
+
+            BotOwner botOwner = GetSelectorBotOwner(selector);
+            if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+            {
+                return false;
+            }
+
+            if (!FollowerCombatLayer.IsFollowerCombatLayerActive(botOwner))
+            {
+                return false;
+            }
+
+            if (!selector.CanChangeToSupportWeapons || !selector.IsWeaponReady)
+            {
+                return false;
+            }
+
+            if (selector.LastEquipmentSlot != selector.SupportWeapon)
+            {
+                return false;
+            }
+
+            EnemyInfo goalEnemy = botOwner.Memory?.GoalEnemy;
+            return goalEnemy == null || Time.time - goalEnemy.TimeLastSeen > 30f;
+        }
+
+        public static void PreserveManualUpdateStuckFlag(BotWeaponSelector selector)
+        {
+            if (selector == null)
+            {
+                return;
+            }
+
+            if (!selector.ErrorStuckLog &&
+                selector.StartChangeTime > 0f &&
+                Time.time - selector.StartChangeTime > 20f)
+            {
+                selector.ErrorStuckLog = true;
+            }
+        }
+
+        public static BotOwner GetSelectorBotOwner(BotWeaponSelector selector)
+        {
+            return selector != null
+                ? Traverse.Create(selector).Field("BotOwner_0").GetValue<BotOwner>()
+                : null;
+        }
+    }
+
+    internal sealed class FollowerWeaponSelectorManualUpdatePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotWeaponSelector), "ManualUpdate", Type.EmptyTypes);
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(BotWeaponSelector __instance)
+        {
+            if (!FollowerWeaponSwitchPolicyRuntime.ShouldSuppressFollowerWeaponSelectorManualUpdate(__instance))
+            {
+                return true;
+            }
+
+            FollowerWeaponSwitchPolicyRuntime.PreserveManualUpdateStuckFlag(__instance);
+            return false;
         }
     }
 
