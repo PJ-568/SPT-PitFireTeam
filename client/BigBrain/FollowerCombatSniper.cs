@@ -4,6 +4,7 @@ using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace friendlySAIN.BigBrain
@@ -17,8 +18,6 @@ namespace friendlySAIN.BigBrain
         private const float FireSupportSettleSeconds = 2.5f;
         private const string FireSupportHoldReason = "sniper.fireSupportHold";
 
-        private string? lastLoggedReason;
-        private float nextLogAt;
         private readonly CommittedCoverPhaseState repositionPhase = new CommittedCoverPhaseState();
         private readonly CommittedCoverPhaseState supportPhase = new CommittedCoverPhaseState();
         private readonly BotOwner BotOwner;
@@ -33,8 +32,6 @@ namespace friendlySAIN.BigBrain
         public void Reset()
         {
             CombatCommon.ResetCommittedCover();
-            lastLoggedReason = null;
-            nextLogAt = 0f;
             repositionPhase.Reset();
             supportPhase.Reset();
         }
@@ -70,16 +67,16 @@ namespace friendlySAIN.BigBrain
 
             if (Enemy.Distance(goalEnemy) <= Enemy.EnemyDistance.Close)
             {
-                TryApplyCloseIntentSecondary(goalEnemy);
 
                 // Marksman does not inherit the normal aggression slider for combat entry. Use a
                 // fixed cautious baseline so it only close-searches targets we consider weak enough.
                 bool isLowThreat = CombatCommon.IsEnemyLowThreat(goalEnemy, MarksmanStartLowThreatAggression);
-                if (isLowThreat)
+                if (isLowThreat && CombatCommon.HasAutomaticCloseCombatWeaponAvailable())
                 {
                     CombatCommon.SetInitialDecision(CombatCommon.EnemySearch("sniper.startCloseSearch"));
                     return;
                 }
+
 
                 AICoreActionResultStruct<BotLogicDecision, GClass26>? suppressDecision =
                     CombatCommon.TryGetAllyEngagementSupportDecision(true);
@@ -118,6 +115,11 @@ namespace friendlySAIN.BigBrain
                 return preFight.Value;
             }
 
+            if (CombatCommon.TryActivateFollowerGrenade(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> grenadeDecision))
+            {
+                return grenadeDecision;
+            }
+
             if (CombatCommon.HasInitialDecision)
             {
                 AICoreActionResultStruct<BotLogicDecision, GClass26> startDecision = CombatCommon.ConsumeInitialDecision();
@@ -139,16 +141,6 @@ namespace friendlySAIN.BigBrain
                 return closeQuarter;
             }
 
-            if (TryGetVisibleDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> visible))
-            {
-                return visible;
-            }
-
-            if (TryGetRecoverDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> recover))
-            {
-                return recover;
-            }
-
             if (HasExplicitRegroupOrder())
             {
                 ClearCommittedCoverAndRepositionState();
@@ -161,6 +153,21 @@ namespace friendlySAIN.BigBrain
                 ShouldBreakForBossUnderAttack(goalEnemy))
             {
                 ClearCommittedCoverAndRepositionState();
+            }
+
+            if (TryGetActiveCommittedTravelDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> activeTravel))
+            {
+                return activeTravel;
+            }
+
+            if (TryGetVisibleDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> visible))
+            {
+                return visible;
+            }
+
+            if (TryGetRecoverDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> recover))
+            {
+                return recover;
             }
 
             if (TryGetBossUnderAttackDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> bossSupport))
@@ -196,16 +203,28 @@ namespace friendlySAIN.BigBrain
         {
             decision = default;
 
+            bool closeEnoughForSecondary = goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance();
+            if (!closeEnoughForSecondary)
+            {
+                return false;
+            }
+
             // Face-to-face contact should favor immediate fire with the current weapon.
-            // Do not switch weapons first in this window.
             if (goalEnemy.IsVisible &&
-                goalEnemy.CanShoot &&
-                Enemy.Distance(goalEnemy) <= Enemy.EnemyDistance.VeryClose)
+                goalEnemy.CanShoot
+            )
             {
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.shootFromPlace,
                     "sniper.closeImmediateShoot");
                 return true;
+            }
+            else if (
+                !BotOwner.Memory.GoalEnemy.HaveSeen ||
+                Time.time - BotOwner.Memory.GoalEnemy.PersonalLastSeenTime > 1.5f
+            )
+            {
+                CombatCommon.TrySwitchToAutomaticSecondaryForCloseCombat();
             }
 
             AICoreActionResultStruct<BotLogicDecision, GClass26>? dogFight = CombatCommon.TryGetDogFightDecision();
@@ -225,17 +244,11 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            bool closeEnoughForSecondary = goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance();
-            if (!closeEnoughForSecondary)
+
+            if (CombatCommon.IsEnemyLowThreat(goalEnemy, MarksmanStartLowThreatAggression) &&
+                goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetClosePushDistance() &&
+                CombatCommon.HasAutomaticCloseCombatWeaponAvailable())
             {
-                return false;
-            }
-
-
-
-            if (CombatCommon.IsEnemyLowThreat(goalEnemy, MarksmanStartLowThreatAggression) && goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetClosePushDistance())
-            {
-                TryApplyCloseIntentSecondary(goalEnemy, true);
                 decision = CombatCommon.EnemySearch("sniper.closeSearch");
                 return true;
             }
@@ -244,8 +257,6 @@ namespace friendlySAIN.BigBrain
             {
                 return false;
             }
-
-            TryApplyCloseIntentSecondary(goalEnemy, true);
 
             return true;
         }
@@ -304,15 +315,15 @@ namespace friendlySAIN.BigBrain
                 return;
             }
 
-            if (ShouldPreferPrimaryForSniperDecision(decision))
+            if (ShouldUseCloseIntentSecondary(decision))
             {
-                TrySwitchToPrimaryForSniperDecision();
+                TryApplyCloseIntentSecondary(goalEnemy, true);
                 return;
             }
 
-            if (ShouldUseCloseIntentSecondary(decision))
+            if (ShouldSwitchBackToPrimaryForSniperDecision(goalEnemy, decision))
             {
-                TryApplyCloseIntentSecondary(goalEnemy);
+                TrySwitchToPrimaryForSniperDecision();
             }
         }
 
@@ -327,29 +338,6 @@ namespace friendlySAIN.BigBrain
             return decision.Reason.StartsWith("sniper.startClose", StringComparison.Ordinal) ||
                    decision.Reason.StartsWith("sniper.closeSearch", StringComparison.Ordinal) ||
                    decision.Reason.StartsWith("sniper.closeAuto", StringComparison.Ordinal);
-        }
-
-        private static bool ShouldPreferPrimaryForSniperDecision(
-            AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
-        {
-            if (string.Equals(decision.Reason, "sniper.closeImmediateShoot", StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            if (decision.Reason == null)
-            {
-                return false;
-            }
-
-            return decision.Reason.StartsWith("sniper.startPosition", StringComparison.Ordinal) ||
-                   decision.Reason.StartsWith("sniper.reposition", StringComparison.Ordinal) ||
-                   decision.Reason.StartsWith("sniper.relocate", StringComparison.Ordinal) ||
-                   decision.Reason.StartsWith("sniper.coverMove", StringComparison.Ordinal) ||
-                   decision.Reason.StartsWith("sniper.recoverCover", StringComparison.Ordinal) ||
-                   decision.Reason.StartsWith("sniper.FireSupport", StringComparison.Ordinal) ||
-                   decision.Reason.StartsWith("sniper.shootFromCover", StringComparison.Ordinal) ||
-                   decision.Reason.StartsWith("sniper.committedFire", StringComparison.Ordinal);
         }
 
         private bool CanUseCloseIntentSecondary(EnemyInfo goalEnemy, bool distanceIgnore = false)
@@ -389,6 +377,46 @@ namespace friendlySAIN.BigBrain
             {
                 selector.TryChangeToMain();
             }
+        }
+
+        private bool ShouldSwitchBackToPrimaryForSniperDecision(
+            EnemyInfo goalEnemy,
+            AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            var selector = BotOwner?.WeaponManager?.Selector;
+            if (selector == null || selector.LastEquipmentSlot == EquipmentSlot.FirstPrimaryWeapon)
+            {
+                return false;
+            }
+
+            if (goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance())
+            {
+                return false;
+            }
+
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (Time.time - goalEnemy.PersonalSeenTime <= CloseIntentRecentSeenSeconds)
+            {
+                return false;
+            }
+
+            if (new List<string>
+            {
+                "sniper.reposition",
+                "sniper.FireSupport",
+                "sniper.protectBossShootCover",
+                "sniper.coverHold",
+                FireSupportHoldReason
+            }.Contains(decision.Reason))
+            {
+                return true;
+            }
+
+            return CombatCommon.IsCommittedCoverRetreatingFromEnemy(goalEnemy);
         }
 
         /// <summary>
@@ -577,11 +605,11 @@ namespace friendlySAIN.BigBrain
                     repositionPhase.StartCooldown(RepositionCooldownSeconds);
                 }
 
-                supportPhase.PromoteToHoldOnArrival();
+                bool supportArrived = supportPhase.PromoteToHoldOnArrival();
 
                 if (supportPhase.IsHolding)
                 {
-                    if (goalEnemy.IsVisible && goalEnemy.CanShoot && CombatCommon.CanShootFromCurrentCover(out _))
+                    if (HasImmediateShotFromCurrentCover(goalEnemy))
                     {
                         CombatCommon.ExtendCommittedCover();
                         decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
@@ -602,14 +630,18 @@ namespace friendlySAIN.BigBrain
                         return false;
                     }
 
-                    CombatCommon.HoldFor(FireSupportSettleSeconds);
+                    if (supportArrived)
+                    {
+                        CombatCommon.HoldFor(FireSupportSettleSeconds);
+                    }
+
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                         BotLogicDecision.holdPosition,
                         FireSupportHoldReason);
                     return true;
                 }
 
-                if (goalEnemy.IsVisible && goalEnemy.CanShoot && CombatCommon.CanShootFromCurrentCover(out _))
+                if (HasImmediateShotFromCurrentCover(goalEnemy))
                 {
                     CombatCommon.ExtendCommittedCover();
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
@@ -725,11 +757,11 @@ namespace friendlySAIN.BigBrain
                 return EndHoldPosition(currentDecision.Reason);
             }
 
-            if (currentDecision.Action == BotLogicDecision.goToPointTactical)
+            if (currentDecision.Action == BotLogicDecision.runToCover &&
+                IsMarksmanCommittedTravelReason(currentDecision.Reason))
             {
-                return CombatCommon.EndTacticalPoint(currentDecision.Reason, endWhenCanShootFromCover: true);
+                return EndMarksmanCommittedRunToCover(currentDecision.Reason);
             }
-
             if (currentDecision.Reason != null &&
                 currentDecision.Reason.StartsWith("sniper.closeAuto", StringComparison.Ordinal))
             {
@@ -737,15 +769,89 @@ namespace friendlySAIN.BigBrain
                 {
                     return new AICoreActionEndStruct("sniperCloseAutoNoEnemy", true);
                 }
-
-                if (currentDecision.Action == BotLogicDecision.runToEnemy ||
-                    currentDecision.Action == BotLogicDecision.goToEnemy)
-                {
-                    return CombatCommon.EndBaseGoToEnemy();
-                }
             }
 
             return CombatCommon.ShallEndCurrentDecision(currentDecision);
+        }
+
+        private bool TryGetActiveCommittedTravelDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+
+            bool activeTravel =
+                (repositionPhase.IsPendingArrival || supportPhase.IsPendingArrival) &&
+                CombatCommon.HasCommittedCover() &&
+                !CombatCommon.IsBotInCommittedCover();
+            if (!activeTravel)
+            {
+                return false;
+            }
+
+            decision = CombatCommon.CreateCommittedCoverMoveDecision();
+            if (ShouldYieldCommittedTravelForImmediateCombat(goalEnemy, decision.Action))
+            {
+                decision = default;
+                return false;
+            }
+
+            CombatCommon.AssignCommittedCover();
+            return true;
+        }
+
+        private bool ShouldYieldCommittedTravelForImmediateCombat(
+            EnemyInfo goalEnemy,
+            BotLogicDecision moveAction)
+        {
+            if (moveAction == BotLogicDecision.runToCover)
+            {
+                return CombatCommon.ShouldBreakRunToCoverForImmediateFire();
+            }
+
+            if (moveAction == BotLogicDecision.attackMoving ||
+                moveAction == BotLogicDecision.attackMovingWithSuppress ||
+                moveAction == (BotLogicDecision)CustomBotDecisions.attackRetreat)
+            {
+                return CombatCommon.ShouldBreakAdvanceForImmediateFire();
+            }
+
+            return goalEnemy.IsVisible &&
+                   goalEnemy.CanShoot &&
+                   Enemy.Distance(goalEnemy) <= Enemy.EnemyDistance.VeryClose;
+        }
+
+        private AICoreActionEndStruct EndMarksmanCommittedRunToCover(string? reason)
+        {
+            if (CombatCommon.ShouldBreakRunToCoverForImmediateFire())
+            {
+                return new AICoreActionEndStruct("stableImmediateFire", true);
+            }
+
+            if (BotOwner.Memory.IsInCover)
+            {
+                CombatCommon.HoldCoverForMaxDuration();
+                return new AICoreActionEndStruct("alreadyInCover", true);
+            }
+
+            if (CombatCommon.IsBotInCommittedCover())
+            {
+                CombatCommon.HoldCoverForMaxDuration();
+                return new AICoreActionEndStruct("arrivedCommittedCover", true);
+            }
+
+            if (BotOwner.GoToSomePointData.IsCome())
+            {
+                CombatCommon.HoldCoverForMaxDuration();
+                return new AICoreActionEndStruct("arrivedCoverPoint", true);
+            }
+
+            if (CombatCommon.IsDogFightActive())
+            {
+                return new AICoreActionEndStruct("dogFightStarted", true);
+            }
+
+            return default;
         }
 
         private AICoreActionEndStruct EndHoldPosition(string? reason)
@@ -753,6 +859,23 @@ namespace friendlySAIN.BigBrain
             if (string.Equals(reason, FireSupportHoldReason, StringComparison.Ordinal))
             {
                 return EndFireSupportHoldPosition();
+            }
+
+            if (!string.IsNullOrEmpty(reason) && reason.Contains("regroupNotNeeded"))
+            {
+                if (HasExplicitRegroupOrder())
+                {
+                    ClearCommittedCoverAndRepositionState();
+                    return new AICoreActionEndStruct("sniperRegroupHoldExplicitRegroup", true);
+                }
+
+                if (ShouldRegroupForBossDistance())
+                {
+                    ClearCommittedCoverAndRepositionState();
+                    return new AICoreActionEndStruct("sniperRegroupNowNeeded", true);
+                }
+
+                return CombatCommon.EndBaseHoldPosition(reason);
             }
 
             if (!string.Equals(reason, "sniper.coverHold", StringComparison.Ordinal))
@@ -859,10 +982,21 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("fireSupportHoldShotReady", true);
             }
 
+            if (CombatCommon.TryRaiseForStandingCoverShot(out _))
+            {
+                return new AICoreActionEndStruct("fireSupportHoldStandingShotReady", true);
+            }
+
             if (ShouldBreakForBossSupportOpportunity(goalEnemy))
             {
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("fireSupportHoldBossUnderAttack", true);
+            }
+
+            if (ShouldBreakForAllyEngagementSupportOpportunity())
+            {
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("fireSupportHoldAllySupport", true);
             }
 
             if (ShouldBreakCommittedCoverForBossObjective(goalEnemy, allowLockedBreak: true))
@@ -872,9 +1006,9 @@ namespace friendlySAIN.BigBrain
             }
 
             AICoreActionEndStruct baseEnd = CombatCommon.EndBaseHoldPosition(FireSupportHoldReason);
-            if (baseEnd.Value && string.Equals(baseEnd.Reason, "holdExpired", StringComparison.Ordinal))
+            if (baseEnd.Value)
             {
-                supportPhase.Clear();
+                ClearCommittedCoverAndRepositionState();
             }
 
             return baseEnd;
@@ -897,11 +1031,31 @@ namespace friendlySAIN.BigBrain
             return pointToShoot == null || pointToShoot.Id != currentCover.Id;
         }
 
+        private static bool IsMarksmanCommittedTravelReason(string? reason)
+        {
+            if (reason == null)
+            {
+                return false;
+            }
+
+            return reason.StartsWith("sniper.reposition", StringComparison.Ordinal) ||
+                   reason.StartsWith("sniper.FireSupport", StringComparison.Ordinal) ||
+                   reason.StartsWith("sniper.protectBossShootCover", StringComparison.Ordinal);
+        }
+
         private bool HasImmediateShotFromCurrentCover(EnemyInfo goalEnemy)
         {
-            return goalEnemy.IsVisible &&
-                   goalEnemy.CanShoot &&
-                   CombatCommon.CanShootFromCurrentCover(out _);
+            if (!goalEnemy.IsVisible)
+            {
+                return false;
+            }
+
+            if (CombatCommon.CanShootFromCurrentCover(out _))
+            {
+                return true;
+            }
+
+            return CombatCommon.TryRaiseForStandingCoverShot(out _);
         }
 
         private bool ShouldBreakForBossSupportOpportunity(EnemyInfo goalEnemy)

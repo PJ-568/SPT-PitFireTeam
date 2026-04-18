@@ -48,7 +48,9 @@ namespace friendlySAIN.BigBrain
                     BotLogicDecision pushDecision;
                     if (pushOrdered)
                     {
-                        pushDecision = BotLogicDecision.runToEnemy;
+                        pushDecision = botOwner.CanSprintPlayer
+                            ? BotLogicDecision.runToEnemy
+                            : BotLogicDecision.goToEnemy;
                     }
                     else if (distanceToEnemy <= Utils.Enemy.EnemyDistance.Close)
                     {
@@ -56,7 +58,9 @@ namespace friendlySAIN.BigBrain
                     }
                     else
                     {
-                        pushDecision = BotLogicDecision.runToEnemy;
+                        pushDecision = botOwner.CanSprintPlayer
+                            ? BotLogicDecision.runToEnemy
+                            : BotLogicDecision.goToEnemy;
                     }
 
                     if (!Utils.Enemy.IsClosestEnemy(botOwner) && distanceToEnemy <= Utils.Enemy.EnemyDistance.Mid)
@@ -66,7 +70,7 @@ namespace friendlySAIN.BigBrain
 
                     if (!enemyVisible || pushOrdered)
                     {
-                        botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
+                        SetAttackTactic();
                         BotLogicDecision moveDecision = enemyVisible ? BotLogicDecision.goToEnemy : pushDecision;
                         return CreatePushDecision(moveDecision);
                     }
@@ -103,7 +107,7 @@ namespace friendlySAIN.BigBrain
                         return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "pushDogFight");
                     }
 
-                    botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
+                    SetAttackTactic();
                     return CreatePushDecision(BotLogicDecision.attackMoving);
                 }
 
@@ -184,6 +188,17 @@ namespace friendlySAIN.BigBrain
             };
 
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(action, $"{PushReasonPrefix}{suffix}");
+        }
+
+        private void SetAttackTactic()
+        {
+            if (botOwner.Tactic.ShallReturnToAttack)
+            {
+                botOwner.Tactic.ShallReturnToAttack = false;
+                botOwner.Tactic.ReturnToAttackTime = 0f;
+            }
+
+            botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
         }
 
     }

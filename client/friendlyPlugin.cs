@@ -225,6 +225,7 @@ namespace friendlySAIN
             new BotControllerEnemyPropagationSafetyPatch().Enable();
 
             new BotMemoryDamagePatch().Enable();
+            new FollowerGoalEnemyClearRetentionPatch().Enable();
             new ExUsecBrainHitPatch().Enable();
 
             new BotOwnerIsFolowerPatch().Enable();
@@ -278,10 +279,12 @@ namespace friendlySAIN
             // bot misc patches
             new BotTalkTrySayPatch().Enable();
             new BotTalkSayPatch().Enable();
+            new FollowerWeaponSelectorManualUpdatePatch().Enable();
             new FollowerSupportNoAmmoMainSwitchPolicyPatch().Enable();
-            new FollowerWeaponSwitchTracePatch().Enable();
             new FollowerHoldLingerReloadSuppressPatch().Enable();
             new FollowerGrenadeAvailabilityPatch().Enable();
+            new FollowerGrenadeCooldownPatch().Enable();
+            new FollowerGrenadeThrowFinishPatch().Enable();
             new BulletImpactPatch().Enable();
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();

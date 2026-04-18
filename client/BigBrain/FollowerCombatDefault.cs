@@ -83,9 +83,9 @@ namespace friendlySAIN.BigBrain
                 return preFight.Value;
             }
 
-            if (TryActivateFollowerGrenade(goalEnemy))
+            if (combatCommon.TryActivateFollowerGrenade(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> grenadeDecision))
             {
-                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.throwGrenadeFromPlace, "FollowerGrenade");
+                return grenadeDecision;
             }
 
             if (combatCommon.HasInitialDecision)
@@ -212,13 +212,6 @@ namespace friendlySAIN.BigBrain
                     return EndCoverMoveOrAttackMoving(currentDecision);
                 case BotLogicDecision.shootFromCover:
                     return EndShootFromCover(currentDecision.Reason);
-                case BotLogicDecision.runToEnemy:
-                case BotLogicDecision.goToEnemy:
-                    return combatCommon.EndBaseGoToEnemy();
-                case BotLogicDecision.goToPoint:
-                case BotLogicDecision.goToPointTactical:
-                case BotLogicDecision.search:
-                    return EndGoToPoint(currentDecision.Reason);
                 default:
                     return combatCommon.ShallEndCurrentDecision(currentDecision);
             }
@@ -259,7 +252,7 @@ namespace friendlySAIN.BigBrain
 
                 // If the bot is already protected by cover and that cover still supports a real shot,
                 // use it immediately instead of re-evaluating movement.
-                if (botOwner.Memory.IsInCover && combatCommon.CanShootFromCurrentCover(out _))
+                if (botOwner.Memory.IsInCover && combatCommon.CanShootFromCurrentCoverOrStandingIntent(out _))
                 {
                     combatCommon.ExtendCommittedCover();
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromCover, "coverVisibleFire");
@@ -333,112 +326,6 @@ namespace friendlySAIN.BigBrain
         }
 
         /// <summary>
-        /// Activates an explicit grenade throw request only when the target is visible, not already
-        /// a clean gunfight, and the throw is safe for the boss/followers.
-        /// </summary>
-        private bool TryActivateFollowerGrenade(EnemyInfo goalEnemy)
-        {
-            if (!friendlySAIN.botGrenades.Value ||
-                goalEnemy == null ||
-                !goalEnemy.IsVisible ||
-                goalEnemy.Person == null ||
-                goalEnemy.Distance < 15f ||
-                goalEnemy.Distance > 28f ||
-                botOwner.WeaponManager == null ||
-                botOwner.WeaponManager.IsMelee ||
-                botOwner.BotRequestController == null ||
-                botOwner.BotRequestController.HaveActivatedRequests() ||
-                botOwner.Medecine.Using)
-            {
-                return false;
-            }
-
-            if (!FollowerGrenadeCooldowns.TryReserveThrow(botOwner))
-            {
-                return false;
-            }
-
-            if (combatCommon.IsDogFightActive() ||
-                botOwner.Memory.IsUnderFire ||
-                FollowerCombatCommon.WasHitRecently(botOwner, 2f) ||
-                Time.time - goalEnemy.FirstTimeSeen < 1.5f)
-            {
-                FollowerGrenadeCooldowns.CancelPending(botOwner);
-                return false;
-            }
-
-            if (goalEnemy.CanShoot && botOwner.LookSensor.EnoughDistToShoot(out _))
-            {
-                FollowerGrenadeCooldowns.CancelPending(botOwner);
-                return false;
-            }
-
-            FollowerGrenadeRuntimeGate.EnableExplicitThrow(botOwner);
-            if (botOwner.WeaponManager.Grenades == null ||
-                !botOwner.WeaponManager.Grenades.HaveGrenade)
-            {
-                FollowerGrenadeCooldowns.CancelPending(botOwner);
-                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
-                return false;
-            }
-
-            Vector3 targetPosition = goalEnemy.CurrPosition + Vector3.up;
-            if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, 8f))
-            {
-                FollowerGrenadeCooldowns.CancelPending(botOwner);
-                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
-                return false;
-            }
-
-            bool activated = botOwner.BotRequestController.TryActivateThrowGrenadeRequest(targetPosition, null, out _);
-            if (!activated)
-            {
-                FollowerGrenadeCooldowns.CancelPending(botOwner);
-                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
-            }
-
-            return activated;
-        }
-
-        private bool IsFriendlyTooCloseToGrenadeTarget(Vector3 targetPosition, float unsafeRadius)
-        {
-            float unsafeRadiusSqr = unsafeRadius * unsafeRadius;
-
-            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
-            {
-                return false;
-            }
-
-            Player bossPlayer = boss.realPlayer;
-            if (bossPlayer != null && (bossPlayer.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
-            {
-                return true;
-            }
-
-            var followers = boss.Followers;
-            if (followers == null)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < followers.Count; i++)
-            {
-                BotOwner follower = followers[i];
-                if (follower == null || follower == botOwner || follower.IsDead)
-                {
-                    continue;
-                }
-
-                if ((follower.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
         /// Keeps the bot tied to a chosen cover point long enough to actually arrive, settle, and use it.
         /// </summary>
         private bool TryGetCommittedCoverDecision(
@@ -475,7 +362,7 @@ namespace friendlySAIN.BigBrain
                 }
 
                 // Once the bot has actually reached committed cover, shooting from that cover always wins.
-                if (goalEnemy.IsVisible && goalEnemy.CanShoot && combatCommon.CanShootFromCurrentCover(out _))
+                if (goalEnemy.IsVisible && combatCommon.CanShootFromCurrentCoverOrStandingIntent(out _))
                 {
                     combatCommon.ExtendCommittedCover();
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromCover, "committedFire");
@@ -977,15 +864,7 @@ namespace friendlySAIN.BigBrain
             return combatCommon.EndShootFromCover();
         }
 
-        /// <summary>
-        /// Ends tactical movement once the enemy is reacquired, pressure returns, or the bot reaches the point.
-        /// </summary>
-        private AICoreActionEndStruct EndGoToPoint(string reason)
-        {
-            return combatCommon.EndTacticalPoint(
-                reason,
-                continueEnemySearchOnArrival: IsEnemySearchPushReason(reason));
-        }
+
 
         /// <summary>
         /// Push actions are interrupted only by a narrow set of events; otherwise they rely on the
@@ -1006,6 +885,13 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct(interruptReason, true);
             }
 
+            if (currentDecision.Action == BotLogicDecision.runToEnemy &&
+                (!botOwner.CanSprintPlayer || botOwner.Mover?.NoSprint == true))
+            {
+                ClearCommittedPush();
+                return new AICoreActionEndStruct("pushRunCannotSprint", true);
+            }
+
             AICoreActionEndStruct endResult = currentDecision.Action switch
             {
                 BotLogicDecision.runToEnemy => combatCommon.EndBaseGoToEnemy(),
@@ -1014,7 +900,6 @@ namespace friendlySAIN.BigBrain
                 BotLogicDecision.attackMoving => combatCommon.EndAttackMoving(),
                 BotLogicDecision.attackMovingWithSuppress => combatCommon.EndAttackMovingWithSuppress(),
                 var decision when decision == (BotLogicDecision)CustomBotDecisions.attackRetreat => combatCommon.EndAttackRetreat(),
-                BotLogicDecision.goToPointTactical => EndGoToPoint(currentDecision.Reason),
                 _ => combatCommon.ShallEndCurrentDecision(currentDecision),
             };
 
@@ -1190,12 +1075,12 @@ namespace friendlySAIN.BigBrain
 
         private static bool IsCommittedCoverReason(string reason)
         {
-            return string.Equals(reason, "shootCover", StringComparison.Ordinal) ||
-                   string.Equals(reason, "safeCover", StringComparison.Ordinal) ||
-                   string.Equals(reason, "retreatShootCover", StringComparison.Ordinal) ||
-                   string.Equals(reason, "retreatSafeCover", StringComparison.Ordinal) ||
-                   string.Equals(reason, "bossCover", StringComparison.Ordinal) ||
-                   string.Equals(reason, "committedFire", StringComparison.Ordinal);
+            return IsReasonOrSubreason(reason, "shootCover") ||
+                   IsReasonOrSubreason(reason, "safeCover") ||
+                   IsReasonOrSubreason(reason, "retreatShootCover") ||
+                   IsReasonOrSubreason(reason, "retreatSafeCover") ||
+                   IsReasonOrSubreason(reason, "bossCover") ||
+                   IsReasonOrSubreason(reason, "committedFire");
         }
 
         private void UpdateShootCoverSettleState(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
@@ -1223,8 +1108,15 @@ namespace friendlySAIN.BigBrain
 
         private static bool IsShootCoverReason(string? reason)
         {
-            return string.Equals(reason, "shootCover", StringComparison.Ordinal) ||
-                   string.Equals(reason, "retreatShootCover", StringComparison.Ordinal);
+            return IsReasonOrSubreason(reason, "shootCover") ||
+                   IsReasonOrSubreason(reason, "retreatShootCover");
+        }
+
+        private static bool IsReasonOrSubreason(string? reason, string baseReason)
+        {
+            return string.Equals(reason, baseReason, StringComparison.Ordinal) ||
+                   (!string.IsNullOrEmpty(reason) &&
+                    reason.StartsWith(baseReason + ".", StringComparison.Ordinal));
         }
 
         /// <summary>

@@ -8,6 +8,7 @@ using friendlySAIN.Utils;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Comfort.Common;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -27,8 +28,9 @@ namespace friendlySAIN.BigBrain
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? currentDecision;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? lastDecision;
         private bool hadCombatSinceActivation;
-        private float noEnemySinceTime;
         private float lingerUntil;
+        private bool lingerArmed;
+        private float lingerHardUntil;
 
         public FollowerCombatLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
         {
@@ -63,19 +65,29 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (lingerArmed && IsLingerExpired() && !HasCurrentLiveGoalEnemy())
+            {
+                hadCombatSinceActivation = false;
+                ClearLinger();
+                return false;
+            }
+
             bool isCombatActive = ShouldTreatCombatAsActive();
             if (isCombatActive)
             {
                 hadCombatSinceActivation = true;
-                noEnemySinceTime = 0f;
+                if (HasCurrentLiveGoalEnemy())
+                {
+                    ClearLinger();
+                }
+
                 return true;
             }
 
             if (HasPendingMedicalWork())
             {
                 hadCombatSinceActivation = false;
-                noEnemySinceTime = 0f;
-                lingerUntil = 0f;
+                ClearLinger();
                 return false;
             }
 
@@ -84,31 +96,14 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            if (currentDecision.HasValue && currentDecision.Value.Reason == LingerReason && lingerUntil > 0f)
-            {
-                if (Time.time < lingerUntil)
-                {
-                    return true;
-                }
-
-                hadCombatSinceActivation = false;
-                noEnemySinceTime = 0f;
-                lingerUntil = 0f;
-                return false;
-            }
-
-            if (noEnemySinceTime <= 0f)
-            {
-                noEnemySinceTime = Time.time;
-            }
-
-            if (Time.time - noEnemySinceTime < PostEnemyKeepActiveSeconds)
+            ArmLingerIfNeeded();
+            if (Time.time < lingerUntil)
             {
                 return true;
             }
 
             hadCombatSinceActivation = false;
-            noEnemySinceTime = 0f;
+            ClearLinger();
             return false;
         }
 
@@ -118,8 +113,7 @@ namespace friendlySAIN.BigBrain
             currentDecision = null;
             lastDecision = null;
             hadCombatSinceActivation = false;
-            noEnemySinceTime = 0f;
-            lingerUntil = 0f;
+            ClearLinger();
             MarkActive(true);
             BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
@@ -136,8 +130,8 @@ namespace friendlySAIN.BigBrain
             currentDecision = null;
             lastDecision = null;
             hadCombatSinceActivation = false;
-            noEnemySinceTime = 0f;
-            lingerUntil = 0f;
+            ClearLinger();
+            FollowerContactEnemyRetention.Clear(BotOwner);
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
             combatLogic?.Reset();
             base.Stop();
@@ -160,16 +154,16 @@ namespace friendlySAIN.BigBrain
             {
                 // As soon as live enemy is gone, hand off to a short linger hold while the
                 // combat layer remains active for release/handoff timing.
-                if (!currentDecision.HasValue || currentDecision.Value.Reason != LingerReason || lingerUntil <= Time.time)
-                {
-                    lingerUntil = Time.time + PostEnemyKeepActiveSeconds;
-                }
-
+                ArmLingerIfNeeded();
                 nextDecision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, LingerReason);
             }
             else
             {
-                lingerUntil = 0f;
+                if (HasCurrentLiveGoalEnemy())
+                {
+                    ClearLinger();
+                }
+
                 nextDecision = combatLogic.GetDecision();
                 combatLogic.DecisionChanged(currentDecision, nextDecision);
             }
@@ -198,30 +192,27 @@ namespace friendlySAIN.BigBrain
             {
                 if (ShouldTreatCombatAsActive())
                 {
-                    lingerUntil = 0f;
+                    if (HasCurrentLiveGoalEnemy())
+                    {
+                        ClearLinger();
+                    }
+
                     return true;
                 }
 
                 if (HasPendingMedicalWork())
                 {
                     hadCombatSinceActivation = false;
-                    noEnemySinceTime = 0f;
-                    lingerUntil = 0f;
+                    ClearLinger();
                     return true;
                 }
 
-                if (lingerUntil <= 0f)
-                {
-                    lingerUntil = Time.time + PostEnemyKeepActiveSeconds;
-                    return false;
-                }
-
-                bool expired = Time.time >= lingerUntil;
+                ArmLingerIfNeeded();
+                bool expired = IsLingerExpired();
                 if (expired)
                 {
                     hadCombatSinceActivation = false;
-                    noEnemySinceTime = 0f;
-                    lingerUntil = 0f;
+                    ClearLinger();
                 }
 
                 return expired;
@@ -242,6 +233,35 @@ namespace friendlySAIN.BigBrain
             }
 
             return endResult.Value;
+        }
+
+        private void ArmLingerIfNeeded()
+        {
+            if (lingerArmed)
+            {
+                return;
+            }
+
+            lingerUntil = Time.time + PostEnemyKeepActiveSeconds;
+            lingerHardUntil = lingerUntil;
+            lingerArmed = true;
+        }
+
+        private void ClearLinger()
+        {
+            lingerUntil = 0f;
+            lingerHardUntil = 0f;
+            lingerArmed = false;
+        }
+
+        private bool IsLingerExpired()
+        {
+            if (lingerHardUntil > 0f && Time.time >= lingerHardUntil)
+            {
+                return true;
+            }
+
+            return lingerUntil <= 0f || Time.time >= lingerUntil;
         }
 
         public static bool IsFollowerCombatLayerActive(BotOwner? botOwner)
@@ -273,15 +293,27 @@ namespace friendlySAIN.BigBrain
             return combatLogic?.ShallUseNow() == true;
         }
 
+        private bool HasCurrentLiveGoalEnemy()
+        {
+            EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
+            return IsGoalEnemyAlive(goalEnemy) &&
+                   (BotOwner?.Memory?.HaveEnemy == true || goalEnemy!.IsVisible || goalEnemy.CanShoot);
+        }
+
         private bool ShouldTreatCombatAsActive()
         {
+            if (FollowerContactEnemyRetention.TryRestore(BotOwner, out _))
+            {
+                return true;
+            }
+
             if (HasLiveEnemy())
             {
                 return true;
             }
 
             EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
-            if (goalEnemy != null && goalEnemy.Person?.HealthController?.IsAlive == true)
+            if (goalEnemy != null && IsGoalEnemyAlive(goalEnemy))
             {
                 if (BotOwner.Memory.HaveEnemy)
                 {
@@ -301,6 +333,22 @@ namespace friendlySAIN.BigBrain
 
             return BotOwner?.Memory?.IsUnderFire == true &&
                    Time.time - BotOwner.Memory.LastTimeHit <= 2f;
+        }
+
+        private static bool IsGoalEnemyAlive(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                Player? alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+                return alivePlayer?.HealthController?.IsAlive == true;
+            }
+
+            return goalEnemy.Person?.HealthController?.IsAlive == true;
         }
 
         private bool HasPendingMedicalWork()
@@ -462,19 +510,16 @@ namespace friendlySAIN.BigBrain
 
                     return new Action(typeof(CombatGoToPointAction), decision.Reason, actionData);
                 case BotLogicDecision.goToPointTactical:
-                    /* if (string.Equals(decision.Reason, "sniper.closeSearch", StringComparison.Ordinal))
-                    {
-                        return new Action(typeof(CombatSearchAction), decision.Reason, actionData);
-                    } */
                     return new Action(typeof(CombatGoToPointTacticalAction), decision.Reason, actionData);
                 case BotLogicDecision.heal:
                     return new Action(typeof(HealAction), decision.Reason, actionData);
                 case BotLogicDecision.healStimulators:
                     return new Action(typeof(HealStimulatorsAction), decision.Reason, actionData);
                 case BotLogicDecision.search:
-                    return new Action(typeof(CombatGoToPointTacticalAction), decision.Reason, actionData);
-                case BotLogicDecision.throwGrenadeFromPlace:
-                    return new Action(typeof(CombatThrowGrenadeFromPlaceAction), decision.Reason, actionData);
+                    BotOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
+                    return new Action(typeof(CombatSearchAction), decision.Reason, actionData);
+                case BotLogicDecision.suppressGrenade:
+                    return new Action(typeof(CombatSuppressGrenadeAction), decision.Reason, actionData);
                 case BotLogicDecision.suppressFire:
                     return new Action(typeof(CombatSuppressFireAction), decision.Reason, actionData);
                 case BotLogicDecision.shootToSmoke:

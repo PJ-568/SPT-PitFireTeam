@@ -4,6 +4,7 @@ using friendlySAIN.Components;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using System;
+using System.Collections.Generic;
 
 using UnityEngine;
 using UnityEngine.AI;
@@ -27,9 +28,12 @@ namespace friendlySAIN.BigBrain
         private const float StableVisibleImmediateFireSeconds = 0.3f;
         private const float CoverCommitLockSeconds = 2.5f;
         private const float CoverSearchCooldownSeconds = 0.35f;
+        private const float StandingCoverShotProbeHeight = 1.45f;
         private const float HealCoverMinNavDistance = 2f;
         private const float HealCoverMinEnemyDistanceGain = -2f;
         private const float EnemyFrontCrossGuardMaxDistance = 35f;
+        private const float FireSupportPathEnemyMinDistance = 12f;
+        private static readonly Dictionary<int, CoverCommitIntent> coverCommitIntents = new Dictionary<int, CoverCommitIntent>();
         private readonly BotOwner botOwner;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? initialDecision;
         private float healBlockUntil;
@@ -46,6 +50,8 @@ namespace friendlySAIN.BigBrain
         private float nextCoverAcquireTime;
         private bool holdActive;
         private float holdEndTime;
+        private string? lastGrenadeLogReason;
+        private float nextGrenadeLogAt;
 
         private float dangerTimer = 0f;
         private float nextShootCoverCheckTime;
@@ -59,6 +65,26 @@ namespace friendlySAIN.BigBrain
         private bool pendingHaveCoverToShoot;
         private float pendingHaveCoverToShootSince;
         private float shootLaneUpgradeSince;
+
+        private readonly struct CoverCommitIntent
+        {
+            public CoverCommitIntent(int coverId, bool isShootingCover)
+            {
+                CoverId = coverId;
+                IsShootingCover = isShootingCover;
+            }
+
+            public int CoverId { get; }
+            public bool IsShootingCover { get; }
+        }
+
+        private enum CoverSearchIntent
+        {
+            Attack,
+            AttackMoving,
+            RunToCover,
+            ForCover
+        }
 
         public FollowerCombatCommon(BotOwner botOwner)
         {
@@ -75,6 +101,34 @@ namespace friendlySAIN.BigBrain
         public void SetInitialDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             initialDecision = decision;
+        }
+
+        private CoverSearchType SetCoverTacticAndGetSearchType(
+            BotsGroup.BotCurrentTactic tactic,
+            CoverShootType shootType,
+            CoverSearchIntent searchIntent)
+        {
+            SetCoverTactic(tactic);
+
+            return searchIntent switch
+            {
+                CoverSearchIntent.Attack => botOwner.Tactic.SubTactic.SearchTypeAttack(shootType),
+                CoverSearchIntent.AttackMoving => botOwner.Tactic.SubTactic.SearchTypeAttackMoving(shootType),
+                CoverSearchIntent.RunToCover => botOwner.Tactic.SubTactic.SearchRunToCover(shootType),
+                CoverSearchIntent.ForCover => botOwner.Tactic.SubTactic.SearchTypeForCover(shootType),
+                _ => botOwner.Tactic.SubTactic.SearchTypeForCover(shootType),
+            };
+        }
+
+        private void SetCoverTactic(BotsGroup.BotCurrentTactic tactic)
+        {
+            if (botOwner.Tactic.ShallReturnToAttack && tactic != BotsGroup.BotCurrentTactic.Ambush)
+            {
+                botOwner.Tactic.ShallReturnToAttack = false;
+                botOwner.Tactic.ReturnToAttackTime = 0f;
+            }
+
+            botOwner.Tactic.SetTactic(tactic);
         }
 
         public void Reset()
@@ -173,22 +227,29 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            if (goalEnemy.Person?.HealthController?.IsAlive == true)
-            {
-                return true;
-            }
-
-            // EnemyInfo.Person can temporarily be null/stale; resolve against alive players by profile id.
             if (!string.IsNullOrEmpty(goalEnemy.ProfileId))
             {
                 Player? alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
-                if (alivePlayer?.HealthController?.IsAlive == true)
-                {
-                    return true;
-                }
+                return alivePlayer?.HealthController?.IsAlive == true;
             }
 
-            return false;
+            return goalEnemy.Person?.HealthController?.IsAlive == true;
+        }
+
+        private static bool HasActiveCombatEnemy(BotOwner botOwner, EnemyInfo? goalEnemy)
+        {
+            if (botOwner?.Memory?.HaveEnemy != true || goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                Player? alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+                return alivePlayer?.HealthController?.IsAlive == true;
+            }
+
+            return goalEnemy.Person?.HealthController?.IsAlive == true;
         }
 
         /// <summary>
@@ -536,6 +597,11 @@ namespace friendlySAIN.BigBrain
         /// </summary>
         public void ClearCommittedCover()
         {
+            if (committedCoverPoint != null)
+            {
+                coverCommitIntents.Remove(botOwner.Id);
+            }
+
             committedCoverPoint = null;
             committedCoverMoveAction = default;
             committedCoverMoveReason = null;
@@ -606,20 +672,26 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (IsUnsafeFireSupportPath(goalEnemy, cover, reason))
+            {
+                return false;
+            }
+
             BotLogicDecision moveAction = SelectCommittedCoverMoveAction(goalEnemy, cover);
             if (moveAction == BotLogicDecision.runToCover)
             {
                 reason += ".run";
+                SetRunToCoverTactic(cover, reason);
             }
             else if (moveAction == BotLogicDecision.attackMovingWithSuppress)
             {
                 reason += ".suppress";
-                botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
             }
             else if (moveAction == (BotLogicDecision)CustomBotDecisions.attackRetreat)
             {
                 reason += ".retreat";
-                botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Protect);
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Protect);
                 if (!goalEnemy.IsVisible)
                 {
                     botOwner.Steering.LookToPoint(GetEnemyAnchor(goalEnemy) + Vector3.up * 0.8f);
@@ -627,12 +699,79 @@ namespace friendlySAIN.BigBrain
             }
             else if (moveAction == BotLogicDecision.attackMoving)
             {
-                botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
             }
 
             CommitCover(cover, moveAction, reason);
             AssignCover(cover);
             return true;
+        }
+
+        private void SetRunToCoverTactic(CustomNavigationPoint? cover, string reason)
+        {
+            if (IsProtectCoverReason(reason))
+            {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Protect);
+                return;
+            }
+
+            if (IsAttackCoverReason(reason, cover))
+            {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+                return;
+            }
+
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
+        }
+
+        private static bool IsProtectCoverReason(string? reason)
+        {
+            return reason != null &&
+                   (reason.IndexOf("boss", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    reason.IndexOf("protect", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    reason.IndexOf("regroup", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool IsAttackCoverReason(string? reason, CustomNavigationPoint? cover)
+        {
+            return cover?.CanIShootToEnemy == true ||
+                   (reason != null &&
+                    (reason.IndexOf("shoot", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     reason.IndexOf("support", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     reason.IndexOf("push", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     reason.IndexOf("sniper", StringComparison.OrdinalIgnoreCase) >= 0));
+        }
+
+        private bool IsUnsafeFireSupportPath(EnemyInfo goalEnemy, CustomNavigationPoint cover, string reason)
+        {
+            if (goalEnemy == null ||
+                string.IsNullOrEmpty(reason) ||
+                !reason.StartsWith("sniper.FireSupport", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
+            if (!IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            if (Covers.IsPathTooCloseToEnemy(
+                    botOwner.Position,
+                    cover.Position,
+                    enemyAnchor,
+                    FireSupportPathEnemyMinDistance))
+            {
+                return true;
+            }
+
+            return Covers.IsPathExposedToEnemy(
+                botOwner.Position,
+                cover.Position,
+                enemyAnchor,
+                botOwner.LookSensor.Mask,
+                sampleCount: 6);
         }
 
         /// <summary>
@@ -649,11 +788,16 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            CoverSearchType searchType = SetCoverTacticAndGetSearchType(
+                BotsGroup.BotCurrentTactic.Ambush,
+                CoverShootType.hide,
+                CoverSearchIntent.RunToCover);
             CustomNavigationPoint? cover = Covers.GetClosestCoverPoint(
                 botOwner,
                 botOwner.Position,
                 50f,
-                candidate => IsCoverUsable(candidate, ignoreSpotted: true));
+                candidate => IsCoverUsable(candidate, ignoreSpotted: true),
+                searchType);
 
             if (!IsCoverUsable(cover, ignoreSpotted: true))
             {
@@ -678,6 +822,7 @@ namespace friendlySAIN.BigBrain
             committedCoverMoveReason = reason;
             committedCoverSetAt = Time.time;
             committedCoverUntil = Time.time + CoverCommitLockSeconds;
+            coverCommitIntents[botOwner.Id] = new CoverCommitIntent(cover.Id, IsCommittedShootingCoverReason(reason));
         }
 
         private bool IsCommittedCoverStillUsable(CustomNavigationPoint? cover)
@@ -964,23 +1109,33 @@ namespace friendlySAIN.BigBrain
             {
                 if (shootPoint != null)
                 {
+                    CoverSearchType shootSearchType = SetCoverTacticAndGetSearchType(
+                        BotsGroup.BotCurrentTactic.Attack,
+                        CoverShootType.shoot,
+                        CoverSearchIntent.Attack);
                     CustomNavigationPoint? directionalShootCover = Covers.GetClosestCoverPointTowardPoint(
                         botOwner,
                         bossPosition,
                         enemyAnchor,
                         25f,
-                        cover => Utils.Utils.CanShootToTarget(shootPoint, cover, mask, false));
+                        cover => Utils.Utils.CanShootToTarget(shootPoint, cover, mask, false),
+                        searchTypeOverride: shootSearchType);
                     if (directionalShootCover != null)
                     {
                         return directionalShootCover;
                     }
                 }
 
+                CoverSearchType attackSearchType = SetCoverTacticAndGetSearchType(
+                    BotsGroup.BotCurrentTactic.Attack,
+                    CoverShootType.hide,
+                    CoverSearchIntent.Attack);
                 CustomNavigationPoint? directionalCover = Covers.GetClosestCoverPointTowardPoint(
                     botOwner,
                     bossPosition,
                     enemyAnchor,
-                    22f);
+                    22f,
+                    searchTypeOverride: attackSearchType);
                 if (directionalCover != null)
                 {
                     return directionalCover;
@@ -1015,6 +1170,10 @@ namespace friendlySAIN.BigBrain
                 return null;
             }
 
+            CoverSearchType searchType = SetCoverTacticAndGetSearchType(
+                BotsGroup.BotCurrentTactic.Attack,
+                CoverShootType.shoot,
+                CoverSearchIntent.Attack);
             float weaponShootDistMaxSqr = botOwner.LookSensor.MaxShootDist * botOwner.LookSensor.MaxShootDist;
             float? maxDistanceFromBotSqr = maxDistanceFromBot.HasValue
                 ? maxDistanceFromBot.Value * maxDistanceFromBot.Value
@@ -1053,11 +1212,12 @@ namespace friendlySAIN.BigBrain
                     }
 
                     return Utils.Utils.CanShootToTarget(shootPointClass, point, botOwner.LookSensor.Mask, false);
-                });
+                },
+                searchType);
 
             if (cachedClosestShootCover != null)
             {
-                botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
             }
 
             botOwner.Memory.SetCoverPoints(cachedClosestShootCover);
@@ -1292,6 +1452,13 @@ namespace friendlySAIN.BigBrain
             Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
             ShootPointClass? shootPoint = requireShootLane ? botOwner.CurrentEnemyTargetPosition(true) : null;
             LayerMask mask = botOwner.LookSensor.Mask;
+            BotsGroup.BotCurrentTactic tactic = requireShootLane
+                ? BotsGroup.BotCurrentTactic.Attack
+                : BotsGroup.BotCurrentTactic.Protect;
+            CoverSearchType searchType = SetCoverTacticAndGetSearchType(
+                tactic,
+                requireShootLane ? CoverShootType.shoot : CoverShootType.hide,
+                requireShootLane ? CoverSearchIntent.AttackMoving : CoverSearchIntent.RunToCover);
 
             // The selector still comes from our custom cover path. The forward direction is bossward,
             // while the extra checks decide whether this step is a fighting cover or a retreat cover.
@@ -1321,7 +1488,8 @@ namespace friendlySAIN.BigBrain
                     }
 
                     return true;
-                });
+                },
+                searchTypeOverride: searchType);
 
             if (candidate == null)
             {
@@ -1788,12 +1956,14 @@ namespace friendlySAIN.BigBrain
 
             if (IsCommittedHealCoverValid(goalEnemy))
             {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
                 SetCover(committedHealCover);
                 return true;
             }
 
             if (TryFindHealCover(goalEnemy, out CustomNavigationPoint? healCover))
             {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
                 SetCover(healCover);
                 committedHealCover = healCover;
                 CommitHealMove(goalEnemy);
@@ -1803,6 +1973,7 @@ namespace friendlySAIN.BigBrain
             float healCoverMaxNavDistance = CombatDistanceConfiguration.Instance.GetHealCoverMaxNavDistance();
             if (TryAssignRetreatAttackCover(goalEnemy, false, healCoverMaxNavDistance * healCoverMaxNavDistance))
             {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
                 committedHealCover = botOwner.Memory.CurCustomCoverPoint;
                 CommitHealMove(goalEnemy);
                 return true;
@@ -1820,6 +1991,7 @@ namespace friendlySAIN.BigBrain
             }
 
             SetCover(committedHealCover);
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
 
             return CreateCommittedHealMoveDecision(goalEnemy);
         }
@@ -1904,6 +2076,10 @@ namespace friendlySAIN.BigBrain
             float healCoverRetreatDistance = CombatDistanceConfiguration.Instance.GetHealCoverRetreatDistance();
             float healCoverSearchRadius = CombatDistanceConfiguration.Instance.GetHealCoverSearchRadius();
             float healCoverMaxNavDistance = CombatDistanceConfiguration.Instance.GetHealCoverMaxNavDistance();
+            CoverSearchType healSearchType = SetCoverTacticAndGetSearchType(
+                BotsGroup.BotCurrentTactic.Ambush,
+                CoverShootType.hide,
+                CoverSearchIntent.RunToCover);
 
             Vector3 retreatAnchor = botOwner.Position + awayFromEnemy.normalized * healCoverRetreatDistance;
             float currentEnemyDistance = Vector3.Distance(botOwner.Position, enemyAnchor);
@@ -1933,7 +2109,8 @@ namespace friendlySAIN.BigBrain
 
                     float candidateEnemyDistance = Vector3.Distance(point.Position, enemyAnchor);
                     return candidateEnemyDistance + HealCoverMinEnemyDistanceGain >= currentEnemyDistance;
-                });
+                },
+                healSearchType);
 
             return cover != null;
         }
@@ -1996,6 +2173,13 @@ namespace friendlySAIN.BigBrain
 
             Vector3 retreatAnchor = bossPosition + awayFromEnemy.normalized * 6f;
             ShootPointClass? shootPoint = requireShootLane ? botOwner.CurrentEnemyTargetPosition(true) : null;
+            BotsGroup.BotCurrentTactic tactic = requireShootLane
+                ? BotsGroup.BotCurrentTactic.Attack
+                : BotsGroup.BotCurrentTactic.Ambush;
+            CoverSearchType searchType = SetCoverTacticAndGetSearchType(
+                tactic,
+                requireShootLane ? CoverShootType.shoot : CoverShootType.hide,
+                CoverSearchIntent.RunToCover);
 
             CustomNavigationPoint? retreatCover = Covers.GetClosestCoverPoint(
                 botOwner,
@@ -2019,7 +2203,8 @@ namespace friendlySAIN.BigBrain
                     }
 
                     return true;
-                });
+                },
+                searchType);
 
             if (retreatCover == null)
             {
@@ -2045,6 +2230,10 @@ namespace friendlySAIN.BigBrain
         public bool TryFindBossCover(EnemyInfo goalEnemy, Vector3 bossPosition, float searchRadius, out CustomNavigationPoint? cover)
         {
             Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
+            CoverSearchType searchType = SetCoverTacticAndGetSearchType(
+                BotsGroup.BotCurrentTactic.Protect,
+                CoverShootType.hide,
+                CoverSearchIntent.ForCover);
             CustomNavigationPoint? candidate = Covers.GetClosestCoverPoint(
                 botOwner,
                 bossPosition,
@@ -2062,7 +2251,8 @@ namespace friendlySAIN.BigBrain
                     }
 
                     return !IsFinite(enemyAnchor) || point.CanIHideFromPos(0f, true, false, enemyAnchor);
-                });
+                },
+                searchType);
 
             if (candidate == null)
             {
@@ -2124,6 +2314,10 @@ namespace friendlySAIN.BigBrain
 
             ShootPointClass shootPoint = new ShootPointClass(enemyPosition + Vector3.up * 1.1f, 1f);
             LayerMask mask = botOwner.LookSensor.Mask;
+            CoverSearchType searchType = SetCoverTacticAndGetSearchType(
+                BotsGroup.BotCurrentTactic.Attack,
+                CoverShootType.shoot,
+                CoverSearchIntent.ForCover);
 
             cover = Covers.GetClosestCoverPoint(
                 botOwner,
@@ -2132,7 +2326,8 @@ namespace friendlySAIN.BigBrain
                 point => point != null &&
                          !point.IsSpotted &&
                          point.IsFreeById(botOwner.Id) &&
-                         Utils.Utils.CanShootToTarget(shootPoint, point, mask, false));
+                         Utils.Utils.CanShootToTarget(shootPoint, point, mask, false),
+                searchType);
 
             if (cover == null)
             {
@@ -2162,7 +2357,7 @@ namespace friendlySAIN.BigBrain
             return goalEnemy.EnemyLastPositionReal;
         }
 
-        public AICoreActionResultStruct<BotLogicDecision, GClass26> EnemySearch(string reason = "enemySearch", bool weakEnemy = false)
+        public AICoreActionResultStruct<BotLogicDecision, GClass26>? EnemyCoverSearch(string reason = "enemySearch", bool weakEnemy = false)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
@@ -2177,11 +2372,27 @@ namespace friendlySAIN.BigBrain
             CustomNavigationPoint? approachCover = weakEnemy
                 ? GetWeakEnemyPushCover()
                 : GetApproachableCover();
+
             if (approachCover != null)
             {
                 searchPoint = approachCover.Position;
+                botOwner.GoToSomePointData.SetPoint(searchPoint);
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPointTactical, reason);
             }
-            else if (NavMesh.SamplePosition(enemyAnchor, out NavMeshHit hit, 8f, -1))
+
+            return null;
+
+        }
+
+        public AICoreActionResultStruct<BotLogicDecision, GClass26> EnemySimpleSearch(string reason = "enemySearch")
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+
+            Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
+            Vector3 searchPoint = enemyAnchor;
+
+            if (NavMesh.SamplePosition(enemyAnchor, out NavMeshHit hit, 8f, -1))
             {
                 ShootPointClass shootPoint = new ShootPointClass(enemyAnchor + Vector3.up * 1.1f, 1f);
                 Vector3 firePos = hit.position + Vector3.up * 1.2f;
@@ -2191,10 +2402,32 @@ namespace friendlySAIN.BigBrain
                 }
             }
 
-            botOwner.GoToSomePointData.SetPoint(searchPoint);
-            botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
-            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPointTactical, reason);
+            botOwner.SearchData.SearchPoint = new BotSearchPoint(searchPoint, EBotSearchPoint.playerPosition);
+            botOwner.SearchData.LastSearchPoint = null;
+            botOwner.SearchData.NextPosibleCheckTime = Time.time + 10f;
+            botOwner.SearchData.NextPosibleGoRefresh = 0f;
+            botOwner.SearchData.Going = false;
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.search, reason);
         }
+
+        public AICoreActionResultStruct<BotLogicDecision, GClass26> EnemySearch(string reason = "enemySearch", bool weakEnemy = false)
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "enemySearchNoEnemy");
+            }
+
+            if (EnemyCoverSearch(reason, weakEnemy) is AICoreActionResultStruct<BotLogicDecision, GClass26> tacticalSearchResult)
+            {
+                return tacticalSearchResult;
+            }
+
+            return EnemySimpleSearch(reason);
+        }
+
+
 
         public bool TryCreateTacticalCoverDecision(
             string reason,
@@ -2218,7 +2451,7 @@ namespace friendlySAIN.BigBrain
 
             AssignCover(cover);
             botOwner.GoToSomePointData.SetPoint(cover!.Position);
-            botOwner.Tactic.SetTactic(BotsGroup.BotCurrentTactic.Attack);
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
             decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPointTactical, reason);
             return true;
         }
@@ -2245,6 +2478,20 @@ namespace friendlySAIN.BigBrain
 
             AssignCover(cover);
             BotLogicDecision moveAction = SelectCommittedCoverMoveAction(goalEnemy);
+            if (moveAction == BotLogicDecision.runToCover)
+            {
+                SetRunToCoverTactic(cover, reason);
+            }
+            else if (moveAction == (BotLogicDecision)CustomBotDecisions.attackRetreat)
+            {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Protect);
+            }
+            else if (moveAction == BotLogicDecision.attackMoving ||
+                     moveAction == BotLogicDecision.attackMovingWithSuppress)
+            {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+            }
+
             decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                 moveAction,
                 CreateMovementReason(reason, moveAction));
@@ -2395,6 +2642,41 @@ namespace friendlySAIN.BigBrain
         }
 
         /// <summary>
+        /// Returns true if the bot already has a loaded automatic weapon equipped or can swap to a
+        /// loaded automatic second primary for close combat.
+        /// </summary>
+        public bool HasAutomaticCloseCombatWeaponAvailable()
+        {
+            if (botOwner == null)
+            {
+                return false;
+            }
+
+            Weapon? activeWeapon = botOwner.WeaponManager?.ShootController?.Item;
+            if (IsAutomaticWeapon(activeWeapon) &&
+                activeWeapon?.GetCurrentMagazine()?.Cartridges?.Count > 0)
+            {
+                return true;
+            }
+
+            var selector = botOwner.WeaponManager?.Selector;
+            if (selector == null ||
+                !selector.CanChangeToSecondWeapons ||
+                selector.SecondPrimaryWeaponItem == null)
+            {
+                return false;
+            }
+
+            Weapon? secondaryWeapon = selector.SecondPrimaryWeaponItem as Weapon;
+            if (!IsAutomaticWeapon(secondaryWeapon))
+            {
+                return false;
+            }
+
+            return secondaryWeapon?.GetCurrentMagazine()?.Cartridges?.Count > 0;
+        }
+
+        /// <summary>
         /// Marksman close-quarter helper: if the current weapon is not full-auto and the bot has
         /// a loaded full-auto secondary weapon, switch to it.
         /// </summary>
@@ -2405,11 +2687,6 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            EnemyInfo? goalEnemy = botOwner?.Memory?.GoalEnemy;
-            if (goalEnemy == null)
-            {
-                return false;
-            }
 
             if (IsCurrentWeaponAutomatic())
             {
@@ -2467,6 +2744,11 @@ namespace friendlySAIN.BigBrain
         {
             return botOwner.WeaponManager.Selector.LastEquipmentSlot == EquipmentSlot.FirstPrimaryWeapon &&
                    Enemy.Distance(goalEnemy) > minDistance;
+        }
+
+        public bool IsCommittedCoverRetreatingFromEnemy(EnemyInfo goalEnemy)
+        {
+            return IsRetreatCover(goalEnemy, committedCoverPoint);
         }
 
         private static bool IsAutomaticWeapon(Weapon? weapon)
@@ -2566,6 +2848,159 @@ namespace friendlySAIN.BigBrain
 
             cause = "allFine";
             return true;
+        }
+
+        /// <summary>
+        /// Detects the crouched-cover failure case where the enemy is visible but EFT does not mark
+        /// the current pose as shootable even though a standing lane from the same cover is clear.
+        /// </summary>
+        public bool CanShootFromCurrentCoverIfStanding(out string cause)
+        {
+            return CanShootFromCurrentCoverIfStanding(botOwner, out cause);
+        }
+
+        public bool TryRaiseForStandingCoverShot(out string cause)
+        {
+            if (!HasCommittedShootingCoverIntent(botOwner, committedCoverPoint))
+            {
+                cause = "notShootingCoverIntent";
+                return false;
+            }
+
+            return TryRaiseForStandingCoverShot(botOwner, out cause);
+        }
+
+        public bool CanShootFromCurrentCoverOrStandingIntent(out string cause)
+        {
+            if (CanShootFromCurrentCover(out cause))
+            {
+                return true;
+            }
+
+            return TryRaiseForStandingCoverShot(out cause);
+        }
+
+        public static bool TryRaiseForStandingCoverShot(BotOwner botOwner, out string cause)
+        {
+            if (!HasCommittedShootingCoverIntent(botOwner, botOwner?.Memory?.CurCustomCoverPoint))
+            {
+                cause = "notShootingCoverIntent";
+                return false;
+            }
+
+            return TryRaiseForStandingCoverShotUnchecked(botOwner, out cause);
+        }
+
+        private static bool TryRaiseForStandingCoverShotUnchecked(BotOwner botOwner, out string cause)
+        {
+            if (!CanShootFromCurrentCoverIfStanding(botOwner, out cause))
+            {
+                return false;
+            }
+
+            botOwner.SetPose(1f);
+
+            ShootPointClass? shootPoint = botOwner.CurrentEnemyTargetPosition(false);
+            if (shootPoint != null)
+            {
+                botOwner.Steering.LookToPoint(shootPoint.Point);
+            }
+            else if (botOwner.Memory?.GoalEnemy != null)
+            {
+                botOwner.Steering.LookToPoint(botOwner.Memory.GoalEnemy.GetBodyPartPosition());
+            }
+
+            return true;
+        }
+
+        private static bool HasCommittedShootingCoverIntent(BotOwner? botOwner, CustomNavigationPoint? currentCover)
+        {
+            if (botOwner == null || currentCover == null)
+            {
+                return false;
+            }
+
+            return coverCommitIntents.TryGetValue(botOwner.Id, out CoverCommitIntent intent) &&
+                   intent.IsShootingCover &&
+                   intent.CoverId == currentCover.Id;
+        }
+
+        private static bool IsCommittedShootingCoverReason(string? reason)
+        {
+            if (string.IsNullOrEmpty(reason))
+            {
+                return false;
+            }
+
+            return reason.StartsWith("sniper.FireSupport", StringComparison.Ordinal) ||
+                   reason.StartsWith("sniper.reposition", StringComparison.Ordinal) ||
+                   reason.StartsWith("sniper.protectBossShootCover", StringComparison.Ordinal) ||
+                   reason.StartsWith("sniper.startPosition", StringComparison.Ordinal) ||
+                   reason.StartsWith("shootCover", StringComparison.Ordinal) ||
+                   reason.StartsWith("retreatShootCover", StringComparison.Ordinal) ||
+                   reason.StartsWith("coverVisibleFire", StringComparison.Ordinal) ||
+                   reason.StartsWith("committedFire", StringComparison.Ordinal);
+        }
+
+        public static bool CanShootFromCurrentCoverIfStanding(BotOwner botOwner, out string cause)
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (!HasActiveCombatEnemy(botOwner, goalEnemy))
+            {
+                cause = "noActiveEnemy";
+                return false;
+            }
+
+            if (!goalEnemy.IsVisible)
+            {
+                cause = "enemyNotVisible";
+                return false;
+            }
+
+            if (!botOwner.Memory.IsInCover)
+            {
+                cause = "IsInCover";
+                return false;
+            }
+
+            CustomNavigationPoint? cover = botOwner.Memory.CurCustomCoverPoint;
+            if (cover == null)
+            {
+                cause = "noCurrentCoverPoint";
+                return false;
+            }
+
+            if (cover.CoverLevel == CoverLevel.Lay)
+            {
+                cause = "layCover";
+                return false;
+            }
+
+            if (!botOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                cause = "EnoughDistToShoot";
+                return false;
+            }
+
+            ShootPointClass? shootPoint = botOwner.CurrentEnemyTargetPosition(false);
+            shootPoint ??= new ShootPointClass(goalEnemy.GetBodyPartPosition(), 1f);
+
+            Vector3 standingWeaponPosition = botOwner.Position + Vector3.up * StandingCoverShotProbeHeight;
+            if (Utils.Utils.CanShootToTarget(shootPoint, standingWeaponPosition, botOwner.LookSensor.Mask, false))
+            {
+                cause = "standingPoseLane";
+                return true;
+            }
+
+            Vector3 standingCoverFirePosition = cover.FirePosition + Vector3.up * StandingCoverShotProbeHeight;
+            if (Utils.Utils.CanShootToTarget(shootPoint, standingCoverFirePosition, botOwner.LookSensor.Mask, false))
+            {
+                cause = "coverFirePositionStandingLane";
+                return true;
+            }
+
+            cause = "standingLaneBlocked";
+            return false;
         }
 
         private bool EnemyPathCrossesRecentDoor(EnemyInfo enemy)
@@ -2713,12 +3148,17 @@ namespace friendlySAIN.BigBrain
                 BotLogicDecision.attackMoving => EndAttackMoving(currentDecision.Reason),
                 BotLogicDecision.attackMovingWithSuppress => EndAttackMovingWithSuppress(currentDecision.Reason),
                 var decision when decision == (BotLogicDecision)CustomBotDecisions.attackRetreat => EndAttackRetreat(),
+                BotLogicDecision.goToPointTactical => EndTacticalPoint(),
+                BotLogicDecision.goToPoint => EndGoToPoint(),
+                BotLogicDecision.runToEnemy => EndBaseGoToEnemy(),
+                BotLogicDecision.goToEnemy => EndBaseGoToEnemy(),
                 BotLogicDecision.shootFromPlace => EndShootFromPlace(),
                 BotLogicDecision.heal => EndHeal(),
                 BotLogicDecision.healStimulators => EndStimulators(),
                 BotLogicDecision.suppressFire => EndSuppressFire(),
+                BotLogicDecision.suppressGrenade => EndSuppressGrenade(),
                 BotLogicDecision.shootFromCover => EndShootFromCover(),
-                BotLogicDecision.throwGrenadeFromPlace => EndThrowGrenadeFromPlace(),
+                BotLogicDecision.search => EndEnemySearch(),
                 _ => EndImmediately(),
             };
         }
@@ -2806,9 +3246,7 @@ namespace friendlySAIN.BigBrain
         }
 
         public AICoreActionEndStruct EndTacticalPoint(
-            string reason,
-            bool endWhenCanShootFromCover = false,
-            bool continueEnemySearchOnArrival = false)
+            bool endWhenCanShootFromCover = true)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
             if (goalEnemy == null || !HasActiveCombatEnemy(goalEnemy))
@@ -2834,14 +3272,6 @@ namespace friendlySAIN.BigBrain
 
             if (botOwner.GoToSomePointData.IsCome())
             {
-                if (continueEnemySearchOnArrival)
-                {
-                    EnemySearch(reason);
-                    if (!botOwner.GoToSomePointData.IsCome())
-                    {
-                        return default;
-                    }
-                }
 
                 if (botOwner.Memory.IsInCover || IsBotInCommittedCover())
                 {
@@ -2852,6 +3282,11 @@ namespace friendlySAIN.BigBrain
             }
 
             return default;
+        }
+
+        public AICoreActionEndStruct EndGoToPoint()
+        {
+            return EndTacticalPoint(endWhenCanShootFromCover: false);
         }
 
         public AICoreActionEndStruct EndAttackMoving(string? reason = null)
@@ -3008,6 +3443,267 @@ namespace friendlySAIN.BigBrain
             return Continue();
         }
 
+        public AICoreActionEndStruct EndSuppressGrenade()
+        {
+            BotGrenadeController? grenades = botOwner.WeaponManager?.Grenades;
+            if (grenades == null)
+            {
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                return new AICoreActionEndStruct("grenadeControllerMissing", true);
+            }
+
+            float lastPeriod = botOwner.Brain?.Agent?.LastPeriod ?? Time.time;
+            if (Time.time - lastPeriod > 6f)
+            {
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                return new AICoreActionEndStruct("suppressGrenadeTimeout", true);
+            }
+
+            if (grenades.ThrowindNow || grenades.ReadyToThrow)
+            {
+                return Continue();
+            }
+
+            if (botOwner.SuppressGrenade != null && !botOwner.SuppressGrenade.Complete)
+            {
+                return Continue();
+            }
+
+            return new AICoreActionEndStruct("suppressGrenadeComplete", true);
+        }
+
+        public AICoreActionEndStruct EndEnemySearch()
+        {
+
+            if (!botOwner.Memory.HaveEnemy)
+            {
+                return new AICoreActionEndStruct("enemy.None", true);
+            }
+
+            if (botOwner.Memory.GoalEnemy.CanShoot && botOwner.LookSensor.EnoughDistToShoot(out var info))
+            {
+                return new AICoreActionEndStruct("enemy.canSh", true);
+            }
+
+            if (Time.time - botOwner.Memory.LastTimeHit <= 1f)
+            {
+                return new AICoreActionEndStruct("enemy.ShotMe", true);
+            }
+
+            if (botOwner.SearchData.SearchPoint == null)
+            {
+                return new AICoreActionEndStruct("search.End", true);
+            }
+
+            return Continue();
+        }
+
+        /// <summary>
+        /// Initializes the vanilla suppress-grenade flow only when the target is visible, not already
+        /// a clean gunfight, and the throw is safe for the boss/followers.
+        /// </summary>
+        public bool TryActivateFollowerGrenade(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+
+            if (!friendlySAIN.botGrenades.Value)
+            {
+                return false;
+            }
+
+            if (goalEnemy == null || !goalEnemy.IsVisible || goalEnemy.Person == null)
+            {
+                return false;
+            }
+
+            if (goalEnemy.Distance < 15f || goalEnemy.Distance > 28f)
+            {
+                LogGrenadeDecision($"candidate-reject distance={goalEnemy.Distance:F1} enemy={goalEnemy.ProfileId ?? "<null>"}");
+                return false;
+            }
+
+            if (botOwner.WeaponManager == null || botOwner.WeaponManager.IsMelee)
+            {
+                LogGrenadeDecision("candidate-reject weaponManagerInvalid");
+                return false;
+            }
+
+            if (botOwner.BotRequestController == null)
+            {
+                LogGrenadeDecision("candidate-reject requestControllerNull");
+                return false;
+            }
+
+            if (botOwner.BotRequestController.HaveActivatedRequests())
+            {
+                BotRequest? request = botOwner.BotRequestController.CurRequest;
+                LogGrenadeDecision($"candidate-reject activeRequest={request?.BotRequestType.ToString() ?? "<unknown>"}");
+                return false;
+            }
+
+            if (botOwner.Medecine.Using)
+            {
+                LogGrenadeDecision("candidate-reject medicineUsing");
+                return false;
+            }
+
+            if (!FollowerGrenadeCooldowns.TryReserveThrow(botOwner))
+            {
+                LogGrenadeDecision($"candidate-reject cooldownOrReservation enemy={goalEnemy.ProfileId ?? "<null>"} dist={goalEnemy.Distance:F1}");
+                return false;
+            }
+
+            if (IsDogFightActive() ||
+                botOwner.Memory.IsUnderFire ||
+                WasHitRecently(botOwner, 2f) ||
+                Time.time - goalEnemy.FirstTimeSeen < 1.5f)
+            {
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                LogGrenadeDecision(
+                    $"candidate-reject unsafe dogfight={IsDogFightActive()} underFire={botOwner.Memory.IsUnderFire} recentHit={WasHitRecently(botOwner, 2f)} firstSeenAge={Time.time - goalEnemy.FirstTimeSeen:F1}");
+                return false;
+            }
+
+            if (goalEnemy.CanShoot && botOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                LogGrenadeDecision($"candidate-reject gunfightAvailable enemy={goalEnemy.ProfileId ?? "<null>"}");
+                return false;
+            }
+
+            FollowerGrenadeRuntimeGate.EnableExplicitThrow(botOwner);
+            if (botOwner.WeaponManager.Grenades == null ||
+                botOwner.SuppressGrenade == null)
+            {
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                LogGrenadeDecision($"candidate-reject grenadeRuntimeInvalid controllerNull={botOwner.WeaponManager.Grenades == null} suppressNull={botOwner.SuppressGrenade == null}");
+                return false;
+            }
+
+            EnemyInfo suppressEnemy = GetSuppressGrenadeTarget(goalEnemy, out ThrowWeapType? preferredThrowType);
+            Vector3 targetPosition = suppressEnemy.CurrPosition;
+            if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, 8f))
+            {
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                LogGrenadeDecision($"candidate-reject friendlyTooClose target={targetPosition}");
+                return false;
+            }
+
+            if (preferredThrowType != null &&
+                botOwner.WeaponManager.Grenades.HaveGrenadeOfType(preferredThrowType.Value) &&
+                botOwner.SuppressGrenade.Init(suppressEnemy, preferredThrowType, null, AIGreandeAng.ang45))
+            {
+                HoldFor(botOwner.Settings.FileSettings.Boss.KILLA_AFTER_GRENADE_SUPPRESS_DELAY);
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade");
+                LogGrenadeDecision($"candidate-activated reason=SupGrenade type={preferredThrowType.Value} enemy={suppressEnemy.ProfileId ?? "<null>"} dist={suppressEnemy.Distance:F1}");
+                return true;
+            }
+
+            ThrowWeapType throwType = ThrowWeapType.frag_grenade;
+            if (botOwner.WeaponManager.Grenades.HaveGrenadeOfType(throwType))
+            {
+                if (botOwner.SuppressGrenade.Init(suppressEnemy, throwType, null, AIGreandeAng.ang45))
+                {
+                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade2");
+                    LogGrenadeDecision($"candidate-activated reason=SupGrenade2 type={throwType} enemy={suppressEnemy.ProfileId ?? "<null>"} dist={suppressEnemy.Distance:F1}");
+                    return true;
+                }
+            }
+            else
+            {
+                throwType = ThrowWeapType.stun_grenade;
+                if (botOwner.WeaponManager.Grenades.HaveGrenadeOfType(throwType) &&
+                    botOwner.SuppressGrenade.Init(suppressEnemy, throwType, null, AIGreandeAng.ang45))
+                {
+                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade3");
+                    LogGrenadeDecision($"candidate-activated reason=SupGrenade3 type={throwType} enemy={suppressEnemy.ProfileId ?? "<null>"} dist={suppressEnemy.Distance:F1}");
+                    return true;
+                }
+            }
+
+            FollowerGrenadeCooldowns.CancelPending(botOwner);
+            FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+            LogGrenadeDecision($"candidate-reject suppressInitFailed enemy={suppressEnemy.ProfileId ?? "<null>"} target={targetPosition}");
+            return false;
+        }
+
+        private EnemyInfo GetSuppressGrenadeTarget(EnemyInfo goalEnemy, out ThrowWeapType? preferredThrowType)
+        {
+            preferredThrowType = null;
+            if (botOwner.EnemiesController?.EnemyInfos == null)
+            {
+                return goalEnemy;
+            }
+
+            foreach (EnemyInfo enemyInfo in botOwner.EnemiesController.EnemyInfos.Values)
+            {
+                if (enemyInfo != goalEnemy && enemyInfo.IsSuppressed())
+                {
+                    preferredThrowType = ThrowWeapType.smoke_grenade;
+                    return enemyInfo;
+                }
+            }
+
+            return goalEnemy;
+        }
+
+        private void LogGrenadeDecision(string reason)
+        {
+            float now = Time.time;
+            if (string.Equals(lastGrenadeLogReason, reason, StringComparison.Ordinal) && now < nextGrenadeLogAt)
+            {
+                return;
+            }
+
+            lastGrenadeLogReason = reason;
+            nextGrenadeLogAt = now + 1f;
+            friendlySAIN.Log?.LogInfo($"[GrenadeDecision] follower={botOwner?.Profile?.Nickname ?? botOwner?.ProfileId ?? "<null>"} {reason}");
+        }
+
+        private bool IsFriendlyTooCloseToGrenadeTarget(Vector3 targetPosition, float unsafeRadius)
+        {
+            float unsafeRadiusSqr = unsafeRadius * unsafeRadius;
+
+            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            Player bossPlayer = boss.realPlayer;
+            if (bossPlayer != null && (bossPlayer.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
+            {
+                return true;
+            }
+
+            var followers = boss.Followers;
+            if (followers == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < followers.Count; i++)
+            {
+                BotOwner follower = followers[i];
+                if (follower == null || follower == botOwner || follower.IsDead)
+                {
+                    continue;
+                }
+
+                if ((follower.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private void CancelActiveHealIfNeeded()
         {
             ClearCommittedHealCover();
@@ -3035,11 +3731,22 @@ namespace friendlySAIN.BigBrain
         public AICoreActionEndStruct EndThrowGrenadeFromPlace()
         {
             BotRequest? currentRequest = botOwner.BotRequestController?.CurRequest;
-            if (currentRequest?.BotRequestType == BotRequestType.throwGrenade)
+            BotGrenadeController grenades = botOwner.WeaponManager?.Grenades;
+            bool grenadeSequenceActive =
+                grenades != null &&
+                (grenades.ThrowindNow || grenades.ReadyToThrow);
+            bool grenadeRequestActive =
+                currentRequest?.BotRequestType == BotRequestType.throwGrenade ||
+                currentRequest?.BotRequestType == BotRequestType.throwGrenadeFromPlace;
+            if (grenadeSequenceActive || grenadeRequestActive)
             {
+                friendlySAIN.Log?.LogInfo(
+                    $"[GrenadeGate] follower={botOwner.Profile?.Nickname ?? botOwner.ProfileId ?? "<null>"} action-end continue sequence={grenadeSequenceActive} request={currentRequest?.BotRequestType.ToString() ?? "<null>"}");
                 return Continue();
             }
 
+            friendlySAIN.Log?.LogInfo(
+                $"[GrenadeGate] follower={botOwner.Profile?.Nickname ?? botOwner.ProfileId ?? "<null>"} action-end release reason=grenadeRequestFinished");
             FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
             return new AICoreActionEndStruct("grenadeRequestFinished", true);
         }

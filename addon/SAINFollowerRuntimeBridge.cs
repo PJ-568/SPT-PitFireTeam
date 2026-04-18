@@ -628,31 +628,44 @@ namespace friendlySAIN.SAINAddon
         {
             if (owner == null || enemyPlayer == null || string.IsNullOrEmpty(owner.ProfileId))
             {
+                friendlySAIN.Log?.LogInfo("[SAINContactSync] skipped reason=invalidOwnerOrEnemy");
                 return false;
             }
 
             if (!SAINEnableClass.GetSAIN(owner.ProfileId, out BotComponent bot) || bot == null)
             {
+                friendlySAIN.Log?.LogInfo($"[SAINContactSync] skipped reason=sainBotMissing follower={owner.Profile?.Nickname ?? owner.ProfileId}");
                 return false;
             }
 
             var enemyController = bot.EnemyController;
             if (enemyController == null)
             {
+                friendlySAIN.Log?.LogInfo($"[SAINContactSync] skipped reason=enemyControllerMissing follower={owner.Profile?.Nickname ?? owner.ProfileId}");
                 return false;
             }
 
+            string beforeGoal = enemyController.GoalEnemy?.EnemyProfileId ?? "<null>";
+            int beforeKnown = enemyController.KnownEnemies?.Count ?? -1;
+            bool beforeInCombat = bot.BotActivation?.BotInCombat == true;
             var sainEnemy = enemyController.CheckAddEnemy(enemyPlayer);
             var setGoalEnemy = AccessTools.Method(typeof(SAINEnemyController), "setGoalEnemy", new[] { typeof(EnemyInfo) });
+            var goalEnemySetter = AccessTools.PropertySetter(typeof(SAINEnemyController), "GoalEnemy");
             if (sainEnemy == null)
             {
+                friendlySAIN.Log?.LogInfo(
+                    $"[SAINContactSync] skipped reason=checkAddEnemyNull follower={owner.Profile?.Nickname ?? owner.ProfileId} enemy={enemyPlayer.ProfileId ?? "<null>"} beforeGoal={beforeGoal} beforeKnown={beforeKnown}");
                 return false;
             }
 
             sainEnemy.UpdateLastSeenPosition(enemyPlayer.Position, Time.time);
             bool shouldForceGoal = prioritizeAsGoal || enemyController.GoalEnemy == null;
+            friendlySAIN.Log?.LogInfo(
+                $"[SAINContactSync] before follower={owner.Profile?.Nickname ?? owner.ProfileId} enemy={enemyPlayer.ProfileId ?? "<null>"} prioritize={prioritizeAsGoal} shouldForce={shouldForceGoal} " +
+                $"beforeGoal={beforeGoal} beforeKnown={beforeKnown} afterSeenKnown={enemyController.KnownEnemies?.Count ?? -1} lastKnownNull={sainEnemy.LastKnownPosition == null} enemyKnown={sainEnemy.EnemyKnown}");
             if (shouldForceGoal)
             {
+                goalEnemySetter?.Invoke(enemyController, new object[] { sainEnemy });
                 setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
             }
             else
@@ -660,6 +673,7 @@ namespace friendlySAIN.SAINAddon
                 enemyController.ChooseEnemy();
                 if (enemyController.GoalEnemy == null)
                 {
+                    goalEnemySetter?.Invoke(enemyController, new object[] { sainEnemy });
                     setGoalEnemy.Invoke(enemyController, new object[] { sainEnemy.EnemyInfo });
                 }
             }
@@ -669,6 +683,10 @@ namespace friendlySAIN.SAINAddon
                 bot.BotActivation.SetInCombat(true);
             }
 
+            friendlySAIN.Log?.LogInfo(
+                $"[SAINContactSync] after follower={owner.Profile?.Nickname ?? owner.ProfileId} enemy={enemyPlayer.ProfileId ?? "<null>"} " +
+                $"sainGoal={enemyController.GoalEnemy?.EnemyProfileId ?? "<null>"} memoryGoal={owner.Memory?.GoalEnemy?.ProfileId ?? "<null>"} known={enemyController.KnownEnemies?.Count ?? -1} " +
+                $"botInCombatBefore={beforeInCombat} botInCombatAfter={bot.BotActivation?.BotInCombat == true} activeLayer={bot.ActiveLayer} decision={bot.Decision?.CurrentSquadDecision}");
             return true;
         }
 

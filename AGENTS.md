@@ -56,7 +56,8 @@ When multiple approaches are possible, prefer:
 # friendlySAIN: Current Implementation Summary
 
 **Last updated:** 2026-04-12  
-**Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.
+**Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.  
+**SAIN Addon is currently disabled**
 
 ## Project Overview
 
