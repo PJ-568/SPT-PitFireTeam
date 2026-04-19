@@ -11,6 +11,8 @@ namespace friendlySAIN.Utils
         private sealed class State
         {
             public float GotShotUntil;
+            public bool HasThreatLookPoint;
+            public Vector3 ThreatLookPoint;
             public float LastSoundTime;
             public float LastGunshotTime;
             public float NextBulletReactionAt;
@@ -28,6 +30,70 @@ namespace friendlySAIN.Utils
             return state != null && state.GotShotUntil > Time.time;
         }
 
+        public static bool TryGetRecentThreatLookPoint(BotOwner bot, out Vector3 lookPoint)
+        {
+            lookPoint = Vector3.zero;
+            var state = GetState(bot);
+            if (state == null || !state.HasThreatLookPoint || state.GotShotUntil <= Time.time)
+            {
+                return false;
+            }
+
+            lookPoint = state.ThreatLookPoint;
+            return lookPoint != Vector3.zero;
+        }
+
+        public static void FollowerHit(BotOwner bot, DamageInfoStruct damageInfo)
+        {
+            if (bot == null || bot.IsDead || bot.BotState != EBotState.Active)
+            {
+                return;
+            }
+
+            Vector3 lookPoint = Vector3.zero;
+            string shooterId = damageInfo.Player?.iPlayer?.ProfileId;
+            Player shooter = !string.IsNullOrEmpty(shooterId)
+                ? Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(shooterId)
+                : null;
+
+            if (shooter != null)
+            {
+                lookPoint = shooter.Transform.position;
+                if (shooter.MainParts != null && shooter.MainParts.TryGetValue(BodyPartType.body, out var bodyPart) && bodyPart != null)
+                {
+                    lookPoint = bodyPart.Position;
+                }
+
+                if (CanBotShootEnemy(bot, shooter))
+                {
+                    TryAcquireVisibleHostileOfBossGroup(bot, shooter, "hitVisibleHostile");
+                }
+            }
+
+            if (lookPoint == Vector3.zero && damageInfo.MasterOrigin != Vector3.zero)
+            {
+                lookPoint = damageInfo.MasterOrigin;
+            }
+
+            if (lookPoint == Vector3.zero && damageInfo.Direction.sqrMagnitude > 0.001f)
+            {
+                lookPoint = bot.Position - damageInfo.Direction.normalized * 20f;
+            }
+
+            if (lookPoint != Vector3.zero)
+            {
+                RegisterThreatLookPoint(bot, lookPoint, 3f);
+            }
+            else
+            {
+                var state = GetState(bot);
+                if (state != null)
+                {
+                    state.GotShotUntil = Time.time + 3f;
+                }
+            }
+        }
+
         public static bool FakeShot(BotOwner bot, Vector3 lookPoint)
         {
             if (bot == null || bot.IsDead || bot.BotState != EBotState.Active) return false;
@@ -37,10 +103,6 @@ namespace friendlySAIN.Utils
                 return false;
             }
 
-            var state = GetState(bot);
-            if (state == null) return false;
-
-            state.GotShotUntil = Time.time + 3f;
             Vector3 botPos = bot.GetPlayer?.Transform?.position ?? bot.Position;
             Vector3 targetDirection = lookPoint - botPos;
             if (targetDirection.sqrMagnitude < 0.01f)
@@ -49,6 +111,7 @@ namespace friendlySAIN.Utils
                 lookPoint = botPos + targetDirection.normalized * 5f;
             }
 
+            RegisterThreatLookPoint(bot, lookPoint, 3f);
             Trace(bot, $"FakeShot turn target={Fmt(lookPoint)}");
             bot.Steering.LookToPoint(lookPoint, CalcTurnSpeed(bot.LookDirection, targetDirection));
             return true;
@@ -157,11 +220,6 @@ namespace friendlySAIN.Utils
         public static void BulletFelt(BotOwner bot, EftBulletClass bullet, Vector3? impactPoint = null)
         {
             if (bot == null || bullet == null || bot.IsDead || bot.BotState != EBotState.Active) return;
-            if (bot.Memory.HaveEnemy)
-            {
-                Trace(bot, "BulletFelt ignore alreadyHaveEnemy");
-                return;
-            }
 
             var state = GetState(bot);
             if (state == null) return;
@@ -209,6 +267,7 @@ namespace friendlySAIN.Utils
             random.y = 0f;
             random = random.normalized * dispersion;
             Vector3 estimatedShooterPos = shooter.Transform.position + random;
+            RegisterThreatLookPoint(bot, estimatedShooterPos, 3f);
 
             bool acquired = TryAutoAcquireCloseThreat(bot, shooter, Mathf.Sqrt(distanceSqr), "bulletClose");
             if (acquired)
@@ -223,6 +282,19 @@ namespace friendlySAIN.Utils
             }
             bool turned = FakeShot(bot, estimatedShooterPos);
             Trace(bot, $"BulletFelt felt=true turned={turned} autoAcquire=false");
+        }
+
+        private static void RegisterThreatLookPoint(BotOwner bot, Vector3 lookPoint, float duration)
+        {
+            var state = GetState(bot);
+            if (state == null)
+            {
+                return;
+            }
+
+            state.GotShotUntil = Time.time + duration;
+            state.ThreatLookPoint = lookPoint;
+            state.HasThreatLookPoint = true;
         }
 
         private static void Trace(BotOwner bot, string msg)

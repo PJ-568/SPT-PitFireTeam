@@ -46,6 +46,7 @@ namespace friendlySAIN.Components
         }
 
         public readonly Player realPlayer;
+        public CombatEvents CombatEvents { get; } = new CombatEvents();
 
         private List<BotOwner> bossEnemies = new List<BotOwner>();
         private const float TeamStatusGestureDistance = 15f;
@@ -584,11 +585,6 @@ namespace friendlySAIN.Components
 
 
             bool sainSynced = TrySyncSainEnemyState(follower, enemy, prioritizeAsGoal);
-            friendlySAIN.Log?.LogInfo(
-                $"[ContactSync] follower={follower.Profile?.Nickname ?? follower.ProfileId ?? "<null>"} enemy={enemy.ProfileId ?? "<null>"} visibleType={visibleType} prioritize={prioritizeAsGoal} " +
-                $"allowGoal={allowGoalPromotion} " +
-                $"beforeHave={beforeHaveEnemy} beforeGoal={beforeGoalId} afterHave={follower.Memory?.HaveEnemy == true} afterGoal={follower.Memory?.GoalEnemy?.ProfileId ?? "<null>"} " +
-                $"afterVisible={follower.Memory?.GoalEnemy?.IsVisible == true} useSain={friendlySAIN.UseSainFollowerCombat} bridge={SainAddonBridge.HasRuntimeCallbacks} sainSynced={sainSynced}");
 
 
             // Entering combat should break request commands
@@ -2006,6 +2002,7 @@ namespace friendlySAIN.Components
                 UnhookFollowerDeath(follower);
             }
             _pendingFriendlyDown.Clear();
+            CombatEvents.Clear();
             StopFriendlyDownTimerIfIdle();
             aBossLogic.Dispose();
 
@@ -2108,19 +2105,28 @@ namespace friendlySAIN.Components
             for (int i = 0; i < Followers.Count; i++)
             {
                 BotOwner follower = Followers[i];
-                if (!IsFollowerEligibleForGroupEnemySync(follower) || follower == bestReporter)
+                if (!ShouldSyncFollowerWithReportedEnemy(follower, bestReporter, enemyPlayer))
                 {
                     continue;
                 }
 
-                if (follower.Memory?.HaveEnemy == true)
-                {
-                    continue;
-                }
-
-                bossGroup.ReportAboutEnemy(enemyPlayer, visibleType, bestReporter);
-                break;
+                // Only refill idle followers with no current goal. Do not replace or refresh an
+                // existing GoalEnemy here; the follower's own combat state owns that.
+                RegisterContactEnemyForFollower(follower, enemyPlayer, false, true);
             }
+        }
+
+        private static bool ShouldSyncFollowerWithReportedEnemy(BotOwner follower, BotOwner reporter, Player enemyPlayer)
+        {
+            if (!IsFollowerEligibleForGroupEnemySync(follower) ||
+                follower == reporter ||
+                enemyPlayer == null ||
+                string.IsNullOrEmpty(enemyPlayer.ProfileId))
+            {
+                return false;
+            }
+
+            return follower.Memory?.GoalEnemy == null;
         }
 
         private bool TryGetStableEnemyReporter(BotOwner follower, out Player enemyPlayer, out EEnemyPartVisibleType visibleType)

@@ -160,6 +160,11 @@ namespace friendlySAIN.BigBrain
                 return activeTravel;
             }
 
+            if (TryGetPushSupportDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> pushSupport))
+            {
+                return pushSupport;
+            }
+
             if (TryGetVisibleDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> visible))
             {
                 return visible;
@@ -583,6 +588,78 @@ namespace friendlySAIN.BigBrain
             return true;
         }
 
+        private bool TryGetPushSupportDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (supportPhase.IsActive)
+            {
+                return false;
+            }
+
+            if (!TryGetActivePushEvent(out CombatEvents.PushEvent pushEvent))
+            {
+                return false;
+            }
+
+            if (!string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+            {
+                CombatCommon.TryPromoteTrackedEnemyAsGoal(pushEvent.EnemyProfileId);
+                goalEnemy = BotOwner.Memory.GoalEnemy;
+                if (!CombatCommon.HasActiveCombatEnemy(goalEnemy) ||
+                    !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            if (CombatCommon.CanShootFromCurrentCover(out _))
+            {
+                CombatCommon.ExtendCommittedCover();
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.shootFromCover,
+                    "sniper.pushSupportCurrentCover");
+                return true;
+            }
+
+            AICoreActionResultStruct<BotLogicDecision, GClass26>? immediate =
+                CombatCommon.TryGetImmediateShootDecision("sniper.pushSupportImmediateShoot");
+            if (immediate != null)
+            {
+                decision = immediate.Value;
+                return true;
+            }
+
+            if (pushEvent.IsSearchPush &&
+                (BotOwner.Position - pushEvent.Owner.Position).sqrMagnitude <= 20f * 20f)
+            {
+                if (CombatCommon.TryCreateTeamSearchSupportDecision(
+                        pushEvent,
+                        goalEnemy,
+                        "sniper.closeSearch.teamSupport",
+                        out decision))
+                {
+                    return true;
+                }
+            }
+
+            if (!CombatCommon.TryCommitPushSupportCover(
+                    goalEnemy,
+                    pushEvent.Owner.Position,
+                    pushEvent.EnemyPosition,
+                    pushEvent.Destination,
+                    "sniper.FireSupport.push",
+                    out string coverReason))
+            {
+                return false;
+            }
+
+            supportPhase.BeginTravel();
+            decision = CombatCommon.CreateMoveToCommittedCoverDecision(coverReason);
+            return true;
+        }
+
         /// <summary>
         /// Keeps an existing committed firing position sticky once chosen.
         /// </summary>
@@ -927,6 +1004,12 @@ namespace friendlySAIN.BigBrain
 
             // Priority 2: boss-under-attack only breaks when support opportunity is real
             // (shoot from current cover or bossward support cover exists).
+            if (ShouldBreakForPushSupportOpportunity())
+            {
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("sniperCoverHoldPushSupport", true);
+            }
+
             if (ShouldBreakForBossSupportOpportunity(goalEnemy))
             {
                 ClearCommittedCoverAndRepositionState();
@@ -985,6 +1068,12 @@ namespace friendlySAIN.BigBrain
             if (CombatCommon.TryRaiseForStandingCoverShot(out _))
             {
                 return new AICoreActionEndStruct("fireSupportHoldStandingShotReady", true);
+            }
+
+            if (ShouldBreakForPushSupportOpportunity())
+            {
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("fireSupportHoldPushSupport", true);
             }
 
             if (ShouldBreakForBossSupportOpportunity(goalEnemy))
@@ -1083,6 +1172,22 @@ namespace friendlySAIN.BigBrain
         private bool ShouldBreakForAllyEngagementSupportOpportunity()
         {
             return CombatCommon.TryGetAllyEngagementSupportDecision() != null;
+        }
+
+        private bool ShouldBreakForPushSupportOpportunity()
+        {
+            return TryGetActivePushEvent(out _);
+        }
+
+        private bool TryGetActivePushEvent(out CombatEvents.PushEvent pushEvent)
+        {
+            pushEvent = default;
+            if (BotOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            return boss.CombatEvents.TryGetActivePushFor(BotOwner, out pushEvent);
         }
 
         private bool ShouldRescanShootingPosition(EnemyInfo goalEnemy)

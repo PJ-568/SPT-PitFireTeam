@@ -36,8 +36,7 @@ namespace friendlySAIN.BigBrain
         public void Reset()
         {
             combatCommon.ResetCommittedCover();
-            committedPushDecision = null;
-            committedPushEnemyProfileId = null;
+            ClearCommittedPush("reset");
             shootCoverSettlePhase.Reset();
         }
 
@@ -58,7 +57,7 @@ namespace friendlySAIN.BigBrain
             }
             else
             {
-                ClearCommittedPush();
+                ClearCommittedPush("decisionChanged");
             }
 
         }
@@ -193,6 +192,7 @@ namespace friendlySAIN.BigBrain
             // Explicit regroup commands should interrupt any ongoing action immediately.
             if (HasExplicitRegroupOrder())
             {
+                ClearCommittedPush("explicitRegroup");
                 combatCommon.ClearCommittedCover();
                 return new AICoreActionEndStruct("defaultExplicitRegroup", true);
             }
@@ -317,7 +317,7 @@ namespace friendlySAIN.BigBrain
 
             if (ShouldInterruptCommittedPush(goalEnemy, out _))
             {
-                ClearCommittedPush();
+                ClearCommittedPush("committedPushInterrupted");
                 return false;
             }
 
@@ -875,20 +875,20 @@ namespace friendlySAIN.BigBrain
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
             {
-                ClearCommittedPush();
+                ClearCommittedPush("pushEnemyMissingOrDead");
                 return new AICoreActionEndStruct("pushEnemyMissingOrDead", true);
             }
 
             if (ShouldInterruptCommittedPush(goalEnemy, out string interruptReason))
             {
-                ClearCommittedPush();
+                ClearCommittedPush(interruptReason);
                 return new AICoreActionEndStruct(interruptReason, true);
             }
 
             if (currentDecision.Action == BotLogicDecision.runToEnemy &&
                 (!botOwner.CanSprintPlayer || botOwner.Mover?.NoSprint == true))
             {
-                ClearCommittedPush();
+                ClearCommittedPush("pushRunCannotSprint");
                 return new AICoreActionEndStruct("pushRunCannotSprint", true);
             }
 
@@ -905,7 +905,7 @@ namespace friendlySAIN.BigBrain
 
             if (endResult.Value)
             {
-                ClearCommittedPush();
+                ClearCommittedPush(endResult.Reason);
             }
 
             return endResult;
@@ -923,12 +923,55 @@ namespace friendlySAIN.BigBrain
         {
             committedPushDecision = decision;
             committedPushEnemyProfileId = botOwner.Memory?.GoalEnemy?.ProfileId;
+            TryEmitPushEvent(decision);
         }
 
-        private void ClearCommittedPush()
+        private void ClearCommittedPush(string? reason = null)
         {
+            ReleasePushEvent(reason ?? "clearPush");
             committedPushDecision = null;
             committedPushEnemyProfileId = null;
+        }
+
+        private void TryEmitPushEvent(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return;
+            }
+
+            EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
+            if (!combatCommon.HasActiveCombatEnemy(goalEnemy) || string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                return;
+            }
+
+            boss.CombatEvents.TryEmitPush(
+                botOwner,
+                goalEnemy.ProfileId,
+                FollowerCombatCommon.GetEnemyAnchor(goalEnemy),
+                GetPushDestination(goalEnemy),
+                decision.Reason ?? string.Empty,
+                IsEnemySearchPushReason(decision.Reason));
+        }
+
+        private void ReleasePushEvent(string reason)
+        {
+            if (botOwner.BotFollower?.BossToFollow is pitAIBossPlayer boss)
+            {
+                boss.CombatEvents.TryReleasePush(botOwner, reason);
+            }
+        }
+
+        private Vector3 GetPushDestination(EnemyInfo goalEnemy)
+        {
+            CustomNavigationPoint? cover = botOwner.Memory?.CurCustomCoverPoint;
+            if (cover != null)
+            {
+                return cover.Position;
+            }
+
+            return FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
         }
 
         private bool HasCommittedPush()
@@ -1180,7 +1223,8 @@ namespace friendlySAIN.BigBrain
                    decision.Action == BotLogicDecision.attackMoving ||
                    decision.Action == BotLogicDecision.attackMovingWithSuppress ||
                    decision.Action == (BotLogicDecision)CustomBotDecisions.attackRetreat ||
-                   decision.Action == BotLogicDecision.goToPointTactical;
+                   decision.Action == BotLogicDecision.goToPointTactical ||
+                   decision.Action == BotLogicDecision.search;
         }
 
         private static bool IsPushReason(string? reason)

@@ -5,6 +5,7 @@ using SPT.Reflection.Patching;
 using System.Reflection;
 
 using friendlySAIN.Modules;
+using friendlySAIN.Utils;
 
 namespace friendlySAIN.Patches
 {
@@ -28,6 +29,8 @@ namespace friendlySAIN.Patches
 
                 bool isfollower = BossPlayers.IsFollower(botOwner_0);
                 if (!isfollower) return;
+
+                FollowerAwareness.FollowerHit(botOwner_0, damageInfo);
 
                 bool isBossEnemy = BossPlayers.IsPlayerBoss(damageInfo.Player.iPlayer.ProfileId);
 

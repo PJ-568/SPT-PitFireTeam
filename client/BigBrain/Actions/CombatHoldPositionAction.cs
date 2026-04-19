@@ -1,6 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using friendlySAIN.Utils;
+using System.Collections;
 using UnityEngine;
 
 namespace friendlySAIN.BigBrain.Actions
@@ -30,6 +31,9 @@ namespace friendlySAIN.BigBrain.Actions
         private const float CornerSwitchScoreMargin = 0.18f;
         private const float MinCornerAlignmentScore = 0.05f;
         private const float WallFacingProbeDistance = 1.25f;
+        private const float MaxCornerLookDistance = 3f;
+        private const float MaxCornerEnemyLineDistance = 2f;
+        private const float MinCornerEnemySectorDot = 0.35f;
         private const float PointLookLockDuration = 0.75f;
         private const float PointLookSectorSwitchPersistDuration = 0.2f;
 
@@ -68,12 +72,103 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Look()
         {
+            EnemyInfo visibleGoalEnemy = BotOwner_0.Memory.GoalEnemy;
+            if (visibleGoalEnemy?.IsVisible != true &&
+                FollowerAwareness.TryGetRecentThreatLookPoint(BotOwner_0, out Vector3 threatLookPoint))
+            {
+                BotOwner_0.Steering.LookToPoint(threatLookPoint);
+                return;
+            }
+
             if (TryLookTowardEnemy())
             {
                 return;
             }
 
-            BotOwner_0.LookData.SetLookPointByHearing(BotOwner_0.Memory.CurCustomCoverPoint);
+            if (TryGetClosestAllyLookPoint(out Vector3 allyLookPoint))
+            {
+                BotOwner_0.Steering.LookToPoint(allyLookPoint);
+                return;
+            }
+
+            BotOwner_0.LookData.SetLookPointByHearing(null);
+        }
+
+        private bool TryGetClosestAllyLookPoint(out Vector3 lookPoint)
+        {
+            lookPoint = Vector3.zero;
+
+            BotsGroup group = BotOwner_0?.BotsGroup;
+            if (group == null)
+            {
+                return false;
+            }
+
+            float bestDistanceSqr = float.MaxValue;
+            bool found = false;
+
+            // Required order: check own group members first.
+            TryCollectClosestAllyFromEnumerable(group.Members as IEnumerable, ref found, ref bestDistanceSqr, ref lookPoint);
+
+            // Then check allied groups/entries.
+            if (!found)
+            {
+                TryCollectClosestAllyFromEnumerable(group.Allies as IEnumerable, ref found, ref bestDistanceSqr, ref lookPoint);
+            }
+
+            return found;
+        }
+
+        private void TryCollectClosestAllyFromEnumerable(
+            IEnumerable source,
+            ref bool found,
+            ref float bestDistanceSqr,
+            ref Vector3 lookPoint)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            foreach (object item in source)
+            {
+                if (item is BotOwner allyOwner)
+                {
+                    TryUpdateClosestAlly(allyOwner, ref found, ref bestDistanceSqr, ref lookPoint);
+                    continue;
+                }
+
+                if (item is BotsGroup allyGroup)
+                {
+                    for (int i = 0; i < allyGroup.MembersCount; i++)
+                    {
+                        TryUpdateClosestAlly(allyGroup.Member(i), ref found, ref bestDistanceSqr, ref lookPoint);
+                    }
+                }
+            }
+        }
+
+        private void TryUpdateClosestAlly(
+            BotOwner ally,
+            ref bool found,
+            ref float bestDistanceSqr,
+            ref Vector3 lookPoint)
+        {
+            if (ally == null || ally == BotOwner_0 || ally.IsDead)
+            {
+                return;
+            }
+
+            Vector3 targetPoint = ally.Position;
+            float distanceSqr = (targetPoint - BotOwner_0.Position).sqrMagnitude;
+            if (distanceSqr >= bestDistanceSqr)
+            {
+                return;
+            }
+
+            bestDistanceSqr = distanceSqr;
+            lookPoint = targetPoint;
+            found = true;
         }
 
         private bool TryLookTowardEnemy()
@@ -189,6 +284,12 @@ namespace friendlySAIN.BigBrain.Actions
                 return false;
             }
 
+            Vector3 enemyLookPoint = GetEnemyLookPoint(enemy);
+            if (!CanUseCornerLook(coverPoint, enemyLookPoint, currentCornerSide))
+            {
+                return false;
+            }
+
             if (GetCornerSideScore(coverPoint, enemyDirection, currentCornerSide) < MinCornerAlignmentScore)
             {
                 return false;
@@ -270,8 +371,14 @@ namespace friendlySAIN.BigBrain.Actions
                 return true;
             }
 
+            if (hasReliableEnemyLookPoint && !WouldLookTowardPointHitWall(enemyLookPoint))
+            {
+                SetPointLook(enemy, enemyLookPoint, false);
+                return true;
+            }
+
             CustomNavigationPoint coverPoint = BotOwner_0.Memory.CurCustomCoverPoint;
-            if (coverPoint != null)
+            if (coverPoint != null && hasReliableEnemyLookPoint)
             {
                 Vector3 cornerTargetPoint = hasReliableEnemyLookPoint ? enemyLookPoint : fallbackEnemyDirectionPoint;
                 if (TryGetEnemyDirectionFromPoint(cornerTargetPoint, coverPoint, out Vector3 enemyDirection))
@@ -289,7 +396,7 @@ namespace friendlySAIN.BigBrain.Actions
                 }
             }
 
-            if (hasReliableEnemyLookPoint && !IsFacingWall())
+            if (hasReliableEnemyLookPoint)
             {
                 SetPointLook(enemy, enemyLookPoint, false);
                 return true;
@@ -318,6 +425,12 @@ namespace friendlySAIN.BigBrain.Actions
 
         private bool TrySetCornerLook(EnemyInfo enemy, CustomNavigationPoint coverPoint, Vector3 enemyDirection, int side)
         {
+            Vector3 enemyLookPoint = GetEnemyLookPoint(enemy);
+            if (!CanUseCornerLook(coverPoint, enemyLookPoint, side))
+            {
+                return false;
+            }
+
             if (!IsCornerUsable(coverPoint, side))
             {
                 return false;
@@ -371,6 +484,12 @@ namespace friendlySAIN.BigBrain.Actions
                     if (currentEnemy != null && TryGetEnemyDirection(currentEnemy, coverPoint, out Vector3 enemyDirection))
                     {
                         if (GetCornerSideScore(coverPoint, enemyDirection, currentCornerSide) < MinCornerAlignmentScore)
+                        {
+                            BotOwner_0.Steering.LookToPoint(GetEnemyLookPoint(currentEnemy));
+                            return;
+                        }
+
+                        if (!CanUseCornerLook(coverPoint, GetEnemyLookPoint(currentEnemy), currentCornerSide))
                         {
                             BotOwner_0.Steering.LookToPoint(GetEnemyLookPoint(currentEnemy));
                             return;
@@ -556,18 +675,63 @@ namespace friendlySAIN.BigBrain.Actions
             return true;
         }
 
-        private bool IsFacingWall()
+        private bool WouldLookTowardPointHitWall(Vector3 lookPoint)
         {
             Vector3 origin = BotOwner_0.MyHead != null ? BotOwner_0.MyHead.position : BotOwner_0.Position + Vector3.up * 1.4f;
-            Vector3 forward = BotOwner_0.Transform.forward;
-            forward.y = 0f;
-            if (forward.sqrMagnitude <= 0.001f)
+            Vector3 direction = lookPoint - origin;
+            direction.y = 0f;
+            if (direction.sqrMagnitude <= 0.001f)
             {
                 return false;
             }
 
-            forward = GClass855.NormalizeFastSelf(forward);
-            return Physics.Raycast(new Ray(origin, forward), WallFacingProbeDistance, LayerMaskClass.HighPolyWithTerrainMask);
+            direction = GClass855.NormalizeFastSelf(direction);
+            return Physics.Raycast(new Ray(origin, direction), WallFacingProbeDistance, LayerMaskClass.HighPolyWithTerrainMask);
+        }
+
+        private bool CanUseCornerLook(CustomNavigationPoint coverPoint, Vector3 enemyLookPoint, int side)
+        {
+            if (coverPoint == null || enemyLookPoint == Vector3.zero || !IsCornerUsable(coverPoint, side))
+            {
+                return false;
+            }
+
+            Vector3 botPosition = BotOwner_0.Position;
+            Vector3 botToCorner = coverPoint.Position - botPosition;
+            botToCorner.y = 0f;
+            if (botToCorner.sqrMagnitude > MaxCornerLookDistance * MaxCornerLookDistance)
+            {
+                return false;
+            }
+
+            Vector3 botToEnemy = enemyLookPoint - botPosition;
+            botToEnemy.y = 0f;
+            if (botToEnemy.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            float enemyDistance = botToEnemy.magnitude;
+            Vector3 enemyDirectionFromBot = botToEnemy / enemyDistance;
+            float alongEnemyLine = Vector3.Dot(botToCorner, enemyDirectionFromBot);
+            if (alongEnemyLine <= 0f || alongEnemyLine >= enemyDistance)
+            {
+                return false;
+            }
+
+            Vector3 offEnemyLine = botToCorner - enemyDirectionFromBot * alongEnemyLine;
+            if (offEnemyLine.sqrMagnitude > MaxCornerEnemyLineDistance * MaxCornerEnemyLineDistance)
+            {
+                return false;
+            }
+
+            Vector3 cornerLookDirection = GetCornerLookDirection(coverPoint, side);
+            if (cornerLookDirection.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            return Vector3.Dot(cornerLookDirection, enemyDirectionFromBot) >= MinCornerEnemySectorDot;
         }
 
         private static bool IsCornerUsable(CustomNavigationPoint coverPoint, int side)

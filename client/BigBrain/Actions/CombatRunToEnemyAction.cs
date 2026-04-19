@@ -47,6 +47,7 @@ namespace friendlySAIN.BigBrain.Actions
             {
                 TryMoveToEnemy(goalEnemy);
             }
+            SetCombatSprint(true);
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -69,21 +70,25 @@ namespace friendlySAIN.BigBrain.Actions
             RefreshProgressState();
             NotMovingCheck(goalEnemy);
             EnsurePrimaryWeapon();
-            BotOwner.SetPose(1f);
-            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
-            {
-                BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
-            }
 
-            if (canRun && BotOwner.Mover.HasPathAndNoComplete)
+            BotOwner.SetPose(1f);
+
+            if (BotOwner.Mover.HasPathAndNoComplete)
             {
-                BotOwner.Steering.LookToMovingDirection();
-                SetCombatSprint(true);
+                SetCombatSprint(canRun);
             }
             else
             {
+                SetCombatSprint(canRun);
+            }
+
+            if (!canRun)
+            {
                 BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
-                SetCombatSprint(false);
+            }
+            else
+            {
+                BotOwner.Steering.LookToMovingDirection();
             }
 
             if (!BotOwner.Mover.IsComeTo(BotOwner.Settings.FileSettings.Move.REACH_DIST, false, null))

@@ -27,11 +27,28 @@ namespace friendlySAIN.BigBrain.Actions
             nextMovementCheckTime = 0f;
         }
 
+        public override void Stop()
+        {
+            StopCombatShooting();
+            movementQueue.Clear();
+            isMoving = false;
+            nextMovementCheckTime = 0f;
+
+            if (BotOwner?.DogFight != null)
+            {
+                BotOwner.DogFight.DogFightState = BotDogFightStatus.none;
+                BotOwner.DogFight.PursuitInProgress = false;
+            }
+
+            base.Stop();
+        }
+
         public override void Update(CustomLayer.ActionData data)
         {
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
             {
+                StopCombatShooting();
                 BotOwner.Mover.Stop();
                 BotOwner.LookData.SetLookPointByHearing(null);
                 BotOwner.SetPose(1f);
@@ -76,6 +93,7 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
+            StopCombatShooting();
             if (!tense)
             {
                 BotOwner.SetPose(1f);

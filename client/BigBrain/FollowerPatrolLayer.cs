@@ -71,9 +71,10 @@ namespace friendlySAIN.BigBrain
 
     internal sealed class FollowerPatrolLayer : CustomLayer
     {
-        private const float OutOfCombatReloadInitialCooldown = 8f;
+        private const float OutOfCombatReloadInitialCooldown = 1f;
         private const float OutOfCombatReloadCheckInterval = 3f;
         private const float OutOfCombatReloadActionCooldown = 5f;
+        private const float OutOfCombatReloadWeaponSwitchCooldown = 0.75f;
         private const float OutOfCombatReloadFullCycleCooldown = 30f;
 
         private float _nextErrorLogAt;
@@ -193,6 +194,7 @@ namespace friendlySAIN.BigBrain
             stoppedForHealDecision = false;
             ResetReloadState();
             BotOwner.Mover.Pause = false;
+            ResetTiltForPatrol();
             if (BotOwner.Mover.TargetPose < 0.85f)
             {
                 BotOwner.SetPose(1f);
@@ -212,6 +214,19 @@ namespace friendlySAIN.BigBrain
             if (BotOwner.Brain.Agent.Dictionary_0.TryGetValue(logicDecision, out var logicInstance))
             {
                 logicInstance.Dispose();
+            }
+        }
+
+        private void ResetTiltForPatrol()
+        {
+            try
+            {
+                BotOwner.Tilt?.Stop();
+                BotOwner.GetPlayer?.MovementContext?.SetTilt(0f, true);
+            }
+            catch (Exception ex)
+            {
+                LogLayerException("ResetTiltForPatrol", ex);
             }
         }
 
@@ -271,7 +286,19 @@ namespace friendlySAIN.BigBrain
 
                 if (!isHealAction && !isHealDecision)
                 {
-                    return !IsActive();
+                    if (!IsActive())
+                    {
+                        return true;
+                    }
+
+                    RefreshHealWorkIfNeeded();
+                    if (HasPendingHealWork())
+                    {
+                        return true;
+                    }
+
+                    TryHandleOutOfCombatReload();
+                    return false;
                 }
 
                 return EndHealing();
@@ -332,6 +359,15 @@ namespace friendlySAIN.BigBrain
             }
         }
 
+        private bool HasPendingHealWork()
+        {
+            return BotOwner?.Medecine != null &&
+                   (BotOwner.Medecine.FirstAid?.Using == true ||
+                    BotOwner.Medecine.SurgicalKit?.Using == true ||
+                    BotOwner.Medecine.FirstAid?.Have2Do == true ||
+                    BotOwner.Medecine.SurgicalKit?.HaveWork == true);
+        }
+
         private void LogLayerException(string where, Exception ex)
         {
             if (Time.time < _nextErrorLogAt) return;
@@ -362,7 +398,7 @@ namespace friendlySAIN.BigBrain
             }
 
             // end heal timeout.
-            float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 20f : 7f;
+            float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
             if (healStartAt + healTimeout < Time.time || (isHealing && Time.time > healSoftTimeoutAt))
             {
                 CompleteHealing();
@@ -445,7 +481,7 @@ namespace friendlySAIN.BigBrain
 
             if (TrySelectNextWeaponToTopOff(selector))
             {
-                nextReloadCheckAt = Time.time + OutOfCombatReloadActionCooldown;
+                nextReloadCheckAt = Time.time + OutOfCombatReloadWeaponSwitchCooldown;
                 nextMagazineFillCheckAt = Time.time + OutOfCombatReloadActionCooldown;
                 return;
             }
@@ -463,19 +499,35 @@ namespace friendlySAIN.BigBrain
             }
 
             Weapon currentWeapon = BotOwner.WeaponManager.CurrentWeapon;
-            MagazineItemClass currentMagazine = currentWeapon?.GetCurrentMagazine();
-            if (currentWeapon == null || currentMagazine == null)
+            if (currentWeapon == null)
             {
                 return false;
             }
 
-            int capacity = currentMagazine.MaxCount;
+            int capacity;
+            if (currentWeapon.ReloadMode == Weapon.EReloadMode.OnlyBarrel)
+            {
+                capacity = BotOwner.WeaponManager.Reload.MaxBulletCount;
+            }
+            else
+            {
+                MagazineItemClass currentMagazine = currentWeapon.GetCurrentMagazine();
+                if (currentMagazine == null)
+                {
+                    return false;
+                }
+
+                capacity = currentMagazine.MaxCount;
+            }
+
             if (capacity <= 0)
             {
                 return false;
             }
 
-            int currentBullets = currentWeapon.GetCurrentMagazineCount();
+            int currentBullets = currentWeapon.ReloadMode == Weapon.EReloadMode.OnlyBarrel
+                ? BotOwner.WeaponManager.Reload.BulletCount
+                : currentWeapon.GetCurrentMagazineCount();
             return currentBullets < capacity;
         }
 
@@ -489,8 +541,18 @@ namespace friendlySAIN.BigBrain
             }
 
             Weapon currentWeapon = BotOwner.WeaponManager.CurrentWeapon;
-            MagazineItemClass? currentMagazine = currentWeapon?.GetCurrentMagazine();
-            if (currentWeapon == null || currentMagazine == null || currentMagazine.MaxCount <= 0)
+            if (currentWeapon == null)
+            {
+                return false;
+            }
+
+            if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
+            {
+                return BotOwner.WeaponManager.Reload.TryReload();
+            }
+
+            MagazineItemClass? currentMagazine = currentWeapon.GetCurrentMagazine();
+            if (currentMagazine == null || currentMagazine.MaxCount <= 0)
             {
                 return false;
             }

@@ -289,29 +289,18 @@ namespace friendlySAIN.BigBrain
         private AICoreActionResultStruct<BotLogicDecision, GClass26> GetRegroupRunDecision(Vector3 bossPosition)
         {
             // Once contact cools off, regroup becomes a pure "close back to boss" objective.
-            // Do not step through bossward covers here: each intermediate cover turns into a
-            // completed goToPoint action and creates visible run-stop-run churn. Hot contact still
-            // uses cover-to-cover withdraw above; the cold run phase targets the boss directly.
-            if (!hasTarget || HasBossSectorChanged(bossPosition))
+            // Do not select the destination here. CombatRegroupRunAction owns one cached run
+            // target from Start() until the action reaches it, so repeated decisions cannot
+            // keep nudging the point while the bot is already running.
+            if (!hasBossSectorAnchor || HasBossSectorChanged(bossPosition))
             {
-                currentTarget = GetBossRunTarget(bossPosition);
                 bossSectorAnchor = bossPosition;
-                hasTarget = true;
                 hasBossSectorAnchor = true;
             }
 
-            BotOwner.GoToSomePointData.SetPoint(currentTarget);
+            currentTarget = Vector3.zero;
+            hasTarget = false;
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPoint, "regroup.run");
-        }
-
-        private static Vector3 GetBossRunTarget(Vector3 bossPosition)
-        {
-            if (NavMesh.SamplePosition(bossPosition, out NavMeshHit bossHit, 2f, -1))
-            {
-                return bossHit.position;
-            }
-
-            return bossPosition;
         }
 
         private bool TryAssignRegroupCover(EnemyInfo goalEnemy, Vector3 bossPosition, RegroupBossDirection bossDirection, out Vector3 targetPosition)

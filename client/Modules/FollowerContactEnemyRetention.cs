@@ -7,9 +7,9 @@ using UnityEngine;
 
 namespace friendlySAIN.Modules
 {
-    internal static class FollowerContactEnemyRetention
+    public static class FollowerContactEnemyRetention
     {
-        private const float RetainSeconds = 6f;
+        private const float RetainSeconds = 12f;
 
         private sealed class RetainedContact
         {
@@ -91,6 +91,44 @@ namespace friendlySAIN.Modules
             return false;
         }
 
+        public static bool TryGetActiveRetainedEnemy(BotOwner follower, out Player? enemy, out bool prioritized)
+        {
+            enemy = null;
+            prioritized = false;
+            if (follower == null || string.IsNullOrEmpty(follower.ProfileId))
+            {
+                return false;
+            }
+
+            if (!RetainedByFollowerId.TryGetValue(follower.ProfileId, out RetainedContact contact))
+            {
+                return false;
+            }
+
+            if (Time.time > contact.Until)
+            {
+                RetainedByFollowerId.Remove(follower.ProfileId);
+                return false;
+            }
+
+            if (HasDifferentLiveVisibleGoal(follower, contact.EnemyProfileId))
+            {
+                RetainedByFollowerId.Remove(follower.ProfileId);
+                return false;
+            }
+
+            enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(contact.EnemyProfileId);
+            if (enemy?.HealthController?.IsAlive != true)
+            {
+                RetainedByFollowerId.Remove(follower.ProfileId);
+                enemy = null;
+                return false;
+            }
+
+            prioritized = contact.Prioritized;
+            return true;
+        }
+
         public static bool ShouldBlockGoalEnemyClear(BotOwner follower, EnemyInfo? currentGoal)
         {
             if (follower == null || currentGoal == null || string.IsNullOrEmpty(follower.ProfileId))
@@ -119,8 +157,6 @@ namespace friendlySAIN.Modules
             if (contact.BlockedClearCount == 1 || Time.time >= contact.NextBlockedClearLogAt)
             {
                 contact.NextBlockedClearLogAt = Time.time + 1f;
-                friendlySAIN.Log?.LogInfo(
-                    $"[ContactRetention] blocked-clear follower={follower.Profile?.Nickname ?? follower.ProfileId} enemy={contact.EnemyProfileId} count={contact.BlockedClearCount}");
             }
 
             return true;
@@ -181,8 +217,6 @@ namespace friendlySAIN.Modules
             if (contact.RestoreCount == 1 || Time.time >= contact.NextRestoreLogAt)
             {
                 contact.NextRestoreLogAt = Time.time + 1f;
-                friendlySAIN.Log?.LogInfo(
-                    $"[ContactRetention] restored follower={follower.Profile?.Nickname ?? follower.ProfileId} enemy={contact.EnemyProfileId} visible={contact.WasVisible} count={contact.RestoreCount}");
             }
 
             return true;

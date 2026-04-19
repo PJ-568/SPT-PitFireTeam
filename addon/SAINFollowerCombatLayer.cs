@@ -30,6 +30,7 @@ namespace friendlySAIN.SAINAddon
         private ESquadDecision _currentDecision = ESquadDecision.None;
         private ESquadDecision _lastActionDecision = ESquadDecision.None;
         private float _lastEnemySeenAt = -1000f;
+        private float _nextRetainedContactRefreshAt;
         private string? _lastLoggedState;
         private float _nextLayerLogAt;
 
@@ -197,6 +198,8 @@ namespace friendlySAIN.SAINAddon
                 return false;
             }
 
+            bool refreshedRetainedContact = TryRefreshRetainedContact(bot);
+
             SAINDecisionClass decisions = bot.Decision;
             if (decisions.CurrentSelfDecision != ESelfActionType.None || decisions.CurrentCombatDecision == ECombatDecision.DogFight)
             {
@@ -214,6 +217,7 @@ namespace friendlySAIN.SAINAddon
             bool haveSainCombatContext =
                 haveEnemy ||
                 haveSainEnemy ||
+                refreshedRetainedContact ||
                 bot.BotActivation?.BotInCombat == true ||
                 bot.ActiveLayer == ESAINLayer.Squad ||
                 bot.ActiveLayer == ESAINLayer.Combat;
@@ -264,6 +268,30 @@ namespace friendlySAIN.SAINAddon
 
             return false;
         }
+
+        private bool TryRefreshRetainedContact(BotComponent bot)
+        {
+            if (BotOwner == null || bot == null)
+            {
+                return false;
+            }
+
+            if (Time.time < _nextRetainedContactRefreshAt)
+            {
+                return FollowerContactEnemyRetention.HasActiveRetainedContact(BotOwner);
+            }
+
+            _nextRetainedContactRefreshAt = Time.time + 0.5f;
+            if (!FollowerContactEnemyRetention.TryGetActiveRetainedEnemy(BotOwner, out Player? enemy, out bool prioritized) ||
+                enemy == null)
+            {
+                return false;
+            }
+
+            bool prioritizeAsGoal = prioritized || bot.GoalEnemy == null;
+            return SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState(BotOwner, enemy, prioritizeAsGoal);
+        }
+
         private void ReleaseGroupSearchLock()
         {
             if (string.IsNullOrEmpty(_groupSearchLockEnemyProfileId) ||

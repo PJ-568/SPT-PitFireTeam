@@ -7,6 +7,43 @@
 
 ## Current Status
 
+### Team Effort: Team Search
+
+Follower combat has a team-level coordination path. It should not be described as default and marksman making fully independent parallel choices.
+
+Authoritative model:
+
+- `AIBossPlayer` owns the shared team coordination object through `CombatEvents`.
+- `CombatEvents` currently exposes an active push/search event:
+    - owner follower
+    - enemy profile id
+    - enemy anchor position
+    - push/search destination
+    - reason
+    - `IsSearchPush`
+- `FollowerCombatDefault` can initiate the team action:
+    - when a push decision is committed, `CommitPush(...)` calls `TryEmitPushEvent(...)`
+    - `TryEmitPushEvent(...)` publishes through `boss.CombatEvents.TryEmitPush(...)`
+    - when the committed push clears, `ReleasePushEvent(...)` releases the active event
+- `FollowerCombatSniper` reacts to the team action:
+    - `TryGetActivePushEvent(...)` reads `boss.CombatEvents.TryGetActivePushFor(...)`
+    - the event owner is ignored, so the emitting follower does not react to itself
+    - if the event enemy differs from the sniper's current goal enemy, sniper tries to promote the event enemy as its goal
+    - if `IsSearchPush` is true and the sniper is close to the push owner, sniper joins via `EnemySearch("sniper.closeSearch")`
+    - otherwise sniper tries to commit a support firing cover with `TryCommitPushSupportCover(...)` and enters `sniper.FireSupport.push`
+
+This behavior is the current **Team Search** pattern:
+
+- default/balanced follower can become the active search/push owner
+- marksman/sniper supports that team search instead of independently choosing a normal default-style push
+- close team-search support can collapse into `sniper.closeSearch`
+- non-close team-search support should prefer firing-position support cover
+
+Important policy rule:
+
+- Shared primitives can live in `FollowerCombatCommon`, but coordinated behavior must remain event-aware.
+- A shared helper such as grenade suppression may be callable by both default and sniper, but the decision to call it should not bypass the `CombatEvents` team-search context when the behavior is meant to be coordinated support.
+
 ### Completed
 
 - Phase 1 is implemented: `FollowerCombatLayer` no longer force-ends actions just because the action enum changed between ticks.
@@ -27,12 +64,6 @@
 - Search-target commitment is still unresolved; `EnemySearch(...)` and other tactical-point flows can still drift.
 
 ### BUGS:
-
-- does not break out of fireSupportHold
-- closeSearch needs to switch to second weapon as he starts
-- marksman needs a full review on decisions related to close quarters and weapon switching
-- continue to check run stop decision (reposition.run, push.run)\
-- push.run does not always mean bot is actually running
 
 ## Findings
 

@@ -95,7 +95,7 @@ namespace friendlySAIN.Localization
                     "Teleport all followers to the player's position"),
                 botHeal = Entry(
                     "Heal Followers",
-                    "Heal all followers. This will not restore their black limbs to full health."),
+                    "Heal all followers and restore blacked limbs."),
                 botPrefetch = Entry(
                     "Prefetch follower data",
                     "Prefetch follower data to reduce the time it takes to spawn them. If you experience problems with followers spawning, disable this option and try again. Take note that this can increase the spawn time."),

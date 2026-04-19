@@ -1525,6 +1525,8 @@ namespace friendlySAIN.Components
             {
                 if (owner == null || owner != _bot) return;
 
+                Utils.FollowerMedical.UpdateMedicalHandsWatchdog(owner);
+
                 if (_teleportGraceUntil > Time.time)
                 {
                     owner.Mover?.Stop();

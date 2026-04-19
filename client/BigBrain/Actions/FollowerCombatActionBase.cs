@@ -71,6 +71,18 @@ namespace friendlySAIN.BigBrain.Actions
             return GetRawData(data) as TData;
         }
 
+        protected void StopCombatShooting()
+        {
+            ShootData? shootData = BotOwner?.ShootData;
+            shootData?.EndShoot();
+
+            var shootController = BotOwner?.WeaponManager?.ShootController;
+            if (shootController != null)
+            {
+                shootController.SetTriggerPressed(false);
+            }
+        }
+
         protected bool WaitForEnemyAimAlignment(ref float startedAt, ref string? enemyProfileId, float maxAngle = 18f, float timeout = 0.65f)
         {
             EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
@@ -123,6 +135,7 @@ namespace friendlySAIN.BigBrain.Actions
                 return false;
             }
 
+            StopCombatShooting();
             return Time.time - startedAt < timeout;
         }
 

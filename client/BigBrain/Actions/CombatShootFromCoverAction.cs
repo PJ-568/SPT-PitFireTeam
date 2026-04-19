@@ -14,6 +14,14 @@ namespace friendlySAIN.BigBrain.Actions
             baseLogic = new GClass277(botOwner);
         }
 
+        public override void Stop()
+        {
+            StopCombatShooting();
+            aimAlignStartedAt = 0f;
+            aimAlignEnemyId = null;
+            base.Stop();
+        }
+
         public override void Update(CustomLayer.ActionData data)
         {
             bool oldCanThrowFromAnyPlace = BotOwner.Settings.FileSettings.Grenade.CAN_THROW_FROM_ANY_PLACE;

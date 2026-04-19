@@ -594,7 +594,8 @@ namespace friendlySAIN
 
                     if (follower != null && bot.HealthController.IsAlive)
                     {
-                        global::friendlySAIN.Utils.FollowerMedical.CompleteHealing(bot);
+                        global::friendlySAIN.Utils.FollowerMedical.CancelAllHealing(bot, recoverDestroyedSurgeryParts: true);
+                        global::friendlySAIN.Utils.FollowerMedical.ForceHeal(bot);
                     }
                 }
             }

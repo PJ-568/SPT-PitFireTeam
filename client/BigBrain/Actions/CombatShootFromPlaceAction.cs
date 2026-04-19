@@ -5,7 +5,7 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatShootFromPlaceAction : FollowerCombatActionBase
     {
-        private const float MinEnemyDistanceForProne = 18f;
+        private const float MinEnemyDistanceForProne = 35f;
         private readonly GClass276 baseLogic;
         private float aimAlignStartedAt;
         private string? aimAlignEnemyId;
@@ -13,6 +13,14 @@ namespace friendlySAIN.BigBrain.Actions
         public CombatShootFromPlaceAction(BotOwner botOwner) : base(botOwner)
         {
             baseLogic = new GClass276(botOwner);
+        }
+
+        public override void Stop()
+        {
+            StopCombatShooting();
+            aimAlignStartedAt = 0f;
+            aimAlignEnemyId = null;
+            base.Stop();
         }
 
         public override void Update(CustomLayer.ActionData data)

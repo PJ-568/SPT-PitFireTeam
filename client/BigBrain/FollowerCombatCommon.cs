@@ -50,8 +50,6 @@ namespace friendlySAIN.BigBrain
         private float nextCoverAcquireTime;
         private bool holdActive;
         private float holdEndTime;
-        private string? lastGrenadeLogReason;
-        private float nextGrenadeLogAt;
 
         private float dangerTimer = 0f;
         private float nextShootCoverCheckTime;
@@ -1498,6 +1496,193 @@ namespace friendlySAIN.BigBrain
 
             cover = candidate;
             return true;
+        }
+
+        public bool TryCommitPushSupportCover(
+            EnemyInfo goalEnemy,
+            Vector3 pushOwnerPosition,
+            Vector3 enemyPosition,
+            Vector3 watchedDestination,
+            string reason,
+            out string committedReason)
+        {
+            committedReason = reason;
+            if (!CanAcquireCommittedCover())
+            {
+                return false;
+            }
+
+            CustomNavigationPoint? cover = FindPushSupportCover(goalEnemy, pushOwnerPosition, enemyPosition, requireEnemyShootLane: true);
+            if (cover == null)
+            {
+                cover = FindPushSupportCover(goalEnemy, pushOwnerPosition, watchedDestination, requireEnemyShootLane: false);
+                committedReason += ".watchDestination";
+            }
+            else
+            {
+                committedReason += ".shootEnemy";
+            }
+
+            if (cover != null)
+            {
+                return TryCommitSelectedCombatCover(goalEnemy, cover, committedReason);
+            }
+
+            return TryCommitFiringPositionCover(
+                goalEnemy,
+                reason + ".fallbackFirePosition",
+                out committedReason,
+                preferPointToShoot: true,
+                preferInbetween: true);
+        }
+
+        private CustomNavigationPoint? FindPushSupportCover(
+            EnemyInfo goalEnemy,
+            Vector3 pushOwnerPosition,
+            Vector3 targetPosition,
+            bool requireEnemyShootLane)
+        {
+            if (!IsFinite(targetPosition))
+            {
+                return null;
+            }
+
+            Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
+            ShootPointClass targetPoint = new ShootPointClass(targetPosition + Vector3.up * 1.1f, 1f);
+            LayerMask mask = botOwner.LookSensor.Mask;
+            CoverSearchType searchType = SetCoverTacticAndGetSearchType(
+                BotsGroup.BotCurrentTactic.Attack,
+                CoverShootType.shoot,
+                CoverSearchIntent.Attack);
+
+            return Covers.GetClosestCoverPoint(
+                botOwner,
+                botOwner.Position,
+                60f,
+                point =>
+                {
+                    if (!IsCoverUsable(point))
+                    {
+                        return false;
+                    }
+
+                    if (!IsTeamSearchSupportPosition(point.Position, pushOwnerPosition, enemyAnchor))
+                    {
+                        return false;
+                    }
+
+                    if (requireEnemyShootLane &&
+                        IsFinite(enemyAnchor) &&
+                        !point.CanIHideFromPos(0f, true, false, enemyAnchor))
+                    {
+                        return false;
+                    }
+
+                    return Utils.Utils.CanShootToTarget(targetPoint, point, mask, false);
+                },
+                searchType);
+        }
+
+        public bool TryCreateTeamSearchSupportDecision(
+            CombatEvents.PushEvent pushEvent,
+            EnemyInfo goalEnemy,
+            string reason,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!TryFindTeamSearchSupportPoint(pushEvent.Owner.Position, GetEnemyAnchor(goalEnemy), out Vector3 supportPoint))
+            {
+                return false;
+            }
+
+            botOwner.GoToSomePointData.SetPoint(supportPoint);
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPointTactical, reason);
+            return true;
+        }
+
+        private bool TryFindTeamSearchSupportPoint(Vector3 pushOwnerPosition, Vector3 enemyAnchor, out Vector3 supportPoint)
+        {
+            supportPoint = default;
+            if (!IsFinite(pushOwnerPosition) || !IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            Vector3 forward = enemyAnchor - pushOwnerPosition;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.01f)
+            {
+                return false;
+            }
+
+            forward.Normalize();
+            Vector3 side = new Vector3(-forward.z, 0f, forward.x);
+            Vector3[] candidates =
+            {
+                pushOwnerPosition - forward * 8f,
+                pushOwnerPosition - forward * 6f + side * 5f,
+                pushOwnerPosition - forward * 6f - side * 5f,
+                pushOwnerPosition - forward * 10f + side * 8f,
+                pushOwnerPosition - forward * 10f - side * 8f,
+                pushOwnerPosition + side * 8f,
+                pushOwnerPosition - side * 8f
+            };
+
+            float bestScore = float.MaxValue;
+            bool found = false;
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                if (!NavMesh.SamplePosition(candidates[i], out NavMeshHit hit, 4f, NavMesh.AllAreas))
+                {
+                    continue;
+                }
+
+                if (!IsTeamSearchSupportPosition(hit.position, pushOwnerPosition, enemyAnchor))
+                {
+                    continue;
+                }
+
+                float selfDistance = Vector3.Distance(botOwner.Position, hit.position);
+                float ownerDistance = Vector3.Distance(pushOwnerPosition, hit.position);
+                float score = selfDistance + ownerDistance * 0.35f;
+                if (score < bestScore)
+                {
+                    supportPoint = hit.position;
+                    bestScore = score;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        private static bool IsTeamSearchSupportPosition(Vector3 candidate, Vector3 pushOwnerPosition, Vector3 enemyAnchor)
+        {
+            if (!IsFinite(candidate) || !IsFinite(pushOwnerPosition) || !IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            Vector3 ownerToEnemy = enemyAnchor - pushOwnerPosition;
+            ownerToEnemy.y = 0f;
+            if (ownerToEnemy.sqrMagnitude < 0.01f)
+            {
+                return false;
+            }
+
+            ownerToEnemy.Normalize();
+            Vector3 ownerToCandidate = candidate - pushOwnerPosition;
+            ownerToCandidate.y = 0f;
+            float ahead = Vector3.Dot(ownerToCandidate, ownerToEnemy);
+            if (ahead > 1.5f)
+            {
+                return false;
+            }
+
+            float ownerEnemyDistance = Vector3.Distance(pushOwnerPosition, enemyAnchor);
+            float candidateEnemyDistance = Vector3.Distance(candidate, enemyAnchor);
+            return candidateEnemyDistance >= ownerEnemyDistance - 2f;
         }
 
         public AICoreActionResultStruct<BotLogicDecision, GClass26> ConsumeInitialDecision()
@@ -3388,7 +3573,7 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("healIdleTimedOut", true);
             }
 
-            float timeout = botOwner.Medecine.SurgicalKit.Using ? 20f : 7f;
+            float timeout = botOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
             if (healStartedAt > 0f && healStartedAt + timeout < Time.time)
             {
                 CompleteActiveHeal();
@@ -3522,38 +3707,31 @@ namespace friendlySAIN.BigBrain
 
             if (goalEnemy.Distance < 15f || goalEnemy.Distance > 28f)
             {
-                LogGrenadeDecision($"candidate-reject distance={goalEnemy.Distance:F1} enemy={goalEnemy.ProfileId ?? "<null>"}");
                 return false;
             }
 
             if (botOwner.WeaponManager == null || botOwner.WeaponManager.IsMelee)
             {
-                LogGrenadeDecision("candidate-reject weaponManagerInvalid");
                 return false;
             }
 
             if (botOwner.BotRequestController == null)
             {
-                LogGrenadeDecision("candidate-reject requestControllerNull");
                 return false;
             }
 
             if (botOwner.BotRequestController.HaveActivatedRequests())
             {
-                BotRequest? request = botOwner.BotRequestController.CurRequest;
-                LogGrenadeDecision($"candidate-reject activeRequest={request?.BotRequestType.ToString() ?? "<unknown>"}");
                 return false;
             }
 
             if (botOwner.Medecine.Using)
             {
-                LogGrenadeDecision("candidate-reject medicineUsing");
                 return false;
             }
 
             if (!FollowerGrenadeCooldowns.TryReserveThrow(botOwner))
             {
-                LogGrenadeDecision($"candidate-reject cooldownOrReservation enemy={goalEnemy.ProfileId ?? "<null>"} dist={goalEnemy.Distance:F1}");
                 return false;
             }
 
@@ -3563,15 +3741,12 @@ namespace friendlySAIN.BigBrain
                 Time.time - goalEnemy.FirstTimeSeen < 1.5f)
             {
                 FollowerGrenadeCooldowns.CancelPending(botOwner);
-                LogGrenadeDecision(
-                    $"candidate-reject unsafe dogfight={IsDogFightActive()} underFire={botOwner.Memory.IsUnderFire} recentHit={WasHitRecently(botOwner, 2f)} firstSeenAge={Time.time - goalEnemy.FirstTimeSeen:F1}");
                 return false;
             }
 
             if (goalEnemy.CanShoot && botOwner.LookSensor.EnoughDistToShoot(out _))
             {
                 FollowerGrenadeCooldowns.CancelPending(botOwner);
-                LogGrenadeDecision($"candidate-reject gunfightAvailable enemy={goalEnemy.ProfileId ?? "<null>"}");
                 return false;
             }
 
@@ -3581,7 +3756,6 @@ namespace friendlySAIN.BigBrain
             {
                 FollowerGrenadeCooldowns.CancelPending(botOwner);
                 FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
-                LogGrenadeDecision($"candidate-reject grenadeRuntimeInvalid controllerNull={botOwner.WeaponManager.Grenades == null} suppressNull={botOwner.SuppressGrenade == null}");
                 return false;
             }
 
@@ -3591,7 +3765,6 @@ namespace friendlySAIN.BigBrain
             {
                 FollowerGrenadeCooldowns.CancelPending(botOwner);
                 FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
-                LogGrenadeDecision($"candidate-reject friendlyTooClose target={targetPosition}");
                 return false;
             }
 
@@ -3601,7 +3774,6 @@ namespace friendlySAIN.BigBrain
             {
                 HoldFor(botOwner.Settings.FileSettings.Boss.KILLA_AFTER_GRENADE_SUPPRESS_DELAY);
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade");
-                LogGrenadeDecision($"candidate-activated reason=SupGrenade type={preferredThrowType.Value} enemy={suppressEnemy.ProfileId ?? "<null>"} dist={suppressEnemy.Distance:F1}");
                 return true;
             }
 
@@ -3611,7 +3783,6 @@ namespace friendlySAIN.BigBrain
                 if (botOwner.SuppressGrenade.Init(suppressEnemy, throwType, null, AIGreandeAng.ang45))
                 {
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade2");
-                    LogGrenadeDecision($"candidate-activated reason=SupGrenade2 type={throwType} enemy={suppressEnemy.ProfileId ?? "<null>"} dist={suppressEnemy.Distance:F1}");
                     return true;
                 }
             }
@@ -3622,14 +3793,12 @@ namespace friendlySAIN.BigBrain
                     botOwner.SuppressGrenade.Init(suppressEnemy, throwType, null, AIGreandeAng.ang45))
                 {
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade3");
-                    LogGrenadeDecision($"candidate-activated reason=SupGrenade3 type={throwType} enemy={suppressEnemy.ProfileId ?? "<null>"} dist={suppressEnemy.Distance:F1}");
                     return true;
                 }
             }
 
             FollowerGrenadeCooldowns.CancelPending(botOwner);
             FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
-            LogGrenadeDecision($"candidate-reject suppressInitFailed enemy={suppressEnemy.ProfileId ?? "<null>"} target={targetPosition}");
             return false;
         }
 
@@ -3651,19 +3820,6 @@ namespace friendlySAIN.BigBrain
             }
 
             return goalEnemy;
-        }
-
-        private void LogGrenadeDecision(string reason)
-        {
-            float now = Time.time;
-            if (string.Equals(lastGrenadeLogReason, reason, StringComparison.Ordinal) && now < nextGrenadeLogAt)
-            {
-                return;
-            }
-
-            lastGrenadeLogReason = reason;
-            nextGrenadeLogAt = now + 1f;
-            friendlySAIN.Log?.LogInfo($"[GrenadeDecision] follower={botOwner?.Profile?.Nickname ?? botOwner?.ProfileId ?? "<null>"} {reason}");
         }
 
         private bool IsFriendlyTooCloseToGrenadeTarget(Vector3 targetPosition, float unsafeRadius)
@@ -3867,6 +4023,13 @@ namespace friendlySAIN.BigBrain
             }
 
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (botOwner.Memory.IsUnderFire ||
+                WasHitRecently(botOwner, 0.75f) ||
+                FollowerAwareness.WasRecentlyHit(botOwner))
+            {
+                return new AICoreActionEndStruct("underFireHold", true);
+            }
+
             if (!botOwner.Memory.IsInCover)
             {
                 if (!IsStableNoCoverHoldReason(reason))
