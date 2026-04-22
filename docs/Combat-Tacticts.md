@@ -2,482 +2,200 @@
 
 ## Scope
 
-- Reviewed path: core/vanilla follower combat under `client/BigBrain`
-- SAIN addon path is currently disabled and was not part of this review
+- This document covers the core follower combat path under `client/BigBrain`.
+- It does not describe the optional SAIN addon combat path.
+- Treat this file as a current-state runtime note, not a design backlog.
 
-## Current Status
+## Current Runtime Model
 
-### Team Effort: Team Search
+### Ownership
 
-Follower combat has a team-level coordination path. It should not be described as default and marksman making fully independent parallel choices.
+Core combat is objective-routed.
 
-Authoritative model:
-
-- `AIBossPlayer` owns the shared team coordination object through `CombatEvents`.
-- `CombatEvents` currently exposes an active push/search event:
-    - owner follower
-    - enemy profile id
-    - enemy anchor position
-    - push/search destination
-    - reason
-    - `IsSearchPush`
-- `FollowerCombatDefault` can initiate the team action:
-    - when a push decision is committed, `CommitPush(...)` calls `TryEmitPushEvent(...)`
-    - `TryEmitPushEvent(...)` publishes through `boss.CombatEvents.TryEmitPush(...)`
-    - when the committed push clears, `ReleasePushEvent(...)` releases the active event
-- `FollowerCombatSniper` reacts to the team action:
-    - `TryGetActivePushEvent(...)` reads `boss.CombatEvents.TryGetActivePushFor(...)`
-    - the event owner is ignored, so the emitting follower does not react to itself
-    - if the event enemy differs from the sniper's current goal enemy, sniper tries to promote the event enemy as its goal
-    - if `IsSearchPush` is true and the sniper is close to the push owner, sniper joins via `EnemySearch("sniper.closeSearch")`
-    - otherwise sniper tries to commit a support firing cover with `TryCommitPushSupportCover(...)` and enters `sniper.FireSupport.push`
-
-This behavior is the current **Team Search** pattern:
-
-- default/balanced follower can become the active search/push owner
-- marksman/sniper supports that team search instead of independently choosing a normal default-style push
-- close team-search support can collapse into `sniper.closeSearch`
-- non-close team-search support should prefer firing-position support cover
-
-Important policy rule:
-
-- Shared primitives can live in `FollowerCombatCommon`, but coordinated behavior must remain event-aware.
-- A shared helper such as grenade suppression may be callable by both default and sniper, but the decision to call it should not bypass the `CombatEvents` team-search context when the behavior is meant to be coordinated support.
-
-### Completed
-
-- Phase 1 is implemented: `FollowerCombatLayer` no longer force-ends actions just because the action enum changed between ticks.
-- Marksman now has a shared committed-cover phase helper, `CommittedCoverPhaseState`, used for support and reposition travel/hold ownership.
-- Marksman `fireSupport` no longer re-picks support cover while a support phase is active, and on arrival it enters a short `sniper.fireSupportHold` settle phase instead of immediately rethinking.
-- Marksman boss-distance break during `fireSupportHold` now only stays locked when there is a real immediate shot from the current cover, not just a generally visible/shootable enemy.
-- Default `shootCover` / `retreatShootCover` now enter a short `shootCoverHold` settle phase on arrival before regroup/advance/rethink is allowed to win.
-- Cover pose behavior now uses committed cover intent:
-    - the decision that selected/reached the cover records whether the cover was chosen to shoot or to hide
-    - shooting-cover intents may stand if a standing-height lane exists
-    - safe/hiding-cover intents keep the vanilla crouch/hold behavior
-    - this applies to both marksman fire-support/reposition cover and default `shootCover` / `retreatShootCover`
-
-### In Progress
-
-- Cover settle behavior exists, but it is still tactic-local instead of being owned centrally by `FollowerCombatCommon`.
-- Default has committed cover pose intent, but still does not have a full branch-level committed-intent model; broader support/protect/fallback ownership is still mostly derived from branch order plus committed cover/push.
-- Search-target commitment is still unresolved; `EnemySearch(...)` and other tactical-point flows can still drift.
-
-### BUGS:
-
-## Findings
-
-### 1. Cover hold is not truly protected after arrival
-
-The current cover hold flow arms a hold timer, but default hold end logic can still break almost immediately for non-emergency reasons such as ally support, boss-support pressure, regroup pressure, generic advance, or any visible enemy.
-
-Impact:
-
-- follower reaches cover, then exits the plan too quickly
-- cover hold does not behave like a real "settle and scan" phase
-- this contributes directly to mid-execution changes of mind
+- `FollowerCombatLogicBase` owns the combat router.
+- The router owns three objective stacks:
+  - `FollowerCombatDefaultObjective`
+  - `FollowerCombatSniperObjective`
+  - `FollowerCombatRegroupObjective`
+- Default and marksman keep their own tactic trees, but regroup is shared and objective-owned.
+- Objective ownership is stateful. Shared interrupt actions such as heal or dogfight do not automatically change the owning objective.
 
 Relevant files:
 
-- `client/BigBrain/FollowerCombatDefault.cs`
-- `client/BigBrain/FollowerCombatCommon.cs`
-
-### 2. Default combat commits geometry more than intent
-
-Default combat has good committed movement primitives for push and cover travel, and cover commitments now preserve a narrow shoot-vs-hide pose intent. However, non-push branches still do not hold broader ownership cleanly after movement completes. Support and protect flows can dissolve back into generic routing as soon as the bot reaches the destination or enemy memory shifts.
-
-Impact:
-
-- ally support can start, then collapse into generic search/hold behavior
-- boss-under-attack reactions can lose continuity after arrival
-- default tactic does not yet have durable branch ownership comparable to marksman reposition/support state
-- current cover pose intent only answers "stand to shoot or crouch to hide"; it is not a complete support/protect/fallback intent latch
-
-Relevant files:
-
-- `client/BigBrain/FollowerCombatDefault.cs`
 - `client/BigBrain/FollowerCombatLogicBase.cs`
+- `client/BigBrain/FollowerCombatDefaultObjective.cs`
+- `client/BigBrain/FollowerCombatSniperObjective.cs`
+- `client/BigBrain/FollowerCombatRegroupObjective.cs`
+
+### Combat Start
+
+Combat start still seeds an opening decision through `PrepareStartDecision(...)`.
+
+Current opening priorities are:
+
+1. visible close-cover pressure
+2. unseen under-fire response
+3. ally-engagement support opener
+4. low-threat blind push
+5. far-cover fallback
+
+If none match, the tactic falls through to its normal decision tree.
+
+Relevant file:
+
+- `client/BigBrain/FollowerCombatCommon.cs`
+
+### Default / Balanced Combat
+
+`FollowerCombatDefault` is the main balanced combat tree.
+
+Current important behavior:
+
+- committed push is sticky until hard interrupt or completion
+- explicit `PushEnemy` (`GoForward` in combat) preempts passive hold/cover routing
+- visible contact prefers immediate fire before passive hold
+- committed cover is reused instead of constantly selecting new cover
+- committed cover arrival prefers:
+  1. immediate fire
+  2. visible fire
+  3. pressure / reaction
+  4. passive `coverHold`
+- passive hold reasons are mainly:
+  - `coverHold`
+  - `bossHold`
+- boss-distance pressure can switch default combat into the regroup objective
+
+Relevant file:
+
+- `client/BigBrain/FollowerCombatDefault.cs`
+
+### Marksman Combat
+
+`FollowerCombatSniper` is a separate marksman tree, not a variant inside default combat.
+
+Current important behavior:
+
+- marksman prefers firing-position support and reposition logic over generic rush behavior
+- explicit push does not make marksman acknowledge or behave like balanced assault logic
+- marksman can join team push/search support through `CombatEvents`
+- close-quarter handling can temporarily prefer a full-auto secondary
+- boss-distance pressure hands off to the shared regroup objective
+
+Relevant file:
+
 - `client/BigBrain/FollowerCombatSniper.cs`
 
-### 3. Search-style movement re-picks targets too often
+### Regroup Objective
 
-`EnemySearch(...)` writes a fresh tactical point whenever that branch is selected again. Search-like movement therefore stays committed to the action type, but not necessarily to the actual destination.
+Combat regroup is objective-owned.
 
-Impact:
+Current behavior:
 
-- follower starts moving to search, then drifts toward a slightly different point
-- tactical movement can look indecisive even when the same branch keeps winning
-- marksman close-search inherits the same issue
+- explicit regroup command in combat activates the regroup objective
+- explicit `PushEnemy` can override regroup and return to the tactic's primary objective
+- hot contact regroup stays combat-active and moves bossward with withdraw-style movement
+- cooled contact regroup becomes an urgent bossward run through `CombatRegroupRunAction`
+- regroup completion is based on reaching the boss / bossward objective, not on re-entering default hold logic
+
+Relevant files:
+
+- `client/BigBrain/FollowerCombatRegroupObjective.cs`
+- `client/BigBrain/Actions/CombatRegroupRunAction.cs`
+
+## Cover Contract
+
+Cover is shared infrastructure, not tactic-local geometry only.
+
+Current cover lifecycle:
+
+1. select cover
+2. commit cover
+3. move to committed cover
+4. detect arrival through cover/proximity checks
+5. either fire immediately or enter a short hold path
+6. break hold when a stronger reason wins
+
+Current important rules:
+
+- committed cover is follower-local and reused until invalid or intentionally cleared
+- cover intent tracks whether the cover was reached to shoot or to hide
+- shooting-cover intent may stand if a standing-height lane exists
+- hiding/safe cover keeps crouch behavior
+- default and marksman both use the same shoot-vs-hide committed cover intent gate
 
 Relevant files:
 
 - `client/BigBrain/FollowerCombatCommon.cs`
-- `client/BigBrain/FollowerCombatDefault.cs`
-- `client/BigBrain/FollowerCombatSniper.cs`
-
-### 4. Phase 1 confirmed: layer-level action change force-end causes churn
-
-This is now verified against BigBrain and EFT base flow. The combat layer stores `lastDecision = currentDecision` during `GetNextAction()`, then on the following update `IsCurrentActionEnding()` force-ends the current action whenever the action enum differs from the previous one.
-
-BigBrain/EFT ordering:
-
-1. previous action end check runs first
-2. if ending, next decision is requested
-3. new logic starts
-4. next tick, the new action is evaluated
-
-So the force-end is not a framework ordering issue. It is local combat-layer behavior.
-
-Impact:
-
-- transitions like `runToCover -> holdPosition`, `holdPosition -> goToPointTactical`, and `runToCover -> shootFromCover` are vulnerable to being killed one tick after starting
-- this amplifies every other source of decision churn
-
-Relevant files:
-
-- `client/BigBrain/FollowerCombatLayer.cs`
-- `F:/Projects/SPT-Tarkov/SPT-BigBrain-master/Internal/CustomLayerWrapper.cs`
-- `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x/Assembly-CSharp/AICoreLayerClass.cs`
-
-### 5. Cover pose must follow the reaching decision intent
-
-Vanilla `holdPosition` (`GClass278`) crouches while holding in cover. That is correct for hiding/safe cover, but wrong for shooting cover that only has a lane if the bot stands. Relying only on `GoalEnemy.CanShoot` fails in this case because a crouched bot may see the enemy while EFT still reports the shot as unavailable from the current pose.
-
-Current rule:
-
-- `CommitCover(...)` records the cover id and whether the reaching decision reason was a shooting-cover intent.
-- Standing is allowed only if the bot is still in that same committed shooting cover and a standing-height line check succeeds.
-- Hiding/safe cover keeps the vanilla crouch behavior.
-
-Shooting-cover examples:
-
-- `shootCover`
-- `retreatShootCover`
-- `committedFire`
-- `coverVisibleFire`
-- `sniper.FireSupport`
-- `sniper.reposition`
-- `sniper.protectBossShootCover`
-- `sniper.startPosition`
-
-Hiding/safe-cover examples:
-
-- `safeCover`
-- `retreatSafeCover`
-- `bossCover`
-- `protectBossCover`
-- generic `coverHold` reached from a non-shooting cover
-
-Implementation notes:
-
-- `FollowerCombatCommon.CanShootFromCurrentCoverOrStandingIntent(...)` first tries the normal cover shot check, then tries the standing-lane handoff only when the committed cover intent permits it.
-- `CombatHoldPositionAction` reapplies the standing pose after vanilla hold logic runs, but the shared helper refuses unless the committed cover intent says this cover was reached to shoot.
-- Default and marksman both use the same committed-cover intent gate; SAIN addon behavior is not covered by this core-path change.
-
-Relevant files:
-
-- `client/BigBrain/FollowerCombatCommon.cs`
-- `client/BigBrain/FollowerCombatDefault.cs`
-- `client/BigBrain/FollowerCombatSniper.cs`
+- `client/BigBrain/FollowerCoverCommitment.cs`
 - `client/BigBrain/Actions/CombatHoldPositionAction.cs`
 
-## Incremental Fix Plan
+## Team Coordination
 
-### Phase 1: Remove layer-level action-enum auto-end
+Core combat has a team push/search coordination path.
 
-Status:
+Current behavior:
 
-- Complete
-
-Change:
-
-- remove the `actionChanged` force-end from `FollowerCombatLayer.IsCurrentActionEnding()`
-
-Goal:
-
-- let actions end based on their own end logic
-- preserve current combat activation and linger behavior
-
-Expected result:
-
-- new actions are allowed to survive their first update tick
-- immediate churn caused by cross-tick action comparison is removed
-
-### Phase 2: Add shared cover-settle lock
-
-Status:
-
-- Partially implemented, but still tactic-local
-
-Current state:
-
-- marksman `fireSupport` has an arrival settle hold
-- default `shootCover` has an arrival settle hold
-- both still use tactic-owned policy/state instead of one shared cover-settle path in `FollowerCombatCommon`
-
-Change:
-
-- add a short cover-settle window in shared combat common
-- arm it on arrival in committed cover or equivalent arrival detection
-
-Break rules during this window:
-
-- allow immediate fight
-- allow heal-cover handoff
-- allow hard under-fire / recent-hit escape
-- optionally allow explicit regroup order if that should remain absolute
-- block ally support, boss support, regroup pressure, generic advance, and other non-emergency branch swaps until the lock expires
-
-Goal:
-
-- make "arrived in cover" behave like a real settle-and-scan phase
-
-### Phase 3: Add committed intent for default combat
-
-Status:
-
-- Partially implemented for committed cover pose intent only
-
-Current state:
-
-- default has committed push
-- default `shootCover` now has a short arrival-owned settle phase
-- default committed cover now records whether the reaching decision selected shooting cover or hiding cover
-- default can stand from a committed shooting cover when a standing-height shot lane exists
-- default hiding/safe covers keep crouch behavior
-- non-push support/protect/fallback branches still do not have a durable shared intent latch
-
-Change:
-
-- extend beyond cover pose into a lightweight branch intent latch for default tactic
-
-Suggested intents:
-
-- `None`
-- `Initial`
-- `AllySupport`
-- `BossSupport`
-- `Push`
-- `FallbackHold`
-
-Rules:
-
-- when one of these branches wins, it owns subsequent movement/hold until completion or hard interrupt
-- use cover commitment as the movement primitive under the intent, not as the only state
-
-Goal:
-
-- keep support/protect behavior coherent after movement completes
-
-### Phase 4: Commit search targets
-
-Status:
-
-- Not started
-
-Change:
-
-- cache a stable target point for search-like phases
-- reuse it until arrival, enemy reacquire, or hard interrupt
-
-Apply first to:
-
-- `push.search`
-- `startWeakEnemyPush.tactical`
-- `sniper.closeSearch`
-
-Goal:
-
-- stop tactical search drift caused by repeatedly mutating the target point
-
-### Phase 5: Tune marksman separately
-
-Status:
-
-- Partially implemented
-
-Current state:
-
-- marksman support/reposition now use `CommittedCoverPhaseState`
-- `fireSupport` arrival churn is reduced
-- boss-distance break during support hold is more reliable
-- close-search / tactical search destination commitment is still pending
-
-Change:
-
-- preserve marksman-specific support/reposition behavior
-- keep boss-under-attack and ally-engaged responses marksman-safe
-- ensure firing-position search and close-search are committed phases
-
-Goal:
-
-- keep sniper/marksman distinct from balanced/protector while reusing shared infrastructure
-
-## Recommended Order
-
-1. Phase 1: remove action-enum auto-end
-2. Phase 2: shared cover-settle lock
-3. Phase 3: default committed intent
-4. Phase 4: committed search targets
-5. Phase 5: marksman tuning
-
-## Centralization Direction
-
-As tactic count grows, especially with protector, marksman, future additional tactics, and Goons-specific variants, the system should centralize shared combat state and branch ownership rules instead of duplicating per-tactic micro-state.
-
-The preferred direction is:
-
-- shared commitment primitives in `FollowerCombatCommon`
-- thin tactic policy classes that choose intent, not full bespoke lifecycle code
-- objective/router ownership in `FollowerCombatLogicBase`
-- tactic-local overrides only for real policy differences such as push bias, boss support bias, firing-position preference, and allowed break conditions
-
-## Centralization Opportunities
-
-### Opportunity 1: centralize tactic lifecycle boilerplate
-
-Current duplication:
-
-- `Reset()` and `DecisionChanged()` bookkeeping is duplicated in default and marksman
-- both tactics call shared combat-common handlers, then tack on tactic-local state updates
+- `AIBossPlayer` owns shared `CombatEvents`
+- default combat can emit active push/search events
+- marksman can react to those events with support fire or close search
+- this is the current team-search pattern; marksman is not intended to act like an independent second default attacker
 
 Relevant files:
 
+- `client/Components/AIBossPlayer.cs`
 - `client/BigBrain/FollowerCombatDefault.cs`
 - `client/BigBrain/FollowerCombatSniper.cs`
 
-Suggested direction:
+## Out-of-Combat Commands That Affect Combat Handoff
 
-- add a shared tactic base that owns:
-    - `ResetSharedState()`
-    - `HandleDecisionChangedShared(...)`
-    - standard committed-cover update behavior
-- let concrete tactics override only the extra local state they need
+These are part of the practical combat model because they often hand off into combat behavior.
 
-Why it matters:
-
-- every new tactic will otherwise repeat the same reset and transition plumbing
-
-### Opportunity 2: centralize committed-cover phase ownership
-
-Current duplication:
-
-- default and marksman both implement their own committed-cover arrival / move / hold / break flow
-- both decide:
-    - what happens when committed cover exists
-    - what happens on arrival
-    - when hold should continue
-    - when boss pressure or visibility breaks the phase
+- out-of-combat regroup runs through `GestureCommandAction`
+- out-of-combat regroup now keeps stable run intent instead of fighting EFT sprint downgrades
+- `OverThere` / non-combat `GoForward` resolve a same-level-biased target point instead of broad vertical nav snapping
+- `Attention` clears enemy state and now also blocks group enemy re-report during the suppression window
 
 Relevant files:
 
-- `client/BigBrain/FollowerCombatDefault.cs`
-- `client/BigBrain/FollowerCombatSniper.cs`
-- `client/BigBrain/FollowerCombatCommon.cs`
+- `client/BigBrain/Actions/GestureCommandAction.cs`
+- `client/Components/AIBossPlayer.cs`
+- `client/Modules/FollowerEnemyEnforceSuppression.cs`
 
-Suggested direction:
+## Known Remaining Gaps
 
-- build on the new `CommittedCoverPhaseState` helper and move committed-cover lifecycle into shared phase helpers in `FollowerCombatCommon`
-- have tactic code provide policy hooks such as:
-    - `OnCommittedCoverArrived`
-    - `CanBreakCommittedCoverForBossPressure`
-    - `CanBreakCommittedCoverForAllySupport`
-    - `SelectHoldReason`
+These are the main gaps still worth tracking from the core path.
 
-Why it matters:
+### 1. Cover settle is still partly tactic-local
 
-- this is the highest-risk area for duplication once more tactics exist
-- current status already shows the shape of the problem:
-    - marksman has `supportPhase` and `repositionPhase`
-    - default now has `shootCoverSettlePhase`
-    - more tactics will keep adding their own local phase booleans/helpers unless this is centralized soon
+There is shared committed-cover infrastructure, but some settle/hold behavior is still implemented in tactic-specific paths instead of one shared cover-settle system.
 
-### Opportunity 3: centralize boss-pressure and regroup gating
+Impact:
 
-Current duplication:
+- cover arrival behavior is improved, but not fully centralized
+- future tactics can still duplicate local hold/settle state
 
-- default and marksman both compute boss-distance regroup pressure
-- both contain near-duplicate logic for:
-    - safe regroup distance
-    - boss-under-attack break decisions
-    - explicit regroup command detection
+### 2. Default combat still commits movement better than higher-level intent
 
-Relevant files:
+Default has strong committed movement primitives, but non-push support/protect ownership is still weaker than a full intent model.
 
-- `client/BigBrain/FollowerCombatDefault.cs`
-- `client/BigBrain/FollowerCombatSniper.cs`
-- `client/BigBrain/FollowerCombatLogicBase.cs`
+Impact:
 
-Suggested direction:
+- support/protect decisions can still dissolve back into generic routing after movement completes
+- branch continuity is better than before, but not fully explicit
 
-- move command and boss-pressure gates into a shared evaluator owned by objective/router level
-- leave only policy thresholds in tactic code
+### 3. Search-style tactical movement is better, but not fully committed
 
-Good split:
+Search-like movement now has better stall handling, but target ownership is still lighter than committed push or committed cover.
 
-- router/objective layer:
-    - explicit regroup command consumption
-    - boss-distance state
-    - boss-under-attack raw signal
-- tactic layer:
-    - whether that signal may interrupt current intent
-    - what support action to prefer
+Impact:
 
-Why it matters:
+- tactical search movement can still drift or repick
+- this affects both default search-like movement and marksman close-search style support
 
-- Goons or protector-style tactics will need the same signals but different policy responses
+## Guidance For Future Changes
 
-### Opportunity 4: centralize search-target commitment
-
-Current duplication:
-
-- search-like behavior is built from shared helpers, but no shared committed search target exists
-- marksman and default both rely on `EnemySearch(...)` and tactical-point movement without target ownership
-
-Relevant files:
-
-- `client/BigBrain/FollowerCombatCommon.cs`
-- `client/BigBrain/FollowerCombatDefault.cs`
-- `client/BigBrain/FollowerCombatSniper.cs`
-
-Suggested direction:
-
-- add a shared committed tactical target primitive in `FollowerCombatCommon`
-- let tactics request:
-    - commit search target
-    - reuse search target
-    - clear search target on hard interrupt or arrival
-
-Why it matters:
-
-- this becomes a reusable building block for balanced, protector, marksman, and future assault/goon tactics
-
-### Opportunity 5: centralize intent-state representation
-
-Current issue:
-
-- default currently relies mostly on branch order plus local push commitment
-- marksman now uses shared phase objects for support/reposition, but they are still tactic-local intent fragments
-- default now also has a tactic-local `shootCover` settle phase
-- regroup has its own objective-owned state
-
-Suggested direction:
-
-- define one shared intent-state model, likely at objective level
-- examples:
-    - `Push`
-    - `SupportAlly`
-    - `ProtectBoss`
-    - `Reposition`
-    - `Regroup`
-    - `FallbackHold`
-
-Then let each tactic decide:
-
-- which intents it is allowed to enter
-- which intents can interrupt which others
-- which movement/hold primitive each intent uses
-
-Why it matters:
-
-- this is the main scalability point for supporting more tactics without every class growing its own custom boolean mesh
+- keep routing and lifecycle in objective/router code
+- keep tactic policy in `FollowerCombatDefault` and `FollowerCombatSniper`
+- keep shared primitives in `FollowerCombatCommon`
+- do not add tactic-local state when the behavior is really shared cover/search/regroup infrastructure
+- when documenting behavior, prefer current runtime rules over historical findings or future plans

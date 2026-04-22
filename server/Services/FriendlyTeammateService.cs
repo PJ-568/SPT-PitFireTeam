@@ -109,7 +109,7 @@ public class FriendlyTeammateService(
         // ApplyPmcFollowerSkillBaseline(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammate(sessionId, teammate);
-        SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
+        SaveTeammateSettings(sessionId, teammate, CreateDefaultTeammateSettings());
 
         logger.Info($"Created teammate '{nickname}' for session '{sessionId}' with aid '{teammate.Aid}'");
 
@@ -159,7 +159,7 @@ public class FriendlyTeammateService(
         // ApplyPmcFollowerSkillBaseline(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammate(sessionId, teammate);
-        SaveTeammateSettings(sessionId, teammate, new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId });
+        SaveTeammateSettings(sessionId, teammate, CreateDefaultTeammateSettings());
 
         logger.Info($"Accepted recruit pickup '{nickname}' for session '{sessionId}' with aid '{teammate.Aid}'");
 
@@ -1206,7 +1206,7 @@ public class FriendlyTeammateService(
     private object ToTeammateSummary(BotBase teammate, FriendlyTeammateSettings? settings = null)
     {
         var info = teammate.Info ?? throw new FriendlyTeammateException("Teammate profile is missing Info");
-        settings ??= new FriendlyTeammateSettings { SelectedLoadoutId = DefaultLoadoutId };
+        settings ??= CreateDefaultTeammateSettings();
 
         return new
         {
@@ -1389,27 +1389,30 @@ public class FriendlyTeammateService(
         string filePath = GetTeammateSettingsFilePath(sessionId, teammate);
         if (!fileUtil.FileExists(filePath))
         {
-            return new FriendlyTeammateSettings
-            {
-                SelectedLoadoutId = DefaultLoadoutId,
-                AutoJoinEnabled = false,
-                Aggression = 50f,
-                CombatTactic = "Balanced",
-            };
+            return CreateDefaultTeammateSettings();
         }
 
         FriendlyTeammateSettings? settings = jsonUtil.DeserializeFromFile<FriendlyTeammateSettings>(filePath);
-        FriendlyTeammateSettings loadedSettings = settings ?? new FriendlyTeammateSettings
+        FriendlyTeammateSettings loadedSettings = settings ?? CreateDefaultTeammateSettings();
+
+        if (string.IsNullOrWhiteSpace(loadedSettings.SelectedLoadoutId))
+        {
+            loadedSettings.SelectedLoadoutId = DefaultLoadoutId;
+        }
+        loadedSettings.Aggression = NormalizeAggression(loadedSettings.Aggression);
+        loadedSettings.CombatTactic = NormalizeCombatTactic(loadedSettings.CombatTactic);
+        return loadedSettings;
+    }
+
+    private static FriendlyTeammateSettings CreateDefaultTeammateSettings()
+    {
+        return new FriendlyTeammateSettings
         {
             SelectedLoadoutId = DefaultLoadoutId,
             AutoJoinEnabled = false,
             Aggression = 50f,
             CombatTactic = "Balanced",
         };
-
-        loadedSettings.Aggression = NormalizeAggression(loadedSettings.Aggression);
-        loadedSettings.CombatTactic = NormalizeCombatTactic(loadedSettings.CombatTactic);
-        return loadedSettings;
     }
 
     private void SaveTeammateSettings(MongoId sessionId, BotBase teammate, FriendlyTeammateSettings settings)

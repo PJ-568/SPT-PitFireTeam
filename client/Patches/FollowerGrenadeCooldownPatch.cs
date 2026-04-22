@@ -32,7 +32,6 @@ namespace friendlySAIN.Patches
 
             if (!FollowerGrenadeRuntimeGate.IsThrowAllowed(bot))
             {
-                Log(bot, "DoThrow blocked reason=gateClosed");
                 __result = false;
                 return false;
             }
@@ -46,24 +45,16 @@ namespace friendlySAIN.Patches
                 currentRequest?.BotRequestType == BotRequestType.throwGrenadeFromPlace;
             if (explicitGrenadeSequence)
             {
-                Log(bot, $"DoThrow allowed reason=explicitSequence throwNow={__instance.ThrowindNow} ready={__instance.ReadyToThrow} request={currentRequest?.BotRequestType.ToString() ?? "<null>"}");
                 return true;
             }
 
             if (FollowerGrenadeCooldowns.CanProceedToThrow(bot))
             {
-                Log(bot, "DoThrow allowed reason=cooldownOpen");
                 return true;
             }
 
-            Log(bot, "DoThrow blocked reason=cooldownClosed");
             __result = false;
             return false;
-        }
-
-        private static void Log(BotOwner bot, string message)
-        {
-            friendlySAIN.Log?.LogInfo($"[GrenadeGate] follower={bot?.Profile?.Nickname ?? bot?.ProfileId ?? "<null>"} {message}");
         }
 
     }
@@ -87,8 +78,7 @@ namespace friendlySAIN.Patches
             }
 
             bool completed = grenade != null;
-            friendlySAIN.Log?.LogInfo(
-                $"[GrenadeGate] follower={bot.Profile?.Nickname ?? bot.ProfileId ?? "<null>"} throw-finish completed={completed} grenade={grenade?.TemplateId ?? "<null>"}");
+
             FollowerGrenadeRuntimeGate.FinishExplicitThrow(bot, completed);
         }
     }

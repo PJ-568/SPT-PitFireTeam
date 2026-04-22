@@ -10,7 +10,7 @@ namespace friendlySAIN.BigBrain.Actions
     internal sealed class CombatAttackRetreatAction : CombatAttackMovingAction
     {
         public CombatAttackRetreatAction(BotOwner botOwner)
-            : base(botOwner, withSuppress: false, autoCover: false, forceThreatLookWhenShootable: true)
+            : base(botOwner, withSuppress: true, autoCover: false, forceThreatLookWhenShootable: true)
         {
         }
     }

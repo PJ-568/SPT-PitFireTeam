@@ -955,7 +955,11 @@ namespace friendlySAIN.BigBrain
                 return CombatCommon.EndBaseHoldPosition(reason);
             }
 
-            if (!string.Equals(reason, "sniper.coverHold", StringComparison.Ordinal))
+            bool isHoldingInCover = IsSniperCoverHoldReason(reason) ||
+                                    BotOwner.Memory.IsInCover ||
+                                    CombatCommon.IsBotInCommittedCover();
+
+            if (!isHoldingInCover)
             {
                 return CombatCommon.EndBaseHoldPosition(reason ?? string.Empty);
             }
@@ -1035,6 +1039,11 @@ namespace friendlySAIN.BigBrain
             // For tactical control, consider calling CombatCommon.HoldCoverForMaxDuration() during hold entry
             // to apply marksman-aware hold durations (10-18s based on aggression).
             return CombatCommon.EndBaseHoldPosition(reason ?? string.Empty);
+        }
+
+        private static bool IsSniperCoverHoldReason(string? reason)
+        {
+            return string.Equals(reason, "sniper.coverHold", StringComparison.Ordinal);
         }
 
         private AICoreActionEndStruct EndFireSupportHoldPosition()

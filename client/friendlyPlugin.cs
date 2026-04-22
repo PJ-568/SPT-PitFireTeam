@@ -192,9 +192,6 @@ namespace friendlySAIN
 
         public static bool IsSAINInstalled { get; private set; }
         public static bool IsSAINAddonInstalled { get; private set; }
-        // Temporary test mode: allow SAIN regroup layer to handle regroup even out of combat.
-        // Final behavior should set this to false so SAIN regroup only handles combat regroup.
-        public static bool EnableSainRegroupOutOfCombatTest { get; } = false;
 
         public static bool UseSainFollowerCombat => IsSAINInstalled && IsSAINAddonInstalled;
         public static bool HasSainRegroupAddon => UseSainFollowerCombat;
@@ -381,27 +378,12 @@ namespace friendlySAIN
 
         public static bool ShouldUseSainRegroupRoute(bool isCombatRegroupContext)
         {
-            if (!HasSainRegroupAddon)
-            {
-                return false;
-            }
-
-            return isCombatRegroupContext || EnableSainRegroupOutOfCombatTest;
+            return HasSainRegroupAddon && isCombatRegroupContext;
         }
 
         public static bool ShouldSainRegroupLayerHandle(BotOwner? botOwner)
         {
-            if (!HasSainRegroupAddon)
-            {
-                return false;
-            }
-
-            if (EnableSainRegroupOutOfCombatTest)
-            {
-                return true;
-            }
-
-            return botOwner?.Memory?.HaveEnemy == true;
+            return HasSainRegroupAddon && botOwner?.Memory?.HaveEnemy == true;
         }
 
         private static bool HasPlugin(string pluginId)

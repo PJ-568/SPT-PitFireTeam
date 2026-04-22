@@ -8,6 +8,8 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatDogFightAction : FollowerCombatActionBase
     {
+        private const float TightArcMoveDistance = 4f;
+
         private readonly GClass178 shootLogic;
         private readonly Queue<Vector3> movementQueue = new Queue<Vector3>();
 
@@ -59,8 +61,8 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.Mover.SetTargetMoveSpeed(1f);
             Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.GetBodyPartPosition();
 
-            bool isVeryClose = Utils.Enemy.Distance(goalEnemy) <= Utils.Enemy.EnemyDistance.VeryClose;
-            bool tense = goalEnemy.IsVisible && isVeryClose;
+            bool isTightContact = goalEnemy.Distance <= TightArcMoveDistance;
+            bool tense = goalEnemy.IsVisible && isTightContact;
             if (tense)
             {
                 BotOwner.SetPose(0.8f);
@@ -75,7 +77,7 @@ namespace friendlySAIN.BigBrain.Actions
                 }
                 else
                 {
-                    if (isVeryClose && nextMovementCheckTime < Time.time)
+                    if (isTightContact && nextMovementCheckTime < Time.time)
                     {
                         FightMovementClose(goalEnemy);
                     }

@@ -7,7 +7,6 @@ namespace friendlySAIN.BigBrain.Actions
     {
         private readonly GClass277 baseLogic;
         private float aimAlignStartedAt;
-        private string? aimAlignEnemyId;
 
         public CombatShootFromCoverAction(BotOwner botOwner) : base(botOwner)
         {
@@ -18,7 +17,6 @@ namespace friendlySAIN.BigBrain.Actions
         {
             StopCombatShooting();
             aimAlignStartedAt = 0f;
-            aimAlignEnemyId = null;
             base.Stop();
         }
 
@@ -30,7 +28,7 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.Settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT = false;
             try
             {
-                if (WaitForEnemyAimAlignment(ref aimAlignStartedAt, ref aimAlignEnemyId))
+                if (WaitForEnemyAimAlignment(ref aimAlignStartedAt))
                 {
                     return;
                 }

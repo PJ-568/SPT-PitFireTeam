@@ -25,6 +25,11 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
+            if (BotOwner.Mover.TargetPose < 0.85f)
+            {
+                BotOwner.SetPose(1f);
+            }
+
             baseLogic.UpdateNodeByBrain(GetData<GClass30>(data));
         }
 

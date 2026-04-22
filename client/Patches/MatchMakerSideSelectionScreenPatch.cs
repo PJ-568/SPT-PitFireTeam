@@ -197,7 +197,7 @@ namespace friendlySAIN.Patches
 
             tabsRosterInstance = UnityEngine.Object.Instantiate(rosterTemplate, screen.transform, false);
             tabsRosterInstance.name = "friendlySAIN_SideSelTab_Roster";
-            ConfigureTabForOverlay(tabsRosterInstance, new Vector2(-135f, -112f), GetSocialUiText("SquadControlRosterTab", "Roaster"), selected: true,
+            ConfigureTabForOverlay(tabsRosterInstance, new Vector2(-135f, -112f), GetSocialUiText("SquadControlRosterTab", "Roster"), selected: true,
                 onSelected: () =>
                 {
                     tabsRosterInstance?.ToggleSilently(true);

@@ -1,6 +1,5 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using System;
 using UnityEngine;
 
 namespace friendlySAIN.BigBrain.Actions
@@ -83,23 +82,16 @@ namespace friendlySAIN.BigBrain.Actions
             }
         }
 
-        protected bool WaitForEnemyAimAlignment(ref float startedAt, ref string? enemyProfileId, float maxAngle = 18f, float timeout = 0.65f)
+        protected bool WaitForEnemyAimAlignment(ref float startedAt, float maxAngle = 18f, float timeout = 0.65f)
         {
             EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
             if (goalEnemy?.Person?.HealthController?.IsAlive != true || !goalEnemy.CanShoot)
             {
                 startedAt = 0f;
-                enemyProfileId = null;
                 return false;
             }
 
-            string currentEnemyId = goalEnemy.ProfileId ?? string.Empty;
-            if (!string.Equals(enemyProfileId, currentEnemyId, StringComparison.Ordinal))
-            {
-                startedAt = Time.time;
-                enemyProfileId = currentEnemyId;
-            }
-            else if (startedAt <= 0f)
+            if (startedAt <= 0f)
             {
                 startedAt = Time.time;
             }
@@ -129,8 +121,16 @@ namespace friendlySAIN.BigBrain.Actions
                 return false;
             }
 
-            float angle = Vector3.Angle(currentLook.normalized, toEnemy.normalized);
-            if (angle <= maxAngle)
+            // Faster than Vector3.Angle for this hot path: compare normalized dot to cosine threshold.
+            float denominator = Mathf.Sqrt(currentLook.sqrMagnitude * toEnemy.sqrMagnitude);
+            if (denominator <= 0.0001f)
+            {
+                return false;
+            }
+
+            float alignmentDot = Vector3.Dot(currentLook, toEnemy) / denominator;
+            float requiredDot = Mathf.Cos(maxAngle * Mathf.Deg2Rad);
+            if (alignmentDot >= requiredDot)
             {
                 return false;
             }

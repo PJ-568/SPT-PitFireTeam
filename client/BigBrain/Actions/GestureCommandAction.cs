@@ -31,6 +31,7 @@ namespace friendlySAIN.BigBrain.Actions
         private bool regroupTargetInitialized;
         private Vector3 regroupTarget;
         private float nextRegroupRefreshAt;
+        private bool regroupRunMode;
         private bool regroupReportedOnPosition;
         private bool regroupBossAnchorInitialized;
         private Vector3 regroupBossAnchorPosition;
@@ -79,6 +80,7 @@ namespace friendlySAIN.BigBrain.Actions
             regroupTargetInitialized = false;
             regroupTarget = Vector3.zero;
             nextRegroupRefreshAt = 0f;
+            regroupRunMode = false;
             regroupReportedOnPosition = false;
             regroupBossAnchorInitialized = false;
             regroupBossAnchorPosition = Vector3.zero;
@@ -285,21 +287,19 @@ namespace friendlySAIN.BigBrain.Actions
                 }
             }
 
-            // Regroup should be an urgent converge command: run/sprint while closing.
             float regroupDistance = (regroupTarget - BotOwner.Position).magnitude;
-            bool shouldRun = true; //regroupDistance > RegroupRunDistance; // always sprint on regroup for now, can tweak later if needed
+            float regroupPressureDistance = Mathf.Max(regroupDistance, navDistanceToBoss);
+            if (regroupRunMode)
+            {
+                regroupRunMode = regroupPressureDistance > 6f;
+            }
+            else if (regroupPressureDistance >= RegroupRunDistance)
+            {
+                regroupRunMode = true;
+            }
+
+            bool shouldRun = regroupRunMode;
             BotOwner.GoToSomePointData.UpdateToGo(shouldRun, 1, 1f);
-            if (shouldRun)
-            {
-                if (!BotOwner.Mover.Sprinting)
-                {
-                    BotOwner.Mover.Sprint(true, false);
-                }
-            }
-            else if (BotOwner.Mover.Sprinting)
-            {
-                BotOwner.Mover.Sprint(false, false);
-            }
             moveCommandInitialized = false;
             moveArrivalLookUntil = 0f;
             comeArrivalHoldUntil = 0f;

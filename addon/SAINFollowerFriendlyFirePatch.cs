@@ -4,6 +4,7 @@ using SAIN;
 using SAIN.Components;
 using SAIN.SAINComponent.Classes;
 using friendlySAIN.Modules;
+using friendlySAIN.Utils;
 using System.Reflection;
 using UnityEngine;
 
@@ -84,17 +85,17 @@ namespace friendlySAIN.SAINAddon
             Vector3 realTargetPoint = currentAiming?.RealTargetPoint ?? Vector3.zero;
             if (realTargetPoint != Vector3.zero)
             {
-                return SAINFollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, realTargetPoint);
+                return FollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, realTargetPoint);
             }
 
             if (target.HasValue && target.Value != Vector3.zero)
             {
-                return SAINFollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, target.Value);
+                return FollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, target.Value);
             }
 
             if (distance.HasValue)
             {
-                return SAINFollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, weaponPointDirection, distance.Value);
+                return FollowerShotSafety.IsFriendlyInShotLane(shooter, weaponFirePort, weaponPointDirection, distance.Value);
             }
 
             return false;

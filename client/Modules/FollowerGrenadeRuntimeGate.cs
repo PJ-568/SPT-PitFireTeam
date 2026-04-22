@@ -6,12 +6,9 @@ namespace friendlySAIN.Modules
 {
     internal static class FollowerGrenadeRuntimeGate
     {
-        private const float DeniedOwnerLogThrottleSeconds = 1f;
-
         private static readonly HashSet<string> AlwaysDisabledByProfileId = new();
         private static readonly HashSet<string> ExplicitThrowEnabledByProfileId = new();
         private static readonly Dictionary<string, string> ExplicitThrowOwnerByGroupKey = new();
-        private static readonly Dictionary<string, float> NextDeniedOwnerLogAtByProfileId = new();
 
         public static void EnforceDisabled(BotOwner bot)
         {
@@ -26,12 +23,10 @@ namespace friendlySAIN.Modules
                 ownerProfileId == bot.ProfileId)
             {
                 ExplicitThrowOwnerByGroupKey.Remove(groupKey);
-                Log(bot, $"release-owner reason=enforceDisabled group={groupKey}");
             }
 
             SetThrowState(bot, enabled: false, disabled: true);
             RefreshFollowerGroup(bot);
-            Log(bot, $"disabled group={groupKey ?? "<none>"}");
         }
 
         public static void EnableExplicitThrow(BotOwner bot)
@@ -51,7 +46,6 @@ namespace friendlySAIN.Modules
             if (string.IsNullOrEmpty(groupKey))
             {
                 SetThrowState(bot, enabled: true, disabled: false);
-                Log(bot, "claim-open group=<none>");
                 return;
             }
 
@@ -59,21 +53,12 @@ namespace friendlySAIN.Modules
                 string.IsNullOrEmpty(ownerProfileId) ||
                 ownerProfileId == bot.ProfileId)
             {
-                bool newOwner = ownerProfileId != bot.ProfileId;
                 ExplicitThrowOwnerByGroupKey[groupKey] = bot.ProfileId;
-                if (newOwner)
-                {
-                    Log(bot, $"claim-open group={groupKey}");
-                }
             }
 
             bool ownsThrowWindow = ExplicitThrowOwnerByGroupKey.TryGetValue(groupKey, out ownerProfileId) &&
                                    ownerProfileId == bot.ProfileId;
             SetThrowState(bot, enabled: ownsThrowWindow, disabled: !ownsThrowWindow);
-            if (!ownsThrowWindow)
-            {
-                LogDeniedOwner(bot, groupKey, ownerProfileId);
-            }
 
             RefreshFollowerGroup(bot);
         }
@@ -91,19 +76,16 @@ namespace friendlySAIN.Modules
                 ownerProfileId == bot.ProfileId)
             {
                 ExplicitThrowOwnerByGroupKey.Remove(groupKey);
-                Log(bot, $"release-owner reason=finish completed={completed} group={groupKey}");
             }
 
             SetThrowState(bot, enabled: false, disabled: true);
             if (completed)
             {
                 FollowerGrenadeCooldowns.RecordThrow(bot);
-                Log(bot, "cooldown-start reason=throwComplete");
             }
             else
             {
                 FollowerGrenadeCooldowns.CancelPending(bot);
-                Log(bot, "no-cooldown reason=throwCancelled");
             }
 
             RefreshFollowerGroup(bot);
@@ -229,26 +211,5 @@ namespace friendlySAIN.Modules
             }
         }
 
-        private static void LogDeniedOwner(BotOwner bot, string groupKey, string ownerProfileId)
-        {
-            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
-            {
-                return;
-            }
-
-            float now = Time.time;
-            if (NextDeniedOwnerLogAtByProfileId.TryGetValue(bot.ProfileId, out float nextLogAt) && nextLogAt > now)
-            {
-                return;
-            }
-
-            NextDeniedOwnerLogAtByProfileId[bot.ProfileId] = now + DeniedOwnerLogThrottleSeconds;
-            Log(bot, $"claim-denied group={groupKey} owner={ownerProfileId ?? "<null>"}");
-        }
-
-        private static void Log(BotOwner bot, string message)
-        {
-            friendlySAIN.Log?.LogInfo($"[GrenadeGate] follower={bot?.Profile?.Nickname ?? bot?.ProfileId ?? "<null>"} {message}");
-        }
     }
 }

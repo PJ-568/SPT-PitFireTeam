@@ -178,7 +178,6 @@ namespace friendlySAIN.Modules
             MatchmakerPlayerControllerClass controller = app?.MatchmakerPlayerControllerClass;
             if (controller?.GroupPlayers == null)
             {
-                friendlySAIN.Log.LogInfo("[UI][GroupBadge] Opening snapshot skipped. Matchmaker controller or GroupPlayers is not ready.");
                 return;
             }
 
@@ -189,9 +188,6 @@ namespace friendlySAIN.Modules
             {
                 openingGroupAccountIds.Add(accountId);
             }
-
-            friendlySAIN.Log.LogInfo(
-                $"[UI][GroupBadge] Captured opening snapshot. count={openingGroupAccountIds.Count} ids={string.Join(",", openingGroupAccountIds)}");
         }
 
         public static bool IsAccountInOpeningGroupSnapshot(string accountId)

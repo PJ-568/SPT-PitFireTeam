@@ -28,7 +28,7 @@ Never invent APIs, properties, or behaviors that do not exist. Only reference me
 Separate vanilla and SAIN reasoning. Every behavior should be classified as one of:
 
 - vanilla / core plugin path
-- SAIN addon / SAIN-owned path (currently disabled)
+- SAIN addon / SAIN-owned path (runtime-gated by SAIN + addon presence)
 
 Do not mix these paths unless the code clearly bridges them.
 
@@ -55,9 +55,9 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-04-12  
+**Last updated:** 2026-04-19  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.  
-**SAIN Addon is currently disabled**
+**SAIN Addon is optional and runtime-gated**
 
 ## Project Overview
 
@@ -74,7 +74,7 @@ When multiple approaches are possible, prefer:
     - Group invite and raid-spawning routes.
     - Post-raid item/escape handling.
 
-3. **SAIN ADDON** (`addon/`) — SAIN-specific combat layer and retention system.
+3. **SAIN ADDON** (`addon/`) — Optional SAIN-specific combat layer and retention system.
     - Custom follower combat layer replacing SAIN squad layer.
     - Decision routing for suppression, search, help, and regroup actions.
     - Enemy retention gating and forced acquisition assistance.
@@ -101,7 +101,7 @@ Current verified custom teammate feature state:
 
 - Dedicated Team Management FE is the primary entry point:
     - main menu now has a localized `My Squad` entry that opens the real `MatchMakerSideSelectionScreen` in squad mode
-    - roster/settings panels from `SquadControlMenuUi` are injected into side-selection and controlled by EFT-style animated tabs (`Roaster` / `Settings`)
+    - roster/settings panels from `SquadControlMenuUi` are injected into side-selection and controlled by EFT-style animated tabs (`Roster` / `Settings`)
     - roster tab supports add/remove teammate flows, delayed sequential portrait loading, teammate profile open/return, and scrolling layout for larger squads
     - settings tab exposes the main friendlySAIN config set in a stock-style scrollable UI using EFT toggle/slider controls for checkbox and ranged settings
     - settings entries are grouped/reordered for the current squad-management UX and the duplicated BepInEx ConfigurationManager view is hidden for those settings
@@ -216,8 +216,8 @@ Current verified custom teammate feature state:
 **Layer Stack (Priority Order):**
 
 1. **FollowerRequestLayer** (priority 73) — Active command execution (hold/there/come/loot/door)
-2. **FollowerPatrolLayer** (priority 72) — Idle follow patrol toward boss
-3. **FollowerCombatLayer** (priority 71, vanilla only) — Fallback vanilla combat
+2. **FollowerCombatLayer** (priority 72, vanilla/core combat only; inactive when SAIN addon combat is active)
+3. **FollowerPatrolLayer** (priority 71) — Idle follow patrol toward boss
 
 **Core Files:**
 
@@ -242,6 +242,8 @@ Current verified custom teammate feature state:
     - `CombatHoldPositionAction`
     - `CombatRunToCoverAction`
     - `CombatAttackMovingAction`
+    - `CombatAttackMovingWithSuppressAction`
+    - `CombatAttackRetreatAction`
     - `CombatDogFightAction`
     - `CombatShootFromPlaceAction`
     - `CombatShootFromCoverAction`
@@ -252,7 +254,9 @@ Current verified custom teammate feature state:
     - `CombatGoToPointTacticalAction`
     - `HealAction`
     - `HealStimulatorsAction`
-    - `CombatThrowGrenadeFromPlaceAction`
+    - `CombatSearchAction`
+    - `CombatSuppressGrenadeAction`
+    - `CombatSuppressFireAction`
     - `CombatShootToSmokeAction`
 - `CombatGoToEnemyAction` is now the custom old-plugin-style advance action:
     - cover-aware advance,
@@ -274,6 +278,10 @@ Current verified custom teammate feature state:
     - old `FollowerCombatManager` usage was removed from the core path,
     - `AIBossPlayer` no longer updates a separate follower combat manager,
     - combat decisions are now follower-local inside `FollowerCombatDefault`.
+- Core combat layer handoff:
+    - live-enemy loss no longer immediately drops combat in all cases,
+    - `FollowerCombatLayer` can enter a short `linger` hold for post-combat release/handoff timing,
+    - normal action completion is delegated to tactic/common end logic instead of a layer-level action-enum comparison.
 - Core combat routing is now objective-based on the vanilla/core path:
     - `FollowerCombatLogicBase` now owns the shared objective router and objective lifecycle
     - `FollowerCombatLogicBase` constructs the shared objective set: `FollowerCombatDefaultObjective`, `FollowerCombatSniperObjective`, and `FollowerCombatRegroupObjective`
@@ -718,33 +726,34 @@ Supported commands via `GestureCommandAction`:
 
 **Layer Stack in Combat:**
 
-- Priority 71: `SAINFollowerCombatLayer` (custom SAIN squad replacement for followers, active in combat)
-- Priority 72: `FollowerPatrolLayer` (vanilla follow, active out-of-combat)
+- Priority 73: `SAINFollowerCombatLayer` (custom SAIN squad replacement for followers, active in combat)
+- Priority 71: `FollowerPatrolLayer` (vanilla follow, active out-of-combat)
 - Mover handoff on layer switch via `SAINLayer.OnLayerChanged(...)`
 
 ## Combat Decision Routing
 
 **`SAINFollowerCombatLayer` Evaluation Chain:**
 
-1. **Regroup Command** — If `RegroupNearBoss` request active: → `SAINFollowerCombatRegroupAction` (8s grace post-enemy)
+1. **Regroup Command** — If `RegroupNearBoss` request active: → `SAINFollowerCombatRegroupAction` (8s grace while enemy context remains)
 2. **Squad Calculator** — Dynamic decision scoring: → routing to specific action
 3. **SAIN Fallback** — If available, use native SAIN squad decision (2s enemy grace)
-4. **Default** — Regroup to boss if in combat
+4. **No Decision** — Layer exits unless an explicit calculator/fallback path produced a decision
 
 **`SAINFollowerSquadDecisionCalculator` Priority Order:**
 
 | Decision           | Condition                                     | Action                   | Constraints                                                  |
 | ------------------ | --------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
 | **PushSuppressed** | Enemy suppressed by ally + vulnerable + close | `RushEnemyAction`        | Path < 75m (100m sprint), ammo > 50%                         |
-| **GroupSearch**    | Ally searching same enemy                     | `FollowBossSearchAction` | Coordinate hunt                                              |
+| **GroupSearch**    | Search-party leader exists + ally searching same enemy | Leader: SAIN `SearchAction`; others: `FollowBossSearchAction` | Coordinate hunt             |
 | **Suppress**       | Ally in retreat from enemy                    | `SuppressAction`         | Distance < 30-50m, ammo > 10-50%, no friendlies in fire lane |
 | **Help**           | Ally engaging visible enemy                   | `SearchAction`           | Distance < 30-45m, seen < 8s                                 |
 | **Search**         | Enemy known but unseen                        | `SearchAction`           | Seen within last 20s                                         |
-| **Regroup**        | In combat, no other decision                  | `RegroupAction`          | Boss-adjacent, avoid stacking                                |
+| **Regroup**        | Boss-distance regroup in combat or fallback SAIN squad regroup | `DefaultBossAction` / `RegroupAction` | Boss-adjacent, avoid stacking |
 
 **Action Types:**
 
 - `SAINFollowerCombatRegroupAction` — Converge near boss with spacing
+- `SAINFollowerCombatDefaultBossAction` — Default boss-protection/regroup action mode built on regroup movement
 - `SAINFollowerCombatSuppressAction` — Fire at enemy with friendly-fire checks
 - `SAINFollowerCombatFollowBossSearchAction` — Follow boss while searching
 - SAIN native `SearchAction` / `RushEnemyAction` (resolved once with safe fallback)
@@ -785,7 +794,7 @@ On Timeout:
 - Post-release grace: 1.5s before patrol activation
 - Apply crouch nudge during grace (prevent sprint-thrash)
 
-## SAIN-Specific Patches (10 Always + 1 Conditional)
+## SAIN-Specific Patches (13 Always + 1 Conditional)
 
 **Always Applied:**
 
@@ -793,16 +802,19 @@ On Timeout:
 2. **`SAINFollowerAimSwayPatch`** — Aim sway tuning for followers
 3. **`SAINFollowerHitAccuracyPatch`** — Block incoming hits from degrading follower aim (bypass `AimHitEffectClass.GetHit`)
 4. **`SAINFollowerRecoilPatch`** — Recoil behavior tuning + `OnFollowerDismiss` listener for cache cleanup
-5. **`SAINFollowerFriendlyFirePatch`** — Route SAIN shot blocking to vanilla `ShootData.CheckFriendlyFire()` (uses vanilla sphere settings)
+5. **`SAINFollowerFriendlyFirePatch`** — Post-process SAIN shot blocking with follower-only shot-lane safety for boss/followers
 6. **`SAINFollowerGroupTalkDirectionPatch`** — Voice callouts use boss look direction instead of squad leader
-7. **`SAINFollowerPersonalityPatch`** — Clone `followerBigPipe` SAIN template per-follower, apply combat personality (Normal/Chad/GigaChad)
-8. **`SAINFollowerSquadLeaderPatch`** — Force `IAmLeader = false` for all followers
-9. **`SAINFollowerLowLightVisionPatch`** — Reduce low-light vision penalty via `EnemyGainSightClass.CalcTimeModifier`
-10. **`SAINFollowerBushVisionPatch`** — Follower-only exclusion from SAIN bush-vision tuning so vanilla foliage visibility handling applies to followers
+7. **`SAINFollowerTalkMutePatch`** — Mute repeated SAIN contact/lost-visual/clear chatter and route combat talk through the core frequency gate
+8. **`SAINFollowerSearchCurrentEnemyLookPatch`** — Keep SAIN search steering oriented toward the current enemy near search endpoint
+9. **`SAINFollowerDoorPatch`** — Suppress SAIN follower auto-close door choices
+10. **`SAINFollowerPersonalityPatch`** — Clone `followerBigPipe` SAIN template per-follower, apply combat personality (Normal/Chad/GigaChad)
+11. **`SAINFollowerSquadLeaderPatch`** — Force `IAmLeader = false` for all followers
+12. **`SAINFollowerLowLightVisionPatch`** — Reduce low-light vision penalty via `EnemyGainSightClass.CalcTimeModifier`
+13. **`SAINFollowerBushVisionPatch`** — Temporarily restore vanilla foliage/bush look settings while follower enemy look checks run
 
 **Conditional (if `EnableForcedEnemyRetention`):**
 
-10. **`SAINEnemyAcquireGatePatch`** + **`SAINFollowerEnemyRetentionService`** — Gate + assist follower enemy acquisition
+14. **`SAINEnemyAcquireGatePatch`** + **`SAINFollowerEnemyRetentionService`** — Gate follower enemy acquisition when forced retention is enabled
 
 ## Lifecycle & Bridge Events
 
@@ -1071,7 +1083,7 @@ SAIN integration:
 - SAIN combat follower integration is implemented in a separate addon DLL:
     - addon project: `addon/friendlySAIN.SAINAddon.csproj`
     - plugin ID: `xyz.pit.friendlysain.sainaddon`
-    - runtime path registers custom `SAINFollowerCombatLayer` at priority `71`.
+    - runtime path registers custom `SAINFollowerCombatLayer` at priority `73`.
     - this layer replicates SAIN squad-combat decision routing for followers, but re-centers behavior around player boss leadership (instead of vanilla SAIN squad leader ownership).
     - follower action mapping currently routes to:
         - `SAINFollowerCombatRegroupAction`,
@@ -1091,20 +1103,26 @@ SAIN integration:
     - `SAINLayer.OnLayerChanged(...)` stops built-in mover when entering SAIN layer and handles mover/navmesh handoff on layer switch.
     - treat SAIN combat movement issues as SAIN-layer/mover behavior first, then plugin command-layer behavior.
 - SAIN addon currently applies follower-focused combat/retention patches from `addon/SAINRegroupBootstrap.cs`:
-    - `SAINFollowerFriendlyFirePatch` (for follower shooters, delegates SAIN shot blocking to vanilla `ShootData.CheckFriendlyFire(from, to)` using `WeaponRoot.position` -> `CurrentAiming.RealTargetPoint`),
+    - addon is currently disabled for the initial release path; treat the remaining bullets here as deferred addon notes, not release-authoritative behavior,
+    - `SAINFollowerFriendlyFirePatch` (for follower shooters, post-processes SAIN shot blocking with core `FollowerShotSafety` lane checks against the player boss and other followers),
     - `SAINFollowerGroupTalkDirectionPatch` (uses boss look direction for directional enemy talk checks),
+    - `SAINFollowerTalkMutePatch` (mutes repeated SAIN contact/lost-visual/clear chatter and applies the core combat-talk frequency gate),
+    - `SAINFollowerSearchCurrentEnemyLookPatch` (keeps SAIN search steering oriented toward the current enemy near search endpoint),
+    - `SAINFollowerDoorPatch` (suppresses SAIN follower auto-close door choices),
     - `SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` (when `SAINAddonToggles.EnableForcedEnemyRetention = true`),
     - `SAINFollowerPersonalityPatch` (injects a per-follower clone of SAIN `followerBigPipe` bot settings as the follower combat template and aligns SAIN difficulty modifier to that template),
-    - `SAINFollowerLowLightVisionPatch`.
+    - `SAINFollowerSquadLeaderPatch`,
+    - `SAINFollowerLowLightVisionPatch`,
+    - `SAINFollowerBushVisionPatch`.
 - Follower enemy acquisition split:
     - shared forward-scan acquire assist now lives in core and is triggered from `client/Patches/BotGroupCalcGoalPatch.cs` by patching `BotCalcGoal.CalcGoalForBot()` directly,
     - core handler lives in `client/Modules/FollowerCalcGoalEnemyAcquire.cs`,
     - this path is runtime-neutral and now assists both vanilla and SAIN follower enemy pickup when vanilla goal calculation runs,
     - SAIN addon only keeps the SAIN-specific `CheckAddEnemy` gating path (`SAINEnemyAcquireGatePatch` + `SAINFollowerEnemyRetentionService` same-side/ally filtering),
-    - old addon-only wrapper `addon/SAINCalcGoalPatch.cs` was removed.
+    - old addon-only wrapper `addon/SAINCalcGoalPatch.cs` was removed; do not describe current addon retention as using that file.
 - Follower SAIN tuning rule:
     - current stable path prefers SAIN template settings (`followerBigPipe`) over follower-specific aim/look compensation patches.
-    - legacy follower aim-target/random-look/hit-accuracy patch files still exist in addon source, but are not wired by bootstrap.
+    - follower-specific aim sway, hit-accuracy, recoil, low-light, and bush-vision patches are currently wired by bootstrap; use `SAINFollowerPersonalityPatch.ApplyFollowerTemplateFineTuning(...)` for future template-level tuning.
 - SAIN attention/release reset now clears stale search state through the addon bridge:
     - `SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState(...)` and `TryResetFollowerDecisionState(...)` clear `SAINSearchClass` active target/path and invalidate `EnemyKnownPlaces` for all tracked SAIN enemies before resetting decisions/layer state.
 - Legacy `SAINDecisionRegroupPatch.cs` remains in addon source but is currently not wired by bootstrap.
@@ -1147,8 +1165,8 @@ SAIN integration:
 - TeamStatus/Look command burst handling:
     - command handling was debounced to reduce repeated heavy work during rapid player phrase spam.
 - SAIN-friendly-fire path:
-    - current follower-only SAIN override no longer uses custom boss/follower geometry checks.
-    - it asks vanilla `ShootData.CheckFriendlyFire(from, to)` directly so SAIN follower fire denial follows vanilla friendly-fire sphere settings (`settings.FileSettings.Aiming.SHPERE_FRIENDY_FIRE_SIZE`) and vanilla ally filtering.
+    - current follower-only SAIN override uses core `FollowerShotSafety` lane geometry against the player boss and other followers.
+    - it post-processes SAIN friendly-fire status updates rather than delegating directly to vanilla `ShootData.CheckFriendlyFire(...)`.
 - SAIN follower combat template:
     - recruited followers now use a per-bot cloned copy of SAIN `followerBigPipe` settings as their combat template.
     - the template is applied through addon-owned SAIN info/file-settings injection instead of follower-specific aim-target/random-look/hit-accuracy patching.
@@ -1161,7 +1179,7 @@ SAIN integration:
     - bot status text reuses a single `StringBuilder` instance instead of allocating per bot per frame.
     - tracked body-part iteration uses a static array instead of `Enum.GetValues(...)` allocations.
 - SAIN bridge debug noise reduction:
-    - follower SAIN enemy-bridge debug logs are disabled by default (`EnableSainEnemyBridgeDebugLogs = false`) to reduce runtime string/log overhead.
+    - release/default guidance should assume no addon enemy-bridge debug logging is enabled or required.
 - SAIN navigation investigation result:
     - SAIN does not currently have one broad active non-mover "navigation fix" patch that generically recovers stuck bots.
     - active navigation-adjacent behavior is split across:
@@ -1245,7 +1263,7 @@ Update (2026-03-06):
 
 - Enemy-contact reliability in SAIN is now enforced with a follower-only retention bridge:
     - `addon/SAINEnemyAcquireGatePatch.cs` gates `SAINEnemyController.CheckAddEnemy` for followers.
-    - `addon/SAINFollowerEnemyRetentionService.cs` now hooks `BotsGroup.CalcGoalForBot` (via `SAINCalcGoalPatch`) and performs guarded forward-scan enemy acquisition when followers have no current enemy.
+    - historical note: older investigation referenced `SAINCalcGoalPatch`, but that wrapper was removed; current core/addon split is described above and should be treated as authoritative instead of this older note.
     - calc-goal scans are rate-limited per follower and scaled by active follower count.
     - enemy candidates are filtered to avoid boss/followers/friendly bot types and side-safe cases unless hostile intent is detected.
     - when a follower commits an enemy through this path, the service propagates that enemy to sibling followers.

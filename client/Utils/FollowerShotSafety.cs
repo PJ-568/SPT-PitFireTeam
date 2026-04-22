@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace friendlySAIN.Utils
 {
-    internal static class FollowerShotSafety
+    public static class FollowerShotSafety
     {
         private const float LaneRadius = 0.55f;
         private const float CloseFrontDistance = 2.5f;

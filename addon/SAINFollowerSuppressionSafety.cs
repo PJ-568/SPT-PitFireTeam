@@ -1,4 +1,5 @@
 using EFT;
+using friendlySAIN.Utils;
 using UnityEngine;
 
 namespace friendlySAIN.SAINAddon
@@ -7,7 +8,7 @@ namespace friendlySAIN.SAINAddon
     {
         public static bool IsFriendlyInSuppressionLane(BotOwner shooter, Vector3 targetPosition)
         {
-            return SAINFollowerShotSafety.IsFriendlyInShotLane(shooter, targetPosition);
+            return FollowerShotSafety.IsFriendlyInShotLane(shooter, targetPosition);
         }
     }
 }

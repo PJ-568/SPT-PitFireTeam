@@ -31,8 +31,6 @@ namespace friendlySAIN.SAINAddon
         private ESquadDecision _lastActionDecision = ESquadDecision.None;
         private float _lastEnemySeenAt = -1000f;
         private float _nextRetainedContactRefreshAt;
-        private string? _lastLoggedState;
-        private float _nextLayerLogAt;
 
         public SAINFollowerCombatLayer(BotOwner botOwner, int priority)
             : base(botOwner, priority, Name, ESAINLayer.Squad)
@@ -42,7 +40,6 @@ namespace friendlySAIN.SAINAddon
         public override bool IsActive()
         {
             bool active = TryEvaluateFollowerDecision(out _currentDecision);
-            LogState("IsActive", active, _currentDecision);
             if (!active || _currentDecision != ESquadDecision.GroupSearch)
             {
                 ReleaseGroupSearchLock();
@@ -97,7 +94,6 @@ namespace friendlySAIN.SAINAddon
                     break;
             }
 
-            LogState("GetNextAction", true, _lastActionDecision);
             return nextAction;
         }
 
@@ -130,25 +126,6 @@ namespace friendlySAIN.SAINAddon
 
             return ending;
         }
-
-        private void LogState(string source, bool active, ESquadDecision decision)
-        {
-            BotComponent bot = Bot;
-            string state =
-                $"{source}|active={active}|decision={decision}|memoryGoal={BotOwner?.Memory?.GoalEnemy?.ProfileId ?? "<null>"}|" +
-                $"memoryHave={BotOwner?.Memory?.HaveEnemy == true}|sainGoal={bot?.GoalEnemy?.EnemyPlayer?.ProfileId ?? "<null>"}|" +
-                $"known={bot?.EnemyController?.KnownEnemies?.Count ?? -1}|botCombat={bot?.BotActivation?.BotInCombat == true}|layer={bot?.ActiveLayer}";
-            float now = Time.time;
-            if (string.Equals(_lastLoggedState, state, System.StringComparison.Ordinal) && now < _nextLayerLogAt)
-            {
-                return;
-            }
-
-            _lastLoggedState = state;
-            _nextLayerLogAt = now + 1f;
-            friendlySAIN.Log?.LogInfo($"[SAINLayerTrace] follower={BotOwner?.Profile?.Nickname ?? BotOwner?.ProfileId ?? "<null>"} {state}");
-        }
-
         public static bool IsFollowerCombatLayerActive(BotOwner? botOwner)
         {
             if (botOwner == null || string.IsNullOrEmpty(botOwner.ProfileId))

@@ -169,7 +169,7 @@ namespace friendlySAIN.Localization
                     ["SquadControlRaidSettingsTitle"] = "My Squad Settings",
                     ["SquadControlBack"] = "Back",
                     ["SquadControlClose"] = "Close",
-                    ["SquadControlRosterTab"] = "Roaster",
+                    ["SquadControlRosterTab"] = "Roster",
                     ["SquadControlSettingsTab"] = "Settings",
                     ["SquadControlRosterPlayer"] = "PLAYER",
                     ["SquadControlRosterLeader"] = "Leader",

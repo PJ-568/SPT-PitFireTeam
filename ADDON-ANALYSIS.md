@@ -1,5 +1,9 @@
 # friendlySAIN SAIN Addon: Architecture & Combat Flow
 
+> Status note: the SAIN addon is currently disabled for the initial release path.
+> Treat this file as deferred reference material, not as the authoritative description of release behavior.
+> When addon work resumes, re-verify each section against live `addon/` code before relying on it.
+
 **File:** `addon/` directory  
 **Plugin ID:** `xyz.pit.friendlysain.sainaddon`  
 **Dependencies:** BigBrain, SAIN (hard), core friendlySAIN (hard)  
@@ -13,19 +17,20 @@
 
 **Init Path (Awake):**
 
-1. Registers four core→addon bridge callbacks in `SainAddonBridge`:
+1. Registers four core->addon bridge callbacks in `SainAddonBridge`:
     - `IsReadyForPatrolAfterCombat` → `SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat`
     - `ForceReleaseFollowerCombatState` → `SAINFollowerRuntimeBridge.ForceReleaseFollowerCombatState`
     - `TrySyncFollowerEnemyState` → `SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState`
     - `TryResetFollowerDecisionState` → `SAINFollowerRuntimeBridge.TryResetFollowerDecisionState`
-    - `GetFollowerDebugState` → `SAINFollowerRuntimeBridge.GetFollowerDebugState`
-2. Subscribe `SAINFollowerRecoilPatch.OnFollowerLifecycleEvent` to lifecycle event handler
+2. Subscribes addon handlers to core events:
+    - `SainAddonBridge.OnFollowerLifecycleEvent` → recoil cache cleanup and runtime bridge cache cleanup
+    - `SainAddonBridge.OnBossGroupStaticUpdate` → search-party leader maintenance
 3. Call `SAINRegroupBootstrap.Initialize(harmony, Logger)` to wire all patches and register combat layer
 
 **Cleanup (OnDestroy):**
 
 - Unsubscribe all bridge callbacks (fail-safe reference equality check)
-- Unregister lifecycle event handler
+- Unregister lifecycle and boss-group event handlers
 
 ---
 
@@ -99,13 +104,13 @@ Hard-reset when combat readiness check fails or attention command is issued.
 
 ---
 
-#### `TrySyncFollowerEnemyState(BotOwner owner, Enemy? currentEnemy)` → void
+#### `TrySyncFollowerEnemyState(BotOwner owner, Player enemyPlayer, bool prioritizeAsGoal)` → bool
 
 Synchronizes follower's SAIN enemy state after new acquisition via core calc-goal path.
 
 **Hook:** Called from core `FollowerCalcGoalEnemyAcquire` when core performs forward-scan friend-fire assist
 
-**Purpose:** Ensure follower's SAIN internal enemy matches the core-picked target
+**Purpose:** Ensure follower's SAIN internal enemy state includes the core-picked target, and optionally force it as the SAIN goal enemy.
 
 ---
 
@@ -117,15 +122,9 @@ Reset SAIN decision state without hard-releasing layer (softer than `ForceReleas
 
 ---
 
-#### `GetFollowerDebugState(BotOwner owner)` → string
-
-Return combat/decision state snapshot for debug display
-
----
-
 ## 2. Combat Layer System
 
-### `SAINFollowerCombatLayer.cs` — Priority 73 (above patrol @ 72)
+### `SAINFollowerCombatLayer.cs` — Priority 73 (above patrol @ 71)
 
 **Registration:**
 
@@ -139,8 +138,8 @@ IsActive() → TryEvaluateFollowerDecision(out decision)
   ✓ follower is active + alive
   ✓ follower is in group (IsFollower check)
   ✓ can retrieve SAIN BotComponent
-  ✓ not in self-action (reload/med/surgery) or DogFight
-  ✗ skip self-protect contexts (SeekCover+med, etc)
+  ✗ skip DogFight, current self-action, Retreat, and protective solo/self-action contexts
+  ✓ retained core contact may be synced into SAIN enemy state
   ✓ decision resolved (via decision calculator or command)
 ```
 
@@ -152,26 +151,27 @@ IsActive() → TryEvaluateFollowerDecision(out decision)
 
 2. **Squad Decision Calculator** (`SAINFollowerSquadDecisionCalculator.TryGetDecision`):
     - Returns follower-specific combat decision (see below)
+    - `Regroup` from the calculator uses the default-boss action path
 
 3. **SAIN Squad Decision Fallback** (if calculator returns None):
     - Use SAIN's native `CurrentSquadDecision` if available
     - Grace period: allow reuse within `2s` of last-seen-enemy
     - Prevents reuse purely by distance after combat ends
 
-4. **Fallback to Regroup**:
-    - If follower still has current enemy, default to Regroup
+4. **No decision**:
+    - Layer exits unless one of the explicit calculator/fallback paths produced a decision
 
 **Action Mapping:**
 
 ```
 GetNextAction() routes decision → Action type:
-  ESquadDecision.Regroup        → SAINFollowerCombatRegroupAction
+  ESquadDecision.Regroup        → SAINFollowerCombatRegroupAction, or SAINFollowerCombatDefaultBossAction when calculator/fallback selected default boss protection
   ESquadDecision.Suppress       → SAINFollowerCombatSuppressAction
   ESquadDecision.Search         → SAIN SearchAction (reflection-resolved)
   ESquadDecision.Help           → SAIN SearchAction (reflection-resolved)
-  ESquadDecision.GroupSearch    → SAINFollowerCombatFollowBossSearchAction
+  ESquadDecision.GroupSearch    → SAIN SearchAction for the search-party leader; otherwise SAINFollowerCombatFollowBossSearchAction
   ESquadDecision.PushSuppressed → SAIN RushEnemyAction (reflection-resolved)
-  default                       → SAINFollowerCombatRegroupAction
+  default                       → SAINFollowerCombatDefaultBossAction
 ```
 
 **Layer Transition Guard:**
@@ -208,8 +208,12 @@ GetNextAction() routes decision → Action type:
 #### 2. **GroupSearch** (coordinate with teammates)
 
 - Follower has goal enemy
-- Any alive follower is searching same enemy
+- Enemy is unseen, previously seen, and seen within the last `20s`
+- Runtime bridge has selected a search-party leader for that boss/enemy
+- Another follower is currently searching the same enemy
+- The follower can lock onto that search party
 - **Purpose:** Stay coordinated when another teammate actively hunts
+- **Action split:** the leader uses SAIN solo `SearchAction`; non-leaders use `SAINFollowerCombatFollowBossSearchAction`
 
 #### 3. **Suppress / Help** (support squad)
 
@@ -404,31 +408,44 @@ Issue movement every 0.75s:
     - Tuning for recoil behavior + lifecycle event management
 
 5. **`SAINFollowerFriendlyFirePatch`**
-    - Routes follower weapon fire to vanilla `ShootData.CheckFriendlyFire(from, to)`
-    - Uses vanilla ally sphere + filters instead of custom geometry
+    - Post-processes SAIN friendly-fire checks for follower shooters
+    - Uses shared core `FollowerShotSafety` to block when the player boss or another follower intersects the shot lane
 
 6. **`SAINFollowerGroupTalkDirectionPatch`**
     - Directional enemy voice callouts use boss look direction (not follower)
     - So followers report contacts relative to player perspective
 
-7. **`SAINFollowerPersonalityPatch`**
+7. **`SAINFollowerTalkMutePatch`**
+    - Mutes repeated SAIN contact/lost-visual/clear chatter for followers
+    - Routes SAIN `PlayerComponent.PlayVoiceLine` through the core follower combat-talk frequency gate
+
+8. **`SAINFollowerSearchCurrentEnemyLookPatch`**
+    - During SAIN solo search, followers keep looking toward the current enemy near the search endpoint when valid
+
+9. **`SAINFollowerDoorPatch`**
+    - Suppresses SAIN follower auto-close door selections by converting close results back to no close/open state
+
+10. **`SAINFollowerPersonalityPatch`**
     - Auto-applies `followerBigPipe` SAIN settings to spawned followers
     - Sets personality to `Chad` (for PMCs/BigPipe) or `GigaChad` (Knight) or `Normal` (BirdEye)
     - Clones and applies settings to bot's EFT file-settings
     - Re-evaluates difficulty modifiers based on bot profile difficulty
     - **Fine-tuning hook:** `ApplyFollowerTemplateFineTuning` (currently empty, extensible)
 
-8. **`SAINFollowerSquadLeaderPatch`**
+11. **`SAINFollowerSquadLeaderPatch`**
     - Forces `IAmLeader = false` for all followers
     - Redirects squad decision ownership to player boss
 
-9. **`SAINFollowerLowLightVisionPatch`**
+12. **`SAINFollowerLowLightVisionPatch`**
     - Reduces low-light vision penalty for followers
     - Post-processes SAIN `EnemyGainSightClass.CalcTimeModifier`
 
+13. **`SAINFollowerBushVisionPatch`**
+    - Temporarily restores vanilla foliage/bush look settings while follower `EnemyInfo.CheckLookEnemy` runs
+
 ### Conditional (if `EnableForcedEnemyRetention = true`):
 
-10. **`SAINEnemyAcquireGatePatch`** (see above)
+14. **`SAINEnemyAcquireGatePatch`** (see above)
 
 ---
 
@@ -462,8 +479,7 @@ Issue movement every 0.75s:
 Enable/Disable:
   - EnableForcedEnemyRetention
     └─ Activates SAINEnemyAcquireGatePatch + retention service
-  - EnableSainEnemyBridgeDebugLogs
-    └─ Controls verbose logging from enemy bridge paths
+  - No separate enemy-bridge debug toggle is currently wired here
   - (Other SAIN follower-specific toggles)
 ```
 
@@ -483,7 +499,7 @@ Enable/Disable:
       │
       ├─ [2] SAINFollowerSquadDecisionCalculator.TryGetDecision()
       │       ├─ PushSuppressedEnemy (enemy suppressed + vulnerable)
-      │       ├─ GroupSearch (ally searching same enemy)
+      │       ├─ GroupSearch (search-party leader exists + ally searching same enemy)
       │       ├─ Suppress (support ally suppression)
       │       ├─ Help (support ally engagement)
       │       ├─ Search (lost visible enemy)
@@ -493,8 +509,8 @@ Enable/Disable:
       │       (if calculator returns None)
       │       → Use SAIN CurrentSquadDecision (2s grace)
       │
-      └─ [4] Default
-              → Regroup (if has current enemy)
+      └─ [4] No decision
+              → layer exits
 
 ┌─────────────────────────────────────────────────────────────┐
 │ GetNextAction() → Action(decision)                          │
@@ -543,11 +559,11 @@ SAINAddonPlugin.Awake()
 
 - **Reflection Safe:** All SAIN type access uses `AccessTools` with null fallback
 - **Non-invasive:** Patches are limited to follower-specific decision gates and behavior tweaks
-- **Stateless Actions:** Combat actions don't maintain long-term state; decisions recalc every frame
+- **Action State:** Some actions keep short-lived execution state, and the runtime bridge also keeps search-party leader/lock state. Do not assume decisions are fully stateless frame-to-frame.
 - **Bridge Pattern:** Core plugin is SAIN-unaware; addon owns all SAIN integration via bridge callbacks
 - **Squad Claim System:** Regroup action prevents multiple followers claiming same boss-adjacent spot
 - **Stale Timer Tracking:** Combat readiness uses per-bot stale-decision timers to escape stuck states
-- **Friendly Fire:** Uses vanilla sphere + SAIN exclusions + active lane geometry check for safety
+- **Friendly Fire:** Uses follower-only shot-lane geometry from core `FollowerShotSafety` layered onto SAIN friendly-fire status updates
 
 ---
 

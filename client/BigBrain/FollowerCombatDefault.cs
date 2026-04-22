@@ -197,7 +197,8 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("defaultExplicitRegroup", true);
             }
 
-            if (IsPushReason(currentDecision.Reason))
+            if (IsPushReason(currentDecision.Reason) ||
+                IsStartWeakEnemyPushReason(currentDecision.Reason))
             {
                 return EndCommittedPush(currentDecision);
             }
@@ -241,21 +242,30 @@ namespace friendlySAIN.BigBrain
                     return true;
                 }
 
-                // A fresh immediate-fire window should override cover validation. This lets the bot
-                // snap to a newly exposed or flanking enemy even if the previous cover orientation
-                // is no longer the correct way to fight.
+                // A fresh immediate-fire window can snap to exposed/flanking enemies, but a bot
+                // already in cover must first prove a crouch or standing cover lane exists.
                 if (combatCommon.ShouldShootImmediately())
                 {
-                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "visibleImmediateShoot");
-                    return true;
+                    if (!botOwner.Memory.IsInCover)
+                    {
+                        decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "visibleImmediateShoot");
+                        return true;
+                    }
+
+                    if (TryGetCoveredVisibleFireOrAdvanceDecision(goalEnemy, "visibleImmediateCoverFire", out decision))
+                    {
+                        return true;
+                    }
+
+                    // Covered but no verified crouch/standing lane: do not force shootFromPlace into
+                    // the cover wall. Let the normal cover/reposition branches below pick the next move.
                 }
 
                 // If the bot is already protected by cover and that cover still supports a real shot,
                 // use it immediately instead of re-evaluating movement.
-                if (botOwner.Memory.IsInCover && combatCommon.CanShootFromCurrentCoverOrStandingIntent(out _))
+                if (botOwner.Memory.IsInCover &&
+                    TryGetCoveredVisibleFireOrAdvanceDecision(goalEnemy, "coverVisibleFire", out decision))
                 {
-                    combatCommon.ExtendCommittedCover();
-                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromCover, "coverVisibleFire");
                     return true;
                 }
 
@@ -269,7 +279,12 @@ namespace friendlySAIN.BigBrain
                     return true;
                 }
 
-                // Otherwise a visible, shootable enemy is resolved as an immediate stand-and-fire decision.
+                if (botOwner.Memory.IsInCover)
+                {
+                    return false;
+                }
+
+                // Otherwise an exposed bot with a visible, shootable enemy stands and fires.
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "visibleShoot");
                 return true;
             }
@@ -302,6 +317,30 @@ namespace friendlySAIN.BigBrain
             return false;
         }
 
+        private bool TryGetCoveredVisibleFireOrAdvanceDecision(
+            EnemyInfo goalEnemy,
+            string coverFireReason,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (combatCommon.CanShootFromCurrentCoverOrStandingIntent(out _))
+            {
+                combatCommon.ExtendCommittedCover();
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromCover, coverFireReason);
+                return true;
+            }
+
+            if (!combatCommon.ShouldAdvance(goalEnemy))
+            {
+                return false;
+            }
+
+            combatCommon.ClearCommittedCover();
+            bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
+            decision = combatPush.EngageEnemy(false, enemyLowThreat);
+            return true;
+        }
+
         /// <summary>
         /// Keeps push movement stable across reevaluations until a hard interrupt or completion condition fires.
         /// </summary>
@@ -318,6 +357,12 @@ namespace friendlySAIN.BigBrain
             if (ShouldInterruptCommittedPush(goalEnemy, out _))
             {
                 ClearCommittedPush("committedPushInterrupted");
+                return false;
+            }
+
+            if (HasActivePushOrder() && IsStartWeakEnemyPushReason(committedPushDecision!.Value.Reason))
+            {
+                ClearCommittedPush("orderedPushOverrideWeakEnemyPush");
                 return false;
             }
 
@@ -356,16 +401,18 @@ namespace friendlySAIN.BigBrain
 
                 if (goalEnemy.IsVisible && combatCommon.ShouldShootImmediately())
                 {
-                    combatCommon.ExtendCommittedCover();
-                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "committedImmediateShoot");
-                    return true;
+                    if (TryGetCoveredVisibleFireOrAdvanceDecision(goalEnemy, "committedImmediateCoverFire", out decision))
+                    {
+                        return true;
+                    }
+
+                    // Reached committed cover but no valid crouch/standing lane exists. Continue into
+                    // the visible-cover handling below instead of forcing shootFromPlace into geometry.
                 }
 
                 // Once the bot has actually reached committed cover, shooting from that cover always wins.
-                if (goalEnemy.IsVisible && combatCommon.CanShootFromCurrentCoverOrStandingIntent(out _))
+                if (goalEnemy.IsVisible && TryGetCoveredVisibleFireOrAdvanceDecision(goalEnemy, "committedFire", out decision))
                 {
-                    combatCommon.ExtendCommittedCover();
-                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromCover, "committedFire");
                     return true;
                 }
 
@@ -373,20 +420,7 @@ namespace friendlySAIN.BigBrain
                 // cover-fire validation failed. Break out into active pressure instead.
                 if (goalEnemy.IsVisible)
                 {
-                    if (goalEnemy.CanShoot)
-                    {
-                        combatCommon.ExtendCommittedCover();
-                        decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "committedVisibleShoot");
-                        return true;
-                    }
-
-                    if (combatCommon.ShouldAdvance(goalEnemy))
-                    {
-                        combatCommon.ClearCommittedCover();
-                        bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
-                        decision = combatPush.EngageEnemy(false, enemyLowThreat);
-                        return true;
-                    }
+                    return false;
                 }
 
                 if (shootCoverSettlePhase.IsHolding)
@@ -706,8 +740,12 @@ namespace friendlySAIN.BigBrain
                 return EndShootCoverHoldPosition();
             }
 
-            if (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
-                string.Equals(reason, "bossHold", StringComparison.Ordinal))
+            bool isCoverHoldReason = IsCoverHoldReason(reason);
+            bool isHoldingInCover = isCoverHoldReason ||
+                                    botOwner.Memory.IsInCover ||
+                                    combatCommon.IsBotInCommittedCover();
+
+            if (isHoldingInCover)
             {
                 EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
                 if (HasActivePushOrder())
@@ -715,15 +753,13 @@ namespace friendlySAIN.BigBrain
                     return new AICoreActionEndStruct("orderedPushBreakHold", true);
                 }
 
-                if (string.Equals(reason, "coverHold", StringComparison.Ordinal) && !combatCommon.IsBotInCommittedCover())
+                if (string.Equals(reason, "coverHold", StringComparison.Ordinal) &&
+                    !combatCommon.IsBotInCommittedCover())
                 {
                     return new AICoreActionEndStruct("leftCommittedCover", true);
                 }
 
-                if (goalEnemy != null &&
-                    (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
-                     string.Equals(reason, "bossHold", StringComparison.Ordinal)) &&
-                    ShouldBreakForBossUnderAttack(goalEnemy))
+                if (goalEnemy != null && ShouldBreakForBossUnderAttack(goalEnemy))
                 {
                     combatCommon.ClearCommittedCover();
 
@@ -735,26 +771,19 @@ namespace friendlySAIN.BigBrain
                 }
 
                 if (goalEnemy != null &&
-                    (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
-                     string.Equals(reason, "bossHold", StringComparison.Ordinal)) &&
-                    (botOwner.Memory.IsUnderFire || FollowerCombatCommon.WasHitRecently(botOwner, 0.75f)))
+                    (FollowerCombatCommon.WasHitRecently(botOwner, 0.75f) ||
+                     FollowerAwareness.WasRecentlyHit(botOwner)))
                 {
                     combatCommon.ClearCommittedCover();
-                    return new AICoreActionEndStruct("underFireBreakHold", true);
+                    return new AICoreActionEndStruct("hitBreakHold", true);
                 }
 
-                if (goalEnemy != null &&
-                    (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
-                     string.Equals(reason, "bossHold", StringComparison.Ordinal)) &&
-                    combatCommon.TryGetAllyEngagementEnemy(out _, out _))
+                if (goalEnemy != null && combatCommon.TryGetAllyEngagementEnemy(out _, out _))
                 {
                     return new AICoreActionEndStruct("allyEngagementBreakHold", true);
                 }
 
-                if (goalEnemy != null &&
-                    (string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
-                     string.Equals(reason, "bossHold", StringComparison.Ordinal)) &&
-                    ShouldBreakCommittedCoverForBossObjective(goalEnemy))
+                if (goalEnemy != null && ShouldBreakCommittedCoverForBossObjective(goalEnemy))
                 {
                     combatCommon.ClearCommittedCover();
 
@@ -777,6 +806,12 @@ namespace friendlySAIN.BigBrain
             }
 
             return combatCommon.EndBaseHoldPosition(reason);
+        }
+
+        private static bool IsCoverHoldReason(string? reason)
+        {
+            return string.Equals(reason, "coverHold", StringComparison.Ordinal) ||
+                   string.Equals(reason, "bossHold", StringComparison.Ordinal);
         }
 
         private AICoreActionEndStruct EndShootCoverHoldPosition()
@@ -885,6 +920,12 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct(interruptReason, true);
             }
 
+            if (HasActivePushOrder() && IsStartWeakEnemyPushReason(currentDecision.Reason))
+            {
+                ClearCommittedPush("orderedPushBreakWeakEnemyPush");
+                return new AICoreActionEndStruct("orderedPushBreakWeakEnemyPush", true);
+            }
+
             if (currentDecision.Action == BotLogicDecision.runToEnemy &&
                 (!botOwner.CanSprintPlayer || botOwner.Mover?.NoSprint == true))
             {
@@ -897,6 +938,7 @@ namespace friendlySAIN.BigBrain
                 BotLogicDecision.runToEnemy => combatCommon.EndBaseGoToEnemy(),
                 BotLogicDecision.goToEnemy => combatCommon.EndBaseGoToEnemy(),
                 BotLogicDecision.runToCover => combatCommon.EndRunToCover(currentDecision.Reason),
+                BotLogicDecision.goToPointTactical => combatCommon.EndTacticalPoint(),
                 BotLogicDecision.attackMoving => combatCommon.EndAttackMoving(),
                 BotLogicDecision.attackMovingWithSuppress => combatCommon.EndAttackMovingWithSuppress(),
                 var decision when decision == (BotLogicDecision)CustomBotDecisions.attackRetreat => combatCommon.EndAttackRetreat(),

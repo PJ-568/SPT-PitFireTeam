@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Utils;
 using UnityEngine;
 
 namespace friendlySAIN.BigBrain.Actions
@@ -35,6 +36,7 @@ namespace friendlySAIN.BigBrain.Actions
             private const float ArrivalThreatLookAngle = 95f;
             private const float NearCoverDistance = 2f;
             private const float RecentThreatLookSeconds = 2.5f;
+            private const float LostVisualSuppressSeconds = 2f;
 
             private readonly bool autoCover;
             private readonly bool forceThreatLookWhenShootable;
@@ -81,12 +83,13 @@ namespace friendlySAIN.BigBrain.Actions
                 EnemyInfo? goalEnemy = BotOwner_0.Memory?.GoalEnemy;
                 TryMaintainThreatFacing(goalEnemy);
 
-                if ((withSuppress && suppressBurstActive) ||
-                    (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible))
+                Vector3 threatPoint;
+                bool shouldShoot = TryGetSafeShootOrSuppressTarget(goalEnemy, out threatPoint);
+                if (shouldShoot)
                 {
                     if (forceThreatLookWhenShootable && goalEnemy != null)
                     {
-                        BotOwner_0.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
+                        BotOwner_0.Steering.LookToPoint(threatPoint);
                     }
 
                     Gclass178_0.UpdateNodeByBrain(data as GClass27);
@@ -98,6 +101,33 @@ namespace friendlySAIN.BigBrain.Actions
                     nextThreatLookTime = Time.time + GClass856.Random(2f, 3f);
                     BotOwner_0.Steering.LookToPoint(goalEnemy.EnemyLastPosition + new Vector3(0f, 0.6f, 0f));
                 }
+            }
+
+            private bool TryGetSafeShootOrSuppressTarget(EnemyInfo? goalEnemy, out Vector3 target)
+            {
+                target = default;
+                if (goalEnemy == null)
+                {
+                    return false;
+                }
+
+                bool visibleShot = goalEnemy.CanShoot && goalEnemy.IsVisible;
+                bool lostVisualSuppress =
+                    withSuppress &&
+                    suppressBurstActive &&
+                    !goalEnemy.IsVisible &&
+                    Time.time - goalEnemy.PersonalLastSeenTime <= LostVisualSuppressSeconds;
+
+                if (!visibleShot && !lostVisualSuppress)
+                {
+                    return false;
+                }
+
+                target = visibleShot
+                    ? goalEnemy.GetBodyPartPosition()
+                    : goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
+
+                return !FollowerShotSafety.IsFriendlyInShotLane(BotOwner_0, target);
             }
 
             private void TryMaintainThreatFacing(EnemyInfo? goalEnemy)

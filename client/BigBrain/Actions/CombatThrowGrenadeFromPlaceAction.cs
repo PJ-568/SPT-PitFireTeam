@@ -22,8 +22,6 @@ namespace friendlySAIN.BigBrain.Actions
                 loggedStart = true;
                 BotRequest? request = BotOwner.BotRequestController?.CurRequest;
                 BotGrenadeController grenades = BotOwner.WeaponManager?.Grenades;
-                friendlySAIN.Log?.LogInfo(
-                    $"[GrenadeGate] follower={BotOwner.Profile?.Nickname ?? BotOwner.ProfileId ?? "<null>"} action-update request={request?.BotRequestType.ToString() ?? "<null>"} haveGrenade={grenades?.HaveGrenade.ToString() ?? "<null>"} ready={grenades?.ReadyToThrow.ToString() ?? "<null>"} throwing={grenades?.ThrowindNow.ToString() ?? "<null>"}");
             }
 
             baseLogic.UpdateNodeByBrain(GetRawData(data));

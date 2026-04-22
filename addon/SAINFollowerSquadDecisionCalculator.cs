@@ -264,25 +264,19 @@ namespace friendlySAIN.SAINAddon
             float maxDist = RegroupEnemyStartDist;
             float minDist = RegroupEnemyEndDistance;
 
-            if (enemy != null)
+            if (enemy.IsVisible || (enemy.Seen && enemy.TimeSinceSeen < RegroupEnemySeenRecentTime))
             {
-                if (enemy.IsVisible || (enemy.Seen && enemy.TimeSinceSeen < RegroupEnemySeenRecentTime))
-                {
-                    return false;
-                }
+                return false;
             }
 
             Vector3 botPos = owner.Position;
             Vector3 directionToBoss = bossPos - botPos;
             float bossDistance = directionToBoss.magnitude;
-            if (enemy != null)
+            Vector3 directionToEnemy = enemy.EnemyPosition - botPos;
+            float enemyDistance = directionToEnemy.magnitude;
+            if (enemyDistance < bossDistance && enemyDistance < 30f && Vector3.Dot(directionToEnemy.normalized, directionToBoss.normalized) > 0.25f)
             {
-                Vector3 directionToEnemy = enemy.EnemyPosition - botPos;
-                float enemyDistance = directionToEnemy.magnitude;
-                if (enemyDistance < bossDistance && enemyDistance < 30f && Vector3.Dot(directionToEnemy.normalized, directionToBoss.normalized) > 0.25f)
-                {
-                    return false;
-                }
+                return false;
             }
 
             if (bot.Decision.CurrentSquadDecision == SAIN.ESquadDecision.Regroup)

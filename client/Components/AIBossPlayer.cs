@@ -1781,7 +1781,10 @@ namespace friendlySAIN.Components
                 if (hasCombatEnemy)
                 {
                     followerData.SetPushEnemy(12f);
-                    follower.BotTalk.TrySay(EPhraseTrigger.Going, false);
+                    if (followerData.CombatTactic != FollowerCombatTactic.Marksman)
+                    {
+                        follower.BotTalk.TrySay(EPhraseTrigger.Going, false);
+                    }
                     follower.Gesture.TryGestus(EInteraction.OkGesture, false);
                     continue;
                 }
@@ -1813,21 +1816,67 @@ namespace friendlySAIN.Components
             Vector3 rayDirection = interactionRay.direction.sqrMagnitude > 0.001f
                 ? interactionRay.direction.normalized
                 : lookDir;
+            Vector3 planarDirection = Vector3.ProjectOnPlane(rayDirection, Vector3.up);
+            if (planarDirection.sqrMagnitude <= 0.001f)
+            {
+                planarDirection = Vector3.ProjectOnPlane(requester.Transform.forward, Vector3.up);
+            }
+            if (planarDirection.sqrMagnitude <= 0.001f)
+            {
+                planarDirection = Vector3.forward;
+            }
+            planarDirection.Normalize();
 
             float maxGoToDistance = friendlySAIN.goToDistance?.Value ?? DefaultGoToDistance;
-            Vector3 rawTarget = interactionRay.origin + rayDirection * maxGoToDistance;
-            if (Physics.Raycast(interactionRay.origin, rayDirection, out RaycastHit lookHit, maxGoToDistance, LayerMaskClass.HighPolyWithTerrainMask))
+            Vector3 rawTarget = requesterPos + planarDirection * maxGoToDistance;
+            bool hasSurfaceHit = TryGetCommandSurfaceHit(interactionRay, rayDirection, maxGoToDistance, out RaycastHit lookHit);
+            if (hasSurfaceHit)
             {
                 rawTarget = lookHit.point;
             }
 
-            if (!NavMesh.SamplePosition(rawTarget, out NavMeshHit navHit, 12f, NavMesh.AllAreas))
+            float preferredY = hasSurfaceHit ? rawTarget.y : requesterPos.y;
+            if (!TrySampleCommandNavPoint(rawTarget, preferredY, out commandTarget))
             {
                 return false;
             }
 
-            commandTarget = navHit.position;
             return true;
+        }
+
+        private static bool TryGetCommandSurfaceHit(Ray interactionRay, Vector3 rayDirection, float maxDistance, out RaycastHit lookHit)
+        {
+            if (Physics.Raycast(interactionRay.origin, rayDirection, out lookHit, maxDistance, LayerMaskClass.HighPolyWithTerrainMask))
+            {
+                return true;
+            }
+
+            return Physics.SphereCast(interactionRay.origin, 0.22f, rayDirection, out lookHit, maxDistance, LayerMaskClass.HighPolyWithTerrainMask);
+        }
+
+        private static bool TrySampleCommandNavPoint(Vector3 rawTarget, float preferredY, out Vector3 commandTarget)
+        {
+            float[] sampleRadii = { 1.5f, 3f, 5f };
+            const float sameLevelTolerance = 1.9f;
+
+            foreach (float radius in sampleRadii)
+            {
+                if (!NavMesh.SamplePosition(rawTarget, out NavMeshHit navHit, radius, NavMesh.AllAreas))
+                {
+                    continue;
+                }
+
+                if (Mathf.Abs(navHit.position.y - preferredY) > sameLevelTolerance)
+                {
+                    continue;
+                }
+
+                commandTarget = navHit.position;
+                return true;
+            }
+
+            commandTarget = Vector3.zero;
+            return false;
         }
 
         private static bool CanAcceptThereCommand(BotOwner follower)
@@ -2119,6 +2168,7 @@ namespace friendlySAIN.Components
         private static bool ShouldSyncFollowerWithReportedEnemy(BotOwner follower, BotOwner reporter, Player enemyPlayer)
         {
             if (!IsFollowerEligibleForGroupEnemySync(follower) ||
+                FollowerEnemyEnforceSuppression.IsSuppressed(follower) ||
                 follower == reporter ||
                 enemyPlayer == null ||
                 string.IsNullOrEmpty(enemyPlayer.ProfileId))
@@ -2134,7 +2184,8 @@ namespace friendlySAIN.Components
             enemyPlayer = null;
             visibleType = EEnemyPartVisibleType.Sence;
 
-            if (!IsFollowerEligibleForGroupEnemySync(follower))
+            if (!IsFollowerEligibleForGroupEnemySync(follower) ||
+                FollowerEnemyEnforceSuppression.IsSuppressed(follower))
             {
                 ClearStableEnemyReporter(follower);
                 return false;
