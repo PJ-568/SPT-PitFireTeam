@@ -82,7 +82,7 @@ namespace friendlySAIN.BigBrain.Actions
             }
         }
 
-        protected bool WaitForEnemyAimAlignment(ref float startedAt, float maxAngle = 18f, float timeout = 0.65f)
+        protected bool WaitForEnemyAimAlignment(ref float startedAt, float maxAngle = 32f, float timeout = 0.12f)
         {
             EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
             if (goalEnemy?.Person?.HealthController?.IsAlive != true || !goalEnemy.CanShoot)
@@ -99,18 +99,16 @@ namespace friendlySAIN.BigBrain.Actions
             Vector3 lookPoint = GetEnemyShootLookPoint(goalEnemy);
             BotOwner.Steering.LookToPoint(lookPoint);
 
-            Vector3 firePos = BotOwner.WeaponRoot != null
-                ? BotOwner.WeaponRoot.position
+            Vector3 lookOrigin = BotOwner.Transform != null
+                ? BotOwner.Transform.position + Vector3.up * 1.2f
                 : BotOwner.Position + Vector3.up * 1.2f;
-            Vector3 toEnemy = lookPoint - firePos;
+            Vector3 toEnemy = lookPoint - lookOrigin;
             if (toEnemy.sqrMagnitude <= 0.001f)
             {
                 return false;
             }
 
-            Vector3 currentLook = BotOwner.WeaponRoot != null
-                ? BotOwner.WeaponRoot.forward
-                : BotOwner.LookDirection;
+            Vector3 currentLook = BotOwner.LookDirection;
             if (currentLook.sqrMagnitude <= 0.001f && BotOwner.Transform != null)
             {
                 currentLook = BotOwner.Transform.forward;
@@ -132,11 +130,19 @@ namespace friendlySAIN.BigBrain.Actions
             float requiredDot = Mathf.Cos(maxAngle * Mathf.Deg2Rad);
             if (alignmentDot >= requiredDot)
             {
+                startedAt = 0f;
                 return false;
             }
 
-            StopCombatShooting();
-            return Time.time - startedAt < timeout;
+            bool keepWaiting = Time.time - startedAt < timeout;
+            if (keepWaiting)
+            {
+                StopCombatShooting();
+                return true;
+            }
+
+            startedAt = 0f;
+            return false;
         }
 
         private Vector3 GetEnemyShootLookPoint(EnemyInfo goalEnemy)

@@ -100,6 +100,19 @@ public class FriendlyTeammateCallbacks(
         }
     }
 
+    public ValueTask<string> SaveDefaultEquipment(string url, FriendlyTeammateDefaultEquipmentRequest request, MongoId sessionId)
+    {
+        try
+        {
+            teammateService.SaveTeammateDefaultEquipment(sessionId, request);
+            return new ValueTask<string>(httpResponse.NullResponse());
+        }
+        catch (FriendlyTeammateException ex)
+        {
+            return new ValueTask<string>(httpResponse.GetBody<object?>(null, err: BackendErrorCodes.UnknownTradingError, errmsg: ex.Message));
+        }
+    }
+
     public ValueTask<string> SetAggression(string url, FriendlyTeammateAggressionRequest request, MongoId sessionId)
     {
         try

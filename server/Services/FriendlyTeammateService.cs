@@ -326,6 +326,28 @@ public class FriendlyTeammateService(
         SaveTeammate(sessionId, teammate);
     }
 
+    public void SaveTeammateDefaultEquipment(MongoId sessionId, FriendlyTeammateDefaultEquipmentRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        var items = request.Items?.Where(item => item != null).ToList();
+        if (items == null || items.Count == 0)
+        {
+            throw new FriendlyTeammateException("Missing teammate default equipment items");
+        }
+
+        teammate.Inventory ??= new BotBaseInventory();
+        var mergedItems = MergeEquipmentWithPreservedSpecialItems(teammate.Inventory.Items, cloner.Clone(items) ?? items);
+        teammate.Inventory.Items = mergedItems;
+        teammate.Inventory.Equipment = teammate.Inventory.Items.First().Id;
+
+        var settings = GetTeammateSettings(sessionId, teammate);
+        settings.SelectedLoadoutId = DefaultLoadoutId;
+
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+        SaveTeammateSettings(sessionId, teammate, settings);
+        SaveTeammate(sessionId, teammate);
+    }
+
     public void SetTeammateAggression(MongoId sessionId, FriendlyTeammateAggressionRequest request)
     {
         var teammate = FindByAccountId(sessionId, request.Aid);
@@ -1531,9 +1553,20 @@ public class FriendlyTeammateService(
         var clonedBuild = cloner.Clone(equipmentBuild.Items) ?? equipmentBuild.Items;
         var normalizedBuild = itemHelper.ReplaceIDs(clonedBuild, playerPmc).ToList();
         MongoId rootId = normalizedBuild.First().Id;
-
         teammate.Inventory ??= new BotBaseInventory { Items = [] };
-        var specialItems = (teammate.Inventory.Items ?? [])
+        teammate.Inventory.Items = MergeEquipmentWithPreservedSpecialItems(teammate.Inventory.Items, normalizedBuild);
+        teammate.Inventory.Equipment = rootId;
+    }
+
+    private List<Item> MergeEquipmentWithPreservedSpecialItems(List<Item>? existingItems, List<Item> replacementItems)
+    {
+        if (replacementItems == null || replacementItems.Count == 0)
+        {
+            throw new FriendlyTeammateException("Replacement teammate equipment items are missing");
+        }
+
+        MongoId rootId = replacementItems.First().Id;
+        var specialItems = (existingItems ?? [])
             .Where(item => !string.IsNullOrWhiteSpace(item.SlotId))
             .Where(item =>
                 item.SlotId!.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
@@ -1542,7 +1575,7 @@ public class FriendlyTeammateService(
             .Select(item => cloner.Clone(item) ?? item)
             .ToList();
 
-        var mergedItems = normalizedBuild
+        var mergedItems = replacementItems
             .Where(item =>
                 string.IsNullOrWhiteSpace(item.SlotId)
                 || (!item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
@@ -1560,7 +1593,7 @@ public class FriendlyTeammateService(
             mergedItems.Add(item);
         }
 
-        teammate.Inventory.Items = mergedItems;
-        teammate.Inventory.Equipment = rootId;
+        return mergedItems;
     }
+
 }

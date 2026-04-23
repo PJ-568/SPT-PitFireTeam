@@ -45,6 +45,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/friendlysain/teammate/profile/loadout",
                 async (url, info, sessionId, output) => await callbacks.SetLoadout(url, info, sessionId)
             ),
+            new RouteAction<FriendlyTeammateDefaultEquipmentRequest>(
+                "/singleplayer/friendlysain/teammate/profile/default-equipment",
+                async (url, info, sessionId, output) => await callbacks.SaveDefaultEquipment(url, info, sessionId)
+            ),
             new RouteAction<FriendlyTeammateAggressionRequest>(
                 "/singleplayer/friendlysain/teammate/profile/aggression",
                 async (url, info, sessionId, output) => await callbacks.SetAggression(url, info, sessionId)

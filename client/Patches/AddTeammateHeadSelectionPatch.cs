@@ -1,9 +1,13 @@
 using Arena.UI;
+using Comfort.Common;
+using EFT;
 using EFT.UI;
 using friendlySAIN.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using TMPro;
 
@@ -66,6 +70,76 @@ namespace friendlySAIN.Patches
             }
 
             AddTeammateCreationFlow.RefreshSubmitButton();
+        }
+    }
+
+    internal class AddTeammateHeadSelectionOptionsPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(HeadSelectionState), "method_1");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(HeadSelectionState __instance)
+        {
+            if (!AddTeammateCreationFlow.IsActiveForController(CurrentScreenSingletonClass.Instance.CurrentScreenController))
+            {
+                return true;
+            }
+
+            CustomizationSolverClass solver = Singleton<CustomizationSolverClass>.Instance;
+            if (solver == null || __instance == null)
+            {
+                return true;
+            }
+
+            __instance.HeadTemplates = CollectAllHeads(solver);
+            __instance.VoiceTemplates = CollectAllVoices(solver);
+            __instance.Voices.Clear();
+            __instance.method_3();
+            __instance.method_4();
+            return false;
+        }
+
+        private static List<KeyValuePair<MongoID, GClass3678>> CollectAllHeads(CustomizationSolverClass solver)
+        {
+            Dictionary<MongoID, GClass3678> heads = new Dictionary<MongoID, GClass3678>();
+            foreach (EPlayerSide side in new[] { EPlayerSide.Bear, EPlayerSide.Usec, EPlayerSide.Savage })
+            {
+                foreach (GClass3678 head in solver.GetAvailableHeads(side))
+                {
+                    if (head != null && !heads.ContainsKey(head.Id))
+                    {
+                        heads[head.Id] = head;
+                    }
+                }
+            }
+
+            return heads
+                .OrderBy(entry => entry.Value?.NameLocalizationKey.Localized(null) ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .Select(entry => new KeyValuePair<MongoID, GClass3678>(entry.Key, entry.Value))
+                .ToList();
+        }
+
+        private static List<KeyValuePair<MongoID, GClass3681>> CollectAllVoices(CustomizationSolverClass solver)
+        {
+            Dictionary<MongoID, GClass3681> voices = new Dictionary<MongoID, GClass3681>();
+            foreach (EPlayerSide side in new[] { EPlayerSide.Bear, EPlayerSide.Usec, EPlayerSide.Savage })
+            {
+                foreach (GClass3681 voice in solver.GetAvailableVoices(side))
+                {
+                    if (voice != null && !voices.ContainsKey(voice.Id))
+                    {
+                        voices[voice.Id] = voice;
+                    }
+                }
+            }
+
+            return voices
+                .OrderBy(entry => entry.Value?.NameLocalizationKey.Localized(null) ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .Select(entry => new KeyValuePair<MongoID, GClass3681>(entry.Key, entry.Value))
+                .ToList();
         }
     }
 

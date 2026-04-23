@@ -553,7 +553,6 @@ namespace friendlySAIN.Modules
             if (inputField != null)
             {
                 inputField.SetTextWithoutNotify(string.Empty);
-                inputField.text = string.Empty;
             }
 
             headSelectionState._nicknameField?.method_6(ENicknameError.ValidNickname, false);
