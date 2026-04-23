@@ -419,7 +419,9 @@ namespace friendlySAIN.BigBrain
             stoppedForHealDecision = false;
             healStartAt = 0f;
             healSoftTimeoutAt = 0f;
-            Utils.FollowerMedical.CompleteHealing(BotOwner);
+            // Patrol heal mirrors the old plugin behavior: if the bot finishes or times out
+            // out of combat, force-complete the heal and recover hands/weapon state.
+            Utils.FollowerMedical.ForceHeal(BotOwner);
         }
 
         private void StopMovementForHealDecision()
@@ -498,37 +500,35 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            BotReload reload = BotOwner.WeaponManager.Reload;
             Weapon currentWeapon = BotOwner.WeaponManager.CurrentWeapon;
             if (currentWeapon == null)
             {
                 return false;
             }
 
-            int capacity;
-            if (currentWeapon.ReloadMode == Weapon.EReloadMode.OnlyBarrel)
-            {
-                capacity = BotOwner.WeaponManager.Reload.MaxBulletCount;
-            }
-            else
-            {
-                MagazineItemClass currentMagazine = currentWeapon.GetCurrentMagazine();
-                if (currentMagazine == null)
-                {
-                    return false;
-                }
-
-                capacity = currentMagazine.MaxCount;
-            }
-
-            if (capacity <= 0)
+            int maxBulletCount = reload.MaxBulletCount;
+            if (maxBulletCount <= 0)
             {
                 return false;
             }
 
-            int currentBullets = currentWeapon.ReloadMode == Weapon.EReloadMode.OnlyBarrel
-                ? BotOwner.WeaponManager.Reload.BulletCount
-                : currentWeapon.GetCurrentMagazineCount();
-            return currentBullets < capacity;
+            float reloadThreshold = BotOwner.Settings?.FileSettings?.Boss?.PERCENT_BULLET_TO_RELOAD ?? 0.6f;
+            float currentRatio = (float)reload.BulletCount / maxBulletCount;
+            if (currentRatio >= reloadThreshold)
+            {
+                return false;
+            }
+
+            // For external-magazine weapons, only reload if there is actually a better magazine available.
+            // This avoids pointless swap attempts when the current mag is already the best one the bot has.
+            if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
+            {
+                return true;
+            }
+
+            MagazineItemClass? bestMagazine = reload.GetMagazineForReload(currentWeapon);
+            return bestMagazine != null && bestMagazine.Count > currentWeapon.GetCurrentMagazineCount();
         }
 
         private bool TryForceReloadCurrentWeaponOutOfCombat()
