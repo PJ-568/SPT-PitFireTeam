@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Components;
 using UnityEngine;
 
 namespace friendlySAIN.BigBrain.Actions
@@ -41,7 +42,10 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.DoorOpener.UpdateDoorInteractionStatus();
             BotOwner.SetPose(1f);
             BotOwner.SetTargetMoveSpeed(1f);
-            BotOwner.Steering.LookToMovingDirection();
+            if (!BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner))
+            {
+                BotOwner.Steering.LookToMovingDirection();
+            }
 
             if ((!targetPointAssigned || Time.time >= nextPathRefreshTime) && targetCover != null)
             {

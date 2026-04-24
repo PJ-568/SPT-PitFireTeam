@@ -51,6 +51,9 @@ namespace friendlySAIN.Utils
 
     public class Utils
     {
+        private const float GroundLikeOriginCheckHeight = 0.05f;
+        private const float GroundLikeOriginCheckDistance = 0.35f;
+        private static readonly float[] GroundOriginFireProbeHeights = { 0.6f, 1.2f };
         private static Dictionary<string, bool> flags = new Dictionary<string, bool>();
 
         private static Dictionary<string, int> values = new Dictionary<string, int>();
@@ -241,25 +244,59 @@ namespace friendlySAIN.Utils
         {
             if (shootToPoint == null) return false;
 
-            Vector3 direction = shootToPoint.Point - firePos;
-            float distance = direction.magnitude; // Precompute magnitude
-
             // Reuse a tiny per-thread buffer to avoid hot-path allocations.
             RaycastHit[] hits = _singleRaycastHitBuffer ??= new RaycastHit[1];
 
-            // Try shooting forward first
+            if (CanShootToTargetFromOrigin(shootToPoint, firePos, mask, hits, doubleSide))
+            {
+                return true;
+            }
+
+            if (IsGroundLikeFireOrigin(firePos))
+            {
+                for (int i = 0; i < GroundOriginFireProbeHeights.Length; i++)
+                {
+                    Vector3 probeOrigin = firePos + Vector3.up * GroundOriginFireProbeHeights[i];
+                    if (CanShootToTargetFromOrigin(shootToPoint, probeOrigin, mask, hits, false))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool CanShootToTargetFromOrigin(
+            ShootPointClass shootToPoint,
+            Vector3 firePos,
+            LayerMask mask,
+            RaycastHit[] hits,
+            bool doubleSide)
+        {
+            Vector3 direction = shootToPoint.Point - firePos;
+            float distance = direction.magnitude;
+            if (distance <= 0.001f)
+            {
+                return false;
+            }
+
             if (Physics.RaycastNonAlloc(new Ray(firePos, direction), hits, distance * shootToPoint.DistCoef, mask) == 0)
             {
-                return true; // No obstruction, we can shoot
+                return true;
             }
 
-            // If doubleSide is enabled, try shooting from the target back to firePos
-            if (doubleSide && Physics.RaycastNonAlloc(new Ray(shootToPoint.Point, -direction), hits, distance, mask) == 0)
-            {
-                return true; // No obstruction from the other side either
-            }
+            return doubleSide &&
+                   Physics.RaycastNonAlloc(new Ray(shootToPoint.Point, -direction), hits, distance, mask) == 0;
+        }
 
-            return false; // Something is blocking the shot
+        private static bool IsGroundLikeFireOrigin(Vector3 firePos)
+        {
+            return Physics.Raycast(
+                firePos + Vector3.up * GroundLikeOriginCheckHeight,
+                Vector3.down,
+                GroundLikeOriginCheckDistance + GroundLikeOriginCheckHeight,
+                LayerMaskClass.HighPolyWithTerrainMask);
         }
 
         public static bool CanShootToTarget(ShootPointClass shootToPoint, CustomNavigationPoint point, LayerMask mask, bool doubleSide = false)

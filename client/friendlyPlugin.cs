@@ -293,6 +293,7 @@ namespace friendlySAIN
             new AddTeammateNicknameFieldInitPatch().Enable();
             new AddTeammateNicknameFieldStatusPatch().Enable();
             new AddTeammateNicknameValueChangedPatch().Enable();
+            new AddTeammateHeadSelectionOptionsPatch().Enable();
             new AddTeammateFinishPatch().Enable();
 
             // AIBossPlayer class patch
@@ -352,6 +353,7 @@ namespace friendlySAIN
             new FriendlyDropdownNamePatch().Enable();
             new OtherPlayerProfileScreenPatch().Enable();
             new OtherPlayerProfileScreenClosePatch().Enable();
+            new LoadoutEditorUnloadAmmoPatch().Enable();
 
             // SAIN/Donuts patches
             if (IsSAINInstalled)

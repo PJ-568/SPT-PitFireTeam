@@ -192,6 +192,161 @@ Impact:
 - tactical search movement can still drift or repick
 - this affects both default search-like movement and marksman close-search style support
 
+## Candidate Work Plan
+
+These are candidate core-combat changes discussed during recent review. This section is a planning note, not current runtime behavior.
+
+### A. Visible-Fire Posture Policy
+
+Goal:
+
+- own tactical posture and movement choice around visible contact
+- leave EFT in control of burst length, cadence, recoil handling, and fire mode
+
+Reason:
+
+- current visible-contact handling still routes too many cases into stationary `shootFromPlace` / `shootFromCover`
+- the better question is not "always move and shoot" versus "always stop and shoot"
+- the real decision is when the bot should:
+  1. plant and trade
+  2. move while pressuring
+  3. stay standing
+  4. crouch
+
+Proposed implementation shape:
+
+- add a shared visible-trade posture helper in `FollowerCombatCommon`
+- have default combat ask that helper before choosing `shootFromPlace`, `shootFromCover`, or `attackMoving`
+- keep action validity strict: if the policy wants `attackMoving`, a real destination must already exist
+
+Required rule:
+
+- never emit `attackMoving` unless there is already a verified move point through committed cover, assigned cover, tactical point, regroup vector, or other action-owned destination
+
+Candidate outcome buckets:
+
+- `shootFromCover`
+  - current cover is valid
+  - lane is valid
+  - posture should stay planted
+- `shootFromPlaceStanding`
+  - bot is exposed or semi-exposed
+  - current trade is favorable enough to plant briefly
+  - no crouch unless there is an actual geometry advantage
+- `attackMoving`
+  - bot needs movement as protection
+  - a valid destination already exists
+  - movement is tactical, not stale/no-target
+
+Likely affected files:
+
+- `client/BigBrain/FollowerCombatCommon.cs`
+- `client/BigBrain/FollowerCombatDefault.cs`
+- possibly `client/BigBrain/FollowerCombatSniper.cs` later, after default behavior is stable
+
+### B. Immediate/Visible Fire Delay Reduction
+
+Status:
+
+- partly implemented already
+
+Current direction:
+
+- alignment wait was reduced so `shootImmediately` no longer waits for tight weapon-root alignment before firing
+- the gate is now closer to a coarse threat-facing check than a full aim-rig alignment gate
+
+Remaining question:
+
+- after the delay fix, do visible-fire branches still overuse planted fire when a tactical move would be better?
+
+This depends on item A.
+
+### C. Stronger Shoot-From-Place Pose Policy
+
+Goal:
+
+- remove low-value prone/crouch transitions before planted fire
+- only allow a lower posture if the bot can actually shoot effectively from that posture
+
+Reason:
+
+- exposed crouch-fire often makes the follower easier to kill
+- prone is currently too available at moderate distance and can stall responsiveness
+
+#### C1. Prone Restriction
+
+Proposed rule:
+
+- no proning for planted fire unless enemy distance is `80m+`
+- even at `80m+`, require a precheck that the chosen prone posture can still produce a real shooting lane
+
+Important constraint:
+
+- this cannot be a simple distance gate only
+- the bot must determine whether the prone shot position is actually viable before committing to the pose
+
+#### C2. Crouch Restriction
+
+Proposed rule:
+
+- add the same kind of precheck for crouching
+- do not crouch before planted fire unless crouch still preserves a viable shot lane from the actual fire position
+
+Important constraint:
+
+- the precheck must evaluate the position the bot will actually fire from, not an abstract current-state guess
+- otherwise the system will still choose a pose first and only discover after crouching that the shot lane is gone
+
+### D. Fire-Position Precheck Investigation
+
+This needs investigation before implementation.
+
+Problem:
+
+- to validate prone or crouch correctly, the code must know the actual firing origin or an acceptable approximation of it before the pose change is committed
+- that is different from simply checking "enemy visible now"
+
+Questions to answer first:
+
+1. what pose-dependent origin should be treated as authoritative for standing, crouch, and prone checks on the core path?
+2. can current EFT helpers already answer "can shoot from this pose here" without manually simulating each pose?
+3. for cover-fire, should the precheck use committed cover shoot data rather than raw body-part visibility?
+4. for exposed `shootFromPlace`, is current position plus pose offset sufficient, or does EFT shift actual firing enough that a stronger check is needed?
+
+Likely code to inspect before implementation:
+
+- `client/BigBrain/Actions/CombatShootFromPlaceAction.cs`
+- `client/BigBrain/FollowerCombatCommon.cs`
+- EFT cover / shoot-point helpers already used by `CanShootFromCurrentCoverOrStandingIntent(...)`
+- any EFT pose or shoot-origin helpers that differ between standing, crouch, and prone
+
+Recommended order:
+
+1. investigate pose-dependent shoot viability checks
+2. implement prone restriction with precheck
+3. implement crouch restriction with precheck
+4. then fold those results into the shared visible-fire posture helper from item A
+
+### E. Ownership Boundary
+
+Current recommendation:
+
+- friendlySAIN should own:
+  - movement versus planted-fire choice
+  - posture choice
+  - cover versus exposed trade choice
+  - whether a tactical move is allowed
+- EFT should continue owning:
+  - actual firing cadence
+  - burst length
+  - semi/full-auto handling
+  - recoil and hit-response weapon behavior
+
+Reason:
+
+- the current high-value problems are tactical and positional
+- taking over fire-mode behavior now would broaden risk without first fixing the higher-level decision quality
+
 ## Guidance For Future Changes
 
 - keep routing and lifecycle in objective/router code

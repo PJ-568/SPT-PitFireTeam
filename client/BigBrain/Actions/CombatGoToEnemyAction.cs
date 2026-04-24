@@ -1,6 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.InventoryLogic;
+using friendlySAIN.Components;
 using friendlySAIN.Utils;
 using System.Collections.Generic;
 using UnityEngine;
@@ -74,6 +75,7 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
+            TryPreferPrimaryAtRange(goalEnemy);
             SetCombatSprint(shouldSprint);
             RefreshProgressState();
             NotMovingCheck();
@@ -84,7 +86,8 @@ namespace friendlySAIN.BigBrain.Actions
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 BotOwner.SetPose(1f);
-                BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
+                CommitLookMode(AdvanceLookMode.EnemyOwned);
+                TryApplyCommittedLook(goalEnemy);
                 if (!hasPath)
                 {
                     AimingAndShoot(data);
@@ -229,6 +232,11 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void LookTowardAdvance(EnemyInfo goalEnemy)
         {
+            if (BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner))
+            {
+                return;
+            }
+
             if (TryApplyCommittedLook(goalEnemy))
             {
                 return;

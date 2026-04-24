@@ -17,18 +17,12 @@ Behavior target:
 - following the old plugin add language support for various language
 - observe game language setting and update according to the changes of it
 
-# (IN PROGRESS) ADD SUPPORT FOR CUSTOM EQUIPMENT
-
-In addition to the way we select equipment preset for followers, we should also allow for custom equipment to be done on the followers. We can do this by adding a "Edit Loadout" button next to the equipment dropdown where when press, it will open to the right the bot's inventory like when you loot a corpse. And to the left, instead of player investory we show the player's stash. Then user can move items from stash to bot inventory and vice versa. When user is done, they can press a "Done" button and this will be saved as "Custom" preset for the bot. It is important to note that once saved, the items the player picked will not actually be removed from his stash. This is a clone move. WHen player moves an item from the stash to the bot, it appears on the bot investory, but does not go away from the stash. When the player moves an item from the bot's inventory it goes away from that inventory and will temporarly appear in the player stash (until done is pressed), if that item was originally in the bot inventory (meaning it was part of bot's default loadout). When player press "done" such items disappear from the player stash and the bot's "default" loadout remains unchanged.
-If player edit default's bot invetory or does a combination (as he can move back and forth in the screen) where among the items in the new loadout. when he saves, we must remember the "default" items so the player cannot comeback later and edit the custom layout and now, because it is custom and not default, he is able to perform an exploit and retain the itmes.
-So in short, if we allow custom loadout, the bot cannot actually take items from the player stash, but only clone them. The player also cannot take bot's default items, but only move them as he make changes, because for example he may take out the default weapon and put one of this own. When he says, that default weapon will not stay in the stash and neither will the player's weapon be removed from the stash.
-
 # Implement Hold Position command
 
 - Functions the same as setting agression to 0% but will reset once combat ends or new command is received.
 - Does not do anything out of combat
 
-# Add directional quick-phrase look commands
+# (UNDER TESTING) Add directional quick-phrase look commands
 
 Goal:
 
@@ -47,7 +41,7 @@ Behavior target:
 
 Description:
 
-- "Supress" - do supression as per old plugin
+- "Suppress" - do supression as per old plugin
 - "On your own" - bots no longer care about boss position and fight the enemy on ther own. Regroup resets this commad. On combat end, this command is also reset.
 - CoverMe - srhinks the radious of covers around the boss, makes agression 0 and makes them try to find covers as close as possible to the boss. GetBack resets this command. On combat end, this command is also reset.
 
@@ -60,15 +54,31 @@ Description:
 - (DONE) - GoForward, same as "There" command but it is for the hole team.
 - Silence - followers stop taking. Time should be set via settings, default is 1 minute. Max is 10 minutes. During combat, only "enemy spotted" is allowed on first engagement. And when they report enemy position during status report trigger.
 
+# CURIOSTY
+
+- add CURIOSITY settings slider that will determine how likely the follower is to investigate a noise or when sensing an enemy.
+- attention makes the follower drop the curiosity and also set the enemy that trigger the investigation to be ignored for 2 minutes.
+- only Default and Protector have this setting
+
 # Combat Tactics
 
 Description:
 
-- Marksman, as per old plugin where the follower is assumed to have a sniper rifle and thus will try to fight from a distance. This tactic is also aware of the second weapon, if automatic, for switching to it on close combat. Marksman, does not do enemy group search, it can join soround, but trying to find a safe spot at a distance instead of any. Does not do push. Can do supression if having secondary automatic weapons with decent range (200m+ effective range).
-- Default is what we have now.
+- (DONE) Marksman, as per old plugin where the follower is assumed to have a sniper rifle and thus will try to fight from a distance. This tactic is also aware of the second weapon, if automatic, for switching to it on close combat. Marksman, does not do enemy group search, it can join soround, but trying to find a safe spot at a distance instead of any. Does not do push. Can do supression if having secondary automatic weapons with decent range (200m+ effective range).
+- (DONE) Default is what we have now.
 - Non marksman can detect if having grenade launcher as secondary weapon and may choose to switch to it for supression and other decisions (see old plugin)
 - Non marksman can also detect shotguns seconday weapon and may choose to use it for a close push (see old plugin)
 - Even if follower is not marksman, if he detects single shot weapon as primary and auto as secondary, he may choose to switch to secondary for close combat.
+  - Implementation:
+    - keep this on the vanilla/core combat path only under `client/BigBrain`
+    - do not merge marksman policy into default; keep marksman and default as separate tactic owners
+    - reuse the existing shared weapon capability checks in `FollowerCombatCommon` and extend them only if needed for a "single-shot primary + automatic secondary" eligibility gate
+    - hook default-owned close-pressure decisions first, not generic hold or visible-fire branches
+    - prefer existing default push / advance / close-search style decisions as the ownership points for switching to secondary
+    - gate the switch by close distance and local fight safety so default does not flip weapons during normal mid-range combat
+    - add default-specific close-intent reasons only where needed so decision handoff can preserve secondary ownership the same way marksman currently does
+    - add a default-specific switch-back rule after close pressure ends, recent contact cools off, or distance opens back up
+    - use old `friendlypmc` marksman / guard secondary logic only as behavior reference, not as structure to copy
 - Protector, sticks around the boss and is not afraid to get between the boss and the enemy, if the enemy is shooting the boss. Protector tries to put himself between the boss and the enemy. Something the old plugin did with "Guard" tactic.
 
 # ADD RADIAL COMMANDS
@@ -173,6 +183,12 @@ Notes from old plugin / description:
 - Right-click `Invite to group` was the main way to bring a saved member into the next raid.
 - Old plugin had a few other commands available through the chatbot, biggest being the restriction mode that will also need to be implemented in the new plugin
 - The intended user experience is that teammate raids feel like the normal solo pre-raid flow, except the ready/loading screens show the squad instead of only the player.
+
+# (DONE) ADD SUPPORT FOR CUSTOM EQUIPMENT
+
+In addition to the way we select equipment preset for followers, we should also allow for custom equipment to be done on the followers. We can do this by adding a "Edit Loadout" button next to the equipment dropdown where when press, it will open to the right the bot's inventory like when you loot a corpse. And to the left, instead of player investory we show the player's stash. Then user can move items from stash to bot inventory and vice versa. When user is done, they can press a "Done" button and this will be saved as "Custom" preset for the bot. It is important to note that once saved, the items the player picked will not actually be removed from his stash. This is a clone move. WHen player moves an item from the stash to the bot, it appears on the bot investory, but does not go away from the stash. When the player moves an item from the bot's inventory it goes away from that inventory and will temporarly appear in the player stash (until done is pressed), if that item was originally in the bot inventory (meaning it was part of bot's default loadout). When player press "done" such items disappear from the player stash and the bot's "default" loadout remains unchanged.
+If player edit default's bot invetory or does a combination (as he can move back and forth in the screen) where among the items in the new loadout. when he saves, we must remember the "default" items so the player cannot comeback later and edit the custom layout and now, because it is custom and not default, he is able to perform an exploit and retain the itmes.
+So in short, if we allow custom loadout, the bot cannot actually take items from the player stash, but only clone them. The player also cannot take bot's default items, but only move them as he make changes, because for example he may take out the default weapon and put one of this own. When he says, that default weapon will not stay in the stash and neither will the player's weapon be removed from the stash.
 
 # (DONE) FOLLOWER LEVEL PROGRESS
 

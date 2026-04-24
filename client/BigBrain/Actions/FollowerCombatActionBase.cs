@@ -1,5 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Components;
+using friendlySAIN.Modules;
 using UnityEngine;
 
 namespace friendlySAIN.BigBrain.Actions
@@ -26,6 +28,8 @@ namespace friendlySAIN.BigBrain.Actions
 
         protected void SetCombatSprint(bool sprint, bool withDebugCallback = false)
         {
+            if (sprint && BotOwner.Mover.Sprinting) return;
+            else if (!sprint && !BotOwner.Mover.Sprinting) return;
             if (sprint)
             {
                 BotOwner.SetPose(1f);
@@ -80,6 +84,33 @@ namespace friendlySAIN.BigBrain.Actions
             {
                 shootController.SetTriggerPressed(false);
             }
+        }
+
+        protected void TryPreferPrimaryAtRange(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null)
+            {
+                return;
+            }
+
+            if (BossPlayers.Instance?.GetFollower(BotOwner)?.CombatTactic == FollowerCombatTactic.Marksman)
+            {
+                return;
+            }
+
+            BotWeaponSelector? selector = BotOwner?.WeaponManager?.Selector;
+            if (selector == null)
+            {
+                return;
+            }
+
+            if (BotOwner.WeaponManager.IsMelee)
+            {
+                selector.ChangeToMain();
+                return;
+            }
+
+            selector.TryChangeToMain();
         }
 
         protected bool WaitForEnemyAimAlignment(ref float startedAt, float maxAngle = 32f, float timeout = 0.12f)

@@ -17,6 +17,9 @@ namespace friendlySAIN.BigBrain
         private const float CloseIntentRecentSeenSeconds = 2.25f;
         private const float FireSupportSettleSeconds = 2.5f;
         private const string FireSupportHoldReason = "sniper.fireSupportHold";
+        private const float HoldOpportunityScanIntervalSeconds = 0.75f;
+        private const float SupportHoldTimeoutSeconds = 10f;
+        private const float RepositionHoldTimeoutSeconds = 10f;
 
         private readonly CommittedCoverPhaseState repositionPhase = new CommittedCoverPhaseState();
         private readonly CommittedCoverPhaseState supportPhase = new CommittedCoverPhaseState();
@@ -560,24 +563,30 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
-            if (!CombatCommon.TryGetAllyEngagementEnemy(out string supportEnemyProfileId, out _))
+            if (!CombatCommon.TryGetAllyEngagementEnemy(out string supportEnemyProfileId, out Vector3 supportEnemyPosition))
             {
                 return false;
             }
 
-            CombatCommon.TryPromoteTrackedEnemyAsGoal(supportEnemyProfileId);
-            EnemyInfo? promotedEnemy = BotOwner.Memory.GoalEnemy;
+            if (!CombatCommon.TrySelectPreferredSupportEnemy(
+                    supportEnemyProfileId,
+                    supportEnemyPosition,
+                    out EnemyInfo? promotedEnemy,
+                    preferBackline: true))
+            {
+                return false;
+            }
+
             if (!CombatCommon.HasActiveCombatEnemy(promotedEnemy))
             {
                 return false;
             }
 
-            if (!CombatCommon.TryCommitFiringPositionCover(
+            if (!CombatCommon.TryCommitSupportFiringCover(
                     promotedEnemy,
                     "sniper.FireSupport",
                     out string coverReason,
-                    preferPointToShoot: true,
-                    preferInbetween: true))
+                    preferBackline: true))
             {
                 return false;
             }
@@ -644,7 +653,7 @@ namespace friendlySAIN.BigBrain
                 }
             }
 
-            if (!CombatCommon.TryCommitPushSupportCover(
+            if (!CombatCommon.TryCommitMarksmanSupportCover(
                     goalEnemy,
                     pushEvent.Owner.Position,
                     pushEvent.EnemyPosition,
@@ -680,9 +689,14 @@ namespace friendlySAIN.BigBrain
                 if (repositionPhase.PromoteToHoldOnArrival())
                 {
                     repositionPhase.StartCooldown(RepositionCooldownSeconds);
+                    repositionPhase.BeginHoldLifecycle(FireSupportSettleSeconds, RepositionHoldTimeoutSeconds);
                 }
 
                 bool supportArrived = supportPhase.PromoteToHoldOnArrival();
+                if (supportArrived)
+                {
+                    supportPhase.BeginHoldLifecycle(FireSupportSettleSeconds, SupportHoldTimeoutSeconds);
+                }
 
                 if (supportPhase.IsHolding)
                 {
@@ -702,6 +716,17 @@ namespace friendlySAIN.BigBrain
                     }
 
                     if (ShouldBreakCommittedCoverForBossObjective(goalEnemy, allowLockedBreak: true))
+                    {
+                        ClearCommittedCoverAndRepositionState();
+                        return false;
+                    }
+
+                    if (TryGetSupportHoldOpportunityDecision(goalEnemy, out decision))
+                    {
+                        return true;
+                    }
+
+                    if (ShouldReleaseSupportHoldForOpportunity(goalEnemy) || IsSupportHoldExpired())
                     {
                         ClearCommittedCoverAndRepositionState();
                         return false;
@@ -749,6 +774,17 @@ namespace friendlySAIN.BigBrain
                         return false;
                     }
 
+                    if (TryGetRepositionHoldOpportunityDecision(goalEnemy, out decision))
+                    {
+                        return true;
+                    }
+
+                    if (ShouldReleaseRepositionHoldForOpportunity(goalEnemy) || IsRepositionHoldExpired())
+                    {
+                        ClearCommittedCoverAndRepositionState();
+                        return false;
+                    }
+
                     CombatCommon.HoldCoverForMaxDuration();
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                         BotLogicDecision.holdPosition,
@@ -758,7 +794,8 @@ namespace friendlySAIN.BigBrain
 
                 // Unseen break-outs should stay marksman-safe: allow relocalization/support/regroup
                 // exits, but do not reuse default advance-pressure behavior for sniper tactic.
-                if (CombatCommon.HasReliablePersonalEnemyLocation(goalEnemy))
+                if (CombatCommon.HasReliablePersonalEnemyLocation(goalEnemy) &&
+                    CanScanRepositionHold())
                 {
                     ClearCommittedCoverAndRepositionState();
                     return false;
@@ -993,39 +1030,50 @@ namespace friendlySAIN.BigBrain
             }
 
             // Priority 1: keep scanning for better shooting opportunities while waiting in cover.
-            if (ShouldRescanShootingPosition(goalEnemy))
+            if (CanScanRepositionHold() && ShouldRescanShootingPosition(goalEnemy))
             {
+                MarkRepositionHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("sniperCoverHoldRescan", true);
             }
 
             // Break when a better shooting spot appears than the current committed hold point.
-            if (HasNewShootingSpotOpportunity())
+            if (CanScanRepositionHold() && HasNewShootingSpotOpportunity())
             {
+                MarkRepositionHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("sniperCoverHoldNewShootSpot", true);
             }
 
             // Priority 2: boss-under-attack only breaks when support opportunity is real
             // (shoot from current cover or bossward support cover exists).
-            if (ShouldBreakForPushSupportOpportunity())
+            if (CanScanRepositionHold() && ShouldBreakForPushSupportOpportunity())
             {
+                MarkRepositionHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("sniperCoverHoldPushSupport", true);
             }
 
-            if (ShouldBreakForBossSupportOpportunity(goalEnemy))
+            if (CanScanRepositionHold() && ShouldBreakForBossSupportOpportunity(goalEnemy))
             {
+                MarkRepositionHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("sniperCoverHoldBossUnderAttack", true);
             }
 
             // If an ally starts a real engagement while marksman is holding in cover, break hold
             // and re-evaluate support. Boss-under-attack path still runs first and stays prioritized.
-            if (ShouldBreakForAllyEngagementSupportOpportunity())
+            if (CanScanRepositionHold() && ShouldBreakForAllyEngagementSupportOpportunity())
             {
+                MarkRepositionHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("sniperCoverHoldAllySupport", true);
+            }
+
+            if (IsRepositionHoldExpired())
+            {
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("sniperCoverHoldExpired", true);
             }
 
             // Priority 3: when too far from boss, break hold so regroup objective can take over.
@@ -1079,22 +1127,38 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("fireSupportHoldStandingShotReady", true);
             }
 
-            if (ShouldBreakForPushSupportOpportunity())
+            if (CanScanSupportHold() && ShouldBreakForPushSupportOpportunity())
             {
+                MarkSupportHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("fireSupportHoldPushSupport", true);
             }
 
-            if (ShouldBreakForBossSupportOpportunity(goalEnemy))
+            if (CanScanSupportHold() && ShouldBreakForBossSupportOpportunity(goalEnemy))
             {
+                MarkSupportHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("fireSupportHoldBossUnderAttack", true);
             }
 
-            if (ShouldBreakForAllyEngagementSupportOpportunity())
+            if (CanScanSupportHold() && ShouldBreakForAllyEngagementSupportOpportunity())
             {
+                MarkSupportHoldScanned();
                 ClearCommittedCoverAndRepositionState();
                 return new AICoreActionEndStruct("fireSupportHoldAllySupport", true);
+            }
+
+            if (CanScanSupportHold() && TryGetSupportHoldOpportunityDecision(goalEnemy, out _))
+            {
+                MarkSupportHoldScanned();
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("fireSupportHoldRefresh", true);
+            }
+
+            if (ShouldReleaseSupportHoldForOpportunity(goalEnemy) || IsSupportHoldExpired())
+            {
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("fireSupportHoldExpired", true);
             }
 
             if (ShouldBreakCommittedCoverForBossObjective(goalEnemy, allowLockedBreak: true))
@@ -1290,6 +1354,95 @@ namespace friendlySAIN.BigBrain
             return repositionPhase.IsCooldownActive;
         }
 
+        private bool CanScanSupportHold()
+        {
+            return supportPhase.CanScan;
+        }
+
+        private void MarkSupportHoldScanned()
+        {
+            supportPhase.MarkScanned(HoldOpportunityScanIntervalSeconds);
+        }
+
+        private bool IsSupportHoldExpired()
+        {
+            return supportPhase.IsHoldExpired;
+        }
+
+        private bool CanScanRepositionHold()
+        {
+            return repositionPhase.CanScan;
+        }
+
+        private void MarkRepositionHoldScanned()
+        {
+            repositionPhase.MarkScanned(HoldOpportunityScanIntervalSeconds);
+        }
+
+        private bool IsRepositionHoldExpired()
+        {
+            return repositionPhase.IsHoldExpired;
+        }
+
+        private bool TryGetSupportHoldOpportunityDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            int? previousCoverId = CombatCommon.CommittedCoverId;
+            if (!CombatCommon.TryCommitSupportFiringCover(
+                    goalEnemy,
+                    "sniper.FireSupport.refresh",
+                    out string coverReason,
+                    preferBackline: true) ||
+                CombatCommon.CommittedCoverId == previousCoverId)
+            {
+                return false;
+            }
+
+            supportPhase.BeginTravel();
+            decision = CombatCommon.CreateMoveToCommittedCoverDecision(coverReason);
+            return true;
+        }
+
+        private bool TryGetRepositionHoldOpportunityDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            int? previousCoverId = CombatCommon.CommittedCoverId;
+            if (!CombatCommon.TryCommitFiringPositionCover(
+                    goalEnemy,
+                    "sniper.reposition.refresh",
+                    out _,
+                    preferPointToShoot: true,
+                    preferInbetween: false) ||
+                CombatCommon.CommittedCoverId == previousCoverId)
+            {
+                return false;
+            }
+
+            repositionPhase.BeginTravel();
+            decision = CombatCommon.CreateCommittedCoverMoveDecision();
+            return true;
+        }
+
+        private bool ShouldReleaseSupportHoldForOpportunity(EnemyInfo goalEnemy)
+        {
+            return CanScanSupportHold() &&
+                   goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance() &&
+                   CombatCommon.IsEnemyLowThreat(goalEnemy, MarksmanStartLowThreatAggression) &&
+                   CombatCommon.HasAutomaticCloseCombatWeaponAvailable();
+        }
+
+        private bool ShouldReleaseRepositionHoldForOpportunity(EnemyInfo goalEnemy)
+        {
+            return CanScanRepositionHold() &&
+                   goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance() &&
+                   CombatCommon.IsEnemyLowThreat(goalEnemy, MarksmanStartLowThreatAggression) &&
+                   CombatCommon.HasAutomaticCloseCombatWeaponAvailable();
+        }
+
         private void ClearCommittedCoverAndRepositionState()
         {
             CombatCommon.ClearCommittedCover();
@@ -1463,6 +1616,7 @@ namespace friendlySAIN.BigBrain
                     CombatDistanceConfiguration.Instance.GetBossSupportShootCoverRadius(),
                     requireShootLane: true,
                     requireHideFromEnemy: false,
+                    keepBehindBoss: true,
                     out CustomNavigationPoint? supportCover))
             {
                 if (CombatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, supportCover, "sniper.protectBossShootCover"))

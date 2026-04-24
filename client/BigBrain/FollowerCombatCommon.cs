@@ -245,6 +245,40 @@ namespace friendlySAIN.BigBrain
             return goalEnemy.Person?.HealthController?.IsAlive == true;
         }
 
+        public bool HasAnyActiveCombatEnemy()
+        {
+            if (botOwner?.EnemiesController?.EnemyInfos == null)
+            {
+                return false;
+            }
+
+            foreach (EnemyInfo enemyInfo in botOwner.EnemiesController.EnemyInfos.Values)
+            {
+                if (IsTrackedEnemyAlive(enemyInfo))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsTrackedEnemyAlive(EnemyInfo? enemyInfo)
+        {
+            if (enemyInfo == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(enemyInfo.ProfileId))
+            {
+                Player? alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyInfo.ProfileId);
+                return alivePlayer?.HealthController?.IsAlive == true;
+            }
+
+            return enemyInfo.Person?.HealthController?.IsAlive == true;
+        }
+
         private static bool HasActiveCombatEnemy(BotOwner botOwner, EnemyInfo? goalEnemy)
         {
             if (botOwner?.Memory?.HaveEnemy != true || goalEnemy == null)
@@ -538,6 +572,71 @@ namespace friendlySAIN.BigBrain
             return TryCommitSelectedCombatCover(goalEnemy, cover, committedReason);
         }
 
+        public bool TryCommitMarksmanSupportCover(
+            EnemyInfo goalEnemy,
+            Vector3 pushOwnerPosition,
+            Vector3 enemyPosition,
+            Vector3 watchedDestination,
+            string reason,
+            out string committedReason)
+        {
+            committedReason = reason;
+            if (!CanAcquireCommittedCover())
+            {
+                return false;
+            }
+
+            CustomNavigationPoint? cover = FindPushSupportCover(goalEnemy, pushOwnerPosition, enemyPosition, requireEnemyShootLane: true, keepBehindBoss: true);
+            if (cover == null)
+            {
+                cover = FindPushSupportCover(goalEnemy, pushOwnerPosition, watchedDestination, requireEnemyShootLane: false, keepBehindBoss: true);
+                committedReason += ".watchDestination";
+            }
+            else
+            {
+                committedReason += ".shootEnemy";
+            }
+
+            if (cover != null)
+            {
+                return TryCommitSelectedCombatCover(goalEnemy, cover, committedReason);
+            }
+
+            return false;
+        }
+
+        public bool TryCommitSupportFiringCover(
+            EnemyInfo supportEnemy,
+            string reason,
+            out string committedReason,
+            bool preferBackline)
+        {
+            committedReason = reason;
+            if (!CanAcquireCommittedCover())
+            {
+                return false;
+            }
+
+            if (!TryGetSupportCoverForEnemy(supportEnemy, out CustomNavigationPoint? supportCover, out _))
+            {
+                return false;
+            }
+
+            if (preferBackline)
+            {
+                Vector3 bossPosition = GetBossPosition();
+                Vector3 enemyAnchor = GetEnemyAnchorOrFallback(supportEnemy, Vector3.zero);
+                if (IsFinite(bossPosition) &&
+                    IsFinite(enemyAnchor) &&
+                    !IsSupportPositionBehindBossLine(supportCover!.Position, bossPosition, enemyAnchor))
+                {
+                    return false;
+                }
+            }
+
+            return TryCommitSelectedCombatCover(supportEnemy, supportCover, committedReason);
+        }
+
         /// <summary>
         /// Returns true when the current cover commitment still exists and should be managed.
         /// </summary>
@@ -633,6 +732,8 @@ namespace friendlySAIN.BigBrain
         /// Returns how long the current cover point has been committed.
         /// </summary>
         public float CommittedCoverAge => committedCoverSetAt <= 0f ? 0f : Time.time - committedCoverSetAt;
+
+        public int? CommittedCoverId => committedCoverPoint?.Id;
 
         public bool IsCommittedCoverLockExpired => CommittedCoverAge >= CoverCommitLockSeconds;
 
@@ -857,8 +958,7 @@ namespace friendlySAIN.BigBrain
                    decision == BotLogicDecision.attackMoving ||
                    decision == BotLogicDecision.attackMovingWithSuppress ||
                    decision == (BotLogicDecision)CustomBotDecisions.attackRetreat ||
-                   decision == BotLogicDecision.shootFromCover ||
-                   decision == BotLogicDecision.holdPosition;
+                   decision == BotLogicDecision.shootFromCover;
         }
 
         public void RefreshShootCover()
@@ -1454,6 +1554,25 @@ namespace friendlySAIN.BigBrain
             bool requireHideFromEnemy,
             out CustomNavigationPoint? cover)
         {
+            return TryFindCoverTowardBoss(
+                goalEnemy,
+                bossPosition,
+                searchRadius,
+                requireShootLane,
+                requireHideFromEnemy,
+                keepBehindBoss: false,
+                out cover);
+        }
+
+        public bool TryFindCoverTowardBoss(
+            EnemyInfo goalEnemy,
+            Vector3 bossPosition,
+            float searchRadius,
+            bool requireShootLane,
+            bool requireHideFromEnemy,
+            bool keepBehindBoss,
+            out CustomNavigationPoint? cover)
+        {
             cover = null;
             if (!IsFinite(bossPosition))
             {
@@ -1494,6 +1613,17 @@ namespace friendlySAIN.BigBrain
 
                     if (shootPoint != null &&
                         !Utils.Utils.CanShootToTarget(shootPoint, point, mask, false))
+                    {
+                        return false;
+                    }
+
+                    if (keepBehindBoss &&
+                        !IsSupportPositionBehindBossLine(point.Position, bossPosition, enemyAnchor))
+                    {
+                        return false;
+                    }
+
+                    if (!IsCoverSafeFromAlternateThreats(point, goalEnemy.ProfileId, strict: keepBehindBoss))
                     {
                         return false;
                     }
@@ -1553,7 +1683,8 @@ namespace friendlySAIN.BigBrain
             EnemyInfo goalEnemy,
             Vector3 pushOwnerPosition,
             Vector3 targetPosition,
-            bool requireEnemyShootLane)
+            bool requireEnemyShootLane,
+            bool keepBehindBoss = false)
         {
             if (!IsFinite(targetPosition))
             {
@@ -1587,6 +1718,17 @@ namespace friendlySAIN.BigBrain
                     if (requireEnemyShootLane &&
                         IsFinite(enemyAnchor) &&
                         !point.CanIHideFromPos(0f, true, false, enemyAnchor))
+                    {
+                        return false;
+                    }
+
+                    if (keepBehindBoss &&
+                        !IsSupportPositionBehindBossLine(point.Position, pushOwnerPosition, enemyAnchor))
+                    {
+                        return false;
+                    }
+
+                    if (!IsCoverSafeFromAlternateThreats(point, goalEnemy.ProfileId, strict: keepBehindBoss))
                     {
                         return false;
                     }
@@ -1816,23 +1958,75 @@ namespace friendlySAIN.BigBrain
                 return null;
             }
 
-
-
-            TryPromoteTrackedEnemyAsGoal(supportEnemyProfileId);
-
-            // Gate 4: We must have viable cover to support from
-            if (!TryGetSupportCover(supportEnemyPosition, out CustomNavigationPoint? supportCover, out float supportCoverNavDistance))
+            if (!TrySelectPreferredSupportEnemy(supportEnemyProfileId, supportEnemyPosition, out EnemyInfo? selectedEnemy))
             {
                 return null;
             }
 
-            // All conditions met: commit to support decision
-            SetCover(supportCover);
-            BotLogicDecision supportDecision = supportCoverNavDistance <= StartSupportSuppressDistance
-                ? BotLogicDecision.attackMovingWithSuppress
-                : BotLogicDecision.runToCover;
-            string reason = supportDecision == BotLogicDecision.runToCover ? "allySupportRun" : "allySupportSuppress";
-            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(supportDecision, reason);
+            // Support should own a real committed cover, not a one-frame move order that the next
+            // branch pass can immediately replace.
+            bool preferBackline = GetFollowerTactic() is FollowerCombatTactic.Marksman or FollowerCombatTactic.Protector;
+            if (!TryCommitSupportFiringCover(selectedEnemy, "allySupportCover", out string committedReason, preferBackline))
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrEmpty(selectedEnemy.ProfileId))
+            {
+                TryPromoteTrackedEnemyAsGoal(selectedEnemy.ProfileId);
+            }
+
+            return CreateMoveToCommittedCoverDecision(committedReason);
+        }
+
+        public bool TrySelectPreferredSupportEnemy(
+            string requestedEnemyProfileId,
+            Vector3 requestedEnemyPosition,
+            out EnemyInfo? selectedEnemy,
+            bool preferBackline = false)
+        {
+            selectedEnemy = null;
+
+            EnemyInfo? requestedEnemy = GetTrackedEnemyByProfileId(requestedEnemyProfileId);
+            EnemyInfo? currentEnemy = botOwner.Memory?.GoalEnemy;
+
+            float requestedScore = ScoreSupportEnemy(requestedEnemy, requestedEnemyPosition, preferBackline);
+            float currentScore = ScoreSupportEnemy(currentEnemy, GetEnemyAnchorOrFallback(currentEnemy, requestedEnemyPosition), preferBackline);
+
+            EnemyInfo? bestKnownEnemy = null;
+            float bestKnownScore = float.MinValue;
+            if (botOwner.EnemiesController?.EnemyInfos != null)
+            {
+                foreach (EnemyInfo enemyInfo in botOwner.EnemiesController.EnemyInfos.Values)
+                {
+                    float score = ScoreSupportEnemy(enemyInfo, GetEnemyAnchorOrFallback(enemyInfo, Vector3.zero), preferBackline);
+                    if (score > bestKnownScore)
+                    {
+                        bestKnownEnemy = enemyInfo;
+                        bestKnownScore = score;
+                    }
+                }
+            }
+
+            selectedEnemy = requestedScore >= currentScore ? requestedEnemy : currentEnemy;
+            float selectedScore = Mathf.Max(requestedScore, currentScore);
+            if (bestKnownScore > selectedScore + 1.5f)
+            {
+                selectedEnemy = bestKnownEnemy;
+                selectedScore = bestKnownScore;
+            }
+
+            if (!HasActiveCombatEnemy(selectedEnemy))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(selectedEnemy.ProfileId))
+            {
+                TryPromoteTrackedEnemyAsGoal(selectedEnemy.ProfileId);
+            }
+
+            return true;
         }
 
         public void PrepareStartDecision(float aggression)
@@ -1958,6 +2152,18 @@ namespace friendlySAIN.BigBrain
         public AICoreActionResultStruct<BotLogicDecision, GClass26>? TryGetDogFightDecision()
         {
             EnemyInfo goalEnemy = botOwner.Memory.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                ClearDogFightState();
+                return null;
+            }
+
+            bool hasLiveVisibleDogFightContact = goalEnemy.IsVisible && goalEnemy.CanShoot;
+            if (!hasLiveVisibleDogFightContact)
+            {
+                ClearDogFightState();
+                return null;
+            }
 
             BotDogFightStatus dogFightState = botOwner.DogFight?.DogFightState ?? BotDogFightStatus.none;
             if (dogFightState == BotDogFightStatus.dogFight)
@@ -1970,11 +2176,18 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "cdgfp");
             }
 
+            if (TryPromoteDogFightState(goalEnemy, out dogFightState))
+            {
+                return dogFightState == BotDogFightStatus.dogFight
+                    ? new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "cdg")
+                    : new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "cdgfp");
+            }
+
             if (goalEnemy.IsVisible &&
                 goalEnemy.Distance < 18f &&
                 goalEnemy.Distance > botOwner.Settings.FileSettings.Mind.DOG_FIGHT_IN)
             {
-                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "cdg");
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "cdgNoPlace");
             }
 
             if (goalEnemy.IsVisible &&
@@ -1985,6 +2198,17 @@ namespace friendlySAIN.BigBrain
             }
 
             return null;
+        }
+
+        private void ClearDogFightState()
+        {
+            if (botOwner?.DogFight == null)
+            {
+                return;
+            }
+
+            botOwner.DogFight.DogFightState = BotDogFightStatus.none;
+            botOwner.DogFight.PursuitInProgress = false;
         }
 
         public AICoreActionResultStruct<BotLogicDecision, GClass26>? TryGetNeedHealDecision()
@@ -2642,12 +2866,20 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "enemySearchNoEnemy");
             }
 
-            if (EnemyCoverSearch(reason, weakEnemy) is AICoreActionResultStruct<BotLogicDecision, GClass26> tacticalSearchResult)
+            if (Enemy.Distance(goalEnemy) <= Enemy.EnemyDistance.Close)
             {
-                return tacticalSearchResult;
-            }
+                if (EnemyCoverSearch(reason, weakEnemy) is AICoreActionResultStruct<BotLogicDecision, GClass26> tacticalSearchResult)
+                {
+                    return tacticalSearchResult;
+                }
 
-            return EnemySimpleSearch(reason);
+                return EnemySimpleSearch(reason);
+            }
+            else
+            {
+                reason += ".rush";
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.runToEnemy, reason);
+            }
         }
 
 
@@ -2795,6 +3027,224 @@ namespace friendlySAIN.BigBrain
             return false;
         }
 
+        private EnemyInfo? GetTrackedEnemyByProfileId(string enemyProfileId)
+        {
+            if (string.IsNullOrEmpty(enemyProfileId) || botOwner.EnemiesController?.EnemyInfos == null)
+            {
+                return null;
+            }
+
+            foreach (var item in botOwner.EnemiesController.EnemyInfos)
+            {
+                if (item.Key?.ProfileId == enemyProfileId)
+                {
+                    return item.Value;
+                }
+            }
+
+            return null;
+        }
+
+        private bool TryPromoteDogFightState(EnemyInfo? goalEnemy, out BotDogFightStatus dogFightState)
+        {
+            dogFightState = botOwner.DogFight?.DogFightState ?? BotDogFightStatus.none;
+            if (goalEnemy == null || !goalEnemy.IsVisible)
+            {
+                return false;
+            }
+
+            BotDogFight? dogFight = botOwner.DogFight;
+            if (dogFight == null)
+            {
+                return false;
+            }
+
+            if (goalEnemy.Distance >= 18f)
+            {
+                return false;
+            }
+
+            if (dogFight.method_1(out _))
+            {
+                dogFight.DogFightState = BotDogFightStatus.dogFight;
+                dogFightState = BotDogFightStatus.dogFight;
+                return true;
+            }
+
+            dogFight.DogFightState = BotDogFightStatus.shootFromPlace;
+            dogFightState = BotDogFightStatus.shootFromPlace;
+            return true;
+        }
+
+        private Vector3 GetEnemyAnchorOrFallback(EnemyInfo? enemyInfo, Vector3 fallback)
+        {
+            if (enemyInfo != null)
+            {
+                Vector3 anchor = GetEnemyAnchor(enemyInfo);
+                if (IsFinite(anchor))
+                {
+                    return anchor;
+                }
+            }
+
+            return fallback;
+        }
+
+        private float ScoreSupportEnemy(EnemyInfo? enemyInfo, Vector3 fallbackPosition, bool preferBackline)
+        {
+            if (!HasActiveCombatEnemy(enemyInfo))
+            {
+                return float.MinValue;
+            }
+
+            float score = 0f;
+            Vector3 enemyAnchor = GetEnemyAnchorOrFallback(enemyInfo, fallbackPosition);
+            float distance = IsFinite(enemyAnchor)
+                ? Vector3.Distance(botOwner.Position, enemyAnchor)
+                : float.MaxValue;
+
+            if (enemyInfo!.IsVisible)
+            {
+                score += 5f;
+            }
+
+            if (enemyInfo.CanShoot)
+            {
+                score += 4f;
+            }
+
+            if (botOwner.Memory?.GoalEnemy != null &&
+                string.Equals(botOwner.Memory.GoalEnemy.ProfileId, enemyInfo.ProfileId, StringComparison.Ordinal))
+            {
+                score += 2.5f;
+            }
+
+            float sinceLastSeen = Time.time - enemyInfo.PersonalLastSeenTime;
+            if (sinceLastSeen <= 2.5f)
+            {
+                score += 2f;
+            }
+
+            if (distance < float.MaxValue)
+            {
+                score -= Mathf.Clamp(distance / 25f, 0f, 4f);
+            }
+
+            if (preferBackline && distance < CombatDistanceConfiguration.Instance.GetCloseQuarterDistance())
+            {
+                score -= 3f;
+            }
+
+            return score;
+        }
+
+        private bool TryGetSupportCoverForEnemy(
+            EnemyInfo supportEnemy,
+            out CustomNavigationPoint? supportCover,
+            out float supportCoverNavDistance)
+        {
+            supportCover = null;
+            supportCoverNavDistance = float.MaxValue;
+            Vector3 enemyPosition = GetEnemyAnchorOrFallback(supportEnemy, Vector3.zero);
+            if (!IsFinite(enemyPosition))
+            {
+                return false;
+            }
+
+            if (!TryGetSupportCover(enemyPosition, out supportCover, out supportCoverNavDistance))
+            {
+                return false;
+            }
+
+            bool strict = GetFollowerTactic() == FollowerCombatTactic.Marksman;
+            if (!IsCoverSafeFromAlternateThreats(supportCover, supportEnemy.ProfileId, strict))
+            {
+                supportCover = null;
+                supportCoverNavDistance = float.MaxValue;
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool IsCoverSafeFromAlternateThreats(CustomNavigationPoint? cover, string? primaryEnemyProfileId, bool strict)
+        {
+            if (!IsCoverUsable(cover))
+            {
+                return false;
+            }
+
+            if (botOwner.EnemiesController?.EnemyInfos == null)
+            {
+                return true;
+            }
+
+            foreach (EnemyInfo enemyInfo in botOwner.EnemiesController.EnemyInfos.Values)
+            {
+                if (!HasActiveCombatEnemy(enemyInfo) ||
+                    string.Equals(enemyInfo.ProfileId, primaryEnemyProfileId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                Vector3 enemyAnchor = GetEnemyAnchor(enemyInfo);
+                if (!IsFinite(enemyAnchor))
+                {
+                    continue;
+                }
+
+                bool dangerousThreat =
+                    enemyInfo.CanShoot ||
+                    enemyInfo.IsVisible ||
+                    Time.time - enemyInfo.PersonalLastSeenTime <= 3f;
+                if (!dangerousThreat)
+                {
+                    continue;
+                }
+
+                if (!cover!.CanIHideFromPos(0f, true, false, enemyAnchor))
+                {
+                    if (strict)
+                    {
+                        return false;
+                    }
+
+                    float primaryDistance = botOwner.Memory?.GoalEnemy != null &&
+                                            IsFinite(GetEnemyAnchor(botOwner.Memory.GoalEnemy))
+                        ? Vector3.Distance(cover.Position, GetEnemyAnchor(botOwner.Memory.GoalEnemy))
+                        : float.MaxValue;
+                    float alternateDistance = Vector3.Distance(cover.Position, enemyAnchor);
+                    if (alternateDistance <= primaryDistance + 5f)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsSupportPositionBehindBossLine(Vector3 candidate, Vector3 bossPosition, Vector3 enemyAnchor)
+        {
+            if (!IsFinite(candidate) || !IsFinite(bossPosition) || !IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            Vector3 bossToEnemy = enemyAnchor - bossPosition;
+            bossToEnemy.y = 0f;
+            if (bossToEnemy.sqrMagnitude < 0.01f)
+            {
+                return true;
+            }
+
+            bossToEnemy.Normalize();
+            Vector3 bossToCandidate = candidate - bossPosition;
+            bossToCandidate.y = 0f;
+            float forward = Vector3.Dot(bossToCandidate, bossToEnemy);
+            return forward <= 1.5f;
+        }
+
         /// <summary>
         /// Treats very recent visible contacts as an immediate-fire window so followers do not hesitate
         /// before taking their first shot.
@@ -2831,6 +3281,16 @@ namespace friendlySAIN.BigBrain
             }
 
             if (!HasActiveCombatEnemy(goalEnemy) || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            // While a committed cover run is still inside its initial lock window, treat the move as
+            // sticky unless the bot was actually hit. This avoids SAIN-unlike flicker breaks where a
+            // transient LOS blip peels the follower off the chosen cover before arrival.
+            if (HasCommittedCover() &&
+                !IsBotInCommittedCover() &&
+                !IsCommittedCoverLockExpired)
             {
                 return false;
             }
@@ -3785,6 +4245,11 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("dogFightStarted", true);
             }
 
+            if (goalEnemy != null && FollowerImmediateFirePolicy.CanUseRecentContactSuppress(goalEnemy))
+            {
+                return Continue();
+            }
+
             // If enemy cannot be shot (not visible or can't shoot), suppress fire ends
             if (goalEnemy != null && (!goalEnemy.CanShoot || !goalEnemy.IsVisible))
             {
@@ -3810,6 +4275,16 @@ namespace friendlySAIN.BigBrain
                 FollowerGrenadeCooldowns.CancelPending(botOwner);
                 FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
                 return new AICoreActionEndStruct("suppressGrenadeTimeout", true);
+            }
+
+            if (!HasAnyActiveCombatEnemy() &&
+                (grenades.ThrowindNow || grenades.ReadyToThrow) &&
+                !FollowerGrenadeRuntimeGate.HasReleasedThrow(botOwner))
+            {
+                AbortPendingGrenadeThrow(grenades);
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                return new AICoreActionEndStruct("suppressGrenadeCanceledNoEnemies", true);
             }
 
             if (grenades.ThrowindNow || grenades.ReadyToThrow)
@@ -4053,7 +4528,18 @@ namespace friendlySAIN.BigBrain
         public AICoreActionEndStruct EndThrowGrenadeFromPlace()
         {
             BotRequest? currentRequest = botOwner.BotRequestController?.CurRequest;
-            BotGrenadeController grenades = botOwner.WeaponManager?.Grenades;
+            BotGrenadeController? grenades = botOwner.WeaponManager?.Grenades;
+            if (grenades != null &&
+                !HasAnyActiveCombatEnemy() &&
+                (grenades.ThrowindNow || grenades.ReadyToThrow) &&
+                !FollowerGrenadeRuntimeGate.HasReleasedThrow(botOwner))
+            {
+                AbortPendingGrenadeThrow(grenades);
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                return new AICoreActionEndStruct("grenadeCanceledNoEnemies", true);
+            }
+
             bool grenadeSequenceActive =
                 grenades != null &&
                 (grenades.ThrowindNow || grenades.ReadyToThrow);
@@ -4067,6 +4553,11 @@ namespace friendlySAIN.BigBrain
             }
 
             return new AICoreActionEndStruct("grenadeRequestFinished", true);
+        }
+
+        private static void AbortPendingGrenadeThrow(BotGrenadeController grenades)
+        {
+            grenades?.method_6(null);
         }
 
         public AICoreActionEndStruct EndBaseGoToPoint()

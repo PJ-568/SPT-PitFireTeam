@@ -9,6 +9,7 @@ namespace friendlySAIN.Modules
         private static readonly HashSet<string> AlwaysDisabledByProfileId = new();
         private static readonly HashSet<string> ExplicitThrowEnabledByProfileId = new();
         private static readonly Dictionary<string, string> ExplicitThrowOwnerByGroupKey = new();
+        private static readonly HashSet<string> ReleasedThrowByProfileId = new();
 
         public static void EnforceDisabled(BotOwner bot)
         {
@@ -70,6 +71,8 @@ namespace friendlySAIN.Modules
                 return;
             }
 
+            ReleasedThrowByProfileId.Remove(bot.ProfileId);
+
             string? groupKey = GetGroupKey(bot);
             if (!string.IsNullOrEmpty(groupKey) &&
                 ExplicitThrowOwnerByGroupKey.TryGetValue(groupKey, out string ownerProfileId) &&
@@ -89,6 +92,36 @@ namespace friendlySAIN.Modules
             }
 
             RefreshFollowerGroup(bot);
+        }
+
+        public static void MarkThrowReleased(BotOwner bot)
+        {
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return;
+            }
+
+            ReleasedThrowByProfileId.Add(bot.ProfileId);
+        }
+
+        public static bool ConsumeThrowReleased(BotOwner bot)
+        {
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return false;
+            }
+
+            return ReleasedThrowByProfileId.Remove(bot.ProfileId);
+        }
+
+        public static bool HasReleasedThrow(BotOwner bot)
+        {
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return false;
+            }
+
+            return ReleasedThrowByProfileId.Contains(bot.ProfileId);
         }
 
         public static bool IsThrowAllowed(BotOwner bot)

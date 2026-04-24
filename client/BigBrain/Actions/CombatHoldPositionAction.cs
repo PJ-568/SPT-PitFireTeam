@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Components;
 using friendlySAIN.Utils;
 using System.Collections;
 using UnityEngine;
@@ -72,16 +73,19 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Look()
         {
-            EnemyInfo visibleGoalEnemy = BotOwner_0.Memory.GoalEnemy;
-            if (visibleGoalEnemy?.IsVisible != true &&
-                FollowerAwareness.TryGetRecentThreatLookPoint(BotOwner_0, out Vector3 threatLookPoint))
+            if (BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner_0))
             {
-                BotOwner_0.Steering.LookToPoint(threatLookPoint);
                 return;
             }
 
             if (TryLookTowardEnemy())
             {
+                return;
+            }
+
+            if (FollowerAwareness.TryGetRecentThreatLookPoint(BotOwner_0, out Vector3 threatLookPoint))
+            {
+                BotOwner_0.Steering.LookToPoint(threatLookPoint);
                 return;
             }
 

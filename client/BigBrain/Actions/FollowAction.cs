@@ -199,7 +199,10 @@ namespace friendlySAIN.BigBrain.Actions
                         BotOwner.Memory.SetCoverPoints(newCover);
                         BotOwner.GoToSomePointData.SetPoint(newCover.Position);
                         BotOwner.GoToSomePointData.UpdateToGo(false);
-                        BotOwner.Steering.LookToPathDestPoint();
+                        if (!TryApplyCommandLookOverride())
+                        {
+                            BotOwner.Steering.LookToPathDestPoint();
+                        }
                         movingToSettlePoint = true;
                         nextFollowUpdateAt = Time.time + 0.5f;
                         return;
@@ -210,7 +213,10 @@ namespace friendlySAIN.BigBrain.Actions
                     {
                         BotOwner.GoToSomePointData.SetPoint(settlePosition);
                         BotOwner.GoToSomePointData.UpdateToGo(false);
-                        BotOwner.Steering.LookToPathDestPoint();
+                        if (!TryApplyCommandLookOverride())
+                        {
+                            BotOwner.Steering.LookToPathDestPoint();
+                        }
                         movingToSettlePoint = true;
                         nextFollowUpdateAt = Time.time + 0.5f;
                     }
@@ -471,7 +477,10 @@ namespace friendlySAIN.BigBrain.Actions
                 }
                 else
                 {
-                    BotOwner.Steering.LookToMovingDirection();
+                    if (!TryApplyCommandLookOverride())
+                    {
+                        BotOwner.Steering.LookToMovingDirection();
+                    }
                 }
                 return;
             }
@@ -496,7 +505,10 @@ namespace friendlySAIN.BigBrain.Actions
                     BotOwner.Mover.Sprint(false, false);
                 }
                 BotOwner.Mover.SetTargetMoveSpeed(0.5f);
-                BotOwner.Steering.LookToPoint(navMeshHit.position + Vector3.up * 1.5f);
+                if (!TryApplyCommandLookOverride())
+                {
+                    BotOwner.Steering.LookToPoint(navMeshHit.position + Vector3.up * 1.5f);
+                }
 
                 ResetPeaceActions();
 
@@ -524,10 +536,18 @@ namespace friendlySAIN.BigBrain.Actions
             NavMeshPathStatus pathStatus = BotOwner.GoToPoint(position, true, -1f, false, false);
             if (pathStatus == NavMeshPathStatus.PathComplete)
             {
-                BotOwner.Steering.LookToMovingDirection();
+                if (!TryApplyCommandLookOverride())
+                {
+                    BotOwner.Steering.LookToMovingDirection();
+                }
             }
 
             return pathStatus;
+        }
+
+        private bool TryApplyCommandLookOverride()
+        {
+            return BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner);
         }
 
         private void UpdateFollowPath(Vector3 leaderPosition)

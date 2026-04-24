@@ -124,11 +124,6 @@ namespace friendlySAIN.Patches
                 return false;
             }
 
-            if (!FollowerCombatLayer.IsFollowerCombatLayerActive(botOwner))
-            {
-                return false;
-            }
-
             if (!selector.CanChangeToSupportWeapons || !selector.IsWeaponReady)
             {
                 return false;
@@ -140,7 +135,12 @@ namespace friendlySAIN.Patches
             }
 
             EnemyInfo goalEnemy = botOwner.Memory?.GoalEnemy;
-            return goalEnemy == null || Time.time - goalEnemy.TimeLastSeen > 30f;
+            if (FollowerCombatLayer.IsFollowerCombatLayerActive(botOwner))
+            {
+                return goalEnemy == null || Time.time - goalEnemy.TimeLastSeen > 30f;
+            }
+
+            return ShouldSuppressPatrolSupportAutoReturn(botOwner, selector, goalEnemy);
         }
 
         public static void PreserveManualUpdateStuckFlag(BotWeaponSelector selector)
@@ -163,6 +163,49 @@ namespace friendlySAIN.Patches
             return selector != null
                 ? Traverse.Create(selector).Field("BotOwner_0").GetValue<BotOwner>()
                 : null;
+        }
+
+        private static bool ShouldSuppressPatrolSupportAutoReturn(
+            BotOwner botOwner,
+            BotWeaponSelector selector,
+            EnemyInfo goalEnemy)
+        {
+            if (goalEnemy != null)
+            {
+                return false;
+            }
+
+            if (!string.Equals(botOwner.Brain?.Agent?.UsingLayer, "friendlySAIN.FollowerPatrol", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            BotReload reload = botOwner.WeaponManager?.Reload;
+            Weapon currentWeapon = botOwner.WeaponManager?.CurrentWeapon;
+            if (reload == null || currentWeapon == null)
+            {
+                return false;
+            }
+
+            MagazineItemClass currentMagazine = currentWeapon.GetCurrentMagazine();
+            if (currentMagazine == null || currentMagazine.MaxCount <= 0)
+            {
+                return false;
+            }
+
+            int currentCount = currentWeapon.GetCurrentMagazineCount();
+            if (currentCount >= currentMagazine.MaxCount)
+            {
+                return false;
+            }
+
+            if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
+            {
+                return true;
+            }
+
+            MagazineItemClass bestMagazine = reload.GetMagazineForReload(currentWeapon);
+            return bestMagazine != null && bestMagazine.Count > currentCount;
         }
     }
 

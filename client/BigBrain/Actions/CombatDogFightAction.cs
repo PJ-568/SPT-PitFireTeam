@@ -1,6 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using System.Collections.Generic;
+using friendlySAIN.Utils;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -8,33 +8,35 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatDogFightAction : FollowerCombatActionBase
     {
-        private const float TightArcMoveDistance = 4f;
+        private const float MoveUpdateMinDelay = 0.1f;
+        private const float MoveUpdateFallbackDelay = 0.33f;
+        private const float RecentSeenThreshold = 1f;
 
         private readonly GClass178 shootLogic;
-        private readonly Queue<Vector3> movementQueue = new Queue<Vector3>();
+        private readonly GClass274 grenadeLogic;
+        private readonly NavMeshPath dogFightPath = new NavMeshPath();
 
-        private bool isMoving;
-        private float nextMovementCheckTime;
+        private DogFightMoveStatus moveStatus;
+        private float nextMoveUpdateTime;
 
         public CombatDogFightAction(BotOwner botOwner) : base(botOwner)
         {
             shootLogic = new GClass183(botOwner);
+            grenadeLogic = new GClass274(botOwner);
         }
 
         public override void Start()
         {
             base.Start();
-            movementQueue.Clear();
-            isMoving = false;
-            nextMovementCheckTime = 0f;
+            moveStatus = DogFightMoveStatus.None;
+            nextMoveUpdateTime = 0f;
         }
 
         public override void Stop()
         {
             StopCombatShooting();
-            movementQueue.Clear();
-            isMoving = false;
-            nextMovementCheckTime = 0f;
+            moveStatus = DogFightMoveStatus.None;
+            nextMoveUpdateTime = 0f;
 
             if (BotOwner?.DogFight != null)
             {
@@ -48,130 +50,213 @@ namespace friendlySAIN.BigBrain.Actions
         public override void Update(CustomLayer.ActionData data)
         {
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
-            if (goalEnemy == null)
+
+            BotOwner.Mover.SetTargetMoveSpeed(1f);
+            UpdateSainLikeMovement(goalEnemy);
+            BotOwner.SetPose(0.5f);
+            BotOwner.Sprint(false, true);
+
+            if (goalEnemy == null || !goalEnemy.CanShoot || !goalEnemy.IsVisible)
             {
                 StopCombatShooting();
-                BotOwner.Mover.Stop();
                 BotOwner.LookData.SetLookPointByHearing(null);
-                BotOwner.SetPose(1f);
                 return;
             }
 
-            BotOwner.Sprint(false, true);
-            BotOwner.Mover.SetTargetMoveSpeed(1f);
-            Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.GetBodyPartPosition();
-
-            bool isTightContact = goalEnemy.Distance <= TightArcMoveDistance;
-            bool tense = goalEnemy.IsVisible && isTightContact;
-            if (tense)
+            if (BotOwner.WeaponManager.IsMelee)
             {
-                BotOwner.SetPose(0.8f);
-            }
-
-            if (goalEnemy.CanShoot && goalEnemy.IsVisible)
-            {
-
-                if (BotOwner.DoorOpener.DogFightHaveNearestDoor())
-                {
-                    BotOwner.Mover.Stop();
-                }
-                else
-                {
-                    if (isTightContact && nextMovementCheckTime < Time.time)
-                    {
-                        FightMovementClose(goalEnemy);
-                    }
-
-                    if (!isMoving)
-                    {
-                        BotOwner.DogFight.Fight();
-                    }
-                }
-
-
-
-                BotOwner.Steering.LookToPoint(shootPoint);
-                shootLogic.UpdateNodeByBrain(GetData<GClass27>(data));
+                BotOwner.WeaponManager.Selector.ChangeToMain();
                 return;
             }
 
-            StopCombatShooting();
-            if (!tense)
+            if (BotOwner.Settings.FileSettings.Grenade.CAN_THROW_FROM_ANY_PLACE && grenadeLogic.UpdateTryThrow())
             {
-                BotOwner.SetPose(1f);
+                return;
             }
+
+            Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.CurrPosition;
+            MaintainThreatFacing(goalEnemy, shootPoint, allowHardTurn: true);
 
             if (BotOwner.DoorOpener.DogFightHaveNearestDoor())
             {
                 BotOwner.Mover.Stop();
             }
 
-            BotOwner.Steering.LookToPoint(shootPoint);
-            BotOwner.DogFight.Fight();
-        }
-
-        private void FightMovementClose(EnemyInfo goalEnemy)
-        {
-            if (isMoving && BotOwner.Mover.IsComeTo(0.5f, false))
+            Vector3 fireOrigin = BotOwner.WeaponRoot != null
+                ? BotOwner.WeaponRoot.position
+                : BotOwner.Position + Vector3.up * 1.2f;
+            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, shootPoint))
             {
-                isMoving = false;
+                StopCombatShooting();
+                return;
             }
 
-            if (isMoving)
+            shootLogic.UpdateNodeByBrain(GetData<GClass27>(data));
+        }
+
+        private void UpdateSainLikeMovement(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null)
+            {
+                moveStatus = DogFightMoveStatus.None;
+                return;
+            }
+
+            if (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true)
+            {
+                BotOwner.SetPose(1f);
+            }
+
+            if (goalEnemy.IsVisible && moveStatus == DogFightMoveStatus.MovingToEnemy)
+            {
+                moveStatus = DogFightMoveStatus.Shooting;
+                BotOwner.Mover.Stop();
+                nextMoveUpdateTime = Time.time + 0.25f * Random.Range(0.66f, 1.33f);
+                return;
+            }
+
+            if (nextMoveUpdateTime > Time.time)
             {
                 return;
             }
 
-            if (movementQueue.Count > 0)
+            if (TryBackUpFromEnemy(goalEnemy))
             {
-                Vector3 nextMove = movementQueue.Dequeue();
-                isMoving = BotOwner.GoToPoint(nextMove, true, -1f, false, false) == NavMeshPathStatus.PathComplete;
+                moveStatus = DogFightMoveStatus.BackingUp;
+                float baseTime = goalEnemy.IsVisible ? 0.75f : 1f;
+                nextMoveUpdateTime = Time.time + baseTime * Random.Range(0.66f, 1.33f);
                 return;
             }
 
-            GenerateArcMovement(goalEnemy);
-            if (movementQueue.Count == 0)
+            if (TryMoveTowardEnemy(goalEnemy))
             {
-                nextMovementCheckTime = Time.time + 5f;
+                moveStatus = DogFightMoveStatus.MovingToEnemy;
+                nextMoveUpdateTime = Time.time + Mathf.Clamp(0.25f * Random.Range(0.5f, 1.25f), MoveUpdateMinDelay, 0.66f);
+                return;
             }
+
+            moveStatus = DogFightMoveStatus.None;
+            nextMoveUpdateTime = Time.time + MoveUpdateFallbackDelay;
         }
 
-        private void GenerateArcMovement(EnemyInfo goalEnemy)
+        private bool TryMoveTowardEnemy(EnemyInfo goalEnemy)
         {
-            movementQueue.Clear();
+            Vector3 moveTarget = goalEnemy.IsVisible
+                ? goalEnemy.CurrPosition
+                : goalEnemy.EnemyLastPositionReal;
 
-            Vector3 botPos = BotOwner.Position;
-            Vector3 enemyPos = goalEnemy.CurrPosition;
-            Vector3 toEnemy = (enemyPos - botPos).normalized;
-            float strafeSign = Random.value > 0.5f ? 1f : -1f;
-            Vector3 strafeDir = Vector3.Cross(toEnemy, Vector3.up) * strafeSign;
-
-            // Only lateral/forward points — no backward retreat.
-            // Backward arc points require ~180° body rotation; aim-clamp cannot maintain
-            // look-at-enemy during that turn, causing the bot to fire in the wrong direction.
-            Vector3[] arcMoves = new[]
+            if (!NavMesh.SamplePosition(moveTarget, out NavMeshHit navMeshHit, 1.5f, -1))
             {
-                botPos + strafeDir * 2f,
-                botPos + (strafeDir + toEnemy).normalized * 2f,
-                botPos - strafeDir * 2f
-            };
+                return false;
+            }
 
-            ShootPointClass shootPoint = BotOwner.CurrentEnemyTargetPosition(false);
-            for (int i = 0; i < arcMoves.Length; i++)
+            return BotOwner.GoToPoint(navMeshHit.position, false, -1f, false, false) == NavMeshPathStatus.PathComplete;
+        }
+
+        private bool TryBackUpFromEnemy(EnemyInfo goalEnemy)
+        {
+            Vector3? target = FindBackUpTarget(goalEnemy);
+            if (target == null)
             {
-                if (!NavMesh.SamplePosition(arcMoves[i], out NavMeshHit navMeshHit, 2f, -1))
+                return false;
+            }
+
+            Vector3 botPosition = BotOwner.Position;
+            Vector3 targetDirection = target.Value - botPosition;
+            targetDirection.y = 0f;
+            if (targetDirection.sqrMagnitude < 0.01f)
+            {
+                return false;
+            }
+
+            Vector3 away = -targetDirection.normalized;
+            Vector3 preferred = botPosition + away * 3f;
+
+            const int maxIterations = 5;
+            for (int i = 0; i < maxIterations; i++)
+            {
+                Vector3 random = Random.onUnitSphere * 2f;
+                random.y = Mathf.Clamp(random.y, -0.5f, 0.5f);
+                Vector3 candidate = preferred + random;
+                if (!NavMesh.SamplePosition(candidate, out NavMeshHit navMeshHit, 2f, -1))
                 {
                     continue;
                 }
 
-                Vector3 candidate = navMeshHit.position;
-                if (global::friendlySAIN.Utils.Utils.CanShootToTarget(shootPoint, candidate, BotOwner.LookSensor.Mask, false))
+                if ((navMeshHit.position - botPosition).sqrMagnitude <= 1f)
                 {
-                    movementQueue.Enqueue(candidate);
+                    continue;
+                }
+
+                if (BotOwner.GoToPoint(navMeshHit.position, false, -1f, false, false) == NavMeshPathStatus.PathComplete)
+                {
+                    return true;
                 }
             }
 
-            nextMovementCheckTime = Time.time + 0.2f;
+            if (goalEnemy.IsVisible && Time.time - goalEnemy.PersonalSeenTime < RecentSeenThreshold * Random.Range(0.66f, 1.33f))
+            {
+                Vector3 direction = (botPosition - target.Value).normalized;
+                Vector3 random = Random.onUnitSphere * Random.Range(1.25f, 2f);
+                random.y = 0f;
+                Vector3 point = botPosition + direction * Random.Range(1f, 2f) + random;
+                if (NavMesh.Raycast(botPosition, point, out NavMeshHit raycastHit, -1))
+                {
+                    if (raycastHit.distance <= 0.5f)
+                    {
+                        dogFightPath.ClearCorners();
+                        if (NavMesh.CalculatePath(botPosition, point, -1, dogFightPath) &&
+                            dogFightPath.status == NavMeshPathStatus.PathComplete &&
+                            dogFightPath.corners.Length > 0)
+                        {
+                            Vector3 pathEnd = dogFightPath.corners[dogFightPath.corners.Length - 1];
+                            return BotOwner.GoToPoint(pathEnd, false, -1f, false, false) == NavMeshPathStatus.PathComplete;
+                        }
+                    }
+
+                    return BotOwner.GoToPoint(raycastHit.position, false, -1f, false, false) == NavMeshPathStatus.PathComplete;
+                }
+
+                return BotOwner.GoToPoint(point, false, -1f, false, false) == NavMeshPathStatus.PathComplete;
+            }
+
+            return false;
+        }
+
+        private Vector3? FindBackUpTarget(EnemyInfo goalEnemy)
+        {
+            BotOwner? enemyBot = goalEnemy.Person?.AIData?.BotOwner;
+            if (enemyBot != null &&
+                (enemyBot.WeaponManager.Reload.Reloading ||
+                 !enemyBot.WeaponManager.HaveBullets ||
+                 enemyBot.Medecine?.Using == true ||
+                 (goalEnemy.IsVisible && Time.time - goalEnemy.PersonalSeenTime < RecentSeenThreshold)))
+            {
+                return goalEnemy.CurrPosition;
+            }
+
+            if (goalEnemy.IsVisible && Time.time - goalEnemy.PersonalSeenTime < RecentSeenThreshold)
+            {
+                return goalEnemy.CurrPosition;
+            }
+
+            return goalEnemy.EnemyLastPositionReal;
+        }
+
+        private void MaintainThreatFacing(EnemyInfo goalEnemy, Vector3 shootPoint, bool allowHardTurn)
+        {
+            if (!CombatAttackMoveLook.TryLookThreatFacing(BotOwner, goalEnemy, allowHardTurn))
+            {
+                BotOwner.Steering.LookToPoint(shootPoint);
+            }
+        }
+
+        private enum DogFightMoveStatus
+        {
+            None,
+            BackingUp,
+            MovingToEnemy,
+            Shooting,
         }
     }
 }

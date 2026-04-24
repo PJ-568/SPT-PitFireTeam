@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using friendlySAIN.Components;
 using friendlySAIN.Utils;
 using UnityEngine;
 
@@ -27,6 +28,7 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            TryPreferPrimaryAtRange(BotOwner.Memory?.GoalEnemy);
             baseLogic.SetCurrentReason(GetReason(data));
             baseLogic.UpdateNodeByBrain(GetRawData(data));
         }
@@ -81,7 +83,10 @@ namespace friendlySAIN.BigBrain.Actions
                 }
 
                 EnemyInfo? goalEnemy = BotOwner_0.Memory?.GoalEnemy;
-                TryMaintainThreatFacing(goalEnemy);
+                if (!BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner_0))
+                {
+                    TryMaintainThreatFacing(goalEnemy);
+                }
 
                 Vector3 threatPoint;
                 bool shouldShoot = TryGetSafeShootOrSuppressTarget(goalEnemy, out threatPoint);

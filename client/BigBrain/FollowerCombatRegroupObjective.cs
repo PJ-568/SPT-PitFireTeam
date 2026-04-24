@@ -19,6 +19,10 @@ namespace friendlySAIN.BigBrain
         private const float CombatRegroupCoverRadiusMarksman = 24f;
         private const float BossSectorRadius = 20f;
         private const float RegroupHotContactSeconds = 2.5f;
+        private const float RegroupFallbackSpreadMinRadius = 1f;
+        private const float RegroupFallbackSpreadMaxRadius = 6f;
+        private const float RegroupFallbackSpacing = 2f;
+        private const float RegroupClaimTtlSeconds = 2f;
         internal const string RegroupReasonPrefix = "regroup.";
         private const string RegroupWithdrawBackwardReason = "regroup.withdraw.backward";
         private const string RegroupWithdrawForwardReason = "regroup.withdraw.forward";
@@ -47,6 +51,7 @@ namespace friendlySAIN.BigBrain
 
         public override void Reset()
         {
+            ReleaseDestinationClaim();
             currentTarget = Vector3.zero;
             bossSectorAnchor = Vector3.zero;
             hasTarget = false;
@@ -63,6 +68,7 @@ namespace friendlySAIN.BigBrain
 
         public override void Deactivate()
         {
+            ReleaseDestinationClaim();
             complete = false;
         }
 
@@ -268,6 +274,7 @@ namespace friendlySAIN.BigBrain
                 bossSectorAnchor = bossPosition;
                 hasTarget = true;
                 hasBossSectorAnchor = true;
+                UpsertDestinationClaim(targetPosition);
                 BotOwner.GoToSomePointData.SetPoint(targetPosition);
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.attackMoving,
@@ -275,11 +282,12 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
-            currentTarget = bossPosition;
+            currentTarget = GetFallbackBossDestination(bossPosition);
             bossSectorAnchor = bossPosition;
             hasTarget = true;
             hasBossSectorAnchor = true;
-            BotOwner.GoToSomePointData.SetPoint(bossPosition);
+            UpsertDestinationClaim(currentTarget);
+            BotOwner.GoToSomePointData.SetPoint(currentTarget);
             decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                 BotLogicDecision.attackMoving,
                 GetWithdrawReason(bossDirection));
@@ -298,6 +306,7 @@ namespace friendlySAIN.BigBrain
                 hasBossSectorAnchor = true;
             }
 
+            ReleaseDestinationClaim();
             currentTarget = Vector3.zero;
             hasTarget = false;
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.goToPoint, "regroup.run");
@@ -480,8 +489,60 @@ namespace friendlySAIN.BigBrain
 
         private void ClearCurrentTarget()
         {
+            ReleaseDestinationClaim();
             currentTarget = Vector3.zero;
             hasTarget = false;
+        }
+
+        private Vector3 GetFallbackBossDestination(Vector3 bossPosition)
+        {
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents) &&
+                combatEvents.TryFindBossSpreadDestination(
+                    BotOwner,
+                    bossPosition,
+                    RegroupFallbackSpreadMinRadius,
+                    RegroupFallbackSpreadMaxRadius,
+                    CombatRegroupSameLevelTolerance,
+                    RegroupFallbackSpacing,
+                    out Vector3 spreadTarget))
+            {
+                return spreadTarget;
+            }
+
+            if (NavMesh.SamplePosition(bossPosition, out NavMeshHit bossHit, 2f, -1))
+            {
+                return bossHit.position;
+            }
+
+            return bossPosition;
+        }
+
+        private void UpsertDestinationClaim(Vector3 target)
+        {
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents))
+            {
+                combatEvents.UpsertDestinationClaim(BotOwner, target, RegroupClaimTtlSeconds);
+            }
+        }
+
+        private void ReleaseDestinationClaim()
+        {
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents))
+            {
+                combatEvents.ReleaseDestinationClaim(BotOwner);
+            }
+        }
+
+        private bool TryGetBossCombatEvents(out CombatEvents? combatEvents)
+        {
+            combatEvents = null;
+            if (BotOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            combatEvents = boss.CombatEvents;
+            return combatEvents != null;
         }
 
         private bool HasBossSectorChanged(Vector3 bossPosition)

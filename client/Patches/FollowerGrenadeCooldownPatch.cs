@@ -1,3 +1,4 @@
+using Comfort.Common;
 using EFT;
 using EFT.InventoryLogic;
 using friendlySAIN.Modules;
@@ -77,9 +78,34 @@ namespace friendlySAIN.Patches
                 return;
             }
 
-            bool completed = grenade != null;
+            bool completed = FollowerGrenadeRuntimeGate.ConsumeThrowReleased(bot);
 
             FollowerGrenadeRuntimeGate.FinishExplicitThrow(bot, completed);
+        }
+    }
+
+    internal class FollowerGrenadeReleasePatch : ModulePatch
+    {
+        private static readonly FieldInfo BotOwnerField = AccessTools.Field(typeof(BotGrenadeController), "BotOwner_0");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotGrenadeController), "method_11");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(BotGrenadeController __instance, Result<IHandsThrowController> throwResult)
+        {
+            BotOwner bot = BotOwnerField?.GetValue(__instance) as BotOwner;
+            if (bot == null || !BossPlayers.IsFollower(bot))
+            {
+                return;
+            }
+
+            if (throwResult.Succeed && throwResult.Value != null)
+            {
+                FollowerGrenadeRuntimeGate.MarkThrowReleased(bot);
+            }
         }
     }
 }

@@ -53,6 +53,8 @@ namespace friendlySAIN.Components
         private const float ContactLookDistance = 45f;
         private const float GestureCommandDistance = 15f;
         private const float PhraseCommandDistance = 30f;
+        private const float CommandLookOverrideMinSeconds = 1.5f;
+        private const float CommandLookOverrideMaxSeconds = 3.5f;
         private const float ComeWithMeMaxDistance = 25f;
         private const float DefaultGoToDistance = 50f;
         private const float LookAtFollowerDistance = 27f;
@@ -218,6 +220,13 @@ namespace friendlySAIN.Components
                 {
                     ProcessContactCommand(info.PlayerRequester);
                 }
+                else if (info.phrase == EPhraseTrigger.InTheFront ||
+                         info.phrase == EPhraseTrigger.LeftFlank ||
+                         info.phrase == EPhraseTrigger.RightFlank ||
+                         info.phrase == EPhraseTrigger.OnSix)
+                {
+                    ApplyDirectionalLookPhrase(info.PlayerRequester, info.phrase);
+                }
                 else if (info.phrase == EPhraseTrigger.Look)
                 {
                     HandleAttentionCommand();
@@ -358,7 +367,7 @@ namespace friendlySAIN.Components
                 }
             }
             seenEnemies = PrioritizeContactEnemies(requester, seenEnemies);
-            Vector3 lookTarget = requester.Transform.position + requester.LookDirection.normalized * ContactLookDistance;
+            Vector3 lookTarget = GetLookTargetFromDirection(requester, requester.LookDirection);
             int followersProcessed = 0;
             int followersSkippedVisibility = 0;
             int enemiesInjected = 0;
@@ -382,11 +391,7 @@ namespace friendlySAIN.Components
                 bool hasOwnVisibleGoal = TryGetLiveVisibleEnemy(follower, out string ownVisibleGoalId);
                 if (!hasOwnVisibleGoal)
                 {
-                    // Make followers orient toward boss reported direction when they do not already have visual contact.
-                    follower.Steering.LookToPoint(lookTarget);
-
-                    float lookOverrideDuration = Utils.Utils.Random(2f, 4f);
-                    followerData?.SetCommandLookOverride(lookTarget, lookOverrideDuration);
+                    ApplyFollowerLookOverride(follower, lookTarget);
                 }
                 followersProcessed++;
 
@@ -1727,7 +1732,6 @@ namespace friendlySAIN.Components
                 if (sqrDist > GestureCommandDistance * GestureCommandDistance) continue;
                 if (!CanReactToBossGesture(follower, requester)) continue;
                 if (sqrDist >= bestDist) continue;
-                if (!CanAcceptThereCommand(follower)) continue;
 
                 closestFollower = follower;
                 bestDist = sqrDist;
@@ -1749,8 +1753,120 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            followerData.SetMoveToPoint(commandTarget, 0f);
+            ApplyFollowerLookOverride(closestFollower, commandTarget);
+
+            if (CanAcceptThereCommand(closestFollower))
+            {
+                followerData.SetMoveToPoint(commandTarget, 0f);
+            }
+
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private void ApplyDirectionalLookPhrase(IPlayer requester, EPhraseTrigger phrase)
+        {
+            if (!TryGetDirectionalLookTarget(requester, phrase, out Vector3 lookTarget))
+            {
+                return;
+            }
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (!CanReactToBossPhrase(follower, requester, PhraseCommandDistance)) continue;
+
+                ApplyFollowerLookOverride(follower, lookTarget, 1f, 2f);
+            }
+        }
+
+        private static bool TryGetDirectionalLookTarget(IPlayer requester, EPhraseTrigger phrase, out Vector3 lookTarget)
+        {
+            Vector3 direction = GetPlanarLookDirection(requester);
+            if (direction.sqrMagnitude <= 0.001f)
+            {
+                lookTarget = Vector3.zero;
+                return false;
+            }
+
+            switch (phrase)
+            {
+                case EPhraseTrigger.InTheFront:
+                    break;
+
+                case EPhraseTrigger.LeftFlank:
+                    direction = Quaternion.Euler(0f, -90f, 0f) * direction;
+                    break;
+
+                case EPhraseTrigger.RightFlank:
+                    direction = Quaternion.Euler(0f, 90f, 0f) * direction;
+                    break;
+
+                case EPhraseTrigger.OnSix:
+                    direction = -direction;
+                    break;
+
+                default:
+                    lookTarget = Vector3.zero;
+                    return false;
+            }
+
+            lookTarget = GetLookTargetFromDirection(requester, direction);
+            return true;
+        }
+
+        private static Vector3 GetLookTargetFromDirection(IPlayer requester, Vector3 direction)
+        {
+            Vector3 planarDirection = direction;
+            planarDirection.y = 0f;
+            if (planarDirection.sqrMagnitude <= 0.001f)
+            {
+                planarDirection = requester?.Transform?.forward ?? Vector3.forward;
+                planarDirection.y = 0f;
+            }
+
+            if (planarDirection.sqrMagnitude <= 0.001f)
+            {
+                planarDirection = Vector3.forward;
+            }
+
+            return requester.Transform.position + planarDirection.normalized * ContactLookDistance;
+        }
+
+        private static Vector3 GetPlanarLookDirection(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return Vector3.zero;
+            }
+
+            Vector3 direction = requester.LookDirection;
+            direction.y = 0f;
+
+            if (direction.sqrMagnitude > 0.001f)
+            {
+                return direction.normalized;
+            }
+
+            var transform = requester.Transform;
+            if (transform == null)
+            {
+                return Vector3.zero;
+            }
+
+            direction = transform.forward;
+            direction.y = 0f;
+            return direction.sqrMagnitude > 0.001f ? direction.normalized : Vector3.zero;
+        }
+
+        private static bool ApplyFollowerLookOverride(BotOwner follower, Vector3 lookTarget, float minDuration = CommandLookOverrideMinSeconds, float maxDuration = CommandLookOverrideMaxSeconds)
+        {
+            if (follower == null)
+            {
+                return false;
+            }
+
+            float duration = Utils.Utils.Random(minDuration, maxDuration);
+            return BotFollowerPlayer.TrySetCommandLookOverride(follower, lookTarget, duration);
         }
 
         private void ApplyGoForwardPhrase(IPlayer requester)

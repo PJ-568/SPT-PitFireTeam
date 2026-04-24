@@ -41,6 +41,8 @@ When fixing bugs or implementing changes:
 
 Do not leave left overs. When going with a different approach, clean up (or revert) the old approach
 
+Always think centralization giving the fact that we can have different types of followers with different tactics that may share some behaviors or functionality.
+
 ## Decision Priority
 
 When multiple approaches are possible, prefer:
@@ -423,6 +425,13 @@ Cross-tactic rule:
 - Hold behavior now distinguishes `coverHold` and `bossHold`:
     - both can break early for renewed combat opportunity,
     - `bossHold` and committed cover/shoot-cover states can break into regroup when boss-distance pressure wins.
+- Core suppress-fire now supports a short recent-contact pressure window on the vanilla/core path:
+    - if a follower just lost clean LOS, `suppressFire` can keep shooting briefly toward `EnemyLastPositionReal`,
+    - this is intentionally narrower than broad blind-fire logic and is only used for suppression-style fire continuity,
+    - `FollowerShotSafety` remains the hard stop; no recent-contact pressure shot is allowed through the player boss or other followers.
+- Combat hold look priority now anchors to the current enemy direction first:
+    - `CombatHoldPositionAction` / `EnemyFacingHoldLogic` tries current enemy or last known enemy look before recent-threat or ally-look fallback,
+    - this keeps hold orientation aligned with ping/callout direction when the follower already has a combat enemy.
 - Dedicated regular grenade use is now explicit on the core path:
     - no hidden opportunistic grenade throw inside dogfight,
     - grenade throw goes through `throwGrenadeFromPlace` with a dedicated safety gate.
@@ -464,6 +473,7 @@ Supported commands via `GestureCommandAction`:
 - **MoveToPoint** ("There") — Walk to NavMesh-validated target, brief arrival look-around
     - Gesture-initiated: single-follower move-to-point
     - Phrase-initiated: still used for explicit point movement when follower has no combat enemy
+    - if movement is not accepted, the chosen follower can still receive a brief command-look override toward the pointed location
 - **PushEnemy** (`GoForward` in combat) — Force combat engage routing against the follower's current enemy
     - `AIBossPlayer.ApplyGoForwardPhrase()` targets the looked-at follower if one is selected, otherwise it broadcasts to active followers
     - command acceptance is no longer limited by the old phrase-distance gate
@@ -478,6 +488,9 @@ Supported commands via `GestureCommandAction`:
     - during combat it is now an objective trigger consumed by the active `FollowerCombatLogicBase` implementation
     - out of combat it still uses the request-layer regroup command path
 - **Attention** (Look) — Clear enemy state, release command, force attention to boss/point
+- Directional quick phrases and contact cues now share a command-look override path:
+    - `OverThere`, `Contact`, `Front`, `Left`, `Right`, and `OnSix` feed a temporary look target relative to the boss look direction
+    - combat hold, core combat movement, and follow movement consume the same override so followers can briefly reorient without permanently stealing action ownership
 
 **Visibility Requirements:**
 
@@ -741,14 +754,14 @@ Supported commands via `GestureCommandAction`:
 
 **`SAINFollowerSquadDecisionCalculator` Priority Order:**
 
-| Decision           | Condition                                     | Action                   | Constraints                                                  |
-| ------------------ | --------------------------------------------- | ------------------------ | ------------------------------------------------------------ |
-| **PushSuppressed** | Enemy suppressed by ally + vulnerable + close | `RushEnemyAction`        | Path < 75m (100m sprint), ammo > 50%                         |
-| **GroupSearch**    | Search-party leader exists + ally searching same enemy | Leader: SAIN `SearchAction`; others: `FollowBossSearchAction` | Coordinate hunt             |
-| **Suppress**       | Ally in retreat from enemy                    | `SuppressAction`         | Distance < 30-50m, ammo > 10-50%, no friendlies in fire lane |
-| **Help**           | Ally engaging visible enemy                   | `SearchAction`           | Distance < 30-45m, seen < 8s                                 |
-| **Search**         | Enemy known but unseen                        | `SearchAction`           | Seen within last 20s                                         |
-| **Regroup**        | Boss-distance regroup in combat or fallback SAIN squad regroup | `DefaultBossAction` / `RegroupAction` | Boss-adjacent, avoid stacking |
+| Decision           | Condition                                                      | Action                                                        | Constraints                                                  |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------ |
+| **PushSuppressed** | Enemy suppressed by ally + vulnerable + close                  | `RushEnemyAction`                                             | Path < 75m (100m sprint), ammo > 50%                         |
+| **GroupSearch**    | Search-party leader exists + ally searching same enemy         | Leader: SAIN `SearchAction`; others: `FollowBossSearchAction` | Coordinate hunt                                              |
+| **Suppress**       | Ally in retreat from enemy                                     | `SuppressAction`                                              | Distance < 30-50m, ammo > 10-50%, no friendlies in fire lane |
+| **Help**           | Ally engaging visible enemy                                    | `SearchAction`                                                | Distance < 30-45m, seen < 8s                                 |
+| **Search**         | Enemy known but unseen                                         | `SearchAction`                                                | Seen within last 20s                                         |
+| **Regroup**        | Boss-distance regroup in combat or fallback SAIN squad regroup | `DefaultBossAction` / `RegroupAction`                         | Boss-adjacent, avoid stacking                                |
 
 **Action Types:**
 

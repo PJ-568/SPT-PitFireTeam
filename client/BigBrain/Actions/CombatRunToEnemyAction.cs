@@ -11,6 +11,14 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatRunToEnemyAction : FollowerCombatActionBase
     {
+        private enum RunLookMode
+        {
+            None,
+            Enemy,
+            MovingDirection,
+            KeepCurrent
+        }
+
         private const float VerticalTolerance = 1.25f;
         private const float ProgressCheckInterval = 1.25f;
         private const float MinimumProgressDistance = 0.4f;
@@ -18,6 +26,8 @@ namespace friendlySAIN.BigBrain.Actions
         private const float MinEnemyRunPointDistance = 5f;
         private const float MaxEnemyRunPointDistance = 10f;
         private const float RunPointNavSampleRadius = 2.25f;
+        private const float LookCommitMinSeconds = 0.2f;
+        private const float LookCommitMaxSeconds = 0.4f;
         private static readonly float[] RunPointDistances = { 8f, 10f, 6.5f, 5f };
         private static readonly float[] RunPointAngles = { 0f, -25f, 25f, -50f, 50f, -90f, 90f, 180f };
 
@@ -27,6 +37,8 @@ namespace friendlySAIN.BigBrain.Actions
         private Vector3 lastProgressPosition;
         private float nextProgressCheckTime;
         private int stalledProgressChecks;
+        private RunLookMode committedLookMode;
+        private float committedLookModeUntil;
 
         public CombatRunToEnemyAction(BotOwner botOwner) : base(botOwner)
         {
@@ -41,6 +53,8 @@ namespace friendlySAIN.BigBrain.Actions
             lastProgressPosition = BotOwner.Position;
             nextProgressCheckTime = 0f;
             stalledProgressChecks = 0;
+            committedLookMode = RunLookMode.None;
+            committedLookModeUntil = 0f;
 
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy != null)
@@ -69,27 +83,11 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.SetTargetMoveSpeed(1f);
             RefreshProgressState();
             NotMovingCheck(goalEnemy);
-            EnsurePrimaryWeapon();
+            TryPreferPrimaryAtRange(goalEnemy);
 
             BotOwner.SetPose(1f);
-
-            if (BotOwner.Mover.HasPathAndNoComplete)
-            {
-                SetCombatSprint(canRun);
-            }
-            else
-            {
-                SetCombatSprint(canRun);
-            }
-
-            if (!canRun)
-            {
-                BotOwner.Steering.LookToDirection(goalEnemy.CurrPosition - BotOwner.Position);
-            }
-            else
-            {
-                BotOwner.Steering.LookToMovingDirection();
-            }
+            SetCombatSprint(canRun);
+            UpdateLook(goalEnemy, canRun);
 
             if (!BotOwner.Mover.IsComeTo(BotOwner.Settings.FileSettings.Move.REACH_DIST, false, null))
             {
@@ -161,7 +159,79 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.StopMove();
             SetCombatSprint(false);
             BotOwner.SetPose(1f);
+            CommitLookMode(RunLookMode.Enemy);
             BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
+        }
+
+        private void UpdateLook(EnemyInfo goalEnemy, bool canRun)
+        {
+            if (BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner))
+            {
+                return;
+            }
+
+            if (TryApplyCommittedLook(goalEnemy, canRun))
+            {
+                return;
+            }
+
+            if (canRun && BotOwner.Mover.HasPathAndNoComplete)
+            {
+                CommitLookMode(RunLookMode.MovingDirection);
+                BotOwner.Steering.LookToMovingDirection();
+                return;
+            }
+
+            BotOwner.LookData.SetLookPointByHearing(null);
+            CommitLookMode(RunLookMode.KeepCurrent);
+            BotOwner.Steering.LookToDirection(BotOwner.LookDirection);
+        }
+
+        private bool TryApplyCommittedLook(EnemyInfo goalEnemy, bool canRun)
+        {
+            if (committedLookMode == RunLookMode.None || committedLookModeUntil <= Time.time)
+            {
+                return false;
+            }
+
+            switch (committedLookMode)
+            {
+                case RunLookMode.Enemy:
+                    if (goalEnemy != null && goalEnemy.IsVisible && goalEnemy.CanShoot)
+                    {
+                        BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
+                        return true;
+                    }
+
+                    return false;
+
+                case RunLookMode.MovingDirection:
+                    if (canRun && BotOwner.Mover.HasPathAndNoComplete)
+                    {
+                        BotOwner.Steering.LookToMovingDirection();
+                        return true;
+                    }
+
+                    return false;
+
+                case RunLookMode.KeepCurrent:
+                    BotOwner.LookData.SetLookPointByHearing(null);
+                    BotOwner.Steering.LookToDirection(BotOwner.LookDirection);
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void CommitLookMode(RunLookMode mode)
+        {
+            if (mode == committedLookMode && committedLookModeUntil > Time.time)
+            {
+                return;
+            }
+
+            committedLookMode = mode;
+            committedLookModeUntil = Time.time + GClass856.Random(LookCommitMinSeconds, LookCommitMaxSeconds);
         }
 
         private bool TryMoveToEnemy(EnemyInfo goalEnemy)
@@ -405,19 +475,6 @@ namespace friendlySAIN.BigBrain.Actions
             committedRunPoint = Vector3.zero;
         }
 
-        private void EnsurePrimaryWeapon()
-        {
-            if (BossPlayers.Instance?.GetFollower(BotOwner)?.CombatTactic == FollowerCombatTactic.Marksman)
-            {
-                return;
-            }
-
-            if (BotOwner.WeaponManager.IsMelee)
-            {
-                BotOwner.WeaponManager.Selector.ChangeToMain();
-            }
-        }
-
         private void StopAdvance()
         {
             ClearCommittedRunPoint();
@@ -425,6 +482,8 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.LookData.SetLookPointByHearing(null);
             SetCombatSprint(false);
             BotOwner.SetPose(0f);
+            committedLookMode = RunLookMode.None;
+            committedLookModeUntil = 0f;
         }
 
         private static bool IsFinite(Vector3 value)

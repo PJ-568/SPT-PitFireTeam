@@ -8,6 +8,11 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatRegroupRunAction : FollowerCombatActionBase
     {
+        private const float RegroupRunSpreadMinRadius = 1f;
+        private const float RegroupRunSpreadMaxRadius = 6f;
+        private const float RegroupRunSameLevelTolerance = 1.75f;
+        private const float RegroupRunSpacing = 2f;
+        private const float RegroupRunClaimTtl = 2f;
         private readonly GClass219 baseLogic;
         private GClass30? cachedData;
         private Vector3 cachedPoint;
@@ -34,6 +39,7 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Stop()
         {
+            ReleaseDestinationClaim();
             cachedData = null;
             cachedPoint = Vector3.zero;
             hasCachedPoint = false;
@@ -57,6 +63,10 @@ namespace friendlySAIN.BigBrain.Actions
                 };
 
                 BotOwner.GoToSomePointData.SetPoint(cachedPoint);
+            }
+            else
+            {
+                UpsertDestinationClaim(cachedPoint);
             }
 
             baseLogic.UpdateNodeByBrain(cachedData);
@@ -89,14 +99,59 @@ namespace friendlySAIN.BigBrain.Actions
             return BotOwner.Position;
         }
 
-        private static Vector3 GetBossRunTarget(Vector3 bossPosition)
+        private Vector3 GetBossRunTarget(Vector3 bossPosition)
         {
-            if (NavMesh.SamplePosition(bossPosition, out NavMeshHit bossHit, 2f, -1))
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents) &&
+                combatEvents.TryFindBossSpreadDestination(
+                    BotOwner,
+                    bossPosition,
+                    RegroupRunSpreadMinRadius,
+                    RegroupRunSpreadMaxRadius,
+                    RegroupRunSameLevelTolerance,
+                    RegroupRunSpacing,
+                    out Vector3 spreadTarget))
             {
-                return bossHit.position;
+                UpsertDestinationClaim(spreadTarget);
+                return spreadTarget;
             }
 
+            if (NavMesh.SamplePosition(bossPosition, out NavMeshHit bossHit, 2f, -1))
+            {
+                Vector3 target = bossHit.position;
+                UpsertDestinationClaim(target);
+                return target;
+            }
+
+            UpsertDestinationClaim(bossPosition);
             return bossPosition;
+        }
+
+        private void UpsertDestinationClaim(Vector3 target)
+        {
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents))
+            {
+                combatEvents.UpsertDestinationClaim(BotOwner, target, RegroupRunClaimTtl);
+            }
+        }
+
+        private void ReleaseDestinationClaim()
+        {
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents))
+            {
+                combatEvents.ReleaseDestinationClaim(BotOwner);
+            }
+        }
+
+        private bool TryGetBossCombatEvents(out CombatEvents? combatEvents)
+        {
+            combatEvents = null;
+            if (BotOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            combatEvents = boss.CombatEvents;
+            return combatEvents != null;
         }
 
         private static bool IsFinite(Vector3 value)

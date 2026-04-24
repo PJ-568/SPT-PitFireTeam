@@ -7,8 +7,11 @@ namespace friendlySAIN.BigBrain.Actions
 {
     internal sealed class CombatShootFromPlaceAction : FollowerCombatActionBase
     {
-        private const float MinEnemyDistanceForProne = 35f;
+        private const float MinEnemyDistanceForProne = 80f;
         private const float SameSpotMaxDistanceSqr = 0.75f * 0.75f;
+        private const float StandingPoseThreshold = 0.85f;
+        private const float CrouchFireProbeHeight = 1.0f;
+        private const float ProneFireProbeHeight = 0.35f;
         private readonly GClass276 baseLogic;
         private float aimAlignStartedAt;
         private Vector3 startPosition;
@@ -34,7 +37,10 @@ namespace friendlySAIN.BigBrain.Actions
         public override void Update(CustomLayer.ActionData data)
         {
             EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
-            bool allowProne = goalEnemy == null || goalEnemy.Distance >= MinEnemyDistanceForProne;
+            bool allowCrouch = CanUseFirePose(goalEnemy, CrouchFireProbeHeight);
+            bool allowProne = goalEnemy != null &&
+                              goalEnemy.Distance >= MinEnemyDistanceForProne &&
+                              CanUseFirePose(goalEnemy, ProneFireProbeHeight);
             baseLogic.CanLay = allowProne;
 
             if (!allowProne && BotOwner.BotLay.IsLay)
@@ -44,7 +50,11 @@ namespace friendlySAIN.BigBrain.Actions
 
             string? reason = GetReason(data) ?? BotOwner.Brain?.Agent?.LastResult().Reason;
             if (string.Equals(reason, "visibleImmediateShoot", System.StringComparison.Ordinal) &&
-                (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true || BotOwner.Mover.TargetPose < 0.85f))
+                (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true || BotOwner.Mover.TargetPose < StandingPoseThreshold))
+            {
+                BotOwner.SetPose(1f);
+            }
+            else if (!allowCrouch && BotOwner.Mover.TargetPose < StandingPoseThreshold)
             {
                 BotOwner.SetPose(1f);
             }
@@ -60,6 +70,39 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
+            EnforceSupportedFirePose(allowCrouch, allowProne);
+        }
+
+        private void EnforceSupportedFirePose(bool allowCrouch, bool allowProne)
+        {
+            if (!allowProne && BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true)
+            {
+                BotOwner.BotLay.GetUp(false);
+                return;
+            }
+
+            if (!allowCrouch && BotOwner.Mover.TargetPose < StandingPoseThreshold)
+            {
+                BotOwner.SetPose(1f);
+            }
+        }
+
+        private bool CanUseFirePose(EnemyInfo? goalEnemy, float probeHeight)
+        {
+            if (goalEnemy == null || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!BotOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                return false;
+            }
+
+            ShootPointClass shootPoint = BotOwner.CurrentEnemyTargetPosition(false) ??
+                                         new ShootPointClass(goalEnemy.GetBodyPartPosition(), 1f);
+            Vector3 fireOrigin = BotOwner.Position + Vector3.up * probeHeight;
+            return Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, BotOwner.LookSensor.Mask, false);
         }
 
         private bool TryUpdateImmediateLostVisualSuppress(string? reason, EnemyInfo? goalEnemy)

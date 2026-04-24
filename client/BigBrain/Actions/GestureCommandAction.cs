@@ -52,13 +52,6 @@ namespace friendlySAIN.BigBrain.Actions
         private const float RegroupRandomRadius = 6f;
         private const float RegroupReservationSpacing = 1.5f;
         private const float RegroupReservationTtl = 2f;
-        private static readonly Dictionary<string, RegroupReservation> ActiveRegroupReservations = new Dictionary<string, RegroupReservation>();
-
-        private struct RegroupReservation
-        {
-            public Vector3 Point;
-            public float ExpiresAt;
-        }
 
         public GestureCommandAction(BotOwner botOwner) : base(botOwner) { }
 
@@ -385,7 +378,6 @@ namespace friendlySAIN.BigBrain.Actions
 
         private bool TryGetRegroupTarget(Vector3 bossPos, out Vector3 target)
         {
-            CleanupRegroupReservations();
             target = Vector3.zero;
             float bestDistance = float.MaxValue;
             List<CustomNavigationPoint> coverPoints = Covers.GetCoverPoints(
@@ -414,36 +406,17 @@ namespace friendlySAIN.BigBrain.Actions
 
             if (target == Vector3.zero)
             {
-                for (int i = 0; i < 12; i++)
+                if (TryGetBossCombatEvents(out CombatEvents? combatEvents) &&
+                    combatEvents.TryFindBossSpreadDestination(
+                        BotOwner,
+                        bossPos,
+                        1f,
+                        RegroupRandomRadius,
+                        SameLevelTolerance,
+                        RegroupReservationSpacing,
+                        out Vector3 spreadTarget))
                 {
-                    float angle = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
-                    float radius = UnityEngine.Random.Range(1f, RegroupRandomRadius);
-                    Vector3 candidate = bossPos + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
-                    if (!NavMesh.SamplePosition(candidate, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
-                    {
-                        continue;
-                    }
-                    if (Mathf.Abs(navHit.position.y - bossPos.y) > SameLevelTolerance)
-                    {
-                        continue;
-                    }
-                    if (IsRegroupTargetCrowded(navHit.position))
-                    {
-                        continue;
-                    }
-
-                    NavMeshPath path = new NavMeshPath();
-                    if (!NavMesh.CalculatePath(BotOwner.Position, navHit.position, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
-                    {
-                        continue;
-                    }
-
-                    float pathDistance = path.CalculatePathLength();
-                    if (pathDistance < bestDistance)
-                    {
-                        bestDistance = pathDistance;
-                        target = navHit.position;
-                    }
+                    target = spreadTarget;
                 }
             }
 
@@ -455,22 +428,11 @@ namespace friendlySAIN.BigBrain.Actions
             float spacingSqr = RegroupReservationSpacing * RegroupReservationSpacing;
             if (BotOwner.BotFollower.BossToFollow is pitAIBossPlayer boss)
             {
-                foreach (BotOwner follower in boss.Followers)
-                {
-                    if (follower == null || follower == BotOwner || follower.IsDead || follower.BotState != EBotState.Active) continue;
-                    if ((follower.Position - candidate).sqrMagnitude < spacingSqr)
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            string myProfileId = BotOwner.ProfileId;
-            foreach (KeyValuePair<string, RegroupReservation> entry in ActiveRegroupReservations)
-            {
-                if (entry.Key == myProfileId) continue;
-                if (entry.Value.ExpiresAt < Time.time) continue;
-                if ((entry.Value.Point - candidate).sqrMagnitude < spacingSqr)
+                if (boss.CombatEvents.HasDestinationClaimConflict(
+                        BotOwner,
+                        candidate,
+                        RegroupReservationSpacing,
+                        includeFollowerPositions: true))
                 {
                     return true;
                 }
@@ -481,40 +443,34 @@ namespace friendlySAIN.BigBrain.Actions
 
         private void UpsertRegroupReservation(Vector3 target)
         {
-            if (string.IsNullOrEmpty(BotOwner.ProfileId)) return;
-            ActiveRegroupReservations[BotOwner.ProfileId] = new RegroupReservation
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents))
             {
-                Point = target,
-                ExpiresAt = Time.time + RegroupReservationTtl
-            };
+                combatEvents.UpsertDestinationClaim(BotOwner, target, RegroupReservationTtl);
+            }
         }
 
         private void ReleaseRegroupReservation()
         {
-            if (string.IsNullOrEmpty(BotOwner.ProfileId))
+            if (TryGetBossCombatEvents(out CombatEvents? combatEvents))
             {
-                return;
+                combatEvents.ReleaseDestinationClaim(BotOwner);
             }
-
-            ActiveRegroupReservations.Remove(BotOwner.ProfileId);
         }
 
         private static void CleanupRegroupReservations()
         {
-            if (ActiveRegroupReservations.Count == 0) return;
-            List<string>? expired = null;
-            foreach (KeyValuePair<string, RegroupReservation> entry in ActiveRegroupReservations)
+        }
+
+        private bool TryGetBossCombatEvents(out CombatEvents? combatEvents)
+        {
+            combatEvents = null;
+            if (BotOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
             {
-                if (entry.Value.ExpiresAt >= Time.time) continue;
-                expired ??= new List<string>();
-                expired.Add(entry.Key);
+                return false;
             }
 
-            if (expired == null) return;
-            foreach (string id in expired)
-            {
-                ActiveRegroupReservations.Remove(id);
-            }
+            combatEvents = boss.CombatEvents;
+            return combatEvents != null;
         }
 
         private void HandleComeCloser()

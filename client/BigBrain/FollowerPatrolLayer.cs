@@ -596,7 +596,13 @@ namespace friendlySAIN.BigBrain
 
             if (selector.LastEquipmentSlot == slot)
             {
-                return true;
+                if (ShouldReloadCurrentWeaponOutOfCombat())
+                {
+                    return true;
+                }
+
+                reloadSlotsTried.Add(slot);
+                return false;
             }
 
             return slot switch

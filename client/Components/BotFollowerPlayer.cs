@@ -1086,6 +1086,51 @@ namespace friendlySAIN.Components
             return false;
         }
 
+        public static bool TryGetCommandLookOverride(BotOwner bot, out Vector3 point)
+        {
+            point = Vector3.zero;
+            if (bot == null)
+            {
+                return false;
+            }
+
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(bot);
+            return followerData?.TryGetCommandLookOverride(out point) == true;
+        }
+
+        public static bool TrySetCommandLookOverride(BotOwner bot, Vector3 point, float duration, bool applyImmediateLook = true)
+        {
+            if (bot == null)
+            {
+                return false;
+            }
+
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(bot);
+            if (followerData == null)
+            {
+                return false;
+            }
+
+            if (applyImmediateLook)
+            {
+                bot.Steering.LookToPoint(point);
+            }
+
+            followerData.SetCommandLookOverride(point, duration);
+            return true;
+        }
+
+        public static bool TryApplyCommandLookOverride(BotOwner bot)
+        {
+            if (!TryGetCommandLookOverride(bot, out Vector3 point))
+            {
+                return false;
+            }
+
+            bot.Steering.LookToPoint(point);
+            return true;
+        }
+
         public bool TryGetActiveCommand(out FollowerCommandType command, out Vector3 target)
         {
             if (_bot != null)

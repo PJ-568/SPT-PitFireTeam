@@ -14,14 +14,30 @@ namespace friendlySAIN.BigBrain
         private const string PushReasonPrefix = "push.";
         private const float ShootCoverSettleSeconds = 2.5f;
         private const string ShootCoverHoldReason = "shootCoverHold";
+        private const float IntentSettleSeconds = 2.5f;
+        private const float IntentScanIntervalSeconds = 0.75f;
+        private const float SupportIntentMaxHoldSeconds = 8f;
+        private const float ProtectIntentMaxHoldSeconds = 8f;
+        private const float IntentRetryCooldownSeconds = 3f;
+
+        private enum CoverIntentKind
+        {
+            None,
+            Support,
+            ProtectBoss,
+        }
 
         private readonly BotOwner botOwner;
         private readonly FollowerCombatCommon combatCommon;
         private readonly FollowerCombatPush combatPush;
         private readonly CommittedCoverPhaseState shootCoverSettlePhase = new CommittedCoverPhaseState();
+        private readonly CommittedCoverPhaseState coverIntentPhase = new CommittedCoverPhaseState();
 
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedPushDecision;
         private string? committedPushEnemyProfileId;
+        private CoverIntentKind activeCoverIntent;
+        private float supportIntentRetryUntil;
+        private float protectIntentRetryUntil;
 
         public FollowerCombatDefault(BotOwner botOwner, FollowerCombatCommon combatCommon)
         {
@@ -38,6 +54,7 @@ namespace friendlySAIN.BigBrain
             combatCommon.ResetCommittedCover();
             ClearCommittedPush("reset");
             shootCoverSettlePhase.Reset();
+            ClearCoverIntent();
         }
 
         /// <summary>
@@ -58,6 +75,11 @@ namespace friendlySAIN.BigBrain
             else
             {
                 ClearCommittedPush("decisionChanged");
+            }
+
+            if (activeCoverIntent != CoverIntentKind.None && !IsDecisionCompatibleWithCoverIntent(nextDecision))
+            {
+                ClearCoverIntent();
             }
 
         }
@@ -131,6 +153,13 @@ namespace friendlySAIN.BigBrain
                 return recoverDecision;
             }
 
+            // If a cover point was already committed earlier, keep following through on it before
+            // inventing a new plan.
+            if (TryGetCommittedCoverDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedDecision))
+            {
+                return committedDecision;
+            }
+
             // If the boss was just hit and this follower is not already committed to a stronger
             // personal fight, bias toward protecting the boss and adopting the boss's attacker.
             if (TryGetBossUnderAttackDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> protectBossDecision))
@@ -138,13 +167,24 @@ namespace friendlySAIN.BigBrain
                 return protectBossDecision;
             }
 
+            // Once escort pressure has already won, do not let passive ally-support or generic
+            // advance branches keep the follower solving the fight from a stale bossHold.
+            if (TryGetBossCombatObjectiveDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> bossObjectiveDecision))
+            {
+                return bossObjectiveDecision;
+            }
+
             // While passively holding in cover, scan for a credible ally support opportunity before
             // defaulting into generic push/search or idle holding behavior.
-            AICoreActionResultStruct<BotLogicDecision, GClass26>? allySupportDecision =
-                combatCommon.TryGetAllyEngagementSupportDecision();
-            if (allySupportDecision != null)
+            if (!IsCoverIntentRetryActive(CoverIntentKind.Support))
             {
-                return allySupportDecision.Value;
+                AICoreActionResultStruct<BotLogicDecision, GClass26>? allySupportDecision =
+                    combatCommon.TryGetAllyEngagementSupportDecision();
+                if (allySupportDecision != null)
+                {
+                    CommitCoverIntent(CoverIntentKind.Support);
+                    return allySupportDecision.Value;
+                }
             }
 
             // If pushing is justified after the safety checks above, ask the engage helper to choose
@@ -152,20 +192,6 @@ namespace friendlySAIN.BigBrain
             if (TryGetAdvanceDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> advanceDecision))
             {
                 return advanceDecision;
-            }
-
-            // If the boss is outside the combat leash and there is no immediate visible fight to solve
-            // first, switch objectives before stale cover commitments can reselect shootCover/bossHold.
-            if (TryGetBossCombatObjectiveDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> bossObjectiveDecision))
-            {
-                return bossObjectiveDecision;
-            }
-
-            // If a cover point was already committed earlier, keep following through on it before
-            // inventing a new plan.
-            if (TryGetCommittedCoverDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedDecision))
-            {
-                return committedDecision;
             }
 
             if (botOwner.Memory.IsInCover)
@@ -194,6 +220,7 @@ namespace friendlySAIN.BigBrain
             {
                 ClearCommittedPush("explicitRegroup");
                 combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("defaultExplicitRegroup", true);
             }
 
@@ -383,6 +410,7 @@ namespace friendlySAIN.BigBrain
             if (!combatCommon.HasCommittedCover())
             {
                 shootCoverSettlePhase.Clear();
+                ClearCoverIntent();
                 return false;
             }
 
@@ -391,11 +419,13 @@ namespace friendlySAIN.BigBrain
             if (combatCommon.IsBotInCommittedCover())
             {
                 shootCoverSettlePhase.PromoteToHoldOnArrival();
+                UpdateCoverIntentArrival();
 
                 if (HasActivePushOrder())
                 {
                     shootCoverSettlePhase.Clear();
                     combatCommon.ClearCommittedCover();
+                    ClearCoverIntent();
                     return false;
                 }
 
@@ -430,10 +460,43 @@ namespace friendlySAIN.BigBrain
                     return true;
                 }
 
+                // Once the initial cover settle is over, boss-distance regroup should beat passive
+                // local cover churn unless there is already a real visible shot to solve here.
+                if (ShouldBreakCommittedCoverForBossObjective(goalEnemy))
+                {
+                    shootCoverSettlePhase.Clear();
+                    combatCommon.ClearCommittedCover();
+                    ClearCoverIntent();
+                    return false;
+                }
+
+                if (TryGetCoverIntentRepositionDecision(goalEnemy, out decision))
+                {
+                    return true;
+                }
+
+                if (ShouldReleaseCoverIntentForOpportunity(goalEnemy))
+                {
+                    shootCoverSettlePhase.Clear();
+                    combatCommon.ClearCommittedCover();
+                    ClearCoverIntent();
+                    return false;
+                }
+
+                if (ShouldExpireCoverIntent())
+                {
+                    shootCoverSettlePhase.Clear();
+                    combatCommon.ClearCommittedCover();
+                    ApplyCoverIntentRetryCooldown();
+                    ClearCoverIntent();
+                    return false;
+                }
+
                 if (!goalEnemy.IsVisible && combatCommon.ShouldAdvance(goalEnemy))
                 {
                     shootCoverSettlePhase.Clear();
                     combatCommon.ClearCommittedCover();
+                    ClearCoverIntent();
                     return false;
                 }
 
@@ -441,13 +504,7 @@ namespace friendlySAIN.BigBrain
                 {
                     shootCoverSettlePhase.Clear();
                     combatCommon.ClearCommittedCover();
-                    return false;
-                }
-
-                if (ShouldBreakCommittedCoverForBossObjective(goalEnemy))
-                {
-                    shootCoverSettlePhase.Clear();
-                    combatCommon.ClearCommittedCover();
+                    ClearCoverIntent();
                     return false;
                 }
 
@@ -612,6 +669,10 @@ namespace friendlySAIN.BigBrain
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             decision = default;
+            if (IsCoverIntentRetryActive(CoverIntentKind.ProtectBoss))
+            {
+                return false;
+            }
 
             if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
             {
@@ -660,6 +721,7 @@ namespace friendlySAIN.BigBrain
                     combatCommon.TryFindBossCover(prioritizedEnemy, bossPosition, bossCoverSearchRadius, out CustomNavigationPoint? bossCover) &&
                     combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, bossCover, "protectBossCover"))
                 {
+                    CommitCoverIntent(CoverIntentKind.ProtectBoss);
                     decision = combatCommon.CreateCommittedCoverMoveDecision();
                     return true;
                 }
@@ -672,6 +734,7 @@ namespace friendlySAIN.BigBrain
             if (combatCommon.TryFindBossCover(prioritizedEnemy, bossPosition, CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(), out CustomNavigationPoint? supportCover) &&
                 combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, supportCover, "protectBossCover"))
             {
+                CommitCoverIntent(CoverIntentKind.ProtectBoss);
                 decision = combatCommon.CreateCommittedCoverMoveDecision();
                 return true;
             }
@@ -778,11 +841,6 @@ namespace friendlySAIN.BigBrain
                     return new AICoreActionEndStruct("hitBreakHold", true);
                 }
 
-                if (goalEnemy != null && combatCommon.TryGetAllyEngagementEnemy(out _, out _))
-                {
-                    return new AICoreActionEndStruct("allyEngagementBreakHold", true);
-                }
-
                 if (goalEnemy != null && ShouldBreakCommittedCoverForBossObjective(goalEnemy))
                 {
                     combatCommon.ClearCommittedCover();
@@ -792,6 +850,11 @@ namespace friendlySAIN.BigBrain
                             ? "bossObjectiveBreakBossHold"
                             : "bossObjectiveBreakCoverHold",
                         true);
+                }
+
+                if (goalEnemy != null && combatCommon.TryGetAllyEngagementEnemy(out _, out _))
+                {
+                    return new AICoreActionEndStruct("allyEngagementBreakHold", true);
                 }
 
                 if (goalEnemy != null && !goalEnemy.IsVisible && combatCommon.ShouldAdvance(goalEnemy))
@@ -821,6 +884,7 @@ namespace friendlySAIN.BigBrain
             if (!combatCommon.IsBotInCommittedCover())
             {
                 shootCoverSettlePhase.Clear();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("leftCommittedCover", true);
             }
 
@@ -828,6 +892,7 @@ namespace friendlySAIN.BigBrain
             {
                 shootCoverSettlePhase.Clear();
                 combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("orderedPushBreakShootCoverHold", true);
             }
 
@@ -842,6 +907,7 @@ namespace friendlySAIN.BigBrain
             {
                 shootCoverSettlePhase.Clear();
                 combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("underFireBreakShootCoverHold", true);
             }
 
@@ -865,12 +931,14 @@ namespace friendlySAIN.BigBrain
             if (goalEnemy != null && ShouldBreakForBossUnderAttack(goalEnemy))
             {
                 combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("bossUnderAttackBreakCoverMove", true);
             }
 
             if (ShouldEndCurrentDecisionForBossObjective(currentDecision.Reason, allowMovingCommittedCoverBreak: true))
             {
                 combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("bossObjectiveBreakCoverMove", true);
             }
 
@@ -887,12 +955,14 @@ namespace friendlySAIN.BigBrain
             if (goalEnemy != null && ShouldBreakForBossUnderAttack(goalEnemy))
             {
                 combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("bossUnderAttackBreakShootCover", true);
             }
 
             if (goalEnemy != null && ShouldBreakCommittedCoverForBossObjective(goalEnemy))
             {
                 combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
                 return new AICoreActionEndStruct("bossObjectiveBreakShootCover", true);
             }
 
@@ -959,6 +1029,169 @@ namespace friendlySAIN.BigBrain
             return followerData != null &&
                    followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) &&
                    activeCommand == FollowerCommandType.PushEnemy;
+        }
+
+        private void CommitCoverIntent(CoverIntentKind intent)
+        {
+            activeCoverIntent = intent;
+            coverIntentPhase.BeginTravel();
+        }
+
+        private void ClearCoverIntent()
+        {
+            activeCoverIntent = CoverIntentKind.None;
+            coverIntentPhase.Clear();
+        }
+
+        private void UpdateCoverIntentArrival()
+        {
+            if (activeCoverIntent == CoverIntentKind.None)
+            {
+                return;
+            }
+
+            if (coverIntentPhase.PromoteToHoldOnArrival())
+            {
+                float timeout = activeCoverIntent == CoverIntentKind.ProtectBoss
+                    ? ProtectIntentMaxHoldSeconds
+                    : SupportIntentMaxHoldSeconds;
+                coverIntentPhase.BeginHoldLifecycle(IntentSettleSeconds, timeout);
+            }
+        }
+
+        private bool CanScanCoverIntent()
+        {
+            return activeCoverIntent != CoverIntentKind.None && coverIntentPhase.CanScan;
+        }
+
+        private void MarkCoverIntentScanned()
+        {
+            if (activeCoverIntent != CoverIntentKind.None)
+            {
+                coverIntentPhase.MarkScanned(IntentScanIntervalSeconds);
+            }
+        }
+
+        private bool ShouldExpireCoverIntent()
+        {
+            if (activeCoverIntent == CoverIntentKind.None)
+            {
+                return false;
+            }
+
+            return coverIntentPhase.IsHoldExpired;
+        }
+
+        private void ApplyCoverIntentRetryCooldown()
+        {
+            switch (activeCoverIntent)
+            {
+                case CoverIntentKind.Support:
+                    supportIntentRetryUntil = Mathf.Max(supportIntentRetryUntil, Time.time + IntentRetryCooldownSeconds);
+                    break;
+                case CoverIntentKind.ProtectBoss:
+                    protectIntentRetryUntil = Mathf.Max(protectIntentRetryUntil, Time.time + IntentRetryCooldownSeconds);
+                    break;
+            }
+        }
+
+        private bool IsCoverIntentRetryActive(CoverIntentKind intent)
+        {
+            return intent switch
+            {
+                CoverIntentKind.Support => Time.time < supportIntentRetryUntil,
+                CoverIntentKind.ProtectBoss => Time.time < protectIntentRetryUntil,
+                _ => false,
+            };
+        }
+
+        private bool ShouldReleaseCoverIntentForOpportunity(EnemyInfo goalEnemy)
+        {
+            if (!CanScanCoverIntent())
+            {
+                return false;
+            }
+
+            MarkCoverIntentScanned();
+            return goalEnemy.IsVisible ||
+                   combatCommon.ShouldAdvance(goalEnemy) ||
+                   (goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetClosePushDistance() &&
+                    combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01()));
+        }
+
+        private bool TryGetCoverIntentRepositionDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!CanScanCoverIntent())
+            {
+                return false;
+            }
+
+            int? previousCoverId = combatCommon.CommittedCoverId;
+            switch (activeCoverIntent)
+            {
+                case CoverIntentKind.Support:
+                    if (!combatCommon.TryGetAllyEngagementEnemy(out string supportEnemyProfileId, out Vector3 supportEnemyPosition) ||
+                        !combatCommon.TrySelectPreferredSupportEnemy(supportEnemyProfileId, supportEnemyPosition, out EnemyInfo? supportEnemy))
+                    {
+                        return false;
+                    }
+
+                    bool preferBackline = combatCommon.GetFollowerTactic() is FollowerCombatTactic.Marksman or FollowerCombatTactic.Protector;
+                    if (!combatCommon.TryCommitSupportFiringCover(supportEnemy, "allySupportCover.refresh", out string supportReason, preferBackline) ||
+                        combatCommon.CommittedCoverId == previousCoverId)
+                    {
+                        return false;
+                    }
+
+                    CommitCoverIntent(CoverIntentKind.Support);
+                    decision = combatCommon.CreateMoveToCommittedCoverDecision(supportReason);
+                    return true;
+
+                case CoverIntentKind.ProtectBoss:
+                    if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+                    {
+                        return false;
+                    }
+
+                    BotOwner? bossEnemy = boss.ClosestEnemy();
+                    if (bossEnemy == null || bossEnemy.GetPlayer?.HealthController?.IsAlive != true)
+                    {
+                        return false;
+                    }
+
+                    boss.PrioritizeEnemy(botOwner, bossEnemy);
+                    EnemyInfo? prioritizedEnemy = botOwner.Memory.GoalEnemy;
+                    if (!combatCommon.HasActiveCombatEnemy(prioritizedEnemy) ||
+                        !combatCommon.TryFindBossCover(prioritizedEnemy, combatCommon.GetBossPosition(), CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(), out CustomNavigationPoint? protectCover) ||
+                        !combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, protectCover, "protectBossCover.refresh") ||
+                        combatCommon.CommittedCoverId == previousCoverId)
+                    {
+                        return false;
+                    }
+
+                    CommitCoverIntent(CoverIntentKind.ProtectBoss);
+                    decision = combatCommon.CreateCommittedCoverMoveDecision();
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool IsDecisionCompatibleWithCoverIntent(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
+        {
+            if (activeCoverIntent == CoverIntentKind.None)
+            {
+                return false;
+            }
+
+            return nextDecision.Action == BotLogicDecision.runToCover ||
+                   nextDecision.Action == BotLogicDecision.attackMoving ||
+                   nextDecision.Action == BotLogicDecision.attackMovingWithSuppress ||
+                   nextDecision.Action == BotLogicDecision.holdPosition ||
+                   nextDecision.Action == BotLogicDecision.shootFromCover;
         }
 
         private void CommitPush(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
