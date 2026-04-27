@@ -4,353 +4,275 @@
 
 - This document covers the core follower combat path under `client/BigBrain`.
 - It does not describe the optional SAIN addon combat path.
-- Treat this file as a current-state runtime note, not a design backlog.
+- Treat this as current runtime documentation, not a backlog.
 
-## Current Runtime Model
-
-### Ownership
+## Runtime Ownership
 
 Core combat is objective-routed.
 
-- `FollowerCombatLogicBase` owns the combat router.
-- The router owns three objective stacks:
-  - `FollowerCombatDefaultObjective`
-  - `FollowerCombatSniperObjective`
-  - `FollowerCombatRegroupObjective`
-- Default and marksman keep their own tactic trees, but regroup is shared and objective-owned.
-- Objective ownership is stateful. Shared interrupt actions such as heal or dogfight do not automatically change the owning objective.
+- `FollowerCombatLogicBase` owns objective selection and command handoff.
+- Default/balanced combat is implemented by `FollowerCombatDefaultObjective` plus `FollowerCombatDefault`.
+- Marksman combat is implemented by `FollowerCombatSniperObjective` plus `FollowerCombatSniper`.
+- Combat regroup is implemented by `FollowerCombatRegroupObjective`.
+- Shared state and primitives live in `FollowerCombatCommon`.
+- Push selection and push commitment live in `FollowerCombatPush`.
 
-Relevant files:
+Objective ownership matters: heal, dogfight, grenade, and immediate fire can interrupt the current objective, but they do not automatically change the owning objective. Explicit combat regroup activates the regroup objective. Explicit push returns control to the active tactic's primary objective.
 
-- `client/BigBrain/FollowerCombatLogicBase.cs`
-- `client/BigBrain/FollowerCombatDefaultObjective.cs`
-- `client/BigBrain/FollowerCombatSniperObjective.cs`
-- `client/BigBrain/FollowerCombatRegroupObjective.cs`
+## Shared Commitment Model
 
-### Combat Start
+The new stabilization model is based on commitments. A commitment means "keep doing this unless a real interrupt happens", not "ignore combat".
 
-Combat start still seeds an opening decision through `PrepareStartDecision(...)`.
+Commitment types:
 
-Current opening priorities are:
+- `initialDecision`: one-shot opener prepared when combat starts.
+- `committedGrenadeDecision`: active grenade throw sequence; stays latched until throw completes or is canceled for immediate danger.
+- `committedPushDecision`: push/search pressure chosen by `FollowerCombatPush`.
+- `committedMovementDecision`: non-push movement chosen by a tactic.
+- `committedCoverPoint`: selected cover point reused across movement and cover-fire checks.
+- `committedPositionDecision`: arrival hold after reaching cover or a point.
+- `committedHealCover`: selected safe/heal cover reused until healing can start or becomes invalid.
 
-1. visible close-cover pressure
-2. unseen under-fire response
-3. ally-engagement support opener
-4. low-threat blind push
-5. far-cover fallback
+Shared rule: movement and cover commitments stabilize travel; arrival holders stabilize the moment after travel. Tactics decide which tactical reasons are allowed to break those commitments.
 
-If none match, the tactic falls through to its normal decision tree.
+## Default Router Order
 
-Relevant file:
+Default/balanced combat currently routes in this order:
 
-- `client/BigBrain/FollowerCombatCommon.cs`
+1. Refresh shooting-cover state and validate committed cover.
+2. Immediate fight: dogfight and direct in-fight shooting, unless damage pressure should defer exposed fire into recovery.
+3. Continue committed grenade throw.
+4. Consume combat-start `initialDecision`.
+5. Medical decision: heal, stim, or move to heal cover.
+6. Recovery decision when exposed, under fire, or recently damaged.
+7. Boss-distance regroup precheck, deferred while protected commitments are active.
+8. Continue committed arrival hold.
+9. Continue committed push.
+10. Continue committed non-push movement.
+11. Continue committed cover movement/fire setup.
+12. Boss-distance regroup after commitments are checked.
+13. Low-aggression regroup.
+14. Boss-under-attack protection.
+15. Ally support, but only if a valid support decision can be prepared.
+16. New grenade activation.
+17. Ordered push.
+18. Visible enemy handling.
+19. Generic advance/push.
+20. Cover hold, fallback shoot, suppress, or boss hold.
 
-### Default / Balanced Combat
+Important policy:
 
-`FollowerCombatDefault` is the main balanced combat tree.
+- Boss-distance regroup does not break active push/help/heal-style commitments.
+- Explicit regroup breaks push; explicit push does not break an already running push.
+- Ally support does not break a hold unless the support decision can be prepared first.
+- Hold breakers prepare the next action when possible, so the router does not break into a branch that cannot actually execute.
 
-Current important behavior:
+## Push Model
 
-- committed push is sticky until hard interrupt or completion
-- explicit `PushEnemy` (`GoForward` in combat) preempts passive hold/cover routing
-- visible contact prefers immediate fire before passive hold
-- committed cover is reused instead of constantly selecting new cover
-- committed cover arrival prefers:
-  1. immediate fire
-  2. visible fire
-  3. pressure / reaction
-  4. passive `coverHold`
-- passive hold reasons are mainly:
-  - `coverHold`
-  - `bossHold`
-- boss-distance pressure can switch default combat into the regroup objective
+`FollowerCombatPush` owns push decisions and push commitment lifecycle.
 
-Relevant file:
+Default and marksman can ask push code for a pressure plan, but they still keep tactic-specific policy:
 
-- `client/BigBrain/FollowerCombatDefault.cs`
+- Default push means assault pressure toward the enemy, an approach cover, or a search point.
+- Marksman push support means finding a better shooting/support position, not rushing like default.
+- Against marksman enemies, push does not manufacture a fake hold if no valid firing-position push exists. It returns no push decision and lets the tactic continue routing.
 
-### Marksman Combat
+Committed push breaks for:
 
-`FollowerCombatSniper` is a separate marksman tree, not a variant inside default combat.
+- missing/dead enemy that cannot be restored from retention
+- enemy identity change
+- stable visible/shootable contact when the push action cannot safely keep moving and firing
+- under-fire/recent-hit pressure
+- explicit non-push command override
+- run-to-enemy when sprint is impossible or the bot is not actually sprinting
 
-Current important behavior:
+Push enemy retention is refreshed during committed push so a contact/order push does not forget the enemy mid-route.
 
-- marksman prefers firing-position support and reposition logic over generic rush behavior
-- explicit push does not make marksman acknowledge or behave like balanced assault logic
-- marksman can join team push/search support through `CombatEvents`
-- close-quarter handling can temporarily prefer a full-auto secondary
-- boss-distance pressure hands off to the shared regroup objective
+## Movement And Arrival Holds
 
-Relevant file:
+Non-push movement commitments are shared in `FollowerCombatCommon`.
 
-- `client/BigBrain/FollowerCombatSniper.cs`
+Movement commitment is used for travel actions such as:
 
-### Regroup Objective
+- `runToCover`
+- `goToPoint`
+- `goToPointTactical`
+- `attackMoving`
+- `attackMovingWithSuppress`
+- `attackRetreat`
+- `runToEnemy` / `goToEnemy` when not owned by push
 
-Combat regroup is objective-owned.
+Movement breaks for:
 
-Current behavior:
+- under fire or recent hit
+- visible shootable contact
+- close visible contact
+- boss-under-attack when the movement is not protected by active push/help policy
+- arrival at the destination
+- sprint impossibility for `runToEnemy`
 
-- explicit regroup command in combat activates the regroup objective
-- explicit `PushEnemy` can override regroup and return to the tactic's primary objective
-- hot contact regroup stays combat-active and moves bossward with withdraw-style movement
-- cooled contact regroup becomes an urgent bossward run through `CombatRegroupRunAction`
-- regroup completion is based on reaching the boss / bossward objective, not on re-entering default hold logic
+When a movement action reaches cover or a point, common end logic arms a committed holder. The holder returns `holdPosition` for a short think window so the bot does not immediately reselect the same cover or churn into another travel action.
 
-Relevant files:
+Arrival holders break for:
 
-- `client/BigBrain/FollowerCombatRegroupObjective.cs`
-- `client/BigBrain/Actions/CombatRegroupRunAction.cs`
+- explicit push order
+- under fire or recent hit
+- settled boss-under-attack support
+- settled ally support when a valid support action can be prepared
+- real enemy contact
+- boss-distance regroup only when the hold reason is not protected
+- timer expiry
 
 ## Cover Contract
 
-Cover is shared infrastructure, not tactic-local geometry only.
+Cover is a shared lifecycle, not tactic-local geometry.
 
-Current cover lifecycle:
+Cover lifecycle:
 
-1. select cover
-2. commit cover
-3. move to committed cover
-4. detect arrival through cover/proximity checks
-5. either fire immediately or enter a short hold path
-6. break hold when a stronger reason wins
+1. Select a candidate cover.
+2. Commit that cover.
+3. Move to the committed cover.
+4. Detect arrival using EFT cover state, committed-cover proximity, or go-to-point arrival.
+5. Arm an arrival hold.
+6. During hold, scan for immediate fire, damage pressure, support, protection, and regroup.
+7. Keep holding if nothing stronger wins.
 
-Current important rules:
+Cover intent matters:
 
-- committed cover is follower-local and reused until invalid or intentionally cleared
-- cover intent tracks whether the cover was reached to shoot or to hide
-- shooting-cover intent may stand if a standing-height lane exists
-- hiding/safe cover keeps crouch behavior
-- default and marksman both use the same shoot-vs-hide committed cover intent gate
+- Shooting cover can stand up if a standing-height shot lane exists.
+- Safe/retreat cover should not force standing fire unless a real lane is verified.
+- Cover move actions should not keep running after proximity/arrival says the destination was reached.
 
-Relevant files:
+## Grenades
 
-- `client/BigBrain/FollowerCombatCommon.cs`
-- `client/BigBrain/FollowerCoverCommitment.cs`
-- `client/BigBrain/Actions/CombatHoldPositionAction.cs`
+Grenade use is now an explicit committed branch.
 
-## Team Coordination
+New grenade activation is checked after support/protection and before push. Once a grenade starts, the committed grenade decision moves near the top of routing so out-of-bounds, push, or cover replanning cannot cancel it accidentally.
 
-Core combat has a team push/search coordination path.
+Grenade activation requires:
+
+- grenade config enabled
+- visible enemy with a valid person
+- distance roughly between 15m and 28m
+- no active bot request or medical use
+- safe throw position
+- cooldown reservation
+- not dogfighting, under fire, recently hit, or in a fresh first-seen window
+- not already in a clean gunfight
+- boss/followers not too close to the target
+
+Committed grenade can still cancel if the throw becomes unsafe before release, combat enemy disappears before release, the grenade controller disappears, or the sequence times out.
+
+## Healing And Stims
+
+Medical decisions are shared in `FollowerCombatCommon`.
 
 Current behavior:
 
-- `AIBossPlayer` owns shared `CombatEvents`
-- default combat can emit active push/search events
-- marksman can react to those events with support fire or close search
-- this is the current team-search pattern; marksman is not intended to act like an independent second default attacker
+- Emergency healing can move to committed heal cover.
+- Heal cover is reused instead of repeatedly selecting new cover.
+- Heal action and stim action have timeout exits.
+- Black limb pain during combat can prefer painkiller/stim use when available.
+- Badly injured state can use health-support stims when available.
+- Heal completion refreshes movement penalties without restoring full max health.
+- When retreating to heal but sprint/mobility is poor, recent contact can choose visible fire or suppression instead of walking with no pressure.
 
-Relevant files:
+Heal-cover exception: arriving at heal cover hands off to healing instead of normal cover hold.
 
-- `client/Components/AIBossPlayer.cs`
-- `client/BigBrain/FollowerCombatDefault.cs`
-- `client/BigBrain/FollowerCombatSniper.cs`
+## Default Combat Behavior
 
-## Out-of-Combat Commands That Affect Combat Handoff
+Default/balanced tactic is built around two main objectives:
 
-These are part of the practical combat model because they often hand off into combat behavior.
+- stay in useful cover near the boss when there is no good attack opportunity
+- push/search/pressure when enemy state and aggression justify it
 
-- out-of-combat regroup runs through `GestureCommandAction`
-- out-of-combat regroup now keeps stable run intent instead of fighting EFT sprint downgrades
-- `OverThere` / non-combat `GoForward` resolve a same-level-biased target point instead of broad vertical nav snapping
-- `Attention` clears enemy state and now also blocks group enemy re-report during the suppression window
+Default situational behavior:
 
-Relevant files:
+- under damage pressure, prefer recovery or suppressive retreat over exposed standing fire
+- if visible and shootable, shoot immediately unless recovery pressure should own the branch
+- if visible but not shootable, prefer firing cover or pressure movement
+- if enemy is unseen but recent enough, push/search can continue using retained enemy memory
+- if too far from boss and not protected by push/help/heal, switch to regroup objective
+- if boss is attacked, prepare protection/support before breaking passive holds
+- if ally is engaged, prepare support before breaking passive holds
 
-- `client/BigBrain/Actions/GestureCommandAction.cs`
-- `client/Components/AIBossPlayer.cs`
-- `client/Modules/FollowerEnemyEnforceSuppression.cs`
+## Marksman Combat Behavior
 
-## Known Remaining Gaps
+Marksman is not default with different numbers. It has separate policy but shares common commitments.
 
-These are the main gaps still worth tracking from the core path.
+Marksman behavior:
 
-### 1. Cover settle is still partly tactic-local
+- prefers firing positions and support cover
+- uses committed movement and arrival holds like default
+- uses prepared-break decisions so support/protection only breaks hold when the next action is valid
+- ignores generic assault push behavior unless marksman policy asks for close support/search
+- can switch to automatic secondary for close-quarter fights
+- can switch back to primary when returning to real marksman decisions
+- supports team push/search through firing-position support, not blind rushing
+- hands boss-distance regroup to the shared regroup objective
 
-There is shared committed-cover infrastructure, but some settle/hold behavior is still implemented in tactic-specific paths instead of one shared cover-settle system.
+Marksman hold behavior scans periodically for:
 
-Impact:
+- better shooting spot
+- push support
+- boss-under-attack support
+- ally support
+- boss-distance regroup
+- timeout
 
-- cover arrival behavior is improved, but not fully centralized
-- future tactics can still duplicate local hold/settle state
+## Regroup Objective
 
-### 2. Default combat still commits movement better than higher-level intent
+Combat regroup is objective-owned.
 
-Default has strong committed movement primitives, but non-push support/protect ownership is still weaker than a full intent model.
+Regroup behavior:
 
-Impact:
+- explicit combat regroup activates the regroup objective
+- explicit push can leave regroup and return to the active tactic objective
+- hot contact regroup stays combat-active and moves bossward using withdraw-style movement
+- cooled contact regroup runs directly toward boss / sampled boss position
+- regroup may use bossward cover, but reaching that cover is only an intermediate step
+- regroup completion is based on reaching the boss/bossward objective
 
-- support/protect decisions can still dissolve back into generic routing after movement completes
-- branch continuity is better than before, but not fully explicit
+Regroup movement also has its own short commitment so the bot does not recalculate bossward movement every tick.
 
-### 3. Search-style tactical movement is better, but not fully committed
+## Battle Recorder
 
-Search-like movement now has better stall handling, but target ownership is still lighter than committed push or committed cover.
+The battle recorder is separate from normal plugin logging.
 
-Impact:
+It records combat-only JSONL timelines under:
 
-- tactical search movement can still drift or repick
-- this affects both default search-like movement and marksman close-search style support
+`E:\SPTarkov\BepInEx\plugins\friendlySAIN\BattleRecords`
 
-## Candidate Work Plan
+It is intended to compare observed behavior with code behavior:
 
-These are candidate core-combat changes discussed during recent review. This section is a planning note, not current runtime behavior.
+- decision changes
+- action phases
+- movement and aim/look state
+- enemy/boss positions
+- visibility and shootability
+- grenades
+- health/healing state
+- churn and bad transition clusters
 
-### A. Visible-Fire Posture Policy
+Use it to validate whether a bug is tactical routing, action execution, perception, or visual/player interpretation.
 
-Goal:
+## Implementation Boundaries
 
-- own tactical posture and movement choice around visible contact
-- leave EFT in control of burst length, cadence, recoil handling, and fire mode
+Keep these boundaries stable:
 
-Reason:
+- `FollowerCombatLogicBase`: objective routing and command handoff.
+- `FollowerCombatDefault`: default tactic policy and default-only break choices.
+- `FollowerCombatSniper`: marksman tactic policy and marksman-only break choices.
+- `FollowerCombatPush`: push decision setup and committed push lifecycle.
+- `FollowerCombatCommon`: shared commitments, cover, heal, grenade, visibility, support helpers, and common end conditions.
+- Actions under `client/BigBrain/Actions`: execute a chosen decision; avoid moving planning policy here unless the action owns a runtime destination refresh.
 
-- current visible-contact handling still routes too many cases into stationary `shootFromPlace` / `shootFromCover`
-- the better question is not "always move and shoot" versus "always stop and shoot"
-- the real decision is when the bot should:
-  1. plant and trade
-  2. move while pressuring
-  3. stay standing
-  4. crouch
+## Future Guidance
 
-Proposed implementation shape:
-
-- add a shared visible-trade posture helper in `FollowerCombatCommon`
-- have default combat ask that helper before choosing `shootFromPlace`, `shootFromCover`, or `attackMoving`
-- keep action validity strict: if the policy wants `attackMoving`, a real destination must already exist
-
-Required rule:
-
-- never emit `attackMoving` unless there is already a verified move point through committed cover, assigned cover, tactical point, regroup vector, or other action-owned destination
-
-Candidate outcome buckets:
-
-- `shootFromCover`
-  - current cover is valid
-  - lane is valid
-  - posture should stay planted
-- `shootFromPlaceStanding`
-  - bot is exposed or semi-exposed
-  - current trade is favorable enough to plant briefly
-  - no crouch unless there is an actual geometry advantage
-- `attackMoving`
-  - bot needs movement as protection
-  - a valid destination already exists
-  - movement is tactical, not stale/no-target
-
-Likely affected files:
-
-- `client/BigBrain/FollowerCombatCommon.cs`
-- `client/BigBrain/FollowerCombatDefault.cs`
-- possibly `client/BigBrain/FollowerCombatSniper.cs` later, after default behavior is stable
-
-### B. Immediate/Visible Fire Delay Reduction
-
-Status:
-
-- partly implemented already
-
-Current direction:
-
-- alignment wait was reduced so `shootImmediately` no longer waits for tight weapon-root alignment before firing
-- the gate is now closer to a coarse threat-facing check than a full aim-rig alignment gate
-
-Remaining question:
-
-- after the delay fix, do visible-fire branches still overuse planted fire when a tactical move would be better?
-
-This depends on item A.
-
-### C. Stronger Shoot-From-Place Pose Policy
-
-Goal:
-
-- remove low-value prone/crouch transitions before planted fire
-- only allow a lower posture if the bot can actually shoot effectively from that posture
-
-Reason:
-
-- exposed crouch-fire often makes the follower easier to kill
-- prone is currently too available at moderate distance and can stall responsiveness
-
-#### C1. Prone Restriction
-
-Proposed rule:
-
-- no proning for planted fire unless enemy distance is `80m+`
-- even at `80m+`, require a precheck that the chosen prone posture can still produce a real shooting lane
-
-Important constraint:
-
-- this cannot be a simple distance gate only
-- the bot must determine whether the prone shot position is actually viable before committing to the pose
-
-#### C2. Crouch Restriction
-
-Proposed rule:
-
-- add the same kind of precheck for crouching
-- do not crouch before planted fire unless crouch still preserves a viable shot lane from the actual fire position
-
-Important constraint:
-
-- the precheck must evaluate the position the bot will actually fire from, not an abstract current-state guess
-- otherwise the system will still choose a pose first and only discover after crouching that the shot lane is gone
-
-### D. Fire-Position Precheck Investigation
-
-This needs investigation before implementation.
-
-Problem:
-
-- to validate prone or crouch correctly, the code must know the actual firing origin or an acceptable approximation of it before the pose change is committed
-- that is different from simply checking "enemy visible now"
-
-Questions to answer first:
-
-1. what pose-dependent origin should be treated as authoritative for standing, crouch, and prone checks on the core path?
-2. can current EFT helpers already answer "can shoot from this pose here" without manually simulating each pose?
-3. for cover-fire, should the precheck use committed cover shoot data rather than raw body-part visibility?
-4. for exposed `shootFromPlace`, is current position plus pose offset sufficient, or does EFT shift actual firing enough that a stronger check is needed?
-
-Likely code to inspect before implementation:
-
-- `client/BigBrain/Actions/CombatShootFromPlaceAction.cs`
-- `client/BigBrain/FollowerCombatCommon.cs`
-- EFT cover / shoot-point helpers already used by `CanShootFromCurrentCoverOrStandingIntent(...)`
-- any EFT pose or shoot-origin helpers that differ between standing, crouch, and prone
-
-Recommended order:
-
-1. investigate pose-dependent shoot viability checks
-2. implement prone restriction with precheck
-3. implement crouch restriction with precheck
-4. then fold those results into the shared visible-fire posture helper from item A
-
-### E. Ownership Boundary
-
-Current recommendation:
-
-- friendlySAIN should own:
-  - movement versus planted-fire choice
-  - posture choice
-  - cover versus exposed trade choice
-  - whether a tactical move is allowed
-- EFT should continue owning:
-  - actual firing cadence
-  - burst length
-  - semi/full-auto handling
-  - recoil and hit-response weapon behavior
-
-Reason:
-
-- the current high-value problems are tactical and positional
-- taking over fire-mode behavior now would broaden risk without first fixing the higher-level decision quality
-
-## Guidance For Future Changes
-
-- keep routing and lifecycle in objective/router code
-- keep tactic policy in `FollowerCombatDefault` and `FollowerCombatSniper`
-- keep shared primitives in `FollowerCombatCommon`
-- do not add tactic-local state when the behavior is really shared cover/search/regroup infrastructure
-- when documenting behavior, prefer current runtime rules over historical findings or future plans
+- Do not add tactic-local state when the behavior is a shared commitment primitive.
+- Do not break holds just because an opportunity might exist; prepare the next decision first.
+- Do not emit movement decisions without a valid destination already assigned.
+- Do not let boss-distance regroup interrupt push/help/heal commitments.
+- Do not let `Enemy.IsVisible()` alone break push instantly; use stable visible plus shootable/contact gates.
+- Prefer small, explicit interrupt reasons so battle records can explain churn.
+- Keep comments focused on why a branch exists, not what the next line literally does.

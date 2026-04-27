@@ -11,6 +11,10 @@ namespace friendlySAIN.BigBrain.Actions
         private const float MoveUpdateMinDelay = 0.1f;
         private const float MoveUpdateFallbackDelay = 0.33f;
         private const float RecentSeenThreshold = 1f;
+        private const float UnsafeCloseThreatDistance = 8f;
+        private const float UnsafeCloseThreatLookAngle = 70f;
+        private const float FastFireDistance = 8f;
+        private const float FastFireAngle = 35f;
 
         private readonly GClass178 shootLogic;
         private readonly GClass274 grenadeLogic;
@@ -52,6 +56,12 @@ namespace friendlySAIN.BigBrain.Actions
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
 
             BotOwner.Mover.SetTargetMoveSpeed(1f);
+            bool unsafeCloseFacing = IsUnsafeCloseThreatFacing(goalEnemy);
+            if (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible)
+            {
+                MaintainThreatFacing(goalEnemy, goalEnemy.GetBodyPartPosition(), allowHardTurn: true);
+            }
+
             UpdateSainLikeMovement(goalEnemy);
             BotOwner.SetPose(0.5f);
             BotOwner.Sprint(false, true);
@@ -76,6 +86,10 @@ namespace friendlySAIN.BigBrain.Actions
 
             Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.CurrPosition;
             MaintainThreatFacing(goalEnemy, shootPoint, allowHardTurn: true);
+            if (unsafeCloseFacing && IsUnsafeCloseThreatFacing(goalEnemy))
+            {
+                BotOwner.Mover.Stop();
+            }
 
             if (BotOwner.DoorOpener.DogFightHaveNearestDoor())
             {
@@ -89,6 +103,12 @@ namespace friendlySAIN.BigBrain.Actions
             {
                 StopCombatShooting();
                 return;
+            }
+
+            if (goalEnemy.Distance <= FastFireDistance &&
+                CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) <= FastFireAngle)
+            {
+                BotOwner.ShootData.Shoot();
             }
 
             shootLogic.UpdateNodeByBrain(GetData<GClass27>(data));
@@ -241,6 +261,15 @@ namespace friendlySAIN.BigBrain.Actions
             }
 
             return goalEnemy.EnemyLastPositionReal;
+        }
+
+        private bool IsUnsafeCloseThreatFacing(EnemyInfo? goalEnemy)
+        {
+            return goalEnemy != null &&
+                   goalEnemy.IsVisible &&
+                   goalEnemy.CanShoot &&
+                   goalEnemy.Distance <= UnsafeCloseThreatDistance &&
+                   CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) > UnsafeCloseThreatLookAngle;
         }
 
         private void MaintainThreatFacing(EnemyInfo goalEnemy, Vector3 shootPoint, bool allowHardTurn)

@@ -39,6 +39,8 @@ namespace friendlySAIN.BigBrain.Actions
             private const float NearCoverDistance = 2f;
             private const float RecentThreatLookSeconds = 2.5f;
             private const float LostVisualSuppressSeconds = 2f;
+            private const float UnsafeCloseThreatDistance = 8f;
+            private const float UnsafeCloseThreatLookAngle = 70f;
 
             private readonly bool autoCover;
             private readonly bool forceThreatLookWhenShootable;
@@ -88,6 +90,7 @@ namespace friendlySAIN.BigBrain.Actions
                     TryMaintainThreatFacing(goalEnemy);
                 }
 
+                bool unsafeCloseRetreat = TryStopUnsafeCloseThreatRetreat(goalEnemy);
                 Vector3 threatPoint;
                 bool shouldShoot = TryGetSafeShootOrSuppressTarget(goalEnemy, out threatPoint);
                 if (shouldShoot)
@@ -98,6 +101,11 @@ namespace friendlySAIN.BigBrain.Actions
                     }
 
                     Gclass178_0.UpdateNodeByBrain(data as GClass27);
+                    return;
+                }
+
+                if (unsafeCloseRetreat)
+                {
                     return;
                 }
 
@@ -133,6 +141,28 @@ namespace friendlySAIN.BigBrain.Actions
                     : goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
 
                 return !FollowerShotSafety.IsFriendlyInShotLane(BotOwner_0, target);
+            }
+
+            private bool TryStopUnsafeCloseThreatRetreat(EnemyInfo? goalEnemy)
+            {
+                if (!forceThreatLookWhenShootable ||
+                    goalEnemy == null ||
+                    !goalEnemy.IsVisible ||
+                    !goalEnemy.CanShoot ||
+                    goalEnemy.Distance > UnsafeCloseThreatDistance)
+                {
+                    return false;
+                }
+
+                CombatAttackMoveLook.TryLookThreatFacing(BotOwner_0, goalEnemy, allowHardTurn: true);
+                if (CombatAttackMoveLook.GetThreatLookAngle(BotOwner_0, goalEnemy) <= UnsafeCloseThreatLookAngle)
+                {
+                    return false;
+                }
+
+                BotOwner_0.Mover.Stop();
+                BotOwner_0.Sprint(false, true);
+                return true;
             }
 
             private void TryMaintainThreatFacing(EnemyInfo? goalEnemy)

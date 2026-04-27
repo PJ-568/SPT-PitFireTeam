@@ -104,9 +104,11 @@ namespace friendlySAIN.BigBrain.Actions
             if (ShouldInterruptCommandForCombat(command))
             {
                 ReleaseRegroupReservation();
+                CleanupLootInteraction($"CommandInterrupt:{command}");
                 CleanupDoorInteraction();
                 followerData?.ClearCommand($"CommandInterrupt:{command}");
                 BotOwner.StopMove();
+                BotOwner.SetPose(1f);
                 lastCommand = FollowerCommandType.None;
                 return;
             }
@@ -116,6 +118,11 @@ namespace friendlySAIN.BigBrain.Actions
                 if (lastCommand == FollowerCommandType.RegroupNearBoss)
                 {
                     ReleaseRegroupReservation();
+                }
+
+                if (lastCommand == FollowerCommandType.TakeLootItem)
+                {
+                    CleanupLootInteraction($"CommandChanged:{command}");
                 }
 
                 comeTargetInitialized = false;
@@ -742,6 +749,12 @@ namespace friendlySAIN.BigBrain.Actions
 
         public override void Stop()
         {
+            if (followerData?.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) != true ||
+                command != FollowerCommandType.TakeLootItem)
+            {
+                CleanupLootInteraction("TakeLoot:actionStop");
+            }
+
             CleanupDoorInteraction();
             base.Stop();
         }
@@ -987,7 +1000,7 @@ namespace friendlySAIN.BigBrain.Actions
         {
             try
             {
-                if (result?.Succeed == true)
+                if (result?.Succeed == true || IsLootNowInBotInventory(botPlayer, rootItem))
                 {
                     botPlayer?.UpdateInteractionCast();
 
@@ -1021,11 +1034,36 @@ namespace friendlySAIN.BigBrain.Actions
             }
         }
 
+        private bool IsLootNowInBotInventory(Player? botPlayer, Item rootItem)
+        {
+            InventoryController? inventory = botPlayer?.InventoryController ?? BotOwner?.GetPlayer?.InventoryController;
+            if (inventory == null || rootItem == null || string.IsNullOrEmpty(rootItem.Id))
+            {
+                return false;
+            }
+
+            return inventory.TryFindItem(rootItem.Id, out Item foundItem) &&
+                   ReferenceEquals(foundItem, rootItem);
+        }
+
         private static void StopLootPickupState(Player? botPlayer)
         {
             try
             {
-                botPlayer?.CurrentManagedState?.Pickup(false, null);
+                if (botPlayer == null)
+                {
+                    return;
+                }
+
+                if (botPlayer.MovementContext != null)
+                {
+                    botPlayer.MovementContext.PickupAction = null;
+                }
+
+                if (botPlayer.CurrentManagedState is PickupStateClass pickupState)
+                {
+                    pickupState.Pickup(false, null);
+                }
             }
             catch
             {
@@ -1033,8 +1071,18 @@ namespace friendlySAIN.BigBrain.Actions
             }
         }
 
-        private void ClearTakeLootState(string reason)
+        private void CleanupLootInteraction(string reason)
         {
+            if (!lootPickupInProgress &&
+                lootPickupReadyAt <= 0f &&
+                lootPickupAttemptStartedAt <= 0f &&
+                activeLootItem == null &&
+                BotOwner?.GetPlayer?.CurrentManagedState is not PickupStateClass)
+            {
+                return;
+            }
+
+            StopLootPickupState(BotOwner?.GetPlayer);
             lootPickupInProgress = false;
             lootPickupReadyAt = 0f;
             lootPickupAttemptStartedAt = 0f;
@@ -1043,8 +1091,21 @@ namespace friendlySAIN.BigBrain.Actions
             if (BotOwner != null)
             {
                 InteractableObjects.RemoveTaker(BotOwner);
+                BotOwner.Mover.Pause = false;
+                if (BotOwner.Mover.Sprinting)
+                {
+                    BotOwner.Mover.Sprint(false, false);
+                }
+
+                BotOwner.SetPose(1f);
             }
+
             InteractableObjects.ClearCurLootItem();
+        }
+
+        private void ClearTakeLootState(string reason)
+        {
+            CleanupLootInteraction(reason);
             followerData?.ClearCommand(reason);
         }
 

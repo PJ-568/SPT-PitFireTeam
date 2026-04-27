@@ -39,5 +39,24 @@ namespace friendlySAIN.BigBrain.Actions
             botOwner.Steering.LookToPoint(lookPoint);
             return true;
         }
+
+        public static float GetThreatLookAngle(BotOwner botOwner, EnemyInfo? goalEnemy)
+        {
+            if (botOwner == null || goalEnemy == null)
+            {
+                return 180f;
+            }
+
+            Vector3 lookPoint = goalEnemy.IsVisible
+                ? goalEnemy.GetBodyPartPosition()
+                : goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
+            Vector3 lookDirection = lookPoint - botOwner.Position;
+            if (lookDirection.sqrMagnitude < 0.01f)
+            {
+                return 0f;
+            }
+
+            return Vector3.Angle(botOwner.LookDirection, lookDirection);
+        }
     }
 }

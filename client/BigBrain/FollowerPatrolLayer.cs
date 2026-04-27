@@ -419,9 +419,8 @@ namespace friendlySAIN.BigBrain
             stoppedForHealDecision = false;
             healStartAt = 0f;
             healSoftTimeoutAt = 0f;
-            // Patrol heal mirrors the old plugin behavior: if the bot finishes or times out
-            // out of combat, force-complete the heal and recover hands/weapon state.
-            Utils.FollowerMedical.ForceHeal(BotOwner);
+            // Normal patrol healing should finish/cancel medical state without restoring all raid HP.
+            Utils.FollowerMedical.CompleteHealing(BotOwner);
         }
 
         private void StopMovementForHealDecision()

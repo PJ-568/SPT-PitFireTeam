@@ -15,6 +15,7 @@ namespace friendlySAIN.BigBrain.Actions
         {
             None,
             Enemy,
+            ThreatAnchor,
             MovingDirection,
             KeepCurrent
         }
@@ -28,6 +29,11 @@ namespace friendlySAIN.BigBrain.Actions
         private const float RunPointNavSampleRadius = 2.25f;
         private const float LookCommitMinSeconds = 0.2f;
         private const float LookCommitMaxSeconds = 0.4f;
+        private const float CloseKnownThreatLookDistance = 12f;
+        private const float CloseKnownThreatStopDistance = 4f;
+        private const float CloseKnownThreatBadLookAngle = 65f;
+        private const float CloseKnownThreatBadPathAngle = 75f;
+        private const float WalkingThreatLookDistance = 90f;
         private static readonly float[] RunPointDistances = { 8f, 10f, 6.5f, 5f };
         private static readonly float[] RunPointAngles = { 0f, -25f, 25f, -50f, 50f, -90f, 90f, 180f };
 
@@ -70,6 +76,11 @@ namespace friendlySAIN.BigBrain.Actions
             if (goalEnemy == null)
             {
                 StopAdvance();
+                return;
+            }
+
+            if (TryStopUnsafeCloseKnownThreatAdvance(goalEnemy))
+            {
                 return;
             }
 
@@ -175,7 +186,17 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            if (canRun && BotOwner.Mover.HasPathAndNoComplete)
+            if (TryLookAtCloseKnownThreat(goalEnemy))
+            {
+                return;
+            }
+
+            if (!BotOwner.Mover.Sprinting && TryLookAtKnownThreat(goalEnemy, WalkingThreatLookDistance))
+            {
+                return;
+            }
+
+            if (BotOwner.Mover.Sprinting && BotOwner.Mover.HasPathAndNoComplete)
             {
                 CommitLookMode(RunLookMode.MovingDirection);
                 BotOwner.Steering.LookToMovingDirection();
@@ -205,8 +226,20 @@ namespace friendlySAIN.BigBrain.Actions
 
                     return false;
 
+                case RunLookMode.ThreatAnchor:
+                    if (TryGetThreatLookPoint(
+                            goalEnemy,
+                            WalkingThreatLookDistance,
+                            out Vector3 enemyAnchor))
+                    {
+                        BotOwner.Steering.LookToPoint(enemyAnchor);
+                        return true;
+                    }
+
+                    return false;
+
                 case RunLookMode.MovingDirection:
-                    if (canRun && BotOwner.Mover.HasPathAndNoComplete)
+                    if (BotOwner.Mover.Sprinting && BotOwner.Mover.HasPathAndNoComplete)
                     {
                         BotOwner.Steering.LookToMovingDirection();
                         return true;
@@ -223,6 +256,56 @@ namespace friendlySAIN.BigBrain.Actions
             return false;
         }
 
+        private bool TryLookAtKnownThreat(EnemyInfo goalEnemy, float maxDistance)
+        {
+            if (!TryGetThreatLookPoint(goalEnemy, maxDistance, out Vector3 lookPoint))
+            {
+                return false;
+            }
+
+            BotOwner.LookData.SetLookPointByHearing(null);
+            CommitLookMode(RunLookMode.ThreatAnchor);
+            BotOwner.Steering.LookToPoint(lookPoint);
+            return true;
+        }
+
+        private bool TryGetThreatLookPoint(EnemyInfo goalEnemy, float maxDistance, out Vector3 lookPoint)
+        {
+            lookPoint = Vector3.zero;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            Vector3 anchor;
+            if (goalEnemy.IsVisible)
+            {
+                anchor = goalEnemy.GetBodyPartPosition();
+            }
+            else if (Enemy.TryGetReliableKnownPosition(BotOwner, goalEnemy, out Vector3 knownPosition))
+            {
+                anchor = knownPosition + Vector3.up * 0.8f;
+            }
+            else
+            {
+                anchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy) + Vector3.up * 0.8f;
+            }
+
+            if (!IsFinite(anchor))
+            {
+                return false;
+            }
+
+            Vector3 flat = Flatten(anchor - BotOwner.Position);
+            if (flat.sqrMagnitude <= 0.01f || flat.magnitude > maxDistance)
+            {
+                return false;
+            }
+
+            lookPoint = anchor;
+            return true;
+        }
+
         private void CommitLookMode(RunLookMode mode)
         {
             if (mode == committedLookMode && committedLookModeUntil > Time.time)
@@ -232,6 +315,120 @@ namespace friendlySAIN.BigBrain.Actions
 
             committedLookMode = mode;
             committedLookModeUntil = Time.time + GClass856.Random(LookCommitMinSeconds, LookCommitMaxSeconds);
+        }
+
+        private bool TryStopUnsafeCloseKnownThreatAdvance(EnemyInfo goalEnemy)
+        {
+            if (!TryGetCloseKnownThreatData(
+                    goalEnemy,
+                    CloseKnownThreatLookDistance,
+                    out Vector3 enemyAnchor,
+                    out Vector3 toEnemy,
+                    out float distance))
+            {
+                return false;
+            }
+
+            float lookAngle = Vector3.Angle(Flatten(BotOwner.LookDirection), toEnemy);
+            bool pointBlank = distance <= CloseKnownThreatStopDistance;
+            bool badLook = lookAngle >= CloseKnownThreatBadLookAngle;
+            bool badPath = TryGetMoveTargetDirection(out Vector3 toMoveTarget) &&
+                           Vector3.Angle(toMoveTarget, toEnemy) >= CloseKnownThreatBadPathAngle;
+
+            if (!pointBlank && !badLook && !badPath)
+            {
+                return false;
+            }
+
+            ClearCommittedRunPoint();
+            BotOwner.StopMove();
+            SetCombatSprint(false);
+            BotOwner.SetPose(1f);
+            LookAtThreatAnchor(enemyAnchor);
+            return true;
+        }
+
+        private bool TryLookAtCloseKnownThreat(EnemyInfo goalEnemy)
+        {
+            if (!TryGetCloseKnownThreatData(
+                    goalEnemy,
+                    CloseKnownThreatLookDistance,
+                    out Vector3 enemyAnchor,
+                    out _,
+                    out _))
+            {
+                return false;
+            }
+
+            LookAtThreatAnchor(enemyAnchor);
+            return true;
+        }
+
+        private bool TryGetCloseKnownThreatData(
+            EnemyInfo goalEnemy,
+            float maxDistance,
+            out Vector3 enemyAnchor,
+            out Vector3 toEnemy,
+            out float distance)
+        {
+            enemyAnchor = Vector3.zero;
+            toEnemy = Vector3.zero;
+            distance = float.MaxValue;
+
+            if (goalEnemy == null || goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!Enemy.TryGetReliableKnownPosition(BotOwner, goalEnemy, out enemyAnchor))
+            {
+                enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
+            }
+
+            if (!IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            toEnemy = Flatten(enemyAnchor - BotOwner.Position);
+            if (toEnemy.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            distance = toEnemy.magnitude;
+            if (distance > maxDistance)
+            {
+                return false;
+            }
+
+            toEnemy /= distance;
+            return true;
+        }
+
+        private bool TryGetMoveTargetDirection(out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            if (!BotOwner.Mover.TargetPoint.HasValue)
+            {
+                return false;
+            }
+
+            direction = Flatten(BotOwner.Mover.TargetPoint.Value - BotOwner.Position);
+            if (direction.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            direction.Normalize();
+            return true;
+        }
+
+        private void LookAtThreatAnchor(Vector3 enemyAnchor)
+        {
+            BotOwner.LookData.SetLookPointByHearing(null);
+            CommitLookMode(RunLookMode.ThreatAnchor);
+            BotOwner.Steering.LookToPoint(enemyAnchor + Vector3.up * 0.8f);
         }
 
         private bool TryMoveToEnemy(EnemyInfo goalEnemy)
@@ -484,6 +681,12 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.SetPose(0f);
             committedLookMode = RunLookMode.None;
             committedLookModeUntil = 0f;
+        }
+
+        private static Vector3 Flatten(Vector3 value)
+        {
+            value.y = 0f;
+            return value;
         }
 
         private static bool IsFinite(Vector3 value)

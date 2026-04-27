@@ -556,6 +556,7 @@ namespace friendlySAIN.Components
                 trackedEnemy.SetVisible(visibleForContact);
                 trackedEnemy.PersonalLastPos = enemy.Position;
                 trackedEnemy.GroupInfo = botSettings;
+                Enemy.RepairPersonalMemory(trackedEnemy, enemy.Position, visibleForContact || prioritizeAsGoal);
             }
 
             if (allowGoalPromotion && prioritizeAsGoal)
@@ -573,6 +574,7 @@ namespace friendlySAIN.Components
             {
                 trackedEnemy.PriorityIndex = 0;
                 trackedEnemy.SetVisible(visibleForContact);
+                Enemy.RepairPersonalMemory(trackedEnemy, enemy.Position, visibleForContact || prioritizeAsGoal);
                 follower.Memory.GoalEnemy = trackedEnemy;
             }
 
@@ -712,6 +714,7 @@ namespace friendlySAIN.Components
             if (promoted != null)
             {
                 promoted.PriorityIndex = 0;
+                Enemy.RepairPersonalMemory(promoted, promoted.CurrPosition, promoted.IsVisible || promoted.CanShoot || promoted.HaveSeen);
                 follower.Memory.GoalEnemy = promoted;
             }
         }
@@ -2098,6 +2101,7 @@ namespace friendlySAIN.Components
                 if (info != null)
                 {
                     info.PriorityIndex = 0;
+                    Enemy.RepairPersonalMemory(info, enemy.Position, info.IsVisible || info.CanShoot || info.HaveSeen);
                     if (!follower.Memory.HaveEnemy) follower.Memory.GoalEnemy = info;
                 }
                 else
@@ -2116,7 +2120,11 @@ namespace friendlySAIN.Components
                                 break;
                             }
                         }
-                        if (info != null) follower.Memory.GoalEnemy = info;
+                        if (info != null)
+                        {
+                            Enemy.RepairPersonalMemory(info, enemy.Position, info.IsVisible || info.CanShoot || info.HaveSeen);
+                            follower.Memory.GoalEnemy = info;
+                        }
                     }
                 }
 

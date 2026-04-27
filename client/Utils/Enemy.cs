@@ -22,7 +22,19 @@ namespace friendlySAIN.Utils
             }
         }
 
+        private struct VisibilityState
+        {
+            public float VisibleSince;
+            public float LastRawVisibleTime;
+            public float LastStableVisibleTime;
+            public bool StableVisible;
+        }
+
+        private const float StableVisiblePromoteSeconds = 0.12f;
+        private const float StableVisibleDecaySeconds = 0.22f;
+
         private static ConcurrentDictionary<(Vector3, string), CachedEnemyInfo> enemyLocationCache = new ConcurrentDictionary<(Vector3, string), CachedEnemyInfo>();
+        private static ConcurrentDictionary<(string botId, string enemyId), VisibilityState> visibilityCache = new ConcurrentDictionary<(string botId, string enemyId), VisibilityState>();
         private static ConcurrentBag<string> enemies = new ConcurrentBag<string>();
 
         public enum EnemyDistance
@@ -47,7 +59,101 @@ namespace friendlySAIN.Utils
             if (!bot.Memory.HaveEnemy) return false;
 
             EnemyInfo goalEnemy = bot.Memory.GoalEnemy;
-            return (Distance(goalEnemy) <= EnemyDistance.Close && goalEnemy.IsVisible) || Distance(goalEnemy) == EnemyDistance.VeryClose;
+            return (Distance(goalEnemy) <= EnemyDistance.Close && IsVisible(bot, goalEnemy)) || Distance(goalEnemy) == EnemyDistance.VeryClose;
+        }
+
+        public static bool IsVisible(BotOwner bot, EnemyInfo goalEnemy)
+        {
+            if (bot == null || goalEnemy == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return false;
+            }
+
+            string enemyId = goalEnemy.ProfileId ?? goalEnemy.Person?.ProfileId ?? string.Empty;
+            if (string.IsNullOrEmpty(enemyId))
+            {
+                return goalEnemy.IsVisible;
+            }
+
+            var key = (bot.ProfileId, enemyId);
+            VisibilityState state = visibilityCache.GetOrAdd(key, _ => default);
+            float now = Time.time;
+            bool rawVisible = goalEnemy.IsVisible;
+            bool immediateVisible = rawVisible &&
+                                    (goalEnemy.CanShoot || Distance(goalEnemy) == EnemyDistance.VeryClose);
+
+            if (rawVisible)
+            {
+                if (state.VisibleSince <= 0f || now - state.LastRawVisibleTime > StableVisibleDecaySeconds)
+                {
+                    state.VisibleSince = now;
+                }
+
+                state.LastRawVisibleTime = now;
+
+                if (immediateVisible || now - state.VisibleSince >= StableVisiblePromoteSeconds)
+                {
+                    state.StableVisible = true;
+                    state.LastStableVisibleTime = now;
+                }
+
+                visibilityCache[key] = state;
+                return state.StableVisible;
+            }
+
+            if (state.StableVisible && now - state.LastStableVisibleTime <= StableVisibleDecaySeconds)
+            {
+                visibilityCache[key] = state;
+                return true;
+            }
+
+            state.StableVisible = false;
+            state.VisibleSince = 0f;
+            visibilityCache[key] = state;
+            return false;
+        }
+
+        public static bool HasReliableKnownPosition(BotOwner bot, EnemyInfo goalEnemy)
+        {
+            return TryGetReliableKnownPosition(bot, goalEnemy, out _);
+        }
+
+        public static bool TryGetReliableKnownPosition(BotOwner bot, EnemyInfo goalEnemy, out Vector3 position)
+        {
+            position = Vector3.zero;
+            if (bot == null || goalEnemy == null)
+            {
+                return false;
+            }
+
+            Vector3 currentPosition = goalEnemy.CurrPosition;
+            if (IsVisible(bot, goalEnemy) &&
+                IsFinitePosition(currentPosition) &&
+                (currentPosition - bot.Position).sqrMagnitude > 0.01f)
+            {
+                position = currentPosition;
+                return true;
+            }
+
+            Vector3 personalLastPos = goalEnemy.PersonalLastPos;
+            if (IsFinitePosition(personalLastPos) &&
+                (personalLastPos - bot.Position).sqrMagnitude > 0.01f)
+            {
+                position = personalLastPos;
+                return true;
+            }
+
+            Vector3 sharedLastPos = goalEnemy.EnemyLastPositionReal;
+            if (IsFinitePosition(sharedLastPos) &&
+                sharedLastPos.sqrMagnitude > 0.01f &&
+                (sharedLastPos - bot.Position).sqrMagnitude > 0.01f &&
+                (goalEnemy.HaveSeen || goalEnemy.PersonalLastSeenTime > 0f))
+            {
+                position = sharedLastPos;
+                return true;
+            }
+
+            return false;
         }
 
         public static ProxyDistance DistanceProxy(BotOwner bot, Vector3 position)
@@ -244,9 +350,80 @@ namespace friendlySAIN.Utils
             }
 
             info.IgnoreUntilAggression = false;
+            RepairPersonalMemory(info, enemy.Transform.position, info.IsVisible || info.CanShoot || info.HaveSeen);
 
             return info;
 
+        }
+
+        public static void RepairPersonalMemory(EnemyInfo? info, Vector3 fallbackPosition, bool countAsSeen)
+        {
+            if (info == null)
+            {
+                return;
+            }
+
+            Vector3 enemyPosition = IsFinite(info.CurrPosition)
+                ? info.CurrPosition
+                : fallbackPosition;
+
+            if (!IsFinite(enemyPosition) || enemyPosition.sqrMagnitude <= 0.01f)
+            {
+                enemyPosition = info.PersonalLastPos;
+            }
+
+            if (!IsFinite(enemyPosition) || enemyPosition.sqrMagnitude <= 0.01f)
+            {
+                return;
+            }
+
+            if (!IsFinite(info.PersonalLastPos) || info.PersonalLastPos.sqrMagnitude <= 0.01f)
+            {
+                info.PersonalLastPos = enemyPosition;
+            }
+
+            if (countAsSeen)
+            {
+                if (info.PersonalSeenTime <= 0f)
+                {
+                    info.PersonalSeenTime = Time.time;
+                }
+
+                if (info.PersonalLastSeenTime <= 0f)
+                {
+                    info.PersonalLastSeenTime = Time.time;
+                }
+
+                info.HaveSeenPersonal = true;
+            }
+
+            if (info.GroupInfo != null)
+            {
+                if (info.GroupInfo.EnemyLastSeenTimeSense <= 0f ||
+                    !IsFinite(info.EnemyLastPosition) ||
+                    info.EnemyLastPosition.sqrMagnitude <= 0.01f)
+                {
+                    info.GroupInfo.EnemyLastPosition = enemyPosition;
+                }
+
+                if (countAsSeen &&
+                    (info.GroupInfo.EnemyLastSeenTimeReal <= 0f ||
+                     !IsFinite(info.EnemyLastPositionReal) ||
+                     info.EnemyLastPositionReal.sqrMagnitude <= 0.01f))
+                {
+                    info.GroupInfo.EnemyLastVisiblePosition = enemyPosition;
+                }
+            }
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         public static void ForceIgnoreUntilAggressionOff(BotOwner bot)
@@ -281,11 +458,18 @@ namespace friendlySAIN.Utils
             {
                 enemyLocationCache.TryRemove(key, out _);
             }
+
+            var visibilityKeys = visibilityCache.Keys.Where(key => key.enemyId == enemyId).ToList();
+            foreach (var key in visibilityKeys)
+            {
+                visibilityCache.TryRemove(key, out _);
+            }
         }
 
         public static void ClearEnemiesLocations()
         {
             enemyLocationCache.Clear();
+            visibilityCache.Clear();
             enemies = new ConcurrentBag<string>();
         }
 
@@ -303,6 +487,16 @@ namespace friendlySAIN.Utils
             }
 
             return result;
+        }
+
+        private static bool IsFinitePosition(Vector3 position)
+        {
+            return !float.IsNaN(position.x) &&
+                   !float.IsNaN(position.y) &&
+                   !float.IsNaN(position.z) &&
+                   !float.IsInfinity(position.x) &&
+                   !float.IsInfinity(position.y) &&
+                   !float.IsInfinity(position.z);
         }
     }
 }

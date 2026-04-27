@@ -1,4 +1,5 @@
 using EFT;
+using friendlySAIN.Modules;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -55,6 +56,7 @@ namespace friendlySAIN.Components
                 reason ?? string.Empty,
                 isSearchPush,
                 Time.time);
+            BattleRecorder.RecordPushEmitted(owner, enemyProfileId, enemyPosition, destination, reason ?? string.Empty, isSearchPush);
             NotifyPushSubscribers();
             return true;
         }
@@ -67,6 +69,7 @@ namespace friendlySAIN.Components
             }
 
             activePush = null;
+            BattleRecorder.RecordPushReleased(owner, reason);
             NotifyPushSubscribers();
             return true;
         }
@@ -106,6 +109,7 @@ namespace friendlySAIN.Components
 
             activePush = null;
             ClearDestinationClaims();
+            BattleRecorder.RecordPushCleared("clear");
             NotifyPushSubscribers();
         }
 

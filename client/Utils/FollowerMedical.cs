@@ -51,17 +51,8 @@ namespace friendlySAIN.Utils
                 RestoreAllBodyPartsToMaximum(bot.AIData.Player);
             }
 
-            RefreshMovementHealthPenalty(player);
-            if (bot.AIData?.Player != null && bot.AIData.Player != player)
-            {
-                RefreshMovementHealthPenalty(bot.AIData.Player);
-            }
-
             RefreshMedicalWork(bot);
-
-            bot.Mover.Pause = false;
-            bot.Mover.SetTargetMoveSpeed(1f);
-            bot.GetPlayer.EnableSprint(true);
+            RefreshBotMovementAfterHealing(bot, ignoreBrokenLegPenalty: true);
             TryRecoverStuckMedicalHands(bot, "forceHeal");
             TryReturnToMainWeapon(bot);
         }
@@ -85,6 +76,7 @@ namespace friendlySAIN.Utils
             }
 
             RefreshMedicalWork(bot);
+            RefreshBotMovementAfterHealing(bot, ignoreBrokenLegPenalty: recoverDestroyedSurgeryParts);
             TryReturnToMainWeapon(bot);
         }
 
@@ -97,28 +89,9 @@ namespace friendlySAIN.Utils
 
             CancelAllHealing(bot, recoverDestroyedSurgeryParts: true);
 
-            Player player = bot.GetPlayer;
-
-            RestoreUsableBodyPartsToCurrentMaximum(player);
-            if (bot.AIData?.Player != null && bot.AIData.Player != player)
-            {
-                RestoreUsableBodyPartsToCurrentMaximum(bot.AIData.Player);
-            }
-
-            RefreshMovementHealthPenalty(player);
-            if (bot.AIData?.Player != null && bot.AIData.Player != player)
-            {
-                RefreshMovementHealthPenalty(bot.AIData.Player);
-            }
-
             RefreshMedicalWork(bot);
+            RefreshBotMovementAfterHealing(bot, ignoreBrokenLegPenalty: true);
 
-            bot.Mover.Pause = false;
-            bot.Mover.SetTargetMoveSpeed(1f);
-            if (!HasDamagedLeg(player))
-            {
-                bot.GetPlayer.EnableSprint(true);
-            }
             if (
                 bot.WeaponManager?.Selector != null &&
                 bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.FirstPrimaryWeapon &&
@@ -193,29 +166,6 @@ namespace friendlySAIN.Utils
             }
         }
 
-        private static void RestoreUsableBodyPartsToCurrentMaximum(Player player)
-        {
-            if (player?.ActiveHealthController == null)
-            {
-                return;
-            }
-
-            foreach (EBodyPart part in GClass3058.RealBodyParts)
-            {
-                if (player.ActiveHealthController.IsBodyPartDestroyed(part))
-                {
-                    continue;
-                }
-
-                ValueStruct health = player.ActiveHealthController.GetBodyPartHealth(part, false);
-                float missingHealth = health.Maximum - health.Current;
-                if (missingHealth.Positive())
-                {
-                    player.ActiveHealthController.ChangeHealth(part, missingHealth, GClass3051.MedKitUse);
-                }
-            }
-        }
-
         private static void RestoreDestroyedSurgeryPartsToOne(Player player)
         {
             if (player?.ActiveHealthController == null)
@@ -233,39 +183,85 @@ namespace friendlySAIN.Utils
             }
         }
 
-        private static void RefreshMovementHealthPenalty(Player player)
+        private static void RefreshBotMovementAfterHealing(BotOwner bot, bool ignoreBrokenLegPenalty)
+        {
+            if (bot?.GetPlayer == null)
+            {
+                return;
+            }
+
+            Player player = bot.GetPlayer;
+            RefreshMovementHealthPenalty(player, ignoreBrokenLegPenalty);
+            if (bot.AIData?.Player != null && bot.AIData.Player != player)
+            {
+                RefreshMovementHealthPenalty(bot.AIData.Player, ignoreBrokenLegPenalty);
+            }
+
+            if (bot.Mover != null)
+            {
+                bot.Mover.Pause = false;
+                bot.Mover.SprintStopEnd = 0f;
+                bot.Mover.SetTargetMoveSpeed(1f);
+            }
+
+            if (!HasDamagedLeg(player, ignoreBrokenLegPenalty))
+            {
+                player.EnableSprint(true);
+                if (bot.AIData?.Player != null && bot.AIData.Player != player)
+                {
+                    bot.AIData.Player.EnableSprint(true);
+                }
+            }
+        }
+
+        private static void RefreshMovementHealthPenalty(Player player, bool ignoreBrokenLegPenalty)
         {
             if (player?.HealthController == null || player.MovementContext == null)
             {
                 return;
             }
 
-            bool rightLegDamaged = player.HealthController.IsBodyPartBroken(EBodyPart.RightLeg) ||
-                                   player.HealthController.IsBodyPartDestroyed(EBodyPart.RightLeg);
-            bool leftLegDamaged = player.HealthController.IsBodyPartBroken(EBodyPart.LeftLeg) ||
-                                  player.HealthController.IsBodyPartDestroyed(EBodyPart.LeftLeg);
+            player.MovementContext.SetPhysicalCondition(EPhysicalCondition.UsingMeds, false);
+            player.MovementContext.SetPhysicalCondition(EPhysicalCondition.HealingLegs, false);
 
+            bool rightLegDamaged = IsMovementDamagedLeg(player, EBodyPart.RightLeg, ignoreBrokenLegPenalty);
+            bool leftLegDamaged = IsMovementDamagedLeg(player, EBodyPart.LeftLeg, ignoreBrokenLegPenalty);
+
+            player.UpdateSpeedLimitByHealth();
             player.MovementContext.SetPhysicalCondition(EPhysicalCondition.RightLegDamaged, rightLegDamaged);
             player.MovementContext.SetPhysicalCondition(EPhysicalCondition.LeftLegDamaged, leftLegDamaged);
-            player.UpdateSpeedLimitByHealth();
 
             if (!rightLegDamaged && !leftLegDamaged)
             {
+                player.RemoveStateSpeedLimit(Player.ESpeedLimit.HealthCondition);
                 player.EnableSprint(true);
             }
         }
 
-        private static bool HasDamagedLeg(Player player)
+        private static bool HasDamagedLeg(Player player, bool ignoreBrokenLegPenalty)
         {
             if (player?.HealthController == null)
             {
                 return false;
             }
 
-            return player.HealthController.IsBodyPartBroken(EBodyPart.RightLeg) ||
-                   player.HealthController.IsBodyPartDestroyed(EBodyPart.RightLeg) ||
-                   player.HealthController.IsBodyPartBroken(EBodyPart.LeftLeg) ||
-                   player.HealthController.IsBodyPartDestroyed(EBodyPart.LeftLeg);
+            return IsMovementDamagedLeg(player, EBodyPart.RightLeg, ignoreBrokenLegPenalty) ||
+                   IsMovementDamagedLeg(player, EBodyPart.LeftLeg, ignoreBrokenLegPenalty);
+        }
+
+        private static bool IsMovementDamagedLeg(Player player, EBodyPart part, bool ignoreBrokenLegPenalty)
+        {
+            if (player?.HealthController == null)
+            {
+                return false;
+            }
+
+            if (player.HealthController.IsBodyPartDestroyed(part))
+            {
+                return true;
+            }
+
+            return !ignoreBrokenLegPenalty && player.HealthController.IsBodyPartBroken(part);
         }
 
         private static string? GetMedicalBusyReason(BotOwner bot, MedicalHandsWatchState state, out float timeout)

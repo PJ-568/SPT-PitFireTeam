@@ -97,6 +97,12 @@ namespace friendlySAIN.SAINAddon
             return nextAction;
         }
 
+        public override void Stop()
+        {
+            ReleaseGroupSearchLock();
+            base.Stop();
+        }
+
         public override bool IsCurrentActionEnding()
         {
             if (base.IsCurrentActionEnding())
@@ -215,6 +221,13 @@ namespace friendlySAIN.SAINAddon
                 return true;
             }
 
+            if (IsTemporaryHoldPositionAggressionActive())
+            {
+                decision = ESquadDecision.Regroup;
+                _currentUsesDefaultBossAction = true;
+                return true;
+            }
+
             if (SAINFollowerSquadDecisionCalculator.TryGetDecision(BotOwner, bot, out decision) && decision != ESquadDecision.None)
             {
                 if (decision == ESquadDecision.GroupSearch)
@@ -244,6 +257,11 @@ namespace friendlySAIN.SAINAddon
             }
 
             return false;
+        }
+
+        private bool IsTemporaryHoldPositionAggressionActive()
+        {
+            return BossPlayers.Instance?.GetFollower(BotOwner)?.IsTemporaryHoldPositionAggressionActive == true;
         }
 
         private bool TryRefreshRetainedContact(BotComponent bot)

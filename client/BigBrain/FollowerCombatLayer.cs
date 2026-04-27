@@ -121,10 +121,12 @@ namespace friendlySAIN.BigBrain
             combatLogic = CreateCombatLogic(BotOwner, brainShortName);
             combatLogic?.Reset();
             combatLogic?.StartDecision();
+            BattleRecorder.RecordCombatLayerState(BotOwner, true, "layerStart");
         }
 
         public override void Stop()
         {
+            BattleRecorder.RecordCombatLayerState(BotOwner, false, "layerStop");
             MarkActive(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
@@ -169,6 +171,7 @@ namespace friendlySAIN.BigBrain
             }
 
             currentDecision = nextDecision;
+            BattleRecorder.RecordDecisionSelected(BotOwner, lastDecision, nextDecision, combatLogic?.GetCurrentObjectiveName());
             return CreateBigBrainAction(nextDecision);
         }
 
@@ -225,6 +228,11 @@ namespace friendlySAIN.BigBrain
 
             // The concrete logic decides end conditions; it may delegate to shared common logic.
             AICoreActionEndStruct endResult = combatLogic.ShallEndCurrentDecision(currentDecision.Value);
+            if (endResult.Value)
+            {
+                BattleRecorder.RecordDecisionEnd(BotOwner, currentDecision.Value, endResult, combatLogic.GetCurrentObjectiveName());
+            }
+
             if (endResult.Value &&
                 (currentDecision.Value.Action == BotLogicDecision.runToCover ||
                  currentDecision.Value.Action == BotLogicDecision.runToEnemy))

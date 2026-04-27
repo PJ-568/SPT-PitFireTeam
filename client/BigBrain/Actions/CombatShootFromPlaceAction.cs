@@ -12,6 +12,8 @@ namespace friendlySAIN.BigBrain.Actions
         private const float StandingPoseThreshold = 0.85f;
         private const float CrouchFireProbeHeight = 1.0f;
         private const float ProneFireProbeHeight = 0.35f;
+        private const float CloseImmediateFireDistance = 10f;
+        private const float CloseImmediateFireAngle = 35f;
         private readonly GClass276 baseLogic;
         private float aimAlignStartedAt;
         private Vector3 startPosition;
@@ -64,13 +66,50 @@ namespace friendlySAIN.BigBrain.Actions
                 return;
             }
 
-            if (WaitForEnemyAimAlignment(ref aimAlignStartedAt))
+            if (!TryForceCloseImmediateFire(reason, goalEnemy) &&
+                WaitForEnemyAimAlignment(ref aimAlignStartedAt))
             {
                 return;
             }
 
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
             EnforceSupportedFirePose(allowCrouch, allowProne);
+        }
+
+        private bool TryForceCloseImmediateFire(string? reason, EnemyInfo? goalEnemy)
+        {
+            if (!FollowerImmediateFirePolicy.IsImmediateShootReason(reason) ||
+                goalEnemy == null ||
+                !goalEnemy.IsVisible ||
+                !goalEnemy.CanShoot ||
+                goalEnemy.Distance > CloseImmediateFireDistance)
+            {
+                return false;
+            }
+
+            ShootPointClass? shootPoint = BotOwner.CurrentEnemyTargetPosition(false);
+            Vector3 target = shootPoint?.Point ?? goalEnemy.GetBodyPartPosition();
+            BotOwner.StopMove();
+            BotOwner.SetPose(1f);
+            BotOwner.Steering.LookToPoint(target);
+
+            if (CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) > CloseImmediateFireAngle)
+            {
+                return false;
+            }
+
+            Vector3 fireOrigin = BotOwner.WeaponRoot != null
+                ? BotOwner.WeaponRoot.position
+                : BotOwner.Position + Vector3.up * 1.2f;
+            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target))
+            {
+                StopCombatShooting();
+                return true;
+            }
+
+            BotOwner.ShootData.Shoot();
+            aimAlignStartedAt = 0f;
+            return true;
         }
 
         private void EnforceSupportedFirePose(bool allowCrouch, bool allowProne)
@@ -124,6 +163,12 @@ namespace friendlySAIN.BigBrain.Actions
             Vector3 fireOrigin = BotOwner.WeaponRoot != null
                 ? BotOwner.WeaponRoot.position
                 : BotOwner.Position + Vector3.up * 1.2f;
+            if (!FollowerImmediateFirePolicy.HasDirectFireLane(BotOwner, target))
+            {
+                StopCombatShooting();
+                return true;
+            }
+
             if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target))
             {
                 BotOwner.Steering.LookToPoint(target);

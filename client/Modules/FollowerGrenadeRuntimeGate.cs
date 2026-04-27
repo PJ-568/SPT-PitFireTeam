@@ -91,6 +91,7 @@ namespace friendlySAIN.Modules
                 FollowerGrenadeCooldowns.CancelPending(bot);
             }
 
+            BattleRecorder.RecordGrenadeEvent(bot, "finish", completed ? "completed" : "canceled", completed);
             RefreshFollowerGroup(bot);
         }
 
@@ -102,6 +103,7 @@ namespace friendlySAIN.Modules
             }
 
             ReleasedThrowByProfileId.Add(bot.ProfileId);
+            BattleRecorder.RecordGrenadeEvent(bot, "released", "throwReleased");
         }
 
         public static bool ConsumeThrowReleased(BotOwner bot)

@@ -46,6 +46,7 @@ namespace friendlySAIN.BigBrain
 
         public virtual AICoreActionResultStruct<BotLogicDecision, GClass26> GetDecision()
         {
+            combatCommon.RepairGoalEnemyMemory();
             EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
             {
@@ -102,8 +103,14 @@ namespace friendlySAIN.BigBrain
             GetCurrentObjective().DecisionChanged(prevDecision, nextDecision);
         }
 
+        public string GetCurrentObjectiveName()
+        {
+            return GetCurrentObjective().GetType().Name;
+        }
+
         public virtual void StartDecision()
         {
+            combatCommon.RepairGoalEnemyMemory();
             ActivatePrimaryObjectiveForStart();
             GetCurrentObjective().StartDecision();
         }
@@ -179,11 +186,13 @@ namespace friendlySAIN.BigBrain
             // follower's current combat geometry instead of reusing stale bossward targets.
             regroupObjective.Activate();
             currentObjective = CombatObjectiveKind.Regroup;
+            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateRegroup");
         }
 
         protected void ActivatePrimaryObjectiveForStart()
         {
             currentObjective = CombatObjectiveKind.Default;
+            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "combatStart");
         }
 
         private void ActivatePrimaryObjective()
@@ -198,6 +207,7 @@ namespace friendlySAIN.BigBrain
             // StartDecision() here or the bot would incorrectly get a fresh combat opener.
             GetObjective().Activate();
             currentObjective = CombatObjectiveKind.Default;
+            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "returnPrimary");
         }
 
         protected FollowerCombatObjectiveBase GetCurrentObjective()

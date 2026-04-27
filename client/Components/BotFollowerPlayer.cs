@@ -943,6 +943,7 @@ namespace friendlySAIN.Components
             _commandTarget = Vector3.zero;
             _holdPositionShouldCrouch = crouch;
             _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetHoldPosition));
         }
 
         public void SetMoveToPoint(Vector3 target, float duration)
@@ -951,6 +952,7 @@ namespace friendlySAIN.Components
             _commandTarget = target;
             _commandUntilTime = float.PositiveInfinity;
             _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetMoveToPoint));
         }
 
         public void SetComeCloser(float duration)
@@ -970,6 +972,7 @@ namespace friendlySAIN.Components
                 ? float.PositiveInfinity
                 : Time.time + Mathf.Max(2f, duration);
             _commandTarget = Vector3.zero;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetComeCloser));
         }
 
         public void SetRegroup(float duration)
@@ -983,6 +986,7 @@ namespace friendlySAIN.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
             _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetRegroup));
         }
 
         public void SetTakeLootItem(float duration)
@@ -996,6 +1000,7 @@ namespace friendlySAIN.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(6f, duration);
             _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetTakeLootItem));
         }
 
         public void SetOpenDoor(float duration)
@@ -1009,6 +1014,7 @@ namespace friendlySAIN.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(6f, duration);
             _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetOpenDoor));
         }
 
         public void SetPushEnemy(float duration)
@@ -1022,6 +1028,7 @@ namespace friendlySAIN.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetPushEnemy));
         }
 
         public void CompleteComeCloser()
@@ -1037,6 +1044,7 @@ namespace friendlySAIN.Components
                 _commandTarget = Vector3.zero;
                 _commandUntilTime = float.PositiveInfinity;
                 _resumeHoldAfterComeCloser = false;
+                BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(CompleteComeCloser));
                 return;
             }
 
@@ -1150,6 +1158,14 @@ namespace friendlySAIN.Components
 
             command = _activeCommand;
             target = _commandTarget;
+            return command != FollowerCommandType.None;
+        }
+
+        public bool TryPeekActiveCommand(out FollowerCommandType command, out Vector3 target, out float untilTime)
+        {
+            command = _activeCommand;
+            target = _commandTarget;
+            untilTime = _commandUntilTime;
             return command != FollowerCommandType.None;
         }
 
@@ -1378,6 +1394,10 @@ namespace friendlySAIN.Components
 
         public void ClearCommand(string reason = "unspecified")
         {
+            FollowerCommandType previousCommand = _activeCommand;
+            Vector3 previousTarget = _commandTarget;
+            float previousUntilTime = _commandUntilTime;
+
             if (_bot != null)
             {
                 if (_activeCommand == FollowerCommandType.TakeLootItem)
@@ -1398,6 +1418,8 @@ namespace friendlySAIN.Components
             _commandLookPauseUntil = 0f;
             _commandLookOverridePoint = Vector3.zero;
             _commandLookOverrideUntil = 0f;
+
+            BattleRecorder.RecordCommandCleared(this, previousCommand, previousTarget, previousUntilTime, reason);
         }
 
         private void ResetPickupFollowerRuntimeState()

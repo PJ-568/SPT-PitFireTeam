@@ -66,6 +66,24 @@ namespace friendlySAIN.Modules
             };
         }
 
+        public static bool RegisterCurrentGoal(BotOwner follower, bool prioritized)
+        {
+            EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
+            if (follower == null || goalEnemy == null || string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                return false;
+            }
+
+            Player enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+            if (enemy?.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+
+            Register(follower, enemy, goalEnemy.IsVisible || goalEnemy.CanShoot, prioritized);
+            return true;
+        }
+
         public static bool HasActiveRetainedContact(BotOwner follower)
         {
             if (follower == null || string.IsNullOrEmpty(follower.ProfileId))
@@ -209,6 +227,7 @@ namespace friendlySAIN.Modules
             info.PriorityIndex = 0;
             info.PersonalLastPos = enemy.Position;
             info.SetVisible(contact.WasVisible);
+            Enemy.RepairPersonalMemory(info, enemy.Position, contact.WasVisible || info.HaveSeen || info.CanShoot);
             follower.Memory.IsPeace = false;
             follower.Memory.GoalEnemy = info;
             restored = info;
