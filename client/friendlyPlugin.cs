@@ -122,6 +122,8 @@ namespace friendlySAIN
         public Dictionary<string, string> botTalk { get; set; }
 
         public Dictionary<string, string> spawnPoint { get; set; }
+        public Dictionary<string, string> battleRecorder { get; set; }
+        public Dictionary<string, string> battleRecorderSnapshotIntervalMs { get; set; }
 
         // used only by BE
         public string[] returnItems { get; set; }
@@ -174,6 +176,19 @@ namespace friendlySAIN
         public static ConfigEntry<int> goToDistance;
 
         public static ConfigEntry<bool> spawnPoint;
+        public static ConfigEntry<bool> battleRecorderEnabled;
+        public static ConfigEntry<int> battleRecorderSnapshotIntervalMs;
+        public static bool IsDebugBuild
+        {
+            get
+            {
+#if DEBUG
+                return true;
+#else
+                return false;
+#endif
+            }
+        }
 
         public static ConfigEntry<KeyboardShortcut> pingKey;
         public static ConfigEntry<int> pingRadioVolume;
@@ -187,6 +202,8 @@ namespace friendlySAIN
         public static TarkovApplication application;
 
         private static Dictionary<ConfigDefinition, string> savedConfigValues;
+        private string currentLanguageCode = "en";
+        private float nextLanguageCheckTime;
 
         public static ManualLogSource Log => Instance.Logger;
 
@@ -332,6 +349,7 @@ namespace friendlySAIN
             new MainMenuControllerOpenSideSelectionGuardPatch().Enable();
             new CurrentScreenTryReturnToRootScreenPatch().Enable();
             new PlayerModelViewShowProfilePatch().Enable();
+            new MatchMakerGroupPreviewClosePlayerPatch().Enable();
             new PlayerModelViewShowLastStatePatch().Enable();
 
             //new ConditionCounterPatch().Enable();
@@ -349,6 +367,7 @@ namespace friendlySAIN
 
             // set configuration manager
             SetConfiguration();
+            BattleRecorder.Initialize();
 
             new FriendlyDropdownNamePatch().Enable();
             new OtherPlayerProfileScreenPatch().Enable();
@@ -370,6 +389,11 @@ namespace friendlySAIN
                 Logger.LogWarning("[Init] SAIN detected but friendlySAIN SAIN addon is missing.");
                 Logger.LogWarning($"[Init] Followers will fall back to core vanilla combat behavior. Install plugin '{SainAddonPluginId}' to enable SAIN follower combat.");
             }
+        }
+
+        private void OnDestroy()
+        {
+            BattleRecorder.Shutdown();
         }
 
         private static void RefreshPluginFlags()
@@ -404,8 +428,130 @@ namespace friendlySAIN
 
         private void GetLanguage()
         {
-            // Temporary no-BE default. Replace with BE language route when backend is reintroduced.
-            optionsLang = TempEnglishLanguageProvider.Create();
+            currentLanguageCode = ResolveGameLanguageCode();
+            optionsLang = LoadLanguageOptions(currentLanguageCode);
+        }
+
+        private static LanguageOptions LoadLanguageOptions(string languageCode)
+        {
+            LanguageOptions fallback = TempEnglishLanguageProvider.Create();
+
+            try
+            {
+                string requestBody = JsonConvert.SerializeObject(new { locale = languageCode });
+                string responseJson = RequestHandler.PostJson("/singleplayer/friendlysain/lang", requestBody);
+                LanguageOptions loaded = JsonConvert.DeserializeObject<LanguageOptions>(responseJson);
+                return ApplyLanguageFallback(loaded, fallback);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo($"Failed to load friendlySAIN language '{languageCode}', using English fallback: {ex.Message}");
+                return fallback;
+            }
+        }
+
+        private static LanguageOptions ApplyLanguageFallback(LanguageOptions loaded, LanguageOptions fallback)
+        {
+            loaded ??= new LanguageOptions();
+
+            foreach (PropertyInfo property in typeof(LanguageOptions).GetProperties(BindingFlags.Instance | BindingFlags.Public))
+            {
+                object current = property.GetValue(loaded);
+                object defaultValue = property.GetValue(fallback);
+
+                if (current == null)
+                {
+                    property.SetValue(loaded, defaultValue);
+                    continue;
+                }
+
+                if (current is System.Collections.IDictionary currentDictionary
+                    && defaultValue is System.Collections.IDictionary defaultDictionary)
+                {
+                    foreach (object key in defaultDictionary.Keys)
+                    {
+                        if (!currentDictionary.Contains(key))
+                        {
+                            currentDictionary[key] = defaultDictionary[key];
+                        }
+                    }
+                    continue;
+                }
+
+                if (current is Array currentArray && currentArray.Length == 0)
+                {
+                    property.SetValue(loaded, defaultValue);
+                    continue;
+                }
+
+                if (current is string currentString && string.IsNullOrWhiteSpace(currentString))
+                {
+                    property.SetValue(loaded, defaultValue);
+                }
+            }
+
+            return loaded;
+        }
+
+        private static string ResolveGameLanguageCode()
+        {
+            try
+            {
+                if (Singleton<SharedGameSettingsClass>.Instantiated)
+                {
+                    string gameLanguage = Singleton<SharedGameSettingsClass>.Instance?.Game?.Settings?.Language?.Value;
+                    if (!string.IsNullOrWhiteSpace(gameLanguage))
+                    {
+                        return NormalizeLanguageCode(gameLanguage);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo($"Failed to read game language setting: {ex.Message}");
+            }
+
+            return "en";
+        }
+
+        private static string NormalizeLanguageCode(string languageCode)
+        {
+            if (string.IsNullOrWhiteSpace(languageCode))
+            {
+                return "en";
+            }
+
+            string normalized = languageCode.Trim().ToLowerInvariant();
+            int separatorIndex = normalized.IndexOfAny(new[] { '-', '_' });
+            if (separatorIndex > 0)
+            {
+                normalized = normalized.Substring(0, separatorIndex);
+            }
+
+            return normalized switch
+            {
+                "de" => "ge",
+                _ => normalized
+            };
+        }
+
+        private void CheckLanguageSettingChanged()
+        {
+            if (Time.realtimeSinceStartup < nextLanguageCheckTime)
+            {
+                return;
+            }
+
+            nextLanguageCheckTime = Time.realtimeSinceStartup + 1f;
+            string observedLanguage = ResolveGameLanguageCode();
+            if (string.Equals(observedLanguage, currentLanguageCode, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            currentLanguageCode = observedLanguage;
+            optionsLang = LoadLanguageOptions(currentLanguageCode);
+            SquadControlMenuUi.FindInstance()?.RefreshLocalizedText();
         }
         private void ConfigSet()
         {
@@ -420,59 +566,76 @@ namespace friendlySAIN
                 savedConfigValues.Add(it.Key, it.Value);
             });
 
-            scanDistance = Config.Bind("", "1 " + optionsLang.scanDistance["Name"], 140, new ConfigDescription(optionsLang.scanDistance["Description"], new AcceptableValueRange<int>(50, 300), new ConfigurationManagerAttributes { Order = -100, Browsable = false }));
+            scanDistance = Config.Bind("", "01 ScanDistance", 140, new ConfigDescription(optionsLang.scanDistance["Description"], new AcceptableValueRange<int>(50, 300), CreateConfigAttributes(-100, false, optionsLang.scanDistance)));
 
-            patrolRadius = Config.Bind("", "2 " + optionsLang.patrolRadius["Name"], 50, new ConfigDescription(optionsLang.patrolRadius["Description"], new AcceptableValueRange<int>(30, 100), new ConfigurationManagerAttributes { Order = -200, Browsable = false }));
+            patrolRadius = Config.Bind("", "02 PatrolRadius", 50, new ConfigDescription(optionsLang.patrolRadius["Description"], new AcceptableValueRange<int>(30, 100), CreateConfigAttributes(-200, false, optionsLang.patrolRadius)));
 
-            enemyRemember = Config.Bind("", "3 " + optionsLang.enemyRemember["Name"], 20, new ConfigDescription(optionsLang.enemyRemember["Description"], new AcceptableValueRange<int>(5, 60), new ConfigurationManagerAttributes { Order = -300, Browsable = false }));
+            enemyRemember = Config.Bind("", "03 EnemyRemember", 20, new ConfigDescription(optionsLang.enemyRemember["Description"], new AcceptableValueRange<int>(5, 60), CreateConfigAttributes(-300, false, optionsLang.enemyRemember)));
 
-            heatlhMultiplier = Config.Bind("", "4 " + optionsLang.healthMultiplier["Name"], 1, new ConfigDescription(optionsLang.healthMultiplier["Description"], new AcceptableValueRange<int>(1, 10), new ConfigurationManagerAttributes { Order = -400, Browsable = false }));
+            heatlhMultiplier = Config.Bind("", "04 HealthMultiplier", 1, new ConfigDescription(optionsLang.healthMultiplier["Description"], new AcceptableValueRange<int>(1, 10), CreateConfigAttributes(-400, false, optionsLang.healthMultiplier)));
 
-            statusSound = Config.Bind("", "5 " + optionsLang.statusSound["Name"], 100, new ConfigDescription(optionsLang.statusSound["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -500, Browsable = false }));
+            statusSound = Config.Bind("", "05 StatusSound", 100, new ConfigDescription(optionsLang.statusSound["Description"], new AcceptableValueRange<int>(0, 100), CreateConfigAttributes(-500, false, optionsLang.statusSound)));
 
-            enemyMarker = Config.Bind("", "6 " + optionsLang.enemyMarker["Name"], true, new ConfigDescription(optionsLang.enemyMarker["Description"], null, new ConfigurationManagerAttributes { Order = -600, Browsable = false }));
+            enemyMarker = Config.Bind("", "06 EnemyMarker", true, new ConfigDescription(optionsLang.enemyMarker["Description"], null, CreateConfigAttributes(-600, false, optionsLang.enemyMarker)));
 
-            pickupEnabled = Config.Bind("", "7 " + optionsLang.pickup["Name"], true, new ConfigDescription(optionsLang.pickup["Description"], null, new ConfigurationManagerAttributes { Order = -700, Browsable = false }));
+            pickupEnabled = Config.Bind("", "07 Pickup", true, new ConfigDescription(optionsLang.pickup["Description"], null, CreateConfigAttributes(-700, false, optionsLang.pickup)));
 
-            tieredPickup = Config.Bind("", "8 " + optionsLang.tieredPickup["Name"], true, new ConfigDescription(optionsLang.tieredPickup["Description"], null, new ConfigurationManagerAttributes { Order = -800, Browsable = false }));
+            tieredPickup = Config.Bind("", "08 TieredPickup", true, new ConfigDescription(optionsLang.tieredPickup["Description"], null, CreateConfigAttributes(-800, false, optionsLang.tieredPickup)));
 
-            maximumPickup = Config.Bind("", "9 " + optionsLang.maximumPickup["Name"], 2, new ConfigDescription(optionsLang.maximumPickup["Description"], new AcceptableValueRange<int>(0, 10), new ConfigurationManagerAttributes { Order = -900, Browsable = false }));
+            maximumPickup = Config.Bind("", "09 MaximumPickup", 2, new ConfigDescription(optionsLang.maximumPickup["Description"], new AcceptableValueRange<int>(0, 10), CreateConfigAttributes(-900, false, optionsLang.maximumPickup)));
 
-            recruitPickup = Config.Bind("", "10 " + optionsLang.recruitPickup["Name"], true, new ConfigDescription(optionsLang.recruitPickup["Description"], null, new ConfigurationManagerAttributes { Order = -1000, Browsable = false }));
+            recruitPickup = Config.Bind("", "10 RecruitPickup", true, new ConfigDescription(optionsLang.recruitPickup["Description"], null, CreateConfigAttributes(-1000, false, optionsLang.recruitPickup)));
 
-            npcSendMessage = Config.Bind("", "11 " + optionsLang.npcSendMessage["Name"], true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, new ConfigurationManagerAttributes { Order = -1001, Browsable = false }));
+            npcSendMessage = Config.Bind("", "11 NpcSendMessage", true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, CreateConfigAttributes(-1001, false, optionsLang.npcSendMessage)));
 
-            friendlySAINFLAG = Config.Bind("", "12 " + optionsLang.friendlySAIN["Name"], true, new ConfigDescription(optionsLang.friendlySAIN["Description"], null, new ConfigurationManagerAttributes { Order = -1002, Browsable = false }));
+            friendlySAINFLAG = Config.Bind("", "12 FriendlySAIN", true, new ConfigDescription(optionsLang.friendlySAIN["Description"], null, CreateConfigAttributes(-1002, false, optionsLang.friendlySAIN)));
 
-            badGuy = Config.Bind("", "13 " + optionsLang.badGuy["Name"], false, new ConfigDescription(optionsLang.badGuy["Description"], null, new ConfigurationManagerAttributes { Order = -1003, Browsable = false }));
+            badGuy = Config.Bind("", "13 BadGuy", false, new ConfigDescription(optionsLang.badGuy["Description"], null, CreateConfigAttributes(-1003, false, optionsLang.badGuy)));
 
-            englishBear = Config.Bind("", "14 " + optionsLang.englishBear["Name"], true, new ConfigDescription(optionsLang.englishBear["Description"], null, new ConfigurationManagerAttributes { Order = -1004, Browsable = false }));
+            englishBear = Config.Bind("", "14 EnglishBear", true, new ConfigDescription(optionsLang.englishBear["Description"], null, CreateConfigAttributes(-1004, false, optionsLang.englishBear)));
 
-            botGrenades = Config.Bind("", "15 " + optionsLang.botGrenades["Name"], true, new ConfigDescription(optionsLang.botGrenades["Description"], null, new ConfigurationManagerAttributes { Order = -1005, Browsable = false }));
+            botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
 
-            pingKey = Config.Bind("", "16 " + optionsLang.pingSquad["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, new ConfigurationManagerAttributes { Order = -1006, Browsable = false }));
+            pingKey = Config.Bind("", "16 PingSquad", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, CreateConfigAttributes(-1006, false, optionsLang.pingSquad)));
 
-            pingRadioVolume = Config.Bind("", "17 " + optionsLang.pingRadioVolume["Name"], 50, new ConfigDescription(optionsLang.pingRadioVolume["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1007, Browsable = false }));
+            pingRadioVolume = Config.Bind("", "17 PingRadioVolume", 50, new ConfigDescription(optionsLang.pingRadioVolume["Description"], new AcceptableValueRange<int>(0, 100), CreateConfigAttributes(-1007, false, optionsLang.pingRadioVolume)));
 
-            pingTime = Config.Bind("", "18 " + optionsLang.pingTime["Name"], 5, new ConfigDescription(optionsLang.pingTime["Description"], new AcceptableValueRange<int>(5, 30), new ConfigurationManagerAttributes { Order = -1008, Browsable = false }));
+            pingTime = Config.Bind("", "18 PingTime", 5, new ConfigDescription(optionsLang.pingTime["Description"], new AcceptableValueRange<int>(5, 30), CreateConfigAttributes(-1008, false, optionsLang.pingTime)));
 
-            contactKey = Config.Bind("", "19 " + optionsLang.enemyContact["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, new ConfigurationManagerAttributes { Order = -1009, Browsable = false }));
+            contactKey = Config.Bind("", "19 EnemyContact", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.enemyContact["Description"], null, CreateConfigAttributes(-1009, false, optionsLang.enemyContact)));
 
-            overThereKey = Config.Bind("", "20 " + optionsLang.overThere["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.overThere["Description"], null, new ConfigurationManagerAttributes { Order = -1010, Browsable = false }));
+            overThereKey = Config.Bind("", "20 OverThere", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.overThere["Description"], null, CreateConfigAttributes(-1010, false, optionsLang.overThere)));
 
-            teleportKey = Config.Bind("", "21 " + optionsLang.botTeleport["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, new ConfigurationManagerAttributes { Order = -1011, Browsable = false }));
-            healKey = Config.Bind("", "22 " + optionsLang.botHeal["Name"], new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, new ConfigurationManagerAttributes { Order = -1012, Browsable = false }));
+            teleportKey = Config.Bind("", "21 BotTeleport", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botTeleport["Description"], null, CreateConfigAttributes(-1011, false, optionsLang.botTeleport)));
+            healKey = Config.Bind("", "22 BotHeal", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.botHeal["Description"], null, CreateConfigAttributes(-1012, false, optionsLang.botHeal)));
 
-            botPrefetch = Config.Bind("", "23 " + optionsLang.botPrefetch["Name"], true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, new ConfigurationManagerAttributes { Order = -1013, Browsable = false }));
+            botPrefetch = Config.Bind("", "23 BotPrefetch", true, new ConfigDescription(optionsLang.botPrefetch["Description"], null, CreateConfigAttributes(-1013, false, optionsLang.botPrefetch)));
 
-            botTalk = Config.Bind("", "24 " + optionsLang.botTalk["Name"], 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), new ConfigurationManagerAttributes { Order = -1014, Browsable = false }));
+            botTalk = Config.Bind("", "24 BotTalk", 100, new ConfigDescription(optionsLang.botTalk["Description"], new AcceptableValueRange<int>(0, 100), CreateConfigAttributes(-1014, false, optionsLang.botTalk)));
 
-            spawnPoint = Config.Bind("", "25 " + optionsLang.spawnPoint["Name"], true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, new ConfigurationManagerAttributes { Order = -1015, Browsable = false }));
+            spawnPoint = Config.Bind("", "25 SpawnPoint", true, new ConfigDescription(optionsLang.spawnPoint["Description"], null, CreateConfigAttributes(-1015, false, optionsLang.spawnPoint)));
 
-            goToDistance = Config.Bind("", "26 Maximum Go To Distance", 50, new ConfigDescription(optionsLang.goToDistance["Description"], new AcceptableValueRange<int>(10, 150), new ConfigurationManagerAttributes { Order = -1016, Browsable = false }));
+            goToDistance = Config.Bind("", "26 GoToDistance", 50, new ConfigDescription(optionsLang.goToDistance["Description"], new AcceptableValueRange<int>(10, 150), CreateConfigAttributes(-1016, false, optionsLang.goToDistance)));
+
+            bool showBattleRecorderSettings = IsDebugBuild;
+            battleRecorderEnabled = Config.Bind("Miscellaneous", "27 BattleRecorder", false, new ConfigDescription(optionsLang.battleRecorder["Description"], null, CreateConfigAttributes(-9998, showBattleRecorderSettings, optionsLang.battleRecorder)));
+
+            battleRecorderSnapshotIntervalMs = Config.Bind("Miscellaneous", "28 BattleRecorderSnapshotIntervalMs", 200, new ConfigDescription(optionsLang.battleRecorderSnapshotIntervalMs["Description"], new AcceptableValueRange<int>(50, 1000), CreateConfigAttributes(-9999, showBattleRecorderSettings, optionsLang.battleRecorderSnapshotIntervalMs)));
 
             Config.SaveOnConfigSet = true;
             Config.Save();
+        }
+
+        private static ConfigurationManagerAttributes CreateConfigAttributes(int order, bool browsable, Dictionary<string, string> languageEntry)
+        {
+            string displayName = null;
+            languageEntry?.TryGetValue("Name", out displayName);
+            return new ConfigurationManagerAttributes
+            {
+                Order = order,
+                Browsable = browsable,
+                DispName = displayName
+            };
         }
         private void _BotTeleport()
         {
@@ -764,6 +927,8 @@ namespace friendlySAIN
 
         void Update()
         {
+            CheckLanguageSettingChanged();
+
             GameWorld gameWorld = Singleton<GameWorld>.Instance;
             if (gameWorld == null) return;
 

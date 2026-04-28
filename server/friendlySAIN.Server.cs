@@ -68,7 +68,7 @@ public class FriendlySainServerPlugin(
         try
         {
             string traderId = FriendlyCourierTraderProfile.CourierTraderIdValue;
-            foreach (var (_, lazyGlobal) in databaseService.GetLocales().Global)
+            foreach (var (locale, lazyGlobal) in databaseService.GetLocales().Global)
             {
                 lazyGlobal.AddTransformer(localized =>
                 {
@@ -77,11 +77,17 @@ public class FriendlySainServerPlugin(
                         return localized;
                     }
 
-                    localized[$"{traderId} Nickname"] = FriendlyCourierTraderProfile.CourierNickname;
-                    localized[$"{traderId} FirstName"] = FriendlyCourierTraderProfile.CourierNickname;
-                    localized[$"{traderId} FullName"] = FriendlyCourierTraderProfile.CourierNickname;
-                    localized[$"{traderId} Location"] = FriendlyCourierTraderProfile.CourierLocation;
-                    localized[$"{traderId} Description"] = FriendlyCourierTraderProfile.CourierDescription;
+                    FriendlyCourierTraderProfile.GetLocalizedIdentity(
+                        locale,
+                        out string nickname,
+                        out string location,
+                        out string description);
+
+                    localized[$"{traderId} Nickname"] = nickname;
+                    localized[$"{traderId} FirstName"] = nickname;
+                    localized[$"{traderId} FullName"] = nickname;
+                    localized[$"{traderId} Location"] = location;
+                    localized[$"{traderId} Description"] = description;
                     return localized;
                 });
             }

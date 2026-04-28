@@ -52,7 +52,7 @@ public class FriendlyTeammateService(
     private const string TeammateFolderName = "teammates";
     private const string DefaultLoadoutName = "Default";
     private const string DefaultLoadoutId = "000000000000000000000000";
-    private static readonly string[] TacticOptions = ["Balanced", "Marksman", "Protector"];
+    private static readonly string[] TacticOptions = ["Rifleman", "Marksman", "Protector"];
     private const int RelativeLevelDelta = 5;
     private const int SecureContainerAmmoStackCount = 10;
     private const string GrizzlyMedicalKitTemplateId = "590c657e86f77412b013051d";
@@ -1433,7 +1433,7 @@ public class FriendlyTeammateService(
             SelectedLoadoutId = DefaultLoadoutId,
             AutoJoinEnabled = false,
             Aggression = 50f,
-            CombatTactic = "Balanced",
+            CombatTactic = "Rifleman",
         };
     }
 
@@ -1525,7 +1525,7 @@ public class FriendlyTeammateService(
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return "Balanced";
+            return "Rifleman";
         }
 
         return value.Trim().ToLowerInvariant() switch
@@ -1536,10 +1536,11 @@ public class FriendlyTeammateService(
             "holder" => "Protector",
             "support" => "Protector",
             "assist" => "Protector",
-            "balanced" => "Balanced",
-            "default" => "Balanced",
-            "pusher" => "Balanced",
-            _ => "Balanced",
+            "rifleman" => "Rifleman",
+            "balanced" => "Rifleman",
+            "default" => "Rifleman",
+            "pusher" => "Rifleman",
+            _ => "Rifleman",
         };
     }
 

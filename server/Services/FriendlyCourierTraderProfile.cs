@@ -16,6 +16,22 @@ internal static class FriendlyCourierTraderProfile
 
     public static readonly MongoId CourierTraderId = new(CourierTraderIdValue);
 
+    public static void GetLocalizedIdentity(string? locale, out string nickname, out string location, out string description)
+    {
+        string normalized = NormalizeLocale(locale);
+        if (normalized == "ru")
+        {
+            nickname = "ДоставкаОтряда";
+            location = "Логистика дружественного отряда";
+            description = "Возвращает предметы, переданные вашими бойцами.";
+            return;
+        }
+
+        nickname = CourierNickname;
+        location = CourierLocation;
+        description = CourierDescription;
+    }
+
     public static Trader CreateTrader()
     {
         return new Trader
@@ -106,5 +122,17 @@ internal static class FriendlyCourierTraderProfile
             Category = [],
             IdList = [],
         };
+    }
+
+    private static string NormalizeLocale(string? locale)
+    {
+        if (string.IsNullOrWhiteSpace(locale))
+        {
+            return "en";
+        }
+
+        string normalized = locale.Trim().ToLowerInvariant();
+        int separatorIndex = normalized.IndexOfAny(['-', '_']);
+        return separatorIndex > 0 ? normalized[..separatorIndex] : normalized;
     }
 }

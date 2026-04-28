@@ -53,3 +53,7 @@ package-lock.json
 .vs
 types
 /.dotnet/
+
+# Local machine/deployment notes
+/LOCAL.md
+/local.md
