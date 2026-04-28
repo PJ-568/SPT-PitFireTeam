@@ -5,6 +5,7 @@ using friendlySAIN.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using SPT.Reflection.Utils;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -480,6 +481,59 @@ namespace friendlySAIN.Patches
             }
 
             __result = Task.CompletedTask;
+            return false;
+        }
+    }
+
+    internal class MatchMakerGroupPreviewClosePlayerPatch : ModulePatch
+    {
+        private static readonly FieldInfo PreviewListField = AccessTools.Field(typeof(MatchMakerGroupPreview), "list_0");
+        private static readonly FieldInfo ComradesPositionsField = AccessTools.Field(typeof(MatchMakerGroupPreview), "_comradesPositions");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(MatchMakerGroupPreview), "method_2");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(MatchMakerGroupPreview __instance, int index, ref MatchMakerPlayerPreview __result)
+        {
+            List<MatchMakerPlayerPreview> previews = PreviewListField?.GetValue(__instance) as List<MatchMakerPlayerPreview>;
+            List<ComradeView> positions = ComradesPositionsField?.GetValue(__instance) as List<ComradeView>;
+            if (previews == null || index < 0 || index >= previews.Count)
+            {
+                __result = null;
+                return false;
+            }
+
+            MatchMakerPlayerPreview preview = previews[index];
+            try
+            {
+                if (preview != null)
+                {
+                    preview.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Suppressed stale matchmaker preview close failure.");
+                friendlySAIN.Log.LogError(ex);
+            }
+
+            try
+            {
+                if (positions != null && index < positions.Count && positions[index] != null)
+                {
+                    positions[index].TogglePlaceholder(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[UI] Failed to restore matchmaker preview placeholder.");
+                friendlySAIN.Log.LogError(ex);
+            }
+
+            __result = preview;
             return false;
         }
     }

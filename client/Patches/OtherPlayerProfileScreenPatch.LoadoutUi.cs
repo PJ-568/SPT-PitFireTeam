@@ -821,7 +821,7 @@ namespace friendlySAIN.Patches
 
                     if (string.IsNullOrWhiteSpace(enteredName))
                     {
-                        NotificationManagerClass.DisplayWarningNotification("Name cannot be empty.", ENotificationDurationType.Default);
+                        NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("NameCannotBeEmpty", "Name cannot be empty."), ENotificationDurationType.Default);
                         continue;
                     }
 
@@ -860,7 +860,7 @@ namespace friendlySAIN.Patches
                     var saveResult = await buildsStorage.SaveBuild(editedBuild);
                     if (saveResult.Failed)
                     {
-                        NotificationManagerClass.DisplayWarningNotification(saveResult.Error ?? "Failed to save equipment preset.", ENotificationDurationType.Default);
+                        NotificationManagerClass.DisplayWarningNotification(saveResult.Error ?? GetSocialUiText("SaveEquipmentPresetFailed", "Failed to save equipment preset."), ENotificationDurationType.Default);
                         continue;
                     }
 

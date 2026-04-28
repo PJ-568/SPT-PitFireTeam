@@ -388,7 +388,7 @@ namespace friendlySAIN.Patches
                     ? options.Tactics
                     : new[]
                     {
-                        new FriendlyTeammateTacticOption { Id = "Balanced", Name = "Balanced" },
+                        new FriendlyTeammateTacticOption { Id = "Rifleman", Name = "Rifleman" },
                         new FriendlyTeammateTacticOption { Id = "Marksman", Name = "Marksman" },
                         new FriendlyTeammateTacticOption { Id = "Protector", Name = "Protector" },
                     };
@@ -403,9 +403,7 @@ namespace friendlySAIN.Patches
                     continue;
                 }
 
-                string tacticValue = string.IsNullOrWhiteSpace(tactic.Name)
-                    ? tactic.Id
-                    : tactic.Name;
+                string tacticValue = tactic.Id;
 
                 string dropdownId = $"11111111111111111111111{(tacticIdSeed++ % 16):x1}";
 
@@ -471,7 +469,7 @@ namespace friendlySAIN.Patches
                     {
                         if (!tacticValueByDropdownId.TryGetValue(selected.Id, out string tacticValue) || string.IsNullOrWhiteSpace(tacticValue))
                         {
-                            tacticValue = "Balanced";
+                            tacticValue = "Rifleman";
                         }
 
                         string responseJson = RequestHandler.PostJson(TacticRoute, SerializeBody(new FriendlyTeammateTacticRequest

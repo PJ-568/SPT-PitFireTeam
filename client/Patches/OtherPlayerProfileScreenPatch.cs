@@ -8,6 +8,7 @@ using EFT.InputSystem;
 using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.DragAndDrop;
+using EFT.UI.Screens;
 using EFT.UI.Settings;
 using friendlySAIN.Utils;
 using HarmonyLib;
@@ -401,6 +402,17 @@ namespace friendlySAIN.Patches
         private static int PendingAggressionPersistRevision { get; set; }
         internal static Action PendingBackOverrideAction { get; set; }
         internal static Action ActiveBackOverrideAction { get; set; }
+        private static bool TaskBarDisabledForReturnOverride { get; set; }
+        private static readonly Dictionary<EMenuType, EStateSwitcher> DisabledSettingsTaskBarButton =
+            new Dictionary<EMenuType, EStateSwitcher>
+            {
+                { EMenuType.Settings, EStateSwitcher.Disabled }
+            };
+        private static readonly Dictionary<EMenuType, EStateSwitcher> EnabledSettingsTaskBarButton =
+            new Dictionary<EMenuType, EStateSwitcher>
+            {
+                { EMenuType.Settings, EStateSwitcher.Enabled }
+            };
 
         private static void MarkSquadRosterDirty(string accountId = null)
         {
@@ -421,6 +433,37 @@ namespace friendlySAIN.Patches
         internal static void ClearPendingReturnOverride()
         {
             PendingBackOverrideAction = null;
+        }
+
+        internal static void RestoreMenuTaskBarForReturnOverride()
+        {
+            if (!TaskBarDisabledForReturnOverride)
+            {
+                return;
+            }
+
+            TaskBarDisabledForReturnOverride = false;
+
+            try
+            {
+                if (!MonoBehaviourSingleton<PreloaderUI>.Instantiated)
+                {
+                    return;
+                }
+
+                PreloaderUI preloaderUi = MonoBehaviourSingleton<PreloaderUI>.Instance;
+                if (preloaderUi?.MenuTaskBar == null)
+                {
+                    return;
+                }
+
+                preloaderUi.MenuTaskBar.SetButtonsInteractable(true);
+                preloaderUi.MenuTaskBar.SetCustomButtonsAvailability(EnabledSettingsTaskBarButton);
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning($"[UI] Failed to restore bottom navigation buttons after teammate profile: {ex.Message}");
+            }
         }
 
         protected override MethodBase GetTargetMethod()
@@ -985,6 +1028,7 @@ namespace friendlySAIN.Patches
         {
             return string.IsNullOrWhiteSpace(tactic)
                 || string.Equals(tactic, "default", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tactic, "rifleman", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(tactic, "balanced", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -992,12 +1036,33 @@ namespace friendlySAIN.Patches
         {
             if (string.IsNullOrWhiteSpace(tactic))
             {
-                return GetSocialUiText("ProfileTactic", "Balanced");
+                return GetSocialUiText("ProfileTactic", "Rifleman");
             }
 
-            return IsDefaultTacticSelection(tactic)
-                ? GetSocialUiText("ProfileTactic", "Balanced")
-                : tactic;
+            if (IsDefaultTacticSelection(tactic))
+            {
+                return GetSocialUiText("ProfileTactic", GetTacticOptionFallback(0, "Rifleman"));
+            }
+
+            if (string.Equals(tactic, "marksman", StringComparison.OrdinalIgnoreCase))
+            {
+                return GetSocialUiText("ProfileTacticMarksman", GetTacticOptionFallback(2, "Marksman"));
+            }
+
+            if (string.Equals(tactic, "protector", StringComparison.OrdinalIgnoreCase))
+            {
+                return GetSocialUiText("ProfileTacticProtector", "Protector");
+            }
+
+            return tactic;
+        }
+
+        private static string GetTacticOptionFallback(int index, string fallback)
+        {
+            string[] options = friendlySAIN.optionsLang?.tacticOptions;
+            return options != null && index >= 0 && index < options.Length && !string.IsNullOrWhiteSpace(options[index])
+                ? options[index]
+                : fallback;
         }
 
         private static void CreateEditLoadoutButton(OtherPlayerProfileScreen screen, RectTransform loadoutSelector, Transform parent, ResultProfile profile, int rowOffset = 1)
@@ -1088,6 +1153,44 @@ namespace friendlySAIN.Patches
             if (callback == null)
             {
                 return;
+            }
+
+            DisableMenuTaskBarForReturnOverride();
+        }
+
+        private static void DisableMenuTaskBarForReturnOverride()
+        {
+            if (TaskBarDisabledForReturnOverride)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!MonoBehaviourSingleton<PreloaderUI>.Instantiated)
+                {
+                    return;
+                }
+
+                PreloaderUI preloaderUi = MonoBehaviourSingleton<PreloaderUI>.Instance;
+                if (preloaderUi?.MenuTaskBar == null)
+                {
+                    return;
+                }
+
+                if (!preloaderUi.MenuTaskBar.gameObject.activeSelf)
+                {
+                    return;
+                }
+
+                TaskBarDisabledForReturnOverride = true;
+                preloaderUi.MenuTaskBar.SetButtonsInteractable(false, "Taskbar/Unavailable");
+                preloaderUi.MenuTaskBar.SetCustomButtonsAvailability(DisabledSettingsTaskBarButton);
+            }
+            catch (Exception ex)
+            {
+                TaskBarDisabledForReturnOverride = false;
+                friendlySAIN.Log.LogWarning($"[UI] Failed to disable bottom navigation buttons for teammate profile: {ex.Message}");
             }
         }
 
@@ -1267,6 +1370,7 @@ namespace friendlySAIN.Patches
             Action callback = OtherPlayerProfileScreenPatch.ActiveBackOverrideAction;
             OtherPlayerProfileScreenPatch.ActiveBackOverrideAction = null;
             OtherPlayerProfileScreenPatch.PendingBackOverrideAction = null;
+            OtherPlayerProfileScreenPatch.RestoreMenuTaskBarForReturnOverride();
 
             InventoryPlayerModelWithStatsWindow playerModelWindow =
                 AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow")?.GetValue(__instance)
