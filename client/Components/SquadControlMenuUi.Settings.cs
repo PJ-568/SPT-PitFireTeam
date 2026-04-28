@@ -183,7 +183,6 @@ namespace friendlySAIN.Components
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 friendlySAIN.optionsLang?.followSettings ?? "Follow Settings",
-                friendlySAIN.patrolRadius,
                 friendlySAIN.goToDistance))
             {
                 yield return setting;
@@ -231,6 +230,45 @@ namespace friendlySAIN.Components
                 friendlySAIN.botPrefetch))
             {
                 yield return setting;
+            }
+
+            if (friendlySAIN.IsDebugBuild)
+            {
+                foreach (SquadSettingEntry setting in BuildSettingsSection(
+                    friendlySAIN.optionsLang?.miscSettings ?? "Miscellaneous",
+                    friendlySAIN.battleRecorderEnabled,
+                    friendlySAIN.battleRecorderSnapshotIntervalMs))
+                {
+                    yield return setting;
+                }
+            }
+        }
+
+        internal void RefreshLocalizedText()
+        {
+            EnsureSquadButton();
+            EnsureRaidSettingsButton();
+
+            if (screenRoot != null && screenRoot.activeInHierarchy)
+            {
+                SetStandaloneTitle(GetSocialUiText(
+                    raidSettingsOverlayActive ? "SquadControlRaidSettingsTitle" : "SquadControlTitle",
+                    raidSettingsOverlayActive ? "My Squad Settings" : "My Squad"));
+            }
+
+            if (standaloneCloseButton != null)
+            {
+                standaloneCloseButton.SetRawText(GetSocialUiText("SquadControlBack", "Back"), standaloneCloseButton.HeaderSize);
+            }
+
+            if (settingsContentRoot != null)
+            {
+                RebuildSettingsEntries();
+            }
+
+            if (rosterGridRoot != null)
+            {
+                RebuildRosterTiles();
             }
         }
 
@@ -325,7 +363,7 @@ namespace friendlySAIN.Components
             nameLabel.fontWeight = FontWeight.SemiBold;
             nameLabel.fontSize = 20f;
 
-            GameObject descriptionObject = CreateText("Description", entry.Description?.Description ?? string.Empty, 16f, TextAlignmentOptions.TopLeft);
+            GameObject descriptionObject = CreateText("Description", GetSettingDescription(entry), 16f, TextAlignmentOptions.TopLeft);
             descriptionObject.transform.SetParent(rowObject.transform, false);
             RectTransform descriptionRect = descriptionObject.GetComponent<RectTransform>();
             descriptionRect.anchorMin = new Vector2(0f, 0f);
@@ -1187,9 +1225,10 @@ namespace friendlySAIN.Components
 
         private static string GetSettingDisplayName(ConfigEntryBase entry)
         {
-            if (entry == friendlySAIN.goToDistance)
+            Dictionary<string, string> localized = GetSettingLanguageEntry(entry);
+            if (localized != null && localized.TryGetValue("Name", out string name) && !string.IsNullOrWhiteSpace(name))
             {
-                return friendlySAIN.optionsLang?.goToDistance?["Name"] ?? "Maximum 'Go To' Distance";
+                return name;
             }
 
             string key = entry.Definition.Key ?? string.Empty;
@@ -1201,6 +1240,57 @@ namespace friendlySAIN.Components
 
             string trimmed = key.Substring(index).Trim();
             return string.IsNullOrWhiteSpace(trimmed) ? key : trimmed;
+        }
+
+        private static string GetSettingDescription(ConfigEntryBase entry)
+        {
+            Dictionary<string, string> localized = GetSettingLanguageEntry(entry);
+            if (localized != null && localized.TryGetValue("Description", out string description))
+            {
+                return description ?? string.Empty;
+            }
+
+            return entry.Description?.Description ?? string.Empty;
+        }
+
+        private static Dictionary<string, string> GetSettingLanguageEntry(ConfigEntryBase entry)
+        {
+            LanguageOptions language = friendlySAIN.optionsLang;
+            if (language == null || entry == null)
+            {
+                return null;
+            }
+
+            if (entry == friendlySAIN.scanDistance) return language.scanDistance;
+            if (entry == friendlySAIN.patrolRadius) return language.patrolRadius;
+            if (entry == friendlySAIN.enemyRemember) return language.enemyRemember;
+            if (entry == friendlySAIN.heatlhMultiplier) return language.healthMultiplier;
+            if (entry == friendlySAIN.statusSound) return language.statusSound;
+            if (entry == friendlySAIN.enemyMarker) return language.enemyMarker;
+            if (entry == friendlySAIN.pickupEnabled) return language.pickup;
+            if (entry == friendlySAIN.tieredPickup) return language.tieredPickup;
+            if (entry == friendlySAIN.maximumPickup) return language.maximumPickup;
+            if (entry == friendlySAIN.recruitPickup) return language.recruitPickup;
+            if (entry == friendlySAIN.npcSendMessage) return language.npcSendMessage;
+            if (entry == friendlySAIN.friendlySAINFLAG) return language.friendlySAIN;
+            if (entry == friendlySAIN.badGuy) return language.badGuy;
+            if (entry == friendlySAIN.englishBear) return language.englishBear;
+            if (entry == friendlySAIN.botGrenades) return language.botGrenades;
+            if (entry == friendlySAIN.pingKey) return language.pingSquad;
+            if (entry == friendlySAIN.pingRadioVolume) return language.pingRadioVolume;
+            if (entry == friendlySAIN.pingTime) return language.pingTime;
+            if (entry == friendlySAIN.contactKey) return language.enemyContact;
+            if (entry == friendlySAIN.overThereKey) return language.overThere;
+            if (entry == friendlySAIN.teleportKey) return language.botTeleport;
+            if (entry == friendlySAIN.healKey) return language.botHeal;
+            if (entry == friendlySAIN.botPrefetch) return language.botPrefetch;
+            if (entry == friendlySAIN.botTalk) return language.botTalk;
+            if (entry == friendlySAIN.spawnPoint) return language.spawnPoint;
+            if (entry == friendlySAIN.goToDistance) return language.goToDistance;
+            if (entry == friendlySAIN.battleRecorderEnabled) return language.battleRecorder;
+            if (entry == friendlySAIN.battleRecorderSnapshotIntervalMs) return language.battleRecorderSnapshotIntervalMs;
+
+            return null;
         }
 
         private static string SanitizeName(string value)

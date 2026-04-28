@@ -1,5 +1,6 @@
 using Comfort.Common;
 using EFT;
+using EFT.UI.Matchmaker;
 using EFT.UI;
 using HarmonyLib;
 using SPT.Reflection.Utils;
@@ -34,7 +35,12 @@ namespace friendlySAIN.Modules
         {
             if (SquadModeActive)
             {
-                return;
+                if (HasActiveSquadSideSelectionScreen())
+                {
+                    return;
+                }
+
+                Deactivate("stale-squad-screen-open");
             }
 
             if (AppMenuControllerField == null || OpenSideSelectionMethod == null)
@@ -169,6 +175,21 @@ namespace friendlySAIN.Modules
             catch { }
 
             return friendlySAIN.application;
+        }
+
+        private static bool HasActiveSquadSideSelectionScreen()
+        {
+            try
+            {
+                return Resources.FindObjectsOfTypeAll<MatchMakerSideSelectionScreen>()
+                    .Any(screen => screen != null && screen.gameObject != null && screen.gameObject.activeInHierarchy);
+            }
+            catch (Exception ex)
+            {
+                friendlySAIN.Log.LogWarning("[SquadFlow] Failed to verify active squad side-selection screen.");
+                friendlySAIN.Log.LogError(ex);
+                return false;
+            }
         }
 
         private static void CaptureOpeningGroupSnapshot(TarkovApplication app)
