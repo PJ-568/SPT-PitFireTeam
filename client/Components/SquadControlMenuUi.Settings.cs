@@ -217,7 +217,8 @@ namespace pitTeam.Components
                 pitFireTeam.recruitPickup,
                 pitFireTeam.npcSendMessage,
                 pitFireTeam.pitFireTeamFLAG,
-                pitFireTeam.badGuy))
+                pitFireTeam.badGuy,
+                pitFireTeam.pmcArmbands))
             {
                 yield return setting;
             }
@@ -1449,6 +1450,7 @@ namespace pitTeam.Components
             if (entry == pitFireTeam.npcSendMessage) return language.npcSendMessage;
             if (entry == pitFireTeam.pitFireTeamFLAG) return language.pitFireTeam;
             if (entry == pitFireTeam.badGuy) return language.badGuy;
+            if (entry == pitFireTeam.pmcArmbands) return language.pmcArmbands;
             if (entry == pitFireTeam.englishBear) return language.englishBear;
             if (entry == pitFireTeam.botGrenades) return language.botGrenades;
             if (entry == pitFireTeam.pingKey) return language.pingSquad;

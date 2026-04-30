@@ -1,10 +1,11 @@
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Models.Common;
-using SPTarkov.Server.Core.Models.Enums;
+using SPTarkov.Server.Core.Models.Spt.Config;
 using SPTarkov.Server.Core.Models.Spt.Mod;
-using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Models.Utils;
+using SPTarkov.Server.Core.Servers;
+using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Utils.Json;
 using System.IO;
 using pitTeam.Server.Services;
@@ -19,7 +20,7 @@ public record PitFireTeamServerMetadata : AbstractModMetadata
     public override string Name { get; init; } = "pitFireTeam.Server";
     public override string Author { get; init; } = "pit";
     public override List<string>? Contributors { get; init; }
-    public override Version Version { get; init; } = new("1.0.0");
+    public override Version Version { get; init; } = new("0.5.1");
     public override Range SptVersion { get; init; } = new("~4.0.0");
     public override List<string>? Incompatibilities { get; init; }
     public override Dictionary<string, Range>? ModDependencies { get; init; }
@@ -28,10 +29,12 @@ public record PitFireTeamServerMetadata : AbstractModMetadata
     public override string License { get; init; } = "MIT";
 }
 
+#pragma warning disable CS0618 // ConfigServer is the stable config access path in the current SPT 4.08 target.
 [Injectable(TypePriority = OnLoadOrder.PostDBModLoader + 1)]
 public class PitFireTeamServerPlugin(
     ISptLogger<PitFireTeamServerPlugin> logger,
-    DatabaseService databaseService
+    DatabaseService databaseService,
+    FriendlyServerSettingsService settingsService
 ) : IOnLoad
 {
     public Task OnLoad()
@@ -39,7 +42,7 @@ public class PitFireTeamServerPlugin(
         EnsureCourierTraderRegistered();
         EnsureCourierTraderLocales();
         EnsureCourierAvatarIsServed();
-        EnforcePmcArmbands();
+        settingsService.ApplyPersistedSettings();
         logger.Info("pitFireTeam.Server loaded");
         return Task.CompletedTask;
     }
@@ -129,33 +132,5 @@ public class PitFireTeamServerPlugin(
         }
     }
 
-    private void EnforcePmcArmbands()
-    {
-        var botTypes = databaseService.GetBots().Types;
-
-        ApplyForcedArmband(botTypes, new[] { "usec", "pmcusec" }, ItemTpl.ARMBAND_BLUE);
-        ApplyForcedArmband(botTypes, new[] { "bear", "pmcbear" }, ItemTpl.ARMBAND_RED);
-    }
-
-    private void ApplyForcedArmband(
-        Dictionary<string, SPTarkov.Server.Core.Models.Eft.Common.Tables.BotType?> botTypes,
-        IEnumerable<string> botTypeKeys,
-        MongoId armbandTpl
-    )
-    {
-        foreach (var botTypeKey in botTypeKeys)
-        {
-            if (!botTypes.TryGetValue(botTypeKey, out var bot) || bot is null)
-            {
-                logger.Warning($"Unable to enforce armband for missing bot type '{botTypeKey}'");
-                continue;
-            }
-
-            bot.BotChances.EquipmentChances["Armband"] = 100;
-            bot.BotInventory.Equipment[EquipmentSlots.ArmBand] = new Dictionary<MongoId, double>
-            {
-                [armbandTpl] = 1,
-            };
-        }
-    }
 }
+#pragma warning restore CS0618

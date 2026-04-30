@@ -91,7 +91,7 @@ namespace pitTeam.Localization
                     "Bad Guy",
                     "Should the player be hostile to all PMC bots, regardless of faction"),
                 pmcArmbands = Entry(
-                    "PMC Arm Bands",
+                    "PMC Faction Arm Bands",
                     "Should PMC bots have armbands (red for BEARs, blue for USECs)."),
                 englishBear = Entry(
                     "BEARs speak English",

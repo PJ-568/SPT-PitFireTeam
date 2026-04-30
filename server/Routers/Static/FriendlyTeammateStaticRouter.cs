@@ -25,6 +25,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/autoteam",
                 async (url, info, sessionId, output) => await callbacks.ListAutoJoin(url, info, sessionId)
             ),
+            new RouteAction<FriendlyServerSettingsRequest>(
+                "/singleplayer/pitfireteam/settings",
+                async (url, info, sessionId, output) => await callbacks.SetServerSettings(url, info, sessionId)
+            ),
             new RouteAction<GetOtherProfileRequest>(
                 "/singleplayer/pitfireteam/teammate/profile",
                 async (url, info, sessionId, output) => await callbacks.GetProfile(url, info, sessionId)

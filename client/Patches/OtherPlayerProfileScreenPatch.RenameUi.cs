@@ -53,12 +53,69 @@ namespace pitTeam.Patches
             OriginalHideoutButtonText ??= hideoutButton.HeaderText;
             OriginalHideoutButtonFontSize ??= hideoutButton.HeaderSize;
 
-            hideoutButton.gameObject.SetActive(true);
-            hideoutButton.SetRawText(GetSocialUiText("RenameChange", "EDIT NAME"), 18);
-            HideHideoutButtonDecorations(hideoutButton);
-            hideoutButton.OnClick.RemoveAllListeners();
-            hideoutButton.OnClick.AddListener(() => ShowRenameOverlay(screen, profile));
-            NicknameRenameButton = hideoutButton;
+            HideStockHideoutButtonPanel(hideoutButton);
+        }
+
+        private static void CreateEditNameButton(OtherPlayerProfileScreen screen, RectTransform loadoutSelector, Transform parent, ResultProfile profile, int rowOffset = 1)
+        {
+            if (screen == null || loadoutSelector == null || parent == null || profile == null)
+            {
+                return;
+            }
+
+            if (NicknameRenameButtonRoot != null)
+            {
+                GameObject.Destroy(NicknameRenameButtonRoot.gameObject);
+                NicknameRenameButtonRoot = null;
+                NicknameRenameButton = null;
+            }
+
+            DefaultUIButton buttonTemplate = HideoutButtonField?.GetValue(screen) as DefaultUIButton;
+            if (buttonTemplate == null)
+            {
+                pitFireTeam.Log.LogWarning("[UI] Edit Name button aborted: hideout button template not found.");
+                return;
+            }
+
+            RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
+            rowClone.name = "pitFireTeam_NameEdit";
+            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + GetProfileControlRowOffset(loadoutSelector, Mathf.Max(1, rowOffset));
+            rowClone.gameObject.SetActive(true);
+
+            Transform upperRoot = rowClone.Find("Upper");
+            if (upperRoot != null)
+            {
+                upperRoot.gameObject.SetActive(false);
+            }
+
+            Transform lowerRoot = rowClone.Find("Lower");
+            if (lowerRoot != null)
+            {
+                lowerRoot.gameObject.SetActive(false);
+            }
+
+            DefaultUIButton button = GameObject.Instantiate(buttonTemplate, rowClone, false);
+            button.name = "pitFireTeam_NicknameRenameButton";
+            button.gameObject.SetActive(true);
+            button.Interactable = true;
+            button.SetRawText(GetSocialUiText("RenameChange", "EDIT NAME"), 18);
+            HideProfileButtonIconContainer(button);
+            HideHideoutButtonDecorations(button);
+            button.OnClick.RemoveAllListeners();
+            button.OnClick.AddListener(() => ShowRenameOverlay(screen, profile));
+
+            if (button.transform is RectTransform buttonRect && buttonTemplate.transform is RectTransform templateRect)
+            {
+                buttonRect.anchorMin = new Vector2(0.5f, 0.5f);
+                buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
+                buttonRect.pivot = new Vector2(0.5f, 0.5f);
+                buttonRect.anchoredPosition = Vector2.zero;
+                buttonRect.sizeDelta = templateRect.sizeDelta;
+                buttonRect.localScale = Vector3.one;
+            }
+
+            NicknameRenameButtonRoot = rowClone;
+            NicknameRenameButton = button;
         }
 
         private static void HideHideoutButtonDecorations(DefaultUIButton button)
@@ -89,8 +146,65 @@ namespace pitTeam.Patches
             }
         }
 
+        private static void HideStockHideoutButtonPanel(DefaultUIButton hideoutButton)
+        {
+            if (hideoutButton == null)
+            {
+                return;
+            }
+
+            Transform panel = FindAncestor(hideoutButton.transform, "HideoutButtonPanel");
+            GameObject panelObject = panel != null ? panel.gameObject : hideoutButton.gameObject;
+
+            if (OriginalHideoutButtonPanel == null)
+            {
+                OriginalHideoutButtonPanel = panelObject;
+                OriginalHideoutButtonPanelActive = panelObject.activeSelf;
+            }
+
+            panelObject.SetActive(false);
+        }
+
+        private static void RestoreStockHideoutButtonPanel()
+        {
+            if (OriginalHideoutButtonPanel != null && OriginalHideoutButtonPanelActive != null)
+            {
+                OriginalHideoutButtonPanel.SetActive(OriginalHideoutButtonPanelActive.Value);
+            }
+
+            OriginalHideoutButtonPanel = null;
+            OriginalHideoutButtonPanelActive = null;
+        }
+
+        private static Transform FindAncestor(Transform start, string name)
+        {
+            Transform current = start;
+            while (current != null)
+            {
+                if (string.Equals(current.name, name, StringComparison.Ordinal))
+                {
+                    return current;
+                }
+
+                current = current.parent;
+            }
+
+            return null;
+        }
+
+        private static void HideProfileButtonIconContainer(DefaultUIButton button)
+        {
+            Transform iconContainer = button?.transform.Find("SizeLabel/IconContainer");
+            if (iconContainer != null)
+            {
+                iconContainer.gameObject.SetActive(false);
+            }
+        }
+
         internal static void RestoreHideoutButtonVisuals(OtherPlayerProfileScreen screen, ResultProfile profile = null)
         {
+            RestoreStockHideoutButtonPanel();
+
             foreach (GameObject decoration in HiddenRenameButtonDecorations)
             {
                 if (decoration != null)

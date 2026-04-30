@@ -132,7 +132,7 @@ namespace pitTeam
         public string[] friendlyEscaped { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "1.0.0")]
+    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.5.1")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -163,6 +163,7 @@ namespace pitTeam
         public static ConfigEntry<bool> badGuy;
 
         public static ConfigEntry<bool> englishBear;
+        public static ConfigEntry<bool> pmcArmbands;
 
         public static ConfigEntry<bool> botPrefetch;
 
@@ -594,6 +595,9 @@ namespace pitTeam
 
             englishBear = Config.Bind("", "14 EnglishBear", true, new ConfigDescription(optionsLang.englishBear["Description"], null, CreateConfigAttributes(-1004, false, optionsLang.englishBear)));
 
+            pmcArmbands = Config.Bind("", "14 PmcArmbands", true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.pmcArmbands)));
+            pmcArmbands.SettingChanged += (_, _) => SyncServerSettings();
+
             botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
 
             pingKey = Config.Bind("", "16 PingSquad", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, CreateConfigAttributes(-1006, false, optionsLang.pingSquad)));
@@ -624,6 +628,33 @@ namespace pitTeam
 
             Config.SaveOnConfigSet = true;
             Config.Save();
+            SyncServerSettings();
+        }
+
+        private static void SyncServerSettings()
+        {
+            try
+            {
+                string requestBody = JsonConvert.SerializeObject(new
+                {
+                    pmcArmbands = pmcArmbands?.Value ?? true
+                });
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        RequestHandler.PostJson("/singleplayer/pitfireteam/settings", requestBody);
+                    }
+                    catch (Exception ex)
+                    {
+                        Modules.Logger.LogInfo($"Failed to sync pitFireTeam server settings: {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo($"Failed to sync pitFireTeam server settings: {ex.Message}");
+            }
         }
 
         private static ConfigurationManagerAttributes CreateConfigAttributes(int order, bool browsable, Dictionary<string, string> languageEntry)

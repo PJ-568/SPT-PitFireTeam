@@ -12,7 +12,8 @@ namespace pitTeam.Server.Callbacks;
 [Injectable]
 public class FriendlyTeammateCallbacks(
     HttpResponseUtil httpResponse,
-    FriendlyTeammateService teammateService
+    FriendlyTeammateService teammateService,
+    FriendlyServerSettingsService settingsService
 )
 {
     public ValueTask<string> Create(string url, FriendlyTeammateCreateRequest request, MongoId sessionId)
@@ -35,6 +36,12 @@ public class FriendlyTeammateCallbacks(
     public ValueTask<string> ListAutoJoin(string url, EmptyRequestData _, MongoId sessionId)
     {
         return new ValueTask<string>(httpResponse.GetBody(teammateService.GetAutoJoinTeammateAccountIds(sessionId)));
+    }
+
+    public ValueTask<string> SetServerSettings(string url, FriendlyServerSettingsRequest request, MongoId sessionId)
+    {
+        settingsService.SaveAndApply(request);
+        return new ValueTask<string>(httpResponse.NullResponse());
     }
 
     public ValueTask<string> GetProfile(string url, GetOtherProfileRequest request, MongoId sessionId)

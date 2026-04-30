@@ -388,6 +388,7 @@ namespace pitTeam.Patches
         public static RectTransform SkillsPanelHost { get; set; }
         public static CustomTextMeshProUGUI OriginalNicknameLabel { get; set; }
         public static DefaultUIButton NicknameRenameButton { get; set; }
+        public static Transform NicknameRenameButtonRoot { get; set; }
         public static GameObject RenameOverlayRoot { get; set; }
         public static NicknameField RenameOverlayField { get; set; }
         public static Vector2? OriginalNicknameAnchoredPosition { get; set; }
@@ -395,9 +396,12 @@ namespace pitTeam.Patches
         public static Vector2? OriginalFactionBadgeAnchoredPosition { get; set; }
         public static string OriginalHideoutButtonText { get; set; }
         public static int? OriginalHideoutButtonFontSize { get; set; }
+        public static GameObject OriginalHideoutButtonPanel { get; set; }
+        public static bool? OriginalHideoutButtonPanelActive { get; set; }
         public static List<MongoID> CustomDropdownIds { get; } = new List<MongoID>();
         private static List<GameObject> HiddenRenameButtonDecorations { get; } = new List<GameObject>();
         private static Dictionary<GameObject, bool> HiddenRightSideRoots { get; } = new Dictionary<GameObject, bool>();
+        private static Dictionary<RectTransform, Vector2> ProfileScaleOriginalPositions { get; } = new Dictionary<RectTransform, Vector2>();
         private static Coroutine PendingAggressionPersistCoroutine { get; set; }
         private static int PendingAggressionPersistRevision { get; set; }
         internal static Action PendingBackOverrideAction { get; set; }
@@ -478,6 +482,7 @@ namespace pitTeam.Patches
         private static void PatchPostfix(OtherPlayerProfileScreen __instance, ResultProfile profile, InventoryController inventoryController, EItemViewType viewType, ISession session)
         {
             ConfigureBackOverride(__instance);
+            ApplyProfileScaleCompensation(__instance);
 
             InventoryPlayerModelWithStatsWindow playerModelWindow =
                 PlayerModelWindowField?.GetValue(__instance) as InventoryPlayerModelWithStatsWindow;
@@ -554,7 +559,7 @@ namespace pitTeam.Patches
 
             RectTransform clone = GameObject.Instantiate(clothingPanel, parent, true);
             clone.name = "pitFireTeam_LoadoutSelector";
-            clone.anchoredPosition = clothingPanel.anchoredPosition + new Vector2(0f, -72f);
+            clone.anchoredPosition = clothingPanel.anchoredPosition + GetProfileControlRowOffset(clothingPanel, 1);
 
             InventoryClothingSelectionPanel loadoutPanel = clone.GetComponent<InventoryClothingSelectionPanel>();
             if (loadoutPanel == null)
@@ -571,7 +576,8 @@ namespace pitTeam.Patches
                 DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
                 ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
                 CreateAggressionSliderRow(__instance, clone, parent, profile, options);
-                CreateEditLoadoutButton(__instance, clone, parent, profile, 2);
+                CreateEditNameButton(__instance, clone, parent, profile, 2);
+                CreateEditLoadoutButton(__instance, clone, parent, profile, 3);
                 DisplaySkillsPanel(__instance, profile, session);
             }
             catch (Exception ex)
@@ -601,7 +607,7 @@ namespace pitTeam.Patches
 
             RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
             rowClone.name = "pitFireTeam_AggressionRow";
-            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f);
+            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + GetProfileControlRowOffset(loadoutSelector, 1);
             rowClone.gameObject.SetActive(true);
 
             Transform upperRoot = rowClone.Find("Upper");
@@ -1037,7 +1043,7 @@ namespace pitTeam.Patches
 
             RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
             rowClone.name = "pitFireTeam_LoadoutEdit";
-            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f * Mathf.Max(1, rowOffset));
+            rowClone.anchoredPosition = loadoutSelector.anchoredPosition + GetProfileControlRowOffset(loadoutSelector, Mathf.Max(1, rowOffset));
             rowClone.gameObject.SetActive(true);
 
             Transform upperRoot = rowClone.Find("Upper");
@@ -1072,6 +1078,7 @@ namespace pitTeam.Patches
             button.gameObject.SetActive(true);
             button.Interactable = true;
             button.SetRawText(GetSocialUiText("EditLoadout", "Edit Loadout"), 18);
+            HideProfileButtonIconContainer(button);
             button.OnClick.RemoveAllListeners();
             button.OnClick.AddListener(() => ShowLoadoutEditorOverlay(screen, profile));
 
@@ -1087,6 +1094,52 @@ namespace pitTeam.Patches
 
             EditLoadoutButtonRoot = rowClone;
             EditLoadoutButton = button;
+        }
+
+        private static Vector2 GetProfileControlRowOffset(RectTransform reference, int rowOffset)
+        {
+            return new Vector2(0f, -72f * Mathf.Max(1, rowOffset) * ResolveUiScaleCompensation(reference));
+        }
+
+        private static void ApplyProfileScaleCompensation(OtherPlayerProfileScreen screen)
+        {
+            if (screen == null)
+            {
+                return;
+            }
+
+            float compensation = ResolveUiScaleCompensation(screen);
+            DefaultUIButton backButton = BackButtonField?.GetValue(screen) as DefaultUIButton;
+            ApplyProfileScaleCompensation(backButton?.transform as RectTransform, compensation);
+            ApplyProfileScaleCompensation(screen.transform.Find("Background") as RectTransform, compensation);
+        }
+
+        private static void ApplyProfileScaleCompensation(RectTransform rect, float compensation)
+        {
+            if (rect == null)
+            {
+                return;
+            }
+
+            if (!ProfileScaleOriginalPositions.TryGetValue(rect, out Vector2 originalPosition))
+            {
+                originalPosition = rect.anchoredPosition;
+                ProfileScaleOriginalPositions[rect] = originalPosition;
+            }
+
+            rect.anchoredPosition = new Vector2(originalPosition.x, originalPosition.y * compensation);
+        }
+
+        private static float ResolveUiScaleCompensation(Component reference)
+        {
+            Canvas canvas = reference != null ? reference.GetComponentInParent<Canvas>() : null;
+            CanvasScaler scaler = canvas != null ? canvas.GetComponent<CanvasScaler>() : null;
+            if (scaler == null || scaler.scaleFactor <= 0.001f || GClass3825.Float_0 <= 0.001f)
+            {
+                return 1f;
+            }
+
+            return Mathf.Clamp(GClass3825.Float_0 / scaler.scaleFactor, 0.5f, 2f);
         }
 
         private static void ConfigureBackOverride(OtherPlayerProfileScreen screen)
@@ -1204,6 +1257,14 @@ namespace pitTeam.Patches
             }
 
             EditLoadoutButton = null;
+
+            if (NicknameRenameButtonRoot != null)
+            {
+                GameObject.Destroy(NicknameRenameButtonRoot.gameObject);
+                NicknameRenameButtonRoot = null;
+            }
+
+            NicknameRenameButton = null;
 
             if (TryGetClothingPanel(null, playerModelWindow, out RectTransform clothingPanel, out _, out _)
                 && clothingPanel != null)
@@ -1360,9 +1421,17 @@ namespace pitTeam.Patches
             {
                 if (OtherPlayerProfileScreenPatch.NicknameRenameButton.name == "pitFireTeam_NicknameRenameButton")
                 {
-                    GameObject.Destroy(OtherPlayerProfileScreenPatch.NicknameRenameButton.gameObject);
+                    if (OtherPlayerProfileScreenPatch.NicknameRenameButtonRoot != null)
+                    {
+                        GameObject.Destroy(OtherPlayerProfileScreenPatch.NicknameRenameButtonRoot.gameObject);
+                    }
+                    else
+                    {
+                        GameObject.Destroy(OtherPlayerProfileScreenPatch.NicknameRenameButton.gameObject);
+                    }
                 }
 
+                OtherPlayerProfileScreenPatch.NicknameRenameButtonRoot = null;
                 OtherPlayerProfileScreenPatch.NicknameRenameButton = null;
             }
 

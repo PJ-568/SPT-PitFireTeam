@@ -1353,22 +1353,25 @@ namespace pitTeam.Components
 
             if (stockCardsContainer != null)
             {
+                float verticalScaleCompensation = ResolveUiScaleCompensation(rosterPanelRect);
                 float shellCenterY = isEmpty ? 54f : (RosterShellToButtonGap + buttonHeight) * 0.5f;
-                stockCardsContainer.anchoredPosition = new Vector2(0f, shellCenterY + RosterBlockVerticalOffset);
+                stockCardsContainer.anchoredPosition = new Vector2(0f, (shellCenterY + RosterBlockVerticalOffset) * verticalScaleCompensation);
             }
 
             if (addTeammateButton?.transform is RectTransform addButtonRect)
             {
+                float verticalScaleCompensation = ResolveUiScaleCompensation(rosterPanelRect);
                 float buttonCenterY = isEmpty
                     ? EmptyRosterButtonCenterY
                     : -(currentRosterShellHeight + RosterShellToButtonGap) * 0.5f;
-                addButtonRect.anchoredPosition = new Vector2(0f, buttonCenterY + RosterBlockVerticalOffset);
+                addButtonRect.anchoredPosition = new Vector2(0f, (buttonCenterY + RosterBlockVerticalOffset) * verticalScaleCompensation);
             }
 
             if (emptyRosterLabel?.transform is RectTransform emptyLabelRect)
             {
+                float verticalScaleCompensation = ResolveUiScaleCompensation(rosterPanelRect);
                 float emptyLabelY = EmptyRosterButtonCenterY + EmptyRosterLabelSpacing;
-                emptyLabelRect.anchoredPosition = new Vector2(0f, emptyLabelY + RosterBlockVerticalOffset);
+                emptyLabelRect.anchoredPosition = new Vector2(0f, (emptyLabelY + RosterBlockVerticalOffset) * verticalScaleCompensation);
             }
 
             if (rosterPanelRect != null)
@@ -1397,6 +1400,18 @@ namespace pitTeam.Components
         {
             int rows = Mathf.Max(1, rowCount);
             return RosterTileHeight * rows + RosterTileSpacing * (rows - 1) + RosterViewportPadding;
+        }
+
+        private static float ResolveUiScaleCompensation(RectTransform reference)
+        {
+            Canvas canvas = reference != null ? reference.GetComponentInParent<Canvas>() : null;
+            CanvasScaler scaler = canvas != null ? canvas.GetComponent<CanvasScaler>() : null;
+            if (scaler == null || scaler.scaleFactor <= 0.001f || GClass3825.Float_0 <= 0.001f)
+            {
+                return 1f;
+            }
+
+            return Mathf.Clamp(GClass3825.Float_0 / scaler.scaleFactor, 0.5f, 2f);
         }
 
         // Sequential portrait load queue — one SetPresetIcon per entry, processed in order.

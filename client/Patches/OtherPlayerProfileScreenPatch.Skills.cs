@@ -346,7 +346,7 @@ namespace pitTeam.Patches
             target.anchorMin = new Vector2(0f, 1f);
             target.anchorMax = new Vector2(1f, 1f);
             target.pivot = new Vector2(0f, 1f);
-            target.anchoredPosition = SkillsScreenOffset;
+            target.anchoredPosition = SkillsScreenOffset * ResolveUiScaleCompensation(target);
             target.sizeDelta = new Vector2(0f, calculatedHeight);
             target.localScale = Vector3.one;
             target.localRotation = Quaternion.identity;
