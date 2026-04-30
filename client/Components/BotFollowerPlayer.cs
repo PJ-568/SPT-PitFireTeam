@@ -25,7 +25,9 @@ namespace friendlySAIN.Components
         RegroupNearBoss = 4,
         TakeLootItem = 5,
         OpenDoor = 6,
-        PushEnemy = 7
+        PushEnemy = 7,
+        SuppressEnemy = 8,
+        NeedSniper = 9
     }
 
     public enum FollowerCombatTactic
@@ -84,6 +86,8 @@ namespace friendlySAIN.Components
         private static MethodInfo? _getSainByProfileMethod;
         private static bool _sainAddonPatrolBridgeErrorLogged;
         private float _combatAggression = 50f;
+        private bool _temporaryCombatAggressionOverrideActive;
+        private float _temporaryCombatAggressionOverride;
         private FollowerCombatTactic _combatTactic = FollowerCombatTactic.Balanced;
         public bool CanPatrol
         {
@@ -102,6 +106,32 @@ namespace friendlySAIN.Components
             set
             {
                 _combatAggression = Mathf.Clamp(value, 0f, 100f);
+            }
+        }
+
+        public float EffectiveCombatAggression
+        {
+            get
+            {
+                return _temporaryCombatAggressionOverrideActive
+                    ? _temporaryCombatAggressionOverride
+                    : _combatAggression;
+            }
+        }
+
+        public bool IsTemporaryCombatAggressionOverrideActive
+        {
+            get
+            {
+                return _temporaryCombatAggressionOverrideActive;
+            }
+        }
+
+        public bool IsTemporaryHoldPositionAggressionActive
+        {
+            get
+            {
+                return _temporaryCombatAggressionOverrideActive && _temporaryCombatAggressionOverride <= 0.01f;
             }
         }
 
@@ -1031,6 +1061,46 @@ namespace friendlySAIN.Components
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetPushEnemy));
         }
 
+        public void SetSuppressEnemy(float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.SuppressEnemy)
+            {
+                ClearCommand($"SetSuppressEnemy:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.SuppressEnemy;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetSuppressEnemy));
+        }
+
+        public void SetNeedSniper(float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.NeedSniper)
+            {
+                ClearCommand($"SetNeedSniper:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.NeedSniper;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetNeedSniper));
+        }
+
+        public void SetTemporaryCombatAggressionOverride(float aggression)
+        {
+            _temporaryCombatAggressionOverride = Mathf.Clamp(aggression, 0f, 100f);
+            _temporaryCombatAggressionOverrideActive = true;
+        }
+
+        public void ClearTemporaryCombatAggressionOverride()
+        {
+            _temporaryCombatAggressionOverrideActive = false;
+            _temporaryCombatAggressionOverride = 0f;
+        }
+
         public void CompleteComeCloser()
         {
             if (_activeCommand != FollowerCommandType.ComeCloser)
@@ -1194,6 +1264,7 @@ namespace friendlySAIN.Components
                     return FollowerCombatTactic.Protector;
 
                 case "default":
+                case "rifleman":
                 case "balanced":
                 case "pusher":
                 default:
@@ -1325,6 +1396,7 @@ namespace friendlySAIN.Components
 
             if (!friendlySAIN.UseSainFollowerCombat)
             {
+                ClearTemporaryCombatAggressionOverride();
                 return true;
             }
 
@@ -1346,6 +1418,7 @@ namespace friendlySAIN.Components
 
             if (bridgeReady)
             {
+                ClearTemporaryCombatAggressionOverride();
                 return true;
             }
 

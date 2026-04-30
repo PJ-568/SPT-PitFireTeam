@@ -9,7 +9,7 @@ namespace friendlySAIN.Modules
 {
     public static class FollowerContactEnemyRetention
     {
-        private const float RetainSeconds = 12f;
+        private const float MinimumRetainSeconds = 1f;
 
         private sealed class RetainedContact
         {
@@ -17,6 +17,7 @@ namespace friendlySAIN.Modules
             public bool WasVisible;
             public bool Prioritized;
             public float Until;
+            public float LastContactAt;
             public int RestoreCount;
             public float NextRestoreLogAt;
             public int BlockedClearCount;
@@ -24,6 +25,7 @@ namespace friendlySAIN.Modules
         }
 
         private static readonly Dictionary<string, RetainedContact> RetainedByFollowerId = new(StringComparer.Ordinal);
+        private static readonly HashSet<string> AllowNextGoalClearByFollowerId = new(StringComparer.Ordinal);
 
         public static void Register(BotOwner follower, Player enemy, bool visible, bool prioritized)
         {
@@ -32,8 +34,11 @@ namespace friendlySAIN.Modules
                 return;
             }
 
+            float now = Time.time;
+            float retainSeconds = GetRetainSeconds();
+
             if (RetainedByFollowerId.TryGetValue(follower.ProfileId, out RetainedContact existing) &&
-                Time.time <= existing.Until)
+                now <= existing.Until)
             {
                 if (!prioritized && existing.Prioritized && existing.EnemyProfileId != enemy.ProfileId)
                 {
@@ -44,7 +49,17 @@ namespace friendlySAIN.Modules
                 {
                     existing.WasVisible |= visible;
                     existing.Prioritized |= prioritized;
-                    existing.Until = Time.time + RetainSeconds;
+                    if (visible)
+                    {
+                        existing.LastContactAt = now;
+                        existing.Until = now + retainSeconds;
+                    }
+                    else
+                    {
+                        // Do not let invisible bookkeeping refreshes keep a dead contact alive forever.
+                        existing.Until = Mathf.Min(now + retainSeconds, existing.LastContactAt + retainSeconds);
+                    }
+
                     existing.RestoreCount = 0;
                     existing.NextRestoreLogAt = 0f;
                     existing.BlockedClearCount = 0;
@@ -58,7 +73,8 @@ namespace friendlySAIN.Modules
                 EnemyProfileId = enemy.ProfileId,
                 WasVisible = visible,
                 Prioritized = prioritized,
-                Until = Time.time + RetainSeconds,
+                Until = now + retainSeconds,
+                LastContactAt = now,
                 RestoreCount = 0,
                 NextRestoreLogAt = 0f,
                 BlockedClearCount = 0,
@@ -80,7 +96,16 @@ namespace friendlySAIN.Modules
                 return false;
             }
 
-            Register(follower, enemy, goalEnemy.IsVisible || goalEnemy.CanShoot, prioritized);
+            bool hasFreshContact = goalEnemy.IsVisible || goalEnemy.CanShoot;
+            float retainSeconds = GetRetainSeconds();
+            if (!hasFreshContact &&
+                Time.time - goalEnemy.PersonalLastSeenTime > retainSeconds &&
+                Time.time - goalEnemy.PersonalSeenTime > retainSeconds)
+            {
+                return false;
+            }
+
+            Register(follower, enemy, hasFreshContact, prioritized);
             return true;
         }
 
@@ -151,6 +176,12 @@ namespace friendlySAIN.Modules
         {
             if (follower == null || currentGoal == null || string.IsNullOrEmpty(follower.ProfileId))
             {
+                return false;
+            }
+
+            if (AllowNextGoalClearByFollowerId.Remove(follower.ProfileId))
+            {
+                RetainedByFollowerId.Remove(follower.ProfileId);
                 return false;
             }
 
@@ -262,6 +293,23 @@ namespace friendlySAIN.Modules
             }
 
             RetainedByFollowerId.Remove(follower.ProfileId);
+        }
+
+        public static void ClearAndAllowNextGoalClear(BotOwner follower)
+        {
+            if (string.IsNullOrEmpty(follower?.ProfileId))
+            {
+                return;
+            }
+
+            RetainedByFollowerId.Remove(follower.ProfileId);
+            AllowNextGoalClearByFollowerId.Add(follower.ProfileId);
+        }
+
+        private static float GetRetainSeconds()
+        {
+            int configuredSeconds = friendlySAIN.enemyRemember?.Value ?? 12;
+            return Mathf.Max(MinimumRetainSeconds, configuredSeconds);
         }
     }
 }

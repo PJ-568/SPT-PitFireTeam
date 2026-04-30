@@ -148,6 +148,7 @@ namespace friendlySAIN.BigBrain.Actions
         {
             if (!FollowerImmediateFirePolicy.IsImmediateShootReason(reason) ||
                 goalEnemy == null ||
+                goalEnemy.CanShoot ||
                 !FollowerImmediateFirePolicy.CanUseLostVisualSuppress(goalEnemy))
             {
                 return false;

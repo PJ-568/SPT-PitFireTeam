@@ -28,12 +28,21 @@ namespace friendlySAIN.BigBrain.Actions
             BotOwner.Settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT = false;
             try
             {
+                FollowerCombatCommon.TryRaiseForStandingCoverShot(
+                    BotOwner,
+                    out _,
+                    requireShootingCoverIntent: false);
+
                 if (WaitForEnemyAimAlignment(ref aimAlignStartedAt))
                 {
                     return;
                 }
 
                 baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
+                FollowerCombatCommon.TryRaiseForStandingCoverShot(
+                    BotOwner,
+                    out _,
+                    requireShootingCoverIntent: false);
             }
             finally
             {

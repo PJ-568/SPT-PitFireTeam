@@ -1,6 +1,6 @@
 # My Squad Current State Review
 
-Date: 2026-04-22
+Date: 2026-04-28
 
 ## Goal
 
@@ -13,7 +13,6 @@ Document the current verified implementation of the `My Squad` experience as it 
 This is a current-state review, not a target design doc. It should be read alongside:
 
 - `docs/team-management-ui-investigation-2026-03-19.md` for the earlier stock-UI investigation and target direction
-- `docs/teammate-custom-loadout-progress.md` for the current custom loadout editor checkpoint
 
 ## High-Level Shape
 
@@ -45,6 +44,9 @@ Authoritative files:
 - `client/Components/SquadControlMenuUi.ContextMenu.cs`
 - `client/Components/SquadControlMenuUi.Backend.cs`
 - `client/Patches/OtherPlayerProfileScreenPatch.cs`
+- `client/Patches/OtherPlayerProfileScreenPatch.LoadoutUi.cs`
+- `server/Resources/lang/*.json`
+- `server/Services/FriendlyLanguageService.cs`
 
 ## Entry Flow
 
@@ -92,6 +94,24 @@ In squad mode it:
 - rewires the stock back button so squad-mode back always exits to root and disables squad mode
 
 On close it restores the hidden stock elements and retracts the injected panels.
+
+## Localization
+
+`My Squad` UI text is now loaded through the shared friendlySAIN language model.
+
+Current behavior:
+
+- client reads the active game language through `SharedGameSettingsClass`
+- client posts the normalized locale plus embedded English fallback JSON to `/singleplayer/friendlysain/lang`
+- server creates or repairs `server/Resources/lang/en.json` from the embedded English when it is missing, corrupted, or missing keys
+- server returns `server/Resources/lang/<locale>.json` merged with the editable English fallback
+- built-in client fallback comes from `EmbeddedEnglishLanguageProvider`
+- language is checked periodically at runtime and reloaded when the game language changes
+
+Verified bundled language resources today:
+
+- `en`
+- `ru`
 
 ## Part 1: Roster
 
@@ -259,7 +279,6 @@ Verified entry groups:
     - `pingRadioVolume`
     - `pingTime`
 - `Follow Settings`
-    - `patrolRadius`
     - `goToDistance`
 - `Combat Settings`
     - `botGrenades`
@@ -285,6 +304,7 @@ Verified entry groups:
     - `healKey`
     - `heatlhMultiplier`
     - `botPrefetch`
+    - debug builds also show `battleRecorderEnabled` and `battleRecorderSnapshotIntervalMs`
 
 ### Current control behavior
 
@@ -390,9 +410,9 @@ Lower dropdown:
 
 - current tactic
 - populated from backend tactic options, with a client fallback list of:
-    - `Balanced`
+    - `Rifleman`
     - `Marksman`
-    - `Protector`
+- `Protector` is intentionally hidden for the beta release and old persisted values normalize back to `Rifleman`
 
 Loadout selection persists immediately through the backend and refreshes the live profile visualization.
 
@@ -405,7 +425,7 @@ Behavior:
 - current value comes from teammate profile options
 - values are clamped to `0..100`
 - persistence is delayed/debounced before posting to backend
-- marksman tactic disables the aggression row and adds a tooltip explaining why
+- marksman tactic uses aggression as a tactic-relative offensive auto-search control
 
 ### Rename flow
 
@@ -435,7 +455,7 @@ This is teammate-only UI and is destroyed/reset on profile close.
 
 This is the status of the `Edit Loadout` overlay specifically.
 
-### What is implemented
+### Current behavior
 
 The `Edit Loadout` button opens a full-screen modal overlay on top of the teammate profile screen.
 
@@ -452,6 +472,7 @@ Confirmed implementation details:
 
 - the left stash is a fake stash created with `CreateFakeStash(...)` and populated by cloning the real player stash items
 - the right follower inventory is built from cloned teammate equipment and a fake `TraderControllerClass`
+- secure container is removed from the edited equipment before display/save
 - the follower containers panel currently renders only:
     - `TacticalVest`
     - `Pockets`
@@ -463,15 +484,11 @@ Confirmed implementation details:
     - eyewear/face cover/headwear/earpiece
     - armor vest
     - armband
-    - dogtag
-- the `ChracterGear` image is only hidden by disabling its `Image`
+- dogtag is removed/hidden from the follower-side editor view
+- the `ChracterGear` image is hidden by disabling its `Image`
 - the header text is manually rewritten to the teammate name
 
-### What is implemented now
-
-The overlay is no longer just a visual shell.
-
-Verified current behavior:
+Verified save behavior:
 
 - the editor uses a cloned local stash + cloned follower equipment session
 - item edits stay local until `Done`
@@ -485,6 +502,7 @@ Verified current behavior:
     - `Done` does not show the preset naming dialog
     - it saves directly as the bot's default equipment and closes
 
-### Future implementation
+### Current limitations
 
-When "immersive" settings is implemented, the loadout editor will use actual player items
+- the editor still uses cloned/local items and does not consume real player stash items
+- immersive/real-item loadout editing is not implemented

@@ -263,12 +263,12 @@ namespace friendlySAIN.Utils
                     if (bot.EnemiesController.IsEnemy(pl) ||
                         bot.Settings.FileSettings.Mind.ENEMY_BOT_TYPES.Contains(pl.GetPlayer.Profile.Info.Settings.Role))
                     {
-                        if (bot.GetPlayer.ProfileId != enemy.ProfileId &&
+                        if (bot.GetPlayer.ProfileId != pl.ProfileId &&
                             !(pl.IsAI && bot.BotsGroup.Contains(pl.AIData.BotOwner)) &&
                             !bot.BotsGroup.IsAlly(pl))
                         {
                             nr++;
-                            processedEnemies.Add(enemy.ProfileId);
+                            processedEnemies.Add(pl.ProfileId);
                         }
                     }
                 }

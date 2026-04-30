@@ -594,6 +594,7 @@ namespace friendlySAIN.Modules
             return new
             {
                 profileId = goalEnemy.ProfileId,
+                role = goalEnemy.Person?.Profile?.Info?.Settings?.Role.ToString(),
                 distance = SanitizeFloat(goalEnemy.Distance),
                 isVisible = goalEnemy.IsVisible,
                 canShoot = goalEnemy.CanShoot,

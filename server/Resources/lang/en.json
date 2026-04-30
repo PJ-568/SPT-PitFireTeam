@@ -77,7 +77,6 @@
     "ProfileTacticMarksman": "Marksman",
     "ProfileTacticProtector": "Protector",
     "ProfileAggression": "Aggression",
-    "ProfileAggressionMarksmanTooltip": "Aggression not available for Marksman",
     "RemoveTeammateTitle": "Remove teammate",
     "RemoveTeammatePrompt": "Are you sure you want to delete member {0}? Process cannot be undone.",
     "RemoveTeammateConfirm": "Remove",
@@ -111,7 +110,8 @@
     "SquadControlRosterRole": "Squad Member",
     "SquadControlEmptyRoster": "You have not created any team members yet, press the add button below to get started",
     "SettingsPressKey": "Press key...",
-    "SettingsNotBound": "Not Bound"
+    "SettingsNotBound": "Not Bound",
+    "SettingsUnavailableDuringRaid": "Not available during raid"
   },
   "returnItems": ["Items received from your teammate. Ready for you to claim."],
   "returnItemsDeath": ["Your teammate recovered these items."],

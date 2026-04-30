@@ -38,6 +38,10 @@ namespace friendlySAIN.Patches
             switch (info.phrase)
             {
                 case EPhraseTrigger.Stop:
+                case EPhraseTrigger.HoldPosition:
+                case EPhraseTrigger.Gogogo:
+                case EPhraseTrigger.Suppress:
+                case EPhraseTrigger.NeedSniper:
                     return false;
                 default:
                     return true;

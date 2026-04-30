@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace friendlySAIN.Localization
 {
-    internal static class TempEnglishLanguageProvider
+    internal static class EmbeddedEnglishLanguageProvider
     {
         private static Dictionary<string, string> Entry(string name, string description)
         {
@@ -25,7 +25,7 @@ namespace friendlySAIN.Localization
                 testSettings = "Testing",
                 raidSettings = "Raid Settings",
                 equipOptions = new[] { "Default" },
-                tacticOptions = new[] { "Balanced", "Support", "Marksman", "Pusher", "Holder", "Assist" },
+                tacticOptions = new[] { "Rifleman", "Support", "Marksman", "Pusher", "Holder", "Assist" },
 
                 statusSound = Entry(
                     "Enemy Location Volume",
@@ -60,6 +60,27 @@ namespace friendlySAIN.Localization
                 recruitPickup = Entry(
                     "Recruit Pickup",
                     "Allow picked-up followers that were successfully extracted with to send friend requests. This uses player-vs-bot level difference rules when deciding."),
+                memberTactic = Entry(
+                    "Squad Member {0} Tactic",
+                    "Set Squad member fight tactic."),
+                memberEquipment = Entry(
+                    "Squad Member {0} Equipment",
+                    "Set Squad member equipment."),
+                memberName = Entry(
+                    "Squad Member {0} Nickname",
+                    "Set a custom nickname for this Squad member. Leave blank for default"),
+                memberVoice = Entry(
+                    "Squad Member {0} Voice",
+                    "Set what voice this member should use."),
+                memberUniformTop = Entry(
+                    "Squad Member {0} Top",
+                    "Set what the top clothes for this member should be. Leave blank for default"),
+                memberUniformBottom = Entry(
+                    "Squad Member {0} Bottom",
+                    "Set what the pants for this member should be. Leave blank for default"),
+                equipmentLock = Entry(
+                    "Lock Squad Equipment",
+                    "Locks the equipment of the squad members."),
                 npcSendMessage = Entry(
                     "Raid End Messages",
                     "Followers will send message at the end of the raid based on conditions such as if all made it out or if you picked up a follower and kept him alive. Return items messages are excluded"),
@@ -71,7 +92,7 @@ namespace friendlySAIN.Localization
                     "Should the player be hostile to all PMC bots, regardless of faction"),
                 pmcArmbands = Entry(
                     "PMC Arm Bands",
-                    "Should PMC bots have armbands (red for BEARs, blue for USECs). (Can conflict with mods that modify bot equipment, rendering this setting ineffective.)"),
+                    "Should PMC bots have armbands (red for BEARs, blue for USECs)."),
                 englishBear = Entry(
                     "BEARs speak English",
                     "Should BEAR bots speak English only"),
@@ -108,6 +129,12 @@ namespace friendlySAIN.Localization
                 spawnPoint = Entry(
                     "Use Coop Spawn Point",
                     "Use Coop Spawn Points when spawning with followers."),
+                battleRecorder = Entry(
+                    "Battle Recorder",
+                    "Write deep follower combat timelines to a dedicated JSONL file for raid analysis."),
+                battleRecorderSnapshotIntervalMs = Entry(
+                    "Battle Recorder Snapshot Interval (ms)",
+                    "Snapshot cadence for follower battle recorder positional samples."),
 
                 gestures = new Dictionary<string, string>
                 {
@@ -130,23 +157,29 @@ namespace friendlySAIN.Localization
                     ["AddTeammateConfirm"] = "Add Teammate",
                     ["AddTeammateFlowActive"] = "Add teammate flow is already open.",
                     ["AddTeammateOpenFailed"] = "Could not open teammate creation screen.",
+                    ["AddTeammateCreateFailed"] = "Could not create teammate.",
                     ["AddTeammateUnsupportedSide"] = "Add teammate only supports PMC profiles right now.",
+                    ["Cancel"] = "Cancel",
+                    ["Done"] = "Done",
                     ["EnterNickname"] = "Enter player nickname",
                     ["NicknameTooShort"] = "Nickname too short",
+                    ["NameCannotBeEmpty"] = "Name cannot be empty.",
                     ["RenameTeammateTitle"] = "Rename teammate",
                     ["RenameSave"] = "Save",
                     ["RenameCancel"] = "Cancel",
                     ["RenameChange"] = "EDIT NAME",
                     ["EditLoadout"] = "EDIT LOADOUT",
                     ["EditLoadoutTitle"] = "Edit Loadout",
-                    ["EditLoadoutSubtitle"] = "Loadout editor shell for {0}. Inventory integration comes in the next phase.",
+                    ["EditLoadoutSubtitle"] = "Edit cloned items for {0}. Changes here do not touch the real stash yet.",
                     ["PlayerStash"] = "Player Stash",
                     ["PlayerStashPlaceholder"] = "Failed to load cloned stash view.\n{0}",
                     ["BotInventory"] = "Follower Inventory",
                     ["BotInventoryPlaceholder"] = "Failed to load cloned follower inventory.\n{0}",
-                    ["ProfileTactic"] = "Balanced",
+                    ["SaveEquipmentPresetFailed"] = "Failed to save equipment preset.",
+                    ["ProfileTactic"] = "Rifleman",
+                    ["ProfileTacticMarksman"] = "Marksman",
+                    ["ProfileTacticProtector"] = "Protector",
                     ["ProfileAggression"] = "Aggression",
-                    ["ProfileAggressionMarksmanTooltip"] = "Agression not available for Marksman",
                     ["RenameFailed"] = "Could not rename teammate",
                     ["RenameClose"] = "x",
                     ["RemoveTeammateTitle"] = "Remove teammate",
@@ -159,6 +192,10 @@ namespace friendlySAIN.Localization
                     ["SquadControlAutoJoinOff"] = "Auto join: Off",
                     ["SquadControlAutoJoinTooltip"] = "Auto-join",
                     ["SquadControlInGroupTooltip"] = "In group",
+                    ["SquadControlInviteAcceptedToast"] = "{0} joined the group.",
+                    ["SquadControlInvitePendingFailedToast"] = "Group invite for {0} was not accepted.",
+                    ["SquadControlRemovedFromGroupToast"] = "Removed {0} from the group.",
+                    ["SquadControlRemoveFromGroupFailedToast"] = "Failed to remove {0} from the group.",
                     ["SquadControlAutoJoinEnabledToast"] = "Enabled PMC raid auto-join for {0}.",
                     ["SquadControlAutoJoinDisabledToast"] = "Disabled PMC raid auto-join for {0}.",
                     ["SquadControlAutoJoinEnableFailedToast"] = "Failed to enable auto-join for {0}",
@@ -176,8 +213,16 @@ namespace friendlySAIN.Localization
                     ["SquadControlRosterMemberA"] = "TEAMMATE 01",
                     ["SquadControlRosterMemberB"] = "TEAMMATE 02",
                     ["SquadControlRosterRole"] = "Squad Member",
-                    ["SquadControlEmptyRoster"] = "You have not created any team members yet, press the add button below to get started"
-                }
+                    ["SquadControlEmptyRoster"] = "You have not created any team members yet, press the add button below to get started",
+                    ["SettingsPressKey"] = "Press key...",
+                    ["SettingsNotBound"] = "Not Bound",
+                    ["SettingsUnavailableDuringRaid"] = "Not available during raid"
+                },
+                returnItems = new[] { "Items received from your teammate. Ready for you to claim." },
+                returnItemsDeath = new[] { "Your teammate recovered these items." },
+                teamEscaped = new[] { "Nice!\nWe managed to get out." },
+                teamSomeEscaped = new[] { "Well it's a shame about {0}, but at least the rest of us made it." },
+                friendlyEscaped = new[] { "Glad we made it.\nThanks for letting me tag along." }
             };
         }
     }

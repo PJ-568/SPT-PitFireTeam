@@ -390,7 +390,6 @@ namespace friendlySAIN.Patches
                     {
                         new FriendlyTeammateTacticOption { Id = "Rifleman", Name = "Rifleman" },
                         new FriendlyTeammateTacticOption { Id = "Marksman", Name = "Marksman" },
-                        new FriendlyTeammateTacticOption { Id = "Protector", Name = "Protector" },
                     };
 
             int tacticIdSeed = 0;
@@ -404,6 +403,10 @@ namespace friendlySAIN.Patches
                 }
 
                 string tacticValue = tactic.Id;
+                if (IsBetaHiddenTactic(tacticValue))
+                {
+                    continue;
+                }
 
                 string dropdownId = $"11111111111111111111111{(tacticIdSeed++ % 16):x1}";
 
@@ -491,6 +494,11 @@ namespace friendlySAIN.Patches
                     }
                 }
             });
+        }
+
+        private static bool IsBetaHiddenTactic(string tactic)
+        {
+            return string.Equals(tactic, "protector", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void RefreshPlayerVisualization(ResultProfile profile, InventoryController inventoryController, ISession session, InventoryPlayerModelWithStatsWindow window)

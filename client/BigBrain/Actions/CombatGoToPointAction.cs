@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using System;
 
 namespace friendlySAIN.BigBrain.Actions
 {
@@ -19,7 +20,21 @@ namespace friendlySAIN.BigBrain.Actions
                 BotOwner.SetPose(1f);
             }
 
+            if (ShouldRunToPoint(data))
+            {
+                BotOwner.SetTargetMoveSpeed(1f);
+                SetCombatSprint(true);
+                BotOwner.SetPose(1f);
+            }
+
             baseLogic.UpdateNodeByBrain(GetData<GClass30>(data));
+        }
+
+        private static bool ShouldRunToPoint(CustomLayer.ActionData data)
+        {
+            string? reason = GetReason(data);
+            return reason != null &&
+                   reason.IndexOf(".runToPoint", StringComparison.Ordinal) >= 0;
         }
     }
 }

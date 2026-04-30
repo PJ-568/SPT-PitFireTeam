@@ -71,7 +71,10 @@ namespace friendlySAIN.BigBrain
             }
 
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
-            if (hasCommand && command == FollowerCommandType.PushEnemy)
+            if (hasCommand &&
+                (command == FollowerCommandType.PushEnemy ||
+                 command == FollowerCommandType.SuppressEnemy ||
+                 command == FollowerCommandType.NeedSniper))
             {
                 return false;
             }
@@ -97,7 +100,9 @@ namespace friendlySAIN.BigBrain
                     return false;
                 }
 
-                if (command == FollowerCommandType.PushEnemy)
+                if (command == FollowerCommandType.PushEnemy ||
+                    command == FollowerCommandType.SuppressEnemy ||
+                    command == FollowerCommandType.NeedSniper)
                 {
                     return false;
                 }

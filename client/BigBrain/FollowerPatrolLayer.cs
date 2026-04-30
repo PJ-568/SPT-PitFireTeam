@@ -76,11 +76,13 @@ namespace friendlySAIN.BigBrain
         private const float OutOfCombatReloadActionCooldown = 5f;
         private const float OutOfCombatReloadWeaponSwitchCooldown = 0.75f;
         private const float OutOfCombatReloadFullCycleCooldown = 30f;
+        private const float HealNodeStartTimeout = 4f;
 
         private float _nextErrorLogAt;
 
         private float healSoftTimeoutAt = 0f;
         private float healStartAt = 0f;
+        private float healNodeEnteredAt = 0f;
         private bool isHealing = false;
         private bool triedFillMagazines = false;
         private bool reloadingInProgress = false;
@@ -249,11 +251,15 @@ namespace friendlySAIN.BigBrain
                     if (!isHealing)
                     {
                         healStartAt = Time.time;
+                        healNodeEnteredAt = Time.time;
                         StopMovementForHealDecision();
                     }
 
                     isHealing = true;
-                    healSoftTimeoutAt = Time.time + 10f;
+                    if (healSoftTimeoutAt <= 0f)
+                    {
+                        healSoftTimeoutAt = Time.time + 20f;
+                    }
                     selectedAction = new Action(typeof(HealAction), "Heal");
                     return selectedAction;
                 }
@@ -327,7 +333,7 @@ namespace friendlySAIN.BigBrain
                 return;
             }
 
-            bool hasDestroyedPart = false;
+            bool hasHealRelevantDamage = BotOwner.GetPlayer.HealthStatus != ETagStatus.Healthy;
             foreach (EBodyPart part in GClass3058.RealBodyParts)
             {
                 if (!BotOwner.GetPlayer.ActiveHealthController.IsBodyPartDestroyed(part))
@@ -335,11 +341,11 @@ namespace friendlySAIN.BigBrain
                     continue;
                 }
 
-                hasDestroyedPart = true;
+                hasHealRelevantDamage = true;
                 break;
             }
 
-            if (!hasDestroyedPart)
+            if (!hasHealRelevantDamage)
             {
                 return;
             }
@@ -348,10 +354,7 @@ namespace friendlySAIN.BigBrain
 
             try
             {
-                BotOwner.Medecine.RefreshCurMeds();
-                BotOwner.Medecine.GetDamaged();
-                BotOwner.Medecine.SurgicalKit.FindDamagedPart();
-                BotOwner.Medecine.FirstAid.CheckParts();
+                Utils.FollowerMedical.RefreshMedicalWork(BotOwner);
             }
             catch (Exception ex)
             {
@@ -382,6 +385,7 @@ namespace friendlySAIN.BigBrain
 
             bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
             bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
+            bool canStartHeal = CanStartVanillaHealNode();
 
             // Old EndHeal equivalent: no pending heal work -> end heal action.
             if (!hasPendingHealWork && !isUsingHeal)
@@ -397,9 +401,20 @@ namespace friendlySAIN.BigBrain
                 return true;
             }
 
+            if (!isUsingHeal && !canStartHeal && healNodeEnteredAt > 0f && healNodeEnteredAt + HealNodeStartTimeout < Time.time)
+            {
+                RefreshHealWorkForRetry();
+                if (!CanStartVanillaHealNode())
+                {
+                    return false;
+                }
+
+                healNodeEnteredAt = Time.time;
+            }
+
             // end heal timeout.
             float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
-            if (healStartAt + healTimeout < Time.time || (isHealing && Time.time > healSoftTimeoutAt))
+            if (isUsingHeal && healStartAt + healTimeout < Time.time)
             {
                 CompleteHealing();
                 return true;
@@ -419,8 +434,45 @@ namespace friendlySAIN.BigBrain
             stoppedForHealDecision = false;
             healStartAt = 0f;
             healSoftTimeoutAt = 0f;
+            healNodeEnteredAt = 0f;
             // Normal patrol healing should finish/cancel medical state without restoring all raid HP.
             Utils.FollowerMedical.CompleteHealing(BotOwner);
+        }
+
+        private bool CanStartVanillaHealNode()
+        {
+            try
+            {
+                if (BotOwner?.Medecine == null ||
+                    BotOwner.WeaponManager?.Grenades?.ThrowindNow == true ||
+                    BotOwner.Medecine.Using)
+                {
+                    return false;
+                }
+
+                return BotOwner.Medecine.FirstAid?.ShallStartUse() == true ||
+                       BotOwner.Medecine.SurgicalKit?.ShallStartUse() == true;
+            }
+            catch (Exception ex)
+            {
+                LogLayerException("CanStartVanillaHealNode", ex);
+                return false;
+            }
+        }
+
+        private void RefreshHealWorkForRetry()
+        {
+            try
+            {
+                Utils.FollowerMedical.RefreshMedicalWork(BotOwner);
+                BotOwner.Medecine?.FirstAid?.Refresh();
+                BotOwner.Medecine?.SurgicalKit?.Refresh();
+                Utils.FollowerMedical.RefreshMedicalWork(BotOwner);
+            }
+            catch (Exception ex)
+            {
+                LogLayerException("RefreshHealWorkForRetry", ex);
+            }
         }
 
         private void StopMovementForHealDecision()

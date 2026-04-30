@@ -324,9 +324,9 @@ namespace friendlySAIN.Patches
                 return true;
             }
 
-#if DEBUG
-            Logger.LogInfo($"[WeaponPolicy] suppress reload during hold-linger cooldown follower={botOwner.Profile?.Nickname ?? botOwner.name}");
-#endif
+            if (friendlySAIN.IsDebugBuild)
+                Logger.LogInfo($"[WeaponPolicy] suppress reload during hold-linger cooldown follower={botOwner.Profile?.Nickname ?? botOwner.name}");
+
             __result = false;
             return false;
         }

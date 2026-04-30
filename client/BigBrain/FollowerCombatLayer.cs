@@ -31,6 +31,7 @@ namespace friendlySAIN.BigBrain
         private float lingerUntil;
         private bool lingerArmed;
         private float lingerHardUntil;
+        private bool combatLogicResetForInactive;
 
         public FollowerCombatLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
         {
@@ -113,6 +114,7 @@ namespace friendlySAIN.BigBrain
             currentDecision = null;
             lastDecision = null;
             hadCombatSinceActivation = false;
+            combatLogicResetForInactive = false;
             ClearLinger();
             MarkActive(true);
             BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
@@ -128,10 +130,12 @@ namespace friendlySAIN.BigBrain
         {
             BattleRecorder.RecordCombatLayerState(BotOwner, false, "layerStop");
             MarkActive(false);
+            BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
             ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
             lastDecision = null;
             hadCombatSinceActivation = false;
+            combatLogicResetForInactive = false;
             ClearLinger();
             FollowerContactEnemyRetention.Clear(BotOwner);
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
@@ -156,11 +160,24 @@ namespace friendlySAIN.BigBrain
             {
                 // As soon as live enemy is gone, hand off to a short linger hold while the
                 // combat layer remains active for release/handoff timing.
+                BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
+                if (!combatLogicResetForInactive)
+                {
+                    combatLogic.Reset();
+                    combatLogicResetForInactive = true;
+                }
+
                 ArmLingerIfNeeded();
                 nextDecision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, LingerReason);
             }
             else
             {
+                if (combatLogicResetForInactive)
+                {
+                    combatLogicResetForInactive = false;
+                    combatLogic.StartDecision();
+                }
+
                 if (HasCurrentLiveGoalEnemy())
                 {
                     ClearLinger();
@@ -323,6 +340,11 @@ namespace friendlySAIN.BigBrain
             EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
             if (goalEnemy != null && IsGoalEnemyAlive(goalEnemy))
             {
+                if (IsActiveFollowerSuppressContinuation())
+                {
+                    return true;
+                }
+
                 if (BotOwner.Memory.HaveEnemy)
                 {
                     return true;
@@ -333,7 +355,7 @@ namespace friendlySAIN.BigBrain
                     return true;
                 }
 
-                if (currentDecision.HasValue && IsCombatContinuationDecision(currentDecision.Value.Action))
+                if (currentDecision.HasValue && IsMovementContinuationDecision(currentDecision.Value.Action))
                 {
                     return true;
                 }
@@ -387,7 +409,16 @@ namespace friendlySAIN.BigBrain
                 return;
             }
 
-            if (!followerData.TryGetActiveCommand(out _, out _))
+            if (!followerData.TryGetActiveCommand(out FollowerCommandType command, out _))
+            {
+                return;
+            }
+
+            if (reason == "CombatLayer:Start" &&
+                (command == FollowerCommandType.PushEnemy ||
+                 command == FollowerCommandType.SuppressEnemy ||
+                 command == FollowerCommandType.RegroupNearBoss ||
+                 command == FollowerCommandType.NeedSniper))
             {
                 return;
             }
@@ -395,25 +426,37 @@ namespace friendlySAIN.BigBrain
             followerData.ClearCommand(reason);
         }
 
-        private static bool IsActiveEngageDecision(BotLogicDecision decision)
+        private static bool IsMovementContinuationDecision(BotLogicDecision decision)
         {
-            return decision == BotLogicDecision.dogFight ||
-                   decision == BotLogicDecision.shootFromPlace ||
-                   decision == BotLogicDecision.shootFromCover ||
-                   decision == BotLogicDecision.suppressFire ||
-                   decision == BotLogicDecision.goToEnemy ||
-                   decision == BotLogicDecision.runToEnemy;
-        }
-
-        private static bool IsCombatContinuationDecision(BotLogicDecision decision)
-        {
-            return IsActiveEngageDecision(decision) ||
+            return decision == BotLogicDecision.goToEnemy ||
+                   decision == BotLogicDecision.runToEnemy ||
                    decision == BotLogicDecision.runToCover ||
                    decision == BotLogicDecision.attackMoving ||
                    decision == BotLogicDecision.attackMovingWithSuppress ||
+                   decision == BotLogicDecision.suppressFire ||
                    decision == (BotLogicDecision)CustomBotDecisions.attackRetreat ||
                    decision == BotLogicDecision.goToCoverPoint ||
                    decision == BotLogicDecision.goToCoverPointTactical;
+        }
+
+        private bool IsActiveFollowerSuppressContinuation()
+        {
+            if (!currentDecision.HasValue ||
+                currentDecision.Value.Action != BotLogicDecision.suppressFire ||
+                !FollowerCombatCommon.IsFollowerSuppressReason(currentDecision.Value.Reason))
+            {
+                return false;
+            }
+
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData == null ||
+                !followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) ||
+                command != FollowerCommandType.SuppressEnemy)
+            {
+                return FollowerCombatCommon.IsAutoSuppressReason(currentDecision.Value.Reason);
+            }
+
+            return true;
         }
 
         public override void BuildDebugText(StringBuilder stringBuilder)

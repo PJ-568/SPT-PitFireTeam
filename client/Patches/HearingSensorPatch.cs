@@ -79,17 +79,16 @@ namespace friendlySAIN.Patches
                         return;
                     }
 
-                    if (botOwner_0.Memory.HaveEnemy && botOwner_0.Memory.GoalEnemy != null &&
-                        botOwner_0.Memory.GoalEnemy.PersonalLastSeenTime + 2f < Time.time)
-                    {
-                        Trace(botOwner_0, "Hearing.step ignore lastSeenTooOld");
-                        return;
-                    }
-
                     bool shouldReact = __instance.method_6(position, power, out var distance);
                     if (!shouldReact)
                     {
                         Trace(botOwner_0, $"Hearing.step ignore method6False dist={distance:F1} power={power:F1}");
+                    }
+
+                    if (shouldReact && ShouldSuppressThreatSoundReaction(botOwner_0, position))
+                    {
+                        Trace(botOwner_0, "Hearing.step ignore olderOrWorseSound");
+                        shouldReact = false;
                     }
 
                     if (person != null && shouldReact)
@@ -122,12 +121,7 @@ namespace friendlySAIN.Patches
                     {
                         Trace(botOwner_0, $"Hearing.{type} ignore method6False dist={distance:F1} power={power:F1}");
                     }
-                    if (
-                        botOwner_0.Memory.HaveEnemy && (
-                            botOwner_0.Memory.GoalEnemy.PersonalLastSeenTime + 2f < Time.time ||
-                            (position - botPosition).sqrMagnitude > (botOwner_0.Memory.GoalEnemy.EnemyLastPosition - botPosition).sqrMagnitude
-                        )
-                    )
+                    if (shouldReact && ShouldSuppressThreatSoundReaction(botOwner_0, position))
                     {
                         Trace(botOwner_0, $"Hearing.{type} ignore olderOrWorseSound");
                         shouldReact = false;
@@ -146,6 +140,27 @@ namespace friendlySAIN.Patches
         {
             if (!EnableReactionTrace || bot == null) return;
             Modules.Logger.LogInfo($"[ReactTrace] bot={bot.Profile?.Nickname ?? bot.name} {msg}");
+        }
+
+        private static bool ShouldSuppressThreatSoundReaction(BotOwner bot, Vector3 soundPosition)
+        {
+            if (bot?.Memory?.GoalEnemy == null)
+            {
+                return false;
+            }
+
+            EnemyInfo goalEnemy = bot.Memory.GoalEnemy;
+            if (!Enemy.TryGetReliableKnownPosition(bot, goalEnemy, out Vector3 knownThreatPosition))
+            {
+                return false;
+            }
+
+            Vector3 botPosition = bot.GetPlayer?.Transform?.position ?? bot.Position;
+            float soundDistanceSqr = (soundPosition - botPosition).sqrMagnitude;
+            float knownThreatDistanceSqr = (knownThreatPosition - botPosition).sqrMagnitude;
+            float suppressionMarginSqr = 4f * 4f;
+
+            return soundDistanceSqr > knownThreatDistanceSqr + suppressionMarginSqr;
         }
     }
 
@@ -169,11 +184,17 @@ namespace friendlySAIN.Patches
             foreach (var follower in BossPlayers.GetFollowers())
             {
                 BotOwner bot = follower.GetBot();
-                if (bot.ProfileId == __instance.ProfileId || bot.Memory.HaveEnemy) continue;
+                if (bot.ProfileId == __instance.ProfileId) continue;
                 bool knownEnemy = bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance);
                 bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(bot, __instance);
                 if (!knownEnemy && !hostileToBossGroup) continue;
                 if (ReactionRateLimiter.IsSuppressed(bot.ProfileId, __instance.ProfileId, 3, FootstepReactionCooldownSeconds)) continue;
+
+                if (bot.Memory.HaveEnemy && bot.Memory.GoalEnemy != null &&
+                    bot.Memory.GoalEnemy.IsVisible && bot.Memory.GoalEnemy.CanShoot)
+                {
+                    continue;
+                }
 
                 Vector3 position = __instance.Transform.position;
 

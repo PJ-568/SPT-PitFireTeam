@@ -26,7 +26,11 @@ namespace friendlySAIN.Patches
             {
                 if (item.gameObject.name == "ENEMY")
                 {
-                    List<EPhraseTrigger> enemyPhrases = new List<EPhraseTrigger> { EPhraseTrigger.OnRepeatedContact, (EPhraseTrigger)CustomPhrases.OverThere };
+                    List<EPhraseTrigger> enemyPhrases = new List<EPhraseTrigger>
+                    {
+                        EPhraseTrigger.OnRepeatedContact,
+                        (EPhraseTrigger)CustomPhrases.OverThere
+                    };
 
                     enemyPhrases.ForEach(phrase =>
                     {

@@ -10,6 +10,6 @@ public class FriendlyLanguageCallbacks(FriendlyLanguageService languageService)
 {
     public ValueTask<string> Get(string url, FriendlyLanguageRequest request, MongoId sessionId)
     {
-        return new ValueTask<string>(languageService.GetLanguageJson(request.Locale));
+        return new ValueTask<string>(languageService.GetLanguageJson(request.Locale, request.EnglishJson));
     }
 }

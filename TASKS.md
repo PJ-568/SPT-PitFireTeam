@@ -1,64 +1,31 @@
-# Implement follower run-ahead feature
+# BETA-RELEASE:
 
-Goal:
+- make squad settings that need raid restart be disabled during raid and have tooltip message saying "Not available during raid" on them. We disable the "agression" slider and present a tooltip in our squad screen for a certain scenario. So you can follow that
+- (DONE) - disable "protector" tactic as selectable tactic in beta release.
+- (DONE) - disable patrol radius in settings
+- (INPROGRESS) sniper tactic needs it's own battle recording analysis for improvement
+- (DONE) - the temporary english language file. We need to have the client embed the english language so that we can always have a fallback if something goes wrong. On start the client will send to the server the english language and the server will write the english language to disk as en.json so that users can edit it. Thus the server will check if file is present, if file is good, if file is outdated (meaning some new keys are now avaialble), and write it again only if its missing, corrupted or outdated. This way we can ensure that the english language is always present and up to date, but also allow users to edit it if they want to.
+- name space must be renamed from "friendlySAIN" to "pitTeam"
 
-- Add a Dogmeat-style run-ahead behavior for followers while following the player.
-
-Behavior target:
-
-- When a follower lags behind, it should path/sprint to a projected point ahead/near the player movement direction (not exact feet-follow).
-- When close enough, follower should settle back into normal local follow/idle behavior.
-- Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
-- Keep this compatible with both vanilla and SAIN runtime paths.
-
-# LANGUAGE SUPPORT
-
-- ensure new plugin gets all it's text from the language
-- following the old plugin add language support for various language
-- observe game language setting and update according to the changes of it
-
-# Implement Hold Position command
-
-- Functions the same as setting agression to 0% but will reset once combat ends or new command is received.
-- Does not do anything out of combat
-
-# (UNDER TESTING) Add directional quick-phrase look commands
-
-Goal:
-
-- Enable directional quick phrases such as `Front`, `Left`, `Right`, and similar directional callouts so followers orient and look toward the called direction in the same manner they currently react to `Over There`.
-
-Behavior target:
-
-- Direction resolution must be relative to the player look direction at the time the phrase is issued.
-- Followers should translate the directional phrase into an attention/look target using the same general flow currently used by `Over There`.
-- Keep this behavior consistent with existing boss-to-follower gesture/phrase propagation rules.
-- Avoid inventing a separate movement/command model if the existing `Over There` attention path can be reused safely.
-- Keep the implementation compatible with both vanilla and SAIN runtime paths.
-- should work in and out of combat, but during combat is it condition by if the follower is not already enganging a target.
-
-# Combat commands
+## Combat commands - BETA
 
 Description:
 
-- "Suppress" - do supression as per old plugin
-- "On your own" - bots no longer care about boss position and fight the enemy on ther own. Regroup resets this commad. On combat end, this command is also reset.
-- CoverMe - srhinks the radious of covers around the boss, makes agression 0 and makes them try to find covers as close as possible to the boss. GetBack resets this command. On combat end, this command is also reset.
+- (DONE) - "Hold Position" - functions the same as setting agression to 0% but will reset once combat ends or new command is received.
+- (TO TEST) - "Suppress" - do supression as per old plugin
+
+# Combat commands
+
+- (AFTER INITIAL RELEASE) "On your own" - bots no longer care about boss position and fight the enemy on ther own. Regroup resets this commad. On combat end, this command is also reset.
+- (AFTER INITIAL RELEASE) - CoverMe - shrinks the radious of covers around the boss, makes agression 0 and makes them try to find covers as close as possible to the boss. GetBack resets this command. On combat end, this command is also reset.
 
 # (INPROGRESS) - NON-COMBAT COMMANDS
 
 - (DONE) - the "Stop" phrase should stop the bot from roaming around near the boss. It is similar to "hold" gesture, except the bot does not go into crouch. If boss gets out of range (25f) he should discard the command and resume following.
-
-- "On your own" - makes bots enter patrol mode. Check old plugin for how that is done. Regroup resets this command.
-- GetBack - increase following distance. Regroup resets the distance
 - (DONE) - GoForward, same as "There" command but it is for the hole team.
-- Silence - followers stop taking. Time should be set via settings, default is 1 minute. Max is 10 minutes. During combat, only "enemy spotted" is allowed on first engagement. And when they report enemy position during status report trigger.
-
-# CURIOSTY
-
-- add CURIOSITY settings slider that will determine how likely the follower is to investigate a noise or when sensing an enemy.
-- attention makes the follower drop the curiosity and also set the enemy that trigger the investigation to be ignored for 2 minutes.
-- only Default and Protector have this setting
+- (AFTER INITIAL RELEASE) "On your own" - makes bots enter patrol mode. Check old plugin for how that is done. Regroup resets this command.
+- (AFTER INITIAL RELEASE) GetBack - increase following distance. Regroup resets the distance
+- (AFTER INITIAL RELEASE) Silence - followers stop taking. Time should be set via settings, default is 1 minute. Max is 10 minutes. During combat, only "enemy spotted" is allowed on first engagement. And when they report enemy position during status report trigger.
 
 # Combat Tactics
 
@@ -66,30 +33,27 @@ Description:
 
 - (DONE) Marksman, as per old plugin where the follower is assumed to have a sniper rifle and thus will try to fight from a distance. This tactic is also aware of the second weapon, if automatic, for switching to it on close combat. Marksman, does not do enemy group search, it can join soround, but trying to find a safe spot at a distance instead of any. Does not do push. Can do supression if having secondary automatic weapons with decent range (200m+ effective range).
 - (DONE) Default is what we have now.
-- Non marksman can detect if having grenade launcher as secondary weapon and may choose to switch to it for supression and other decisions (see old plugin)
-- Non marksman can also detect shotguns seconday weapon and may choose to use it for a close push (see old plugin)
-- Even if follower is not marksman, if he detects single shot weapon as primary and auto as secondary, he may choose to switch to secondary for close combat.
-  - Implementation:
-    - keep this on the vanilla/core combat path only under `client/BigBrain`
-    - do not merge marksman policy into default; keep marksman and default as separate tactic owners
-    - reuse the existing shared weapon capability checks in `FollowerCombatCommon` and extend them only if needed for a "single-shot primary + automatic secondary" eligibility gate
-    - hook default-owned close-pressure decisions first, not generic hold or visible-fire branches
-    - prefer existing default push / advance / close-search style decisions as the ownership points for switching to secondary
-    - gate the switch by close distance and local fight safety so default does not flip weapons during normal mid-range combat
-    - add default-specific close-intent reasons only where needed so decision handoff can preserve secondary ownership the same way marksman currently does
-    - add a default-specific switch-back rule after close pressure ends, recent contact cools off, or distance opens back up
-    - use old `friendlypmc` marksman / guard secondary logic only as behavior reference, not as structure to copy
-- Protector, sticks around the boss and is not afraid to get between the boss and the enemy, if the enemy is shooting the boss. Protector tries to put himself between the boss and the enemy. Something the old plugin did with "Guard" tactic.
 
-# ADD RADIAL COMMANDS
+- (AFTER INITIAL RELEASE) Non marksman can detect if having grenade launcher as secondary weapon and may choose to switch to it for supression and other decisions (see old plugin)
+- (AFTER INITIAL RELEASE) Non marksman can also detect shotguns seconday weapon and may choose to use it for a close push (see old plugin)
+- (AFTER INITIAL RELEASE) Even if follower is not marksman, if he detects single shot weapon as primary and auto as secondary, he may choose to switch to secondary for close combat.
+    - Implementation:
+        - keep this on the vanilla/core combat path only under `client/BigBrain`
+        - do not merge marksman policy into default; keep marksman and default as separate tactic owners
+        - reuse the existing shared weapon capability checks in `FollowerCombatCommon` and extend them only if needed for a "single-shot primary + automatic secondary" eligibility gate
+        - hook default-owned close-pressure decisions first, not generic hold or visible-fire branches
+        - prefer existing default push / advance / close-search style decisions as the ownership points for switching to secondary
+        - gate the switch by close distance and local fight safety so default does not flip weapons during normal mid-range combat
+        - add default-specific close-intent reasons only where needed so decision handoff can preserve secondary ownership the same way marksman currently does
+        - add a default-specific switch-back rule after close pressure ends, recent contact cools off, or distance opens back up
+        - use old `friendlypmc` marksman / guard secondary logic only as behavior reference, not as structure to copy
+- (AFTER INITIAL RELEASE) Protector, sticks around the boss and is not afraid to get between the boss and the enemy, if the enemy is shooting the boss. Protector tries to put himself between the boss and the enemy. Something the old plugin did with "Guard" tactic.
 
-- Implement a radial menu made of 2 circles that will hold all available command for the followers. This will be alternative to the quick gestures menu of the game and it is mean as an easier way to access the commands if players do not wish to bind them to some key but find it hard to use the in game gesture menu
-
-# Vanilla Group Search combat decision
+# Vanilla Group Search combat decision (AFTER INITIAL RELEASE)
 
 - SAIN has a search log, but so does vanilla. Yet SAIN also can group the bots to do group search instead of individual search. I would like to replicate the search party we tried with SAIN
 
-# Vanilla Surround combat decision
+# Vanilla Surround combat decision (AFTER INITIAL RELEASE)
 
 Description:
 
@@ -101,6 +65,12 @@ Description:
 - bots that already got assignments continue to them
 - remaining bots fall back to boss default/regroup behavior
 - Surround must be interruption-safe because combat decisions can break at any time due to visibility, hits, enemy death, bot death, self-actions, or other SAIN combat changes.
+
+# CURIOSTY (AFTER INITIAL RELEASE)
+
+- add CURIOSITY settings slider that will determine how likely the follower is to investigate a noise or when sensing an enemy.
+- attention makes the follower drop the curiosity and also set the enemy that trigger the investigation to be ignored for 2 minutes.
+- only Default and Protector have this setting
 
 # ADD THE GOONS (AFTER INITIAL RELEASE)
 
@@ -119,6 +89,42 @@ Description:
 # FUTURE IDEAS
 
 - Hide the main menu bottom navigation bar when `My Squad` screen is open (same as it is hidden when the Add Teammate character creation screen opens).
+- Tracking setting where followers use Realistic or Simple tracking. This means they will rely heavily on enemy last known position instead of using actual enemy position. This will be visible even with the enemy tracker symbol.
+- Add setting to control bot difficulty which will be measured in accuracy and reactions.
+
+## Implement follower run-ahead feature
+
+Goal:
+
+- Add a Dogmeat-style run-ahead behavior for followers while following the player.
+
+Behavior target:
+
+- When a follower lags behind, it should path/sprint to a projected point ahead/near the player movement direction (not exact feet-follow).
+- When close enough, follower should settle back into normal local follow/idle behavior.
+- Add fallback handling for path failure or excessive separation (safe catch-up/teleport logic as needed).
+- Keep this compatible with both vanilla and SAIN runtime paths.
+
+# (DONE) LANGUAGE SUPPORT
+
+- ensure new plugin gets all it's text from the language
+- following the old plugin add language support for various language
+- observe game language setting and update according to the changes of it
+
+# (DONE) Add directional quick-phrase look commands
+
+Goal:
+
+- Enable directional quick phrases such as `Front`, `Left`, `Right`, and similar directional callouts so followers orient and look toward the called direction in the same manner they currently react to `Over There`.
+
+Behavior target:
+
+- Direction resolution must be relative to the player look direction at the time the phrase is issued.
+- Followers should translate the directional phrase into an attention/look target using the same general flow currently used by `Over There`.
+- Keep this behavior consistent with existing boss-to-follower gesture/phrase propagation rules.
+- Avoid inventing a separate movement/command model if the existing `Over There` attention path can be reused safely.
+- Keep the implementation compatible with both vanilla and SAIN runtime paths.
+- should work in and out of combat, but during combat is it condition by if the follower is not already enganging a target.
 
 # (DONE) - Team management
 

@@ -17,6 +17,8 @@ Never confuse these two. When the user says "SAIN plugin" or "SAIN mod" they mea
 
 Read code first. Assume nothing.
 
+Check `LOCAL.md` for machine-local deployment paths and current local runtime notes. `LOCAL.md` is intentionally ignored by git; do not treat it as shared project documentation.
+
 If a method, class, property, or runtime behavior is unclear:
 
 - inspect the project source code
@@ -57,7 +59,7 @@ When multiple approaches are possible, prefer:
 
 # friendlySAIN: Current Implementation Summary
 
-**Last updated:** 2026-04-19  
+**Last updated:** 2026-04-28  
 **Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.  
 **SAIN Addon is optional and runtime-gated**
 
@@ -146,19 +148,20 @@ Current verified custom teammate feature state:
     - teammate rename is implemented through a custom overlay + backend rename route
     - stock `SkillsScreen` is cloned into teammate profile view with filtered follower-relevant skills
     - teammate-only profile UI resets correctly when switching back to a normal player profile
-- Teammate custom loadout editor is only partially implemented:
+- Teammate custom loadout editor is implemented for the current cloned/local editing model:
     - teammate profile has an `Edit Loadout` entry point
     - modal shell and fake local inventory session exist
     - left side renders a cloned fake stash
     - right side renders a cloned follower equipment/inventory view
     - secure container and dogtag are hidden from the follower-side container display
     - drag header / overlay movement is implemented
-    - persistence and real save/apply behavior are not finished
+    - edits stay local until `Done`
+    - custom player equipment builds can be overwritten or saved under a new preset name
+    - editing `Default` saves directly as the teammate default equipment without opening the preset naming dialog
 - Current backend/social/profile/runtime limitations:
-    - tactic persistence/UI is not implemented yet (`followerdetails` currently returns `Default`)
     - voice/head customization from profile screen is not implemented yet
-    - custom loadout editor does not yet save or reconstruct edited inventory state
-    - Team screen `Settings` tab currently covers checkbox/ranged friendlySAIN settings; keybind/input-option parity is still pending if needed later
+    - custom loadout editor still uses cloned/local items; immersive real stash consumption is not implemented
+    - Team screen `Settings` tab covers checkbox/ranged settings and keybind capture; staged save/cancel/default parity is still pending if needed later
     - teammate invite/group flow still needs more parity with old plugin around pre-raid screen sequencing and group state handling
     - old chatbot-style teammate management is not ported; current management path is the roster/context-menu flow
     - teammate profiles remain mod-owned bot JSON, not full stock `SptProfile` accounts
@@ -479,6 +482,13 @@ Supported commands via `GestureCommandAction`:
     - command acceptance is no longer limited by the old phrase-distance gate
     - if the follower already has an enemy, `GoForward` is converted into `PushEnemy` and handled inside `FollowerCombatDefault` through `FollowerCombatPush.EngageEnemy(true, ...)`
     - combat hold/committed-cover states now break so the ordered push can take over
+- **HoldPosition combat phrase** (`EPhraseTrigger.HoldPosition`) — Temporarily applies `0%` effective combat aggression to targeted followers
+    - stored as a temporary override in `BotFollowerPlayer`, leaving the persisted profile aggression untouched
+    - core/vanilla combat reads `EffectiveCombatAggression` through `FollowerCombatCommon.GetAggression01()`
+    - SAIN addon combat treats the override as boss-protection/regroup intent through `SAINFollowerCombatLayer`
+    - marksman close auto-search is suppressed while this temporary hold-position override is active
+    - override clears when combat/patrol handoff reports the follower safely out of combat, or when `Gogogo` is issued
+- **Gogogo combat phrase** (`EPhraseTrigger.Gogogo`) — Clears any temporary combat-aggression override and returns followers to their persisted aggression value
 - **LootGeneric** / **LootWeapon** — Closest eligible follower assigned via `InteractableObjects.SetTaker(...)`, moves + inventory transfer
     - Now resilient to transient state changes: pins selected loot and attempts taker recovery before aborting
     - Supports all item types with improved state consistency
@@ -748,9 +758,10 @@ Supported commands via `GestureCommandAction`:
 **`SAINFollowerCombatLayer` Evaluation Chain:**
 
 1. **Regroup Command** — If `RegroupNearBoss` request active: → `SAINFollowerCombatRegroupAction` (8s grace while enemy context remains)
-2. **Squad Calculator** — Dynamic decision scoring: → routing to specific action
-3. **SAIN Fallback** — If available, use native SAIN squad decision (2s enemy grace)
-4. **No Decision** — Layer exits unless an explicit calculator/fallback path produced a decision
+2. **Temporary HoldPosition Aggression** — If boss `HoldPosition` combat override is active: → boss-protection/regroup fallback (`SAINFollowerCombatDefaultBossAction`)
+3. **Squad Calculator** — Dynamic decision scoring: → routing to specific action
+4. **SAIN Fallback** — If available, use native SAIN squad decision (2s enemy grace)
+5. **No Decision** — Layer exits unless an explicit calculator/fallback path produced a decision
 
 **`SAINFollowerSquadDecisionCalculator` Priority Order:**
 
@@ -890,7 +901,7 @@ Follow movement:
 
 Request/gesture movement:
 
-- Registers `friendlySAIN.FollowerRequest` custom layer (priority `73`) above patrol (`72`).
+- Registers `friendlySAIN.FollowerRequest` custom layer (priority `73`) above combat (`72`) and patrol (`71`).
 - `FollowerRequestLayer` activates when follower has an active command in `BotFollowerPlayer`.
 - `GestureCommandAction` handles:
     - `HoldPosition`: stop, crouch pose, periodic random look-around, no command timeout (persists until replaced/cleared).
@@ -916,6 +927,10 @@ Request/gesture movement:
         - vanilla path releases control when SAIN combat regroup route becomes valid; SAIN path releases control when combat route is no longer valid,
         - interrupted by being hit, follower death, attention reset (`EPhraseTrigger.Look`), or replacement by a newer command,
         - on successful regroup arrival follower says `EPhraseTrigger.OnPosition`.
+- Boss phrase commands handled directly by `AIBossPlayer`:
+    - `EPhraseTrigger.HoldPosition` applies a temporary `0%` effective combat-aggression override to targeted followers; it is not a persistent profile aggression change.
+    - `EPhraseTrigger.Gogogo` clears that temporary override and returns each follower to its saved aggression.
+    - `BotReceiverPhraseOverridePatch` suppresses vanilla receiver handling for `Stop`, `HoldPosition`, and `Gogogo` on followers so the boss command path owns the behavior.
 - Gesture visibility requirements:
     - `HoldGesture` and `ThereGesture` require follower to see boss gesture target (`head` or `torso` visibility; either is enough).
     - `ComeWithMeGesture` requires both directions:
@@ -960,10 +975,12 @@ Request/gesture movement:
     - `CustomPhrases.TeamStatus = 10001`
     - `CustomPhrases.OverThere = 10002`
     - `EPhraseTrigger.Stop` — Hold position without crouch, broadcast to nearby followers (25m range or looked-at follower)
-    - `EPhraseTrigger.Gogogo` — Forward/advance command, broadcast to followers (not functional yet; routed but behavior not implemented)
+    - `EPhraseTrigger.HoldPosition` — Temporary combat hold/aggression override; acts like `0%` aggression until combat ends or `Gogogo` clears it
+    - `EPhraseTrigger.Gogogo` — Clears the temporary combat hold/aggression override and restores each bot's persisted aggression
 - Phrase broadcast commands (new):
     - `STOP` (from `EPhraseTrigger.Stop`): Sets all targeted followers to `HoldPosition(infinity, crouch: false)`, released when follower moves >25m from boss or on new command
-    - `GOFORWARD` (from `EPhraseTrigger.Gogogo`): Broadcasts go-to command to all followers within range except looked-at follower, targets boss interaction ray up to configurable distance (default 50m), uses NavMesh validation
+    - `HOLDPOSITION` (from `EPhraseTrigger.HoldPosition`): Applies temporary combat aggression override to targeted followers without changing persisted profile aggression
+    - `GOGOGO` (from `EPhraseTrigger.Gogogo`): Clears temporary combat aggression override
 - Custom gesture:
     - `CustomGestures.OverThere = 220` (`EInteraction` is byte-backed, so stay within `0..255`)
 - Vanilla 4.x gestures:

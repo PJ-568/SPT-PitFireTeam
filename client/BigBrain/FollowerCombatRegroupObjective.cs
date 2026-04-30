@@ -38,6 +38,7 @@ namespace friendlySAIN.BigBrain
         private BotLogicDecision committedRegroupAction;
         private string? committedRegroupReason;
         private float arrivedSettleUntil;
+        private float regroupActivatedAt;
 
         private enum RegroupBossDirection
         {
@@ -64,6 +65,7 @@ namespace friendlySAIN.BigBrain
             committedRegroupAction = default;
             committedRegroupReason = null;
             arrivedSettleUntil = 0f;
+            regroupActivatedAt = 0f;
         }
 
         public override void Activate()
@@ -71,6 +73,7 @@ namespace friendlySAIN.BigBrain
             // Regroup is command-triggered but objective-owned, so each activation should discard
             // previous bossward targets and recompute from current combat geometry.
             Reset();
+            regroupActivatedAt = Time.time;
         }
 
         public override void Deactivate()
@@ -199,6 +202,13 @@ namespace friendlySAIN.BigBrain
                 return new AICoreActionEndStruct("regroupPushOverride", true);
             }
 
+            if (HasActiveSuppressOrder())
+            {
+                complete = true;
+                ClearCommittedRegroupMove();
+                return new AICoreActionEndStruct("regroupSuppressOverride", true);
+            }
+
             if (currentDecision.Reason != null && currentDecision.Reason.StartsWith("regroup.withdraw", System.StringComparison.Ordinal))
             {
                 if (CombatCommon.TryGetNeedHealDecision() != null)
@@ -222,6 +232,14 @@ namespace friendlySAIN.BigBrain
                 {
                     ClearCommittedRegroupMove();
                     return new AICoreActionEndStruct("regroupBossSectorChanged", true);
+                }
+
+                if (ShouldReturnMarksmanToSupport(goalEnemy))
+                {
+                    complete = true;
+                    ClearCurrentTarget();
+                    ClearCommittedRegroupMove();
+                    return new AICoreActionEndStruct("regroupMarksmanSupportOpportunity", true);
                 }
 
                 return default;
@@ -250,6 +268,14 @@ namespace friendlySAIN.BigBrain
                 {
                     ClearCommittedRegroupMove();
                     return new AICoreActionEndStruct("regroupBossSectorChanged", true);
+                }
+
+                if (ShouldReturnMarksmanToSupport(goalEnemy))
+                {
+                    complete = true;
+                    ClearCurrentTarget();
+                    ClearCommittedRegroupMove();
+                    return new AICoreActionEndStruct("regroupMarksmanSupportOpportunity", true);
                 }
 
                 return default;
@@ -551,6 +577,12 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            float regroupCoverRadius = GetRegroupCoverRadius();
+            if ((cover.Position - bossPosition).sqrMagnitude > regroupCoverRadius * regroupCoverRadius)
+            {
+                return false;
+            }
+
             // A bossward cover is only an intermediate step. Once that step is reached, do not pick
             // the same nearby owned cover again unless it also completes regroup.
             if (!HasReachedBoss(bossPosition) && HasReachedPosition(cover.Position))
@@ -646,6 +678,40 @@ namespace friendlySAIN.BigBrain
             return followerData != null &&
                    followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
                    command == FollowerCommandType.PushEnemy;
+        }
+
+        private bool HasActiveSuppressOrder()
+        {
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
+                   command == FollowerCommandType.SuppressEnemy;
+        }
+
+        private bool ShouldReturnMarksmanToSupport(EnemyInfo goalEnemy)
+        {
+            if (CombatCommon.GetFollowerTactic() != FollowerCombatTactic.Marksman)
+            {
+                return false;
+            }
+
+            if (Time.time - regroupActivatedAt < 1f)
+            {
+                return false;
+            }
+
+            if (goalEnemy != null && goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return true;
+            }
+
+            if (BotOwner.BotFollower?.BossToFollow is pitAIBossPlayer boss &&
+                boss.CombatEvents.TryGetActivePushFor(BotOwner, out _))
+            {
+                return true;
+            }
+
+            return CombatCommon.TryGetAllyEngagementEnemy(out _, out _);
         }
 
         public static bool IsRegroupReason(string? reason)

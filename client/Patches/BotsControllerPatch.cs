@@ -1283,6 +1283,7 @@ namespace friendlySAIN.Patches
                     Modules.Logger.LogInfo($"[CombatDistances] map={locationId} factoryMode={CombatDistanceConfiguration.Instance.IsFactoryMode}");
 
                     Modules.Logger.LogInfo("Raid Started");
+                    BattleRecorder.StartRaid(locationId);
                 }
 
 
@@ -1569,6 +1570,7 @@ namespace friendlySAIN.Patches
 
 
             Modules.Logger.LogInfo("Raid Ended");
+            BattleRecorder.EndRaid(raidTransit ? "raidTransit" : "raidStopped");
 
             if (raidTransit)
             {

@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -62,6 +63,117 @@ namespace friendlySAIN.Components
         private static readonly FieldInfo GameSettingsToggleTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_enableBlockInvites");
         private static readonly FieldInfo GameSettingsSliderTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_fov");
         private static readonly FieldInfo NumberSliderValueInputField = AccessTools.Field(typeof(NumberSlider), "_valueInput");
+        private static readonly ShortcutKeyCandidate[] ShortcutKeyCandidates =
+        {
+            new ShortcutKeyCandidate(KeyCode.Mouse0),
+            new ShortcutKeyCandidate(KeyCode.Mouse1),
+            new ShortcutKeyCandidate(KeyCode.Mouse2),
+            new ShortcutKeyCandidate(KeyCode.Mouse3),
+            new ShortcutKeyCandidate(KeyCode.Mouse4),
+            new ShortcutKeyCandidate(KeyCode.A),
+            new ShortcutKeyCandidate(KeyCode.B),
+            new ShortcutKeyCandidate(KeyCode.C),
+            new ShortcutKeyCandidate(KeyCode.D),
+            new ShortcutKeyCandidate(KeyCode.E),
+            new ShortcutKeyCandidate(KeyCode.F),
+            new ShortcutKeyCandidate(KeyCode.G),
+            new ShortcutKeyCandidate(KeyCode.H),
+            new ShortcutKeyCandidate(KeyCode.I),
+            new ShortcutKeyCandidate(KeyCode.J),
+            new ShortcutKeyCandidate(KeyCode.K),
+            new ShortcutKeyCandidate(KeyCode.L),
+            new ShortcutKeyCandidate(KeyCode.M),
+            new ShortcutKeyCandidate(KeyCode.N),
+            new ShortcutKeyCandidate(KeyCode.O),
+            new ShortcutKeyCandidate(KeyCode.P),
+            new ShortcutKeyCandidate(KeyCode.Q),
+            new ShortcutKeyCandidate(KeyCode.R),
+            new ShortcutKeyCandidate(KeyCode.S),
+            new ShortcutKeyCandidate(KeyCode.T),
+            new ShortcutKeyCandidate(KeyCode.U),
+            new ShortcutKeyCandidate(KeyCode.V),
+            new ShortcutKeyCandidate(KeyCode.W),
+            new ShortcutKeyCandidate(KeyCode.X),
+            new ShortcutKeyCandidate(KeyCode.Y),
+            new ShortcutKeyCandidate(KeyCode.Z),
+            new ShortcutKeyCandidate(KeyCode.Alpha0),
+            new ShortcutKeyCandidate(KeyCode.Alpha1),
+            new ShortcutKeyCandidate(KeyCode.Alpha2),
+            new ShortcutKeyCandidate(KeyCode.Alpha3),
+            new ShortcutKeyCandidate(KeyCode.Alpha4),
+            new ShortcutKeyCandidate(KeyCode.Alpha5),
+            new ShortcutKeyCandidate(KeyCode.Alpha6),
+            new ShortcutKeyCandidate(KeyCode.Alpha7),
+            new ShortcutKeyCandidate(KeyCode.Alpha8),
+            new ShortcutKeyCandidate(KeyCode.Alpha9),
+            new ShortcutKeyCandidate(KeyCode.F1),
+            new ShortcutKeyCandidate(KeyCode.F2),
+            new ShortcutKeyCandidate(KeyCode.F3),
+            new ShortcutKeyCandidate(KeyCode.F4),
+            new ShortcutKeyCandidate(KeyCode.F5),
+            new ShortcutKeyCandidate(KeyCode.F6),
+            new ShortcutKeyCandidate(KeyCode.F7),
+            new ShortcutKeyCandidate(KeyCode.F8),
+            new ShortcutKeyCandidate(KeyCode.F9),
+            new ShortcutKeyCandidate(KeyCode.F10),
+            new ShortcutKeyCandidate(KeyCode.F11),
+            new ShortcutKeyCandidate(KeyCode.F12),
+            new ShortcutKeyCandidate(KeyCode.Keypad0),
+            new ShortcutKeyCandidate(KeyCode.Keypad1),
+            new ShortcutKeyCandidate(KeyCode.Keypad2),
+            new ShortcutKeyCandidate(KeyCode.Keypad3),
+            new ShortcutKeyCandidate(KeyCode.Keypad4),
+            new ShortcutKeyCandidate(KeyCode.Keypad5),
+            new ShortcutKeyCandidate(KeyCode.Keypad6),
+            new ShortcutKeyCandidate(KeyCode.Keypad7),
+            new ShortcutKeyCandidate(KeyCode.Keypad8),
+            new ShortcutKeyCandidate(KeyCode.Keypad9),
+            new ShortcutKeyCandidate(KeyCode.Space),
+            new ShortcutKeyCandidate(KeyCode.Tab),
+            new ShortcutKeyCandidate(KeyCode.Return),
+            new ShortcutKeyCandidate(KeyCode.Insert),
+            new ShortcutKeyCandidate(KeyCode.Delete),
+            new ShortcutKeyCandidate(KeyCode.Home),
+            new ShortcutKeyCandidate(KeyCode.End),
+            new ShortcutKeyCandidate(KeyCode.PageUp),
+            new ShortcutKeyCandidate(KeyCode.PageDown),
+            new ShortcutKeyCandidate(KeyCode.UpArrow),
+            new ShortcutKeyCandidate(KeyCode.DownArrow),
+            new ShortcutKeyCandidate(KeyCode.LeftArrow),
+            new ShortcutKeyCandidate(KeyCode.RightArrow),
+            new ShortcutKeyCandidate(KeyCode.LeftBracket),
+            new ShortcutKeyCandidate(KeyCode.RightBracket),
+            new ShortcutKeyCandidate(KeyCode.Backslash),
+            new ShortcutKeyCandidate(KeyCode.Semicolon),
+            new ShortcutKeyCandidate(KeyCode.Quote),
+            new ShortcutKeyCandidate(KeyCode.Comma),
+            new ShortcutKeyCandidate(KeyCode.Period),
+            new ShortcutKeyCandidate(KeyCode.Slash),
+            new ShortcutKeyCandidate(KeyCode.BackQuote),
+            new ShortcutKeyCandidate(KeyCode.Minus),
+            new ShortcutKeyCandidate(KeyCode.Equals),
+            new ShortcutKeyCandidate(KeyCode.KeypadDivide),
+            new ShortcutKeyCandidate(KeyCode.KeypadMultiply),
+            new ShortcutKeyCandidate(KeyCode.KeypadMinus),
+            new ShortcutKeyCandidate(KeyCode.KeypadPlus),
+            new ShortcutKeyCandidate(KeyCode.KeypadPeriod),
+            new ShortcutKeyCandidate(KeyCode.LeftControl),
+            new ShortcutKeyCandidate(KeyCode.RightControl),
+            new ShortcutKeyCandidate(KeyCode.LeftShift),
+            new ShortcutKeyCandidate(KeyCode.RightShift),
+            new ShortcutKeyCandidate(KeyCode.LeftAlt),
+            new ShortcutKeyCandidate(KeyCode.RightAlt),
+        };
+
+        private readonly struct ShortcutKeyCandidate
+        {
+            public readonly KeyCode KeyCode;
+
+            public ShortcutKeyCandidate(KeyCode keyCode)
+            {
+                KeyCode = keyCode;
+            }
+        }
         private static readonly FieldInfo PlayersInviteWindowContextMenuField = AccessTools.Field(typeof(PlayersInviteWindow), "_contextMenu");
         private static readonly FieldInfo SimpleContextMenuButtonsContainerField = AccessTools.Field(typeof(SimpleContextMenu), "_interactionButtonsContainer");
         private static readonly FieldInfo InteractionButtonsContainerTemplateField = AccessTools.Field(typeof(InteractionButtonsContainer), "_buttonTemplate");
@@ -107,6 +219,9 @@ namespace friendlySAIN.Components
         private Button activeShortcutCaptureButton;
         private TextMeshProUGUI activeShortcutCaptureLabel;
         private ConfigEntry<KeyboardShortcut> activeShortcutCaptureEntry;
+        private int activeShortcutCaptureStartFrame;
+        private Coroutine shortcutCaptureCoroutine;
+        private readonly HashSet<KeyCode> shortcutCaptureSuppressedKeys = new HashSet<KeyCode>();
         private readonly Dictionary<RectTransform, Vector2> originalButtonPositions = new Dictionary<RectTransform, Vector2>();
         private readonly Dictionary<string, GameObject> portraitLoadingIndicators = new Dictionary<string, GameObject>(StringComparer.Ordinal);
         private readonly HashSet<string> autoJoinRequestsInFlight = new HashSet<string>(StringComparer.Ordinal);
@@ -429,9 +544,37 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            if (screenRoot == null || !screenRoot.activeInHierarchy || settingsPanel == null || !settingsPanel.activeInHierarchy)
+            PollShortcutCapture();
+        }
+
+        private IEnumerator ShortcutCaptureCoroutine()
+        {
+            yield return null;
+
+            while (activeShortcutCaptureEntry != null)
             {
-                CancelShortcutCapture(false);
+                PollShortcutCapture();
+                yield return null;
+            }
+
+            shortcutCaptureCoroutine = null;
+        }
+
+        private void PollShortcutCapture()
+        {
+            if (activeShortcutCaptureEntry == null)
+            {
+                return;
+            }
+
+            if (Time.frameCount == activeShortcutCaptureStartFrame)
+            {
+                return;
+            }
+
+            if (!IsShortcutCaptureTargetActive())
+            {
+                CancelShortcutCapture(true);
                 return;
             }
 
@@ -450,10 +593,226 @@ namespace friendlySAIN.Components
             KeyCode mainKey = FindPressedMainKey();
             if (mainKey == KeyCode.None)
             {
+                mainKey = FindPressedNativeMainKey();
+            }
+
+            if (mainKey == KeyCode.None)
+            {
                 return;
             }
 
-            ApplyShortcutCapture(new KeyboardShortcut(mainKey, GetPressedModifiers()));
+            KeyCode[] modifiers = GetPressedModifiers();
+            if (modifiers.Length == 0)
+            {
+                modifiers = GetPressedNativeModifiers();
+            }
+            ApplyShortcutCapture(new KeyboardShortcut(mainKey, modifiers));
+        }
+
+        private void OnGUI()
+        {
+            if (activeShortcutCaptureEntry == null || Event.current == null || Event.current.type != EventType.KeyDown)
+            {
+                return;
+            }
+
+            if (Time.frameCount == activeShortcutCaptureStartFrame)
+            {
+                return;
+            }
+
+            KeyCode keyCode = Event.current.keyCode;
+            if (keyCode == KeyCode.None)
+            {
+                return;
+            }
+
+            if (keyCode == KeyCode.Escape)
+            {
+                CancelShortcutCapture(true);
+                Event.current.Use();
+                return;
+            }
+
+            if (keyCode == KeyCode.Backspace || keyCode == KeyCode.Delete)
+            {
+                ApplyShortcutCapture(new KeyboardShortcut(KeyCode.None));
+                Event.current.Use();
+                return;
+            }
+
+            if (IsModifierKey(keyCode))
+            {
+                return;
+            }
+
+            ApplyShortcutCapture(new KeyboardShortcut(keyCode, GetPressedModifiers()));
+            Event.current.Use();
+        }
+
+        private bool IsShortcutCaptureTargetActive()
+        {
+            if (activeShortcutCaptureButton != null && activeShortcutCaptureButton.gameObject.activeInHierarchy)
+            {
+                return true;
+            }
+
+            bool labelActive = activeShortcutCaptureLabel != null && activeShortcutCaptureLabel.gameObject.activeInHierarchy;
+            return labelActive;
+        }
+
+        private static string FormatModifierLog(KeyCode[] modifiers)
+        {
+            return modifiers == null || modifiers.Length == 0
+                ? "<none>"
+                : string.Join("+", modifiers.Select(modifier => modifier.ToString()).ToArray());
+        }
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int virtualKey);
+
+        private KeyCode FindPressedNativeMainKey()
+        {
+            if (IsNativeKeyDown(KeyCode.Escape))
+            {
+                CancelShortcutCapture(true);
+                return KeyCode.None;
+            }
+
+            if (IsNativeKeyDown(KeyCode.Backspace) || IsNativeKeyDown(KeyCode.Delete))
+            {
+                ApplyShortcutCapture(new KeyboardShortcut(KeyCode.None));
+                return KeyCode.None;
+            }
+
+            foreach (ShortcutKeyCandidate candidate in ShortcutKeyCandidates)
+            {
+                bool down = IsNativeKeyDown(candidate.KeyCode);
+                if (!down)
+                {
+                    shortcutCaptureSuppressedKeys.Remove(candidate.KeyCode);
+                    continue;
+                }
+
+                if (IsModifierKey(candidate.KeyCode) || shortcutCaptureSuppressedKeys.Contains(candidate.KeyCode))
+                {
+                    continue;
+                }
+
+                return candidate.KeyCode;
+            }
+
+            return KeyCode.None;
+        }
+
+        private void SeedSuppressedNativeKeys()
+        {
+            shortcutCaptureSuppressedKeys.Clear();
+            foreach (ShortcutKeyCandidate candidate in ShortcutKeyCandidates)
+            {
+                if (IsNativeKeyDown(candidate.KeyCode))
+                {
+                    shortcutCaptureSuppressedKeys.Add(candidate.KeyCode);
+                }
+            }
+        }
+
+        private static bool IsNativeKeyDown(KeyCode keyCode)
+        {
+            int virtualKey = GetVirtualKey(keyCode);
+            return virtualKey != 0 && (GetAsyncKeyState(virtualKey) & unchecked((short)0x8000)) != 0;
+        }
+
+        private static KeyCode[] GetPressedNativeModifiers()
+        {
+            List<KeyCode> modifiers = new List<KeyCode>(3);
+            if (IsNativeKeyDown(KeyCode.LeftControl) || IsNativeKeyDown(KeyCode.RightControl))
+            {
+                modifiers.Add(KeyCode.LeftControl);
+            }
+
+            if (IsNativeKeyDown(KeyCode.LeftShift) || IsNativeKeyDown(KeyCode.RightShift))
+            {
+                modifiers.Add(KeyCode.LeftShift);
+            }
+
+            if (IsNativeKeyDown(KeyCode.LeftAlt) || IsNativeKeyDown(KeyCode.RightAlt))
+            {
+                modifiers.Add(KeyCode.LeftAlt);
+            }
+
+            return modifiers.ToArray();
+        }
+
+        private static int GetVirtualKey(KeyCode keyCode)
+        {
+            switch (keyCode)
+            {
+                case KeyCode.Mouse0: return 0x01;
+                case KeyCode.Mouse1: return 0x02;
+                case KeyCode.Mouse2: return 0x04;
+                case KeyCode.Mouse3: return 0x05;
+                case KeyCode.Mouse4: return 0x06;
+                case KeyCode.Backspace: return 0x08;
+                case KeyCode.Tab: return 0x09;
+                case KeyCode.Return: return 0x0D;
+                case KeyCode.Escape: return 0x1B;
+                case KeyCode.Space: return 0x20;
+                case KeyCode.PageUp: return 0x21;
+                case KeyCode.PageDown: return 0x22;
+                case KeyCode.End: return 0x23;
+                case KeyCode.Home: return 0x24;
+                case KeyCode.LeftArrow: return 0x25;
+                case KeyCode.UpArrow: return 0x26;
+                case KeyCode.RightArrow: return 0x27;
+                case KeyCode.DownArrow: return 0x28;
+                case KeyCode.Insert: return 0x2D;
+                case KeyCode.Delete: return 0x2E;
+                case KeyCode.LeftShift: return 0xA0;
+                case KeyCode.RightShift: return 0xA1;
+                case KeyCode.LeftControl: return 0xA2;
+                case KeyCode.RightControl: return 0xA3;
+                case KeyCode.LeftAlt: return 0xA4;
+                case KeyCode.RightAlt: return 0xA5;
+                case KeyCode.KeypadMultiply: return 0x6A;
+                case KeyCode.KeypadPlus: return 0x6B;
+                case KeyCode.KeypadMinus: return 0x6D;
+                case KeyCode.KeypadPeriod: return 0x6E;
+                case KeyCode.KeypadDivide: return 0x6F;
+                case KeyCode.Semicolon: return 0xBA;
+                case KeyCode.Equals: return 0xBB;
+                case KeyCode.Comma: return 0xBC;
+                case KeyCode.Minus: return 0xBD;
+                case KeyCode.Period: return 0xBE;
+                case KeyCode.Slash: return 0xBF;
+                case KeyCode.BackQuote: return 0xC0;
+                case KeyCode.LeftBracket: return 0xDB;
+                case KeyCode.Backslash: return 0xDC;
+                case KeyCode.RightBracket: return 0xDD;
+                case KeyCode.Quote: return 0xDE;
+            }
+
+            if (keyCode >= KeyCode.Alpha0 && keyCode <= KeyCode.Alpha9)
+            {
+                return 0x30 + (keyCode - KeyCode.Alpha0);
+            }
+
+            if (keyCode >= KeyCode.A && keyCode <= KeyCode.Z)
+            {
+                return 0x41 + (keyCode - KeyCode.A);
+            }
+
+            if (keyCode >= KeyCode.F1 && keyCode <= KeyCode.F12)
+            {
+                return 0x70 + (keyCode - KeyCode.F1);
+            }
+
+            if (keyCode >= KeyCode.Keypad0 && keyCode <= KeyCode.Keypad9)
+            {
+                return 0x60 + (keyCode - KeyCode.Keypad0);
+            }
+
+            return 0;
         }
 
         private void EnsureSquadButton()
@@ -852,7 +1211,7 @@ namespace friendlySAIN.Components
                 standaloneCloseButton.gameObject.SetActive(true);
             }
 
-            if (settingsContentRoot == null || settingsContentRoot.childCount == 0)
+            if (settingsContentRoot != null)
             {
                 RebuildSettingsEntries();
             }

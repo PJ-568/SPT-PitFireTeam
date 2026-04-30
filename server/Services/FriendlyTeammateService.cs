@@ -52,7 +52,7 @@ public class FriendlyTeammateService(
     private const string TeammateFolderName = "teammates";
     private const string DefaultLoadoutName = "Default";
     private const string DefaultLoadoutId = "000000000000000000000000";
-    private static readonly string[] TacticOptions = ["Rifleman", "Marksman", "Protector"];
+    private static readonly string[] TacticOptions = ["Rifleman", "Marksman"];
     private const int RelativeLevelDelta = 5;
     private const int SecureContainerAmmoStackCount = 10;
     private const string GrizzlyMedicalKitTemplateId = "590c657e86f77412b013051d";
@@ -361,6 +361,7 @@ public class FriendlyTeammateService(
         var teammate = FindByAccountId(sessionId, request.Aid);
         var settings = GetTeammateSettings(sessionId, teammate);
         settings.CombatTactic = NormalizeCombatTactic(request.Tactic);
+        settings.Aggression = GetDefaultAggressionForTactic(settings.CombatTactic);
         SaveTeammateSettings(sessionId, teammate, settings);
         logger.Info($"Set teammate tactic '{settings.CombatTactic}' for aid '{teammate.Aid}' in session '{sessionId}'");
     }
@@ -1521,6 +1522,13 @@ public class FriendlyTeammateService(
         return Math.Clamp(value, 0f, 100f);
     }
 
+    private static float GetDefaultAggressionForTactic(string tactic)
+    {
+        return string.Equals(tactic, "Marksman", StringComparison.OrdinalIgnoreCase)
+            ? 30f
+            : 50f;
+    }
+
     private static string NormalizeCombatTactic(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1531,11 +1539,11 @@ public class FriendlyTeammateService(
         return value.Trim().ToLowerInvariant() switch
         {
             "marksman" => "Marksman",
-            "protector" => "Protector",
-            "guard" => "Protector",
-            "holder" => "Protector",
-            "support" => "Protector",
-            "assist" => "Protector",
+            "protector" => "Rifleman",
+            "guard" => "Rifleman",
+            "holder" => "Rifleman",
+            "support" => "Rifleman",
+            "assist" => "Rifleman",
             "rifleman" => "Rifleman",
             "balanced" => "Rifleman",
             "default" => "Rifleman",

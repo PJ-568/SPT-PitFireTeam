@@ -25,6 +25,7 @@ namespace friendlySAIN.BigBrain
         private const float SupportBreakRetryCooldownSeconds = 1f;
         private const float VisibleAlignedFireMaxDistance = 35f;
         private const float VisibleAlignedFireMaxAngle = 12f;
+        private const float AutoSuppressRetryCooldownSeconds = 3.5f;
 
         private enum CoverIntentKind
         {
@@ -42,6 +43,7 @@ namespace friendlySAIN.BigBrain
         private CoverIntentKind activeCoverIntent;
         private float supportIntentRetryUntil;
         private float protectIntentRetryUntil;
+        private float autoSuppressRetryUntil;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedAllySupportDecision;
 
         public FollowerCombatDefault(BotOwner botOwner, FollowerCombatCommon combatCommon)
@@ -62,6 +64,7 @@ namespace friendlySAIN.BigBrain
             combatCommon.ClearCommittedMovement();
             shootCoverSettlePhase.Reset();
             ClearCoverIntent();
+            autoSuppressRetryUntil = 0f;
             preparedAllySupportDecision = null;
         }
 
@@ -74,6 +77,7 @@ namespace friendlySAIN.BigBrain
         {
             combatCommon.HandleSharedDecisionChanged(nextDecision);
             combatCommon.HandleCommittedCoverDecisionChanged(nextDecision);
+            combatCommon.HandleFollowerSuppressDecisionChanged(nextDecision);
             UpdateShootCoverSettleState(nextDecision);
             combatPush.HandleDecisionChanged(nextDecision);
 
@@ -183,6 +187,11 @@ namespace friendlySAIN.BigBrain
                 return bossDistanceAfterCommitment;
             }
 
+            if (TryGetOrderedPushDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> orderedPushDecision))
+            {
+                return orderedPushDecision;
+            }
+
             // Very low aggression followers should treat bossward regroup as their primary objective
             // unless the enemy is already close enough that local engagement is unavoidable.
             if (TryGetLowAggressionRegroupDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> lowAggressionRegroup))
@@ -204,14 +213,14 @@ namespace friendlySAIN.BigBrain
                 return allySupportDecision;
             }
 
+            if (TryGetAutonomousSuppressDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> autoSuppressDecision))
+            {
+                return autoSuppressDecision;
+            }
+
             if (combatCommon.TryActivateFollowerGrenade(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> grenadeDecision))
             {
                 return grenadeDecision;
-            }
-
-            if (TryGetOrderedPushDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> orderedPushDecision))
-            {
-                return orderedPushDecision;
             }
 
             // Resolve visible-but-not-immediate contact: take a firing cover or hand off to pressure.
@@ -287,7 +296,8 @@ namespace friendlySAIN.BigBrain
             bool damagePressure =
                 FollowerCombatCommon.WasHitRecently(botOwner, 1f) ||
                 FollowerAwareness.WasRecentlyHit(botOwner) ||
-                combatCommon.IsFollowerCriticallyWounded();
+                combatCommon.IsFollowerCriticallyWounded() ||
+                combatCommon.HasUrgentHealWork();
             if (!damagePressure)
             {
                 return false;
@@ -420,10 +430,11 @@ namespace friendlySAIN.BigBrain
         public AICoreActionEndStruct ShallEndCurrentDecision(
             AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
-            // no fight interuptions
+            // Fight actions should not be interrupted by regroup/support routing, but they still
+            // need their own end checks so stale visible-fire decisions release when LOS is gone.
             if (combatCommon.IsInFight(currentDecision.Action))
             {
-                return FollowerCombatCommon.Continue();
+                return combatCommon.ShallEndCurrentDecision(currentDecision);
             }
 
             // Explicit regroup commands should interrupt any ongoing action immediately.
@@ -455,6 +466,8 @@ namespace friendlySAIN.BigBrain
                     return EndCoverMoveOrAttackMoving(currentDecision);
                 case BotLogicDecision.shootFromCover:
                     return EndShootFromCover(currentDecision.Reason);
+                case BotLogicDecision.suppressFire:
+                    return combatCommon.EndSuppressFire(currentDecision.Reason);
                 default:
                     return combatCommon.ShallEndCurrentDecision(currentDecision);
             }
@@ -757,6 +770,16 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (ShouldFightThroughPointBlankRecovery(goalEnemy))
+            {
+                if (TryCreatePointBlankRecoveryPressure(goalEnemy, out decision))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
             // Arrival holds are allowed to stabilize after reaching cover unless the holder's own
             // break rules clear it for real pressure. Without this, recovery can re-emit runToCover
             // on the same arrived point for several frames.
@@ -796,6 +819,38 @@ namespace friendlySAIN.BigBrain
             }
 
             return false;
+        }
+
+        private bool ShouldFightThroughPointBlankRecovery(EnemyInfo goalEnemy)
+        {
+            if (Enemy.Distance(goalEnemy) > Enemy.EnemyDistance.VeryClose)
+            {
+                return false;
+            }
+
+            // At point blank, a healthy rifleman turning away for retreat cover is usually worse
+            // than forcing local pressure. Only critical medical pressure is allowed to override it.
+            return !combatCommon.IsFollowerCriticallyWounded() &&
+                   !combatCommon.HasUrgentHealWork();
+        }
+
+        private bool TryCreatePointBlankRecoveryPressure(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.shootFromPlace,
+                    "pointBlankRecoveryShoot");
+                return true;
+            }
+
+            return combatCommon.TryCreateSuppressDecision(
+                goalEnemy,
+                "pointBlankRecoverySuppress",
+                out decision);
         }
 
         /// <summary>
@@ -893,8 +948,14 @@ namespace friendlySAIN.BigBrain
             }
 
             float lookAngle = Vector3.Angle(lookDirection.normalized, toEnemy.normalized);
-            return lookAngle <= VisibleAlignedFireMaxAngle &&
-                   Time.time - goalEnemy.PersonalSeenTime <= 1.25f;
+            if (lookAngle > VisibleAlignedFireMaxAngle ||
+                Time.time - goalEnemy.PersonalSeenTime > 1.25f)
+            {
+                return false;
+            }
+
+            Vector3 target = enemyPosition + Vector3.up * 0.8f;
+            return FollowerImmediateFirePolicy.HasDirectFireLane(botOwner, target);
         }
 
         /// <summary>
@@ -1028,8 +1089,8 @@ namespace friendlySAIN.BigBrain
         }
 
         /// <summary>
-        /// Old-plugin GoForward behavior in combat: if the follower already has an enemy,
-        /// treat the order as a forced push and delegate to EngageEnemy(true).
+        /// Ordered GoForward should commit to a concrete firing position against the enemy's
+        /// current body position before falling back to generic pressure/search behavior.
         /// </summary>
         private bool TryGetOrderedPushDecision(
             EnemyInfo goalEnemy,
@@ -1051,9 +1112,43 @@ namespace friendlySAIN.BigBrain
                 return false;
             }
 
+            if (combatPush.TryCreateOrderedPushFiringPosition(goalEnemy, out decision))
+            {
+                return true;
+            }
+
             bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
             decision = combatPush.EngageEnemy(true, enemyLowThreat);
             return true;
+        }
+
+        private bool TryGetAutonomousSuppressDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (Time.time < autoSuppressRetryUntil)
+            {
+                return false;
+            }
+
+            autoSuppressRetryUntil = Time.time + AutoSuppressRetryCooldownSeconds;
+            if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
+            {
+                return false;
+            }
+
+            if (goalEnemy.IsSuppressed() || !goalEnemy.ShallISuppress())
+            {
+                return false;
+            }
+
+            if (combatCommon.TryCreateSuppressDecision(goalEnemy, "autoSuppress", out decision))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>

@@ -118,6 +118,7 @@ namespace friendlySAIN.BigBrain
                 BotLogicDecision.runToEnemy => combatCommon.EndBaseGoToEnemy(),
                 BotLogicDecision.goToEnemy => combatCommon.EndBaseGoToEnemy(),
                 BotLogicDecision.runToCover => combatCommon.EndRunToCover(currentDecision.Reason),
+                BotLogicDecision.goToPoint => combatCommon.EndGoToPoint(),
                 BotLogicDecision.goToPointTactical => combatCommon.EndTacticalPoint(),
                 BotLogicDecision.attackMoving => combatCommon.EndAttackMoving(),
                 BotLogicDecision.attackMovingWithSuppress => combatCommon.EndAttackMovingWithSuppress(),
@@ -154,6 +155,7 @@ namespace friendlySAIN.BigBrain
                    decision.Action == BotLogicDecision.attackMoving ||
                    decision.Action == BotLogicDecision.attackMovingWithSuppress ||
                    decision.Action == (BotLogicDecision)CustomBotDecisions.attackRetreat ||
+                   decision.Action == BotLogicDecision.goToPoint ||
                    decision.Action == BotLogicDecision.goToPointTactical ||
                    decision.Action == BotLogicDecision.search;
         }
@@ -315,6 +317,32 @@ namespace friendlySAIN.BigBrain
             return combatCommon.EnemySearch("push.search");
         }
 
+        public bool TryCreateOrderedPushFiringPosition(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
+            {
+                return false;
+            }
+
+            Vector3 enemyPosition = FollowerCombatCommon.GetEnemyCurrentPosition(goalEnemy);
+            if (!FollowerCombatCommon.IsFinite(enemyPosition))
+            {
+                return false;
+            }
+
+            return combatCommon.TryCreateFiringPositionDecisionAt(
+                goalEnemy,
+                enemyPosition,
+                $"{PushReasonPrefix}orderedFiringPosition",
+                out decision,
+                preferBackline: false,
+                enforceMarksmanPositionPolicy: false,
+                allowForwardPositions: true);
+        }
+
 
         private bool TryCreateApproachCoverDecision(
             CustomNavigationPoint? cover,
@@ -417,9 +445,7 @@ namespace friendlySAIN.BigBrain
                     committedPush,
                     ref committedPushActionableVisibleSince))
             {
-                // Fire-while-moving pushes are allowed to continue through brief visibility blips.
-                // This break only fires after stable actionable visibility or for push actions that
-                // cannot shoot while advancing.
+                PreparePushVisibilityFireDecision(goalEnemy);
                 reason = "pushEnemyVisible";
                 return true;
             }
@@ -465,6 +491,25 @@ namespace friendlySAIN.BigBrain
             return Time.time - runToEnemyNonSprintSince >= RunToEnemyNonSprintGraceSeconds;
         }
 
+        private void PreparePushVisibilityFireDecision(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                combatCommon.SetInitialDecision(new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.shootFromPlace,
+                    "pushVisibleShoot"));
+                return;
+            }
+
+            if (combatCommon.TryCreateSuppressDecision(
+                    goalEnemy,
+                    "autoSuppress.pushVisible",
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> suppressDecision))
+            {
+                combatCommon.SetInitialDecision(suppressDecision);
+            }
+        }
+
         private void TryEmitPushEvent(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
@@ -503,18 +548,24 @@ namespace friendlySAIN.BigBrain
                 return cover.Position;
             }
 
+            if (botOwner.GoToSomePointData?.HaveTarget() == true &&
+                FollowerCombatCommon.IsFinite(botOwner.GoToSomePointData.Point))
+            {
+                return botOwner.GoToSomePointData.Point;
+            }
+
             return FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
         }
 
         private static bool IsEnemySearchPushReason(string? reason)
         {
             return IsStartWeakEnemyPushReason(reason) ||
-                   string.Equals(reason, "push.search", StringComparison.Ordinal);
+                   (reason != null && reason.StartsWith("push.search", StringComparison.Ordinal));
         }
 
         private static bool IsEnemyMarksman(EnemyInfo goalEnemy)
         {
-            return goalEnemy.Person?.Profile?.Info?.Settings?.Role == WildSpawnType.marksman;
+            return FollowerCombatCommon.IsEnemyMarksman(goalEnemy);
         }
 
         private void SetAttackTactic()

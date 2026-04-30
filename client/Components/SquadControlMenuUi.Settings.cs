@@ -284,7 +284,12 @@ namespace friendlySAIN.Components
 
         private static IEnumerable<ConfigEntryBase> GetSettingsEntries(params ConfigEntryBase[] entries)
         {
-            return entries.Where(entry => entry != null);
+            return entries.Where(entry => entry != null && !IsBetaHiddenSetting(entry));
+        }
+
+        private static bool IsBetaHiddenSetting(ConfigEntryBase entry)
+        {
+            return entry == friendlySAIN.patrolRadius;
         }
 
         private void CreateSettingsSectionHeader(string title)
@@ -330,6 +335,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            bool disabledDuringRaid = ShouldDisableSettingDuringRaid(entry);
             GameObject rowObject = new GameObject(
                 $"friendlySAIN_Setting_{SanitizeName(entry.Definition.Key)}",
                 typeof(RectTransform),
@@ -362,6 +368,10 @@ namespace friendlySAIN.Components
             TextMeshProUGUI nameLabel = nameObject.GetComponent<TextMeshProUGUI>();
             nameLabel.fontWeight = FontWeight.SemiBold;
             nameLabel.fontSize = 20f;
+            if (disabledDuringRaid)
+            {
+                nameLabel.color = new Color(0.62f, 0.62f, 0.62f, 1f);
+            }
 
             GameObject descriptionObject = CreateText("Description", GetSettingDescription(entry), 16f, TextAlignmentOptions.TopLeft);
             descriptionObject.transform.SetParent(rowObject.transform, false);
@@ -374,7 +384,9 @@ namespace friendlySAIN.Components
 
             TextMeshProUGUI descriptionLabel = descriptionObject.GetComponent<TextMeshProUGUI>();
             descriptionLabel.fontSize = 14f;
-            descriptionLabel.color = new Color(0.72f, 0.72f, 0.72f, 1f);
+            descriptionLabel.color = disabledDuringRaid
+                ? new Color(0.46f, 0.46f, 0.46f, 1f)
+                : new Color(0.72f, 0.72f, 0.72f, 1f);
             descriptionLabel.enableWordWrapping = true;
             descriptionLabel.overflowMode = TextOverflowModes.Ellipsis;
 
@@ -390,14 +402,16 @@ namespace friendlySAIN.Components
                 controlRect.pivot = new Vector2(1f, 0.5f);
                 controlRect.sizeDelta = new Vector2(120f, 72f);
                 controlRect.anchoredPosition = new Vector2(-1 * (SettingsControlRightInset - 20f), 0f);
-                CreateBoolSettingControl(controlRect, entry);
+                CreateBoolSettingControl(controlRect, entry, !disabledDuringRaid);
+                AddRaidDisabledTooltipOverlay(rowObject, disabledDuringRaid);
                 return;
             }
 
             if (entry.SettingType == typeof(int) && entry.Description?.AcceptableValues is AcceptableValueRange<int> acceptableRange)
             {
                 controlRect.anchoredPosition = new Vector2(-SettingsControlRightInset, SettingsSliderVerticalOffset);
-                CreateIntSliderSettingControl(controlRect, entry, acceptableRange);
+                CreateIntSliderSettingControl(controlRect, entry, acceptableRange, !disabledDuringRaid);
+                AddRaidDisabledTooltipOverlay(rowObject, disabledDuringRaid);
                 return;
             }
 
@@ -407,11 +421,13 @@ namespace friendlySAIN.Components
                 controlRect.anchorMax = new Vector2(1f, 0.5f);
                 controlRect.pivot = new Vector2(1f, 0.5f);
                 controlRect.anchoredPosition = new Vector2(-SettingsShortcutRightInset, 0f);
-                CreateShortcutSettingControl(controlRect, entry as ConfigEntry<KeyboardShortcut>);
+                CreateShortcutSettingControl(controlRect, entry as ConfigEntry<KeyboardShortcut>, !disabledDuringRaid);
+                AddRaidDisabledTooltipOverlay(rowObject, disabledDuringRaid);
                 return;
             }
 
             CreateReadOnlySettingControl(controlRect, entry.BoxedValue?.ToString() ?? string.Empty);
+            AddRaidDisabledTooltipOverlay(rowObject, disabledDuringRaid);
         }
 
         private static void CreateSettingsRowChrome(Transform rowTransform)
@@ -445,7 +461,135 @@ namespace friendlySAIN.Components
             bottomLine.raycastTarget = false;
         }
 
-        private void CreateBoolSettingControl(RectTransform parent, ConfigEntryBase entry)
+        private bool ShouldDisableSettingDuringRaid(ConfigEntryBase entry)
+        {
+            return IsRaidRestrictedSettingsContext() && RequiresRaidRestart(entry);
+        }
+
+        private static bool RequiresRaidRestart(ConfigEntryBase entry)
+        {
+            return entry == friendlySAIN.spawnPoint
+                || entry == friendlySAIN.englishBear
+                || entry == friendlySAIN.enemyRemember
+                || entry == friendlySAIN.heatlhMultiplier
+                || entry == friendlySAIN.friendlySAINFLAG
+                || entry == friendlySAIN.badGuy
+                || entry == friendlySAIN.botPrefetch
+                || entry == friendlySAIN.battleRecorderEnabled;
+        }
+
+        private bool IsRaidRestrictedSettingsContext()
+        {
+            if (raidSettingsOverlayActive)
+            {
+                return true;
+            }
+
+            if (IsMenuInRaidRestrictedState())
+            {
+                return true;
+            }
+
+            return IsRaidActive();
+        }
+
+        private bool IsMenuInRaidRestrictedState()
+        {
+            try
+            {
+                if (menuScreen == null)
+                {
+                    return false;
+                }
+
+                return hideScreenButton != null && hideScreenButton.gameObject.activeSelf;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsRaidActive()
+        {
+            try
+            {
+                if (LocalGameCtorPatch.Instance != null)
+                {
+                    return true;
+                }
+
+                return Singleton<AbstractGame>.Instantiated
+                    && Singleton<GameWorld>.Instantiated
+                    && Singleton<GameWorld>.Instance != null
+                    && GamePlayerOwner.MyPlayer != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        internal static bool IsGameRaidActive()
+        {
+            return IsRaidActive();
+        }
+
+        private void AddRaidDisabledTooltipOverlay(GameObject rowObject, bool disabledDuringRaid)
+        {
+            if (!disabledDuringRaid || rowObject == null)
+            {
+                return;
+            }
+
+            GameObject tooltipAreaObject = new GameObject("friendlySAIN_SettingDisabledDuringRaidTooltip", typeof(RectTransform), typeof(Image));
+            tooltipAreaObject.transform.SetParent(rowObject.transform, false);
+
+            RectTransform tooltipAreaRect = tooltipAreaObject.GetComponent<RectTransform>();
+            tooltipAreaRect.anchorMin = Vector2.zero;
+            tooltipAreaRect.anchorMax = Vector2.one;
+            tooltipAreaRect.offsetMin = Vector2.zero;
+            tooltipAreaRect.offsetMax = Vector2.zero;
+            tooltipAreaRect.localScale = Vector3.one;
+
+            Image tooltipAreaImage = tooltipAreaObject.GetComponent<Image>();
+            tooltipAreaImage.color = new Color(0f, 0f, 0f, 0f);
+            tooltipAreaImage.raycastTarget = true;
+
+            ProfileTooltipHoverController tooltipHover = tooltipAreaObject.AddComponent<ProfileTooltipHoverController>();
+            tooltipHover.Configure(GetSocialUiText("SettingsUnavailableDuringRaid", "Not available during raid"));
+        }
+
+        private static void SetSettingsControlInteractable(Transform controlRoot, bool interactable)
+        {
+            if (controlRoot == null)
+            {
+                return;
+            }
+
+            CanvasGroup canvasGroup = controlRoot.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+            {
+                canvasGroup = controlRoot.gameObject.AddComponent<CanvasGroup>();
+            }
+
+            canvasGroup.alpha = interactable ? 1f : 0.42f;
+            canvasGroup.interactable = interactable;
+            canvasGroup.blocksRaycasts = interactable;
+
+            foreach (Selectable selectable in controlRoot.GetComponentsInChildren<Selectable>(true))
+            {
+                selectable.interactable = interactable;
+            }
+
+            foreach (TMP_InputField inputField in controlRoot.GetComponentsInChildren<TMP_InputField>(true))
+            {
+                inputField.readOnly = !interactable;
+                inputField.interactable = interactable;
+            }
+        }
+
+        private void CreateBoolSettingControl(RectTransform parent, ConfigEntryBase entry, bool interactable)
         {
             UpdatableToggle toggle = CloneStockToggle(parent);
             if (toggle == null)
@@ -453,24 +597,33 @@ namespace friendlySAIN.Components
                 Toggle fallbackToggle = CreateBasicToggle(parent);
                 bool fallbackValue = entry.BoxedValue is bool fallbackBool && fallbackBool;
                 fallbackToggle.isOn = fallbackValue;
-                fallbackToggle.onValueChanged.AddListener(isOn =>
+                SetSettingsControlInteractable(fallbackToggle.transform, interactable);
+                if (interactable)
                 {
-                    entry.BoxedValue = isOn;
-                    friendlySAIN.Instance?.Config.Save();
-                });
+                    fallbackToggle.onValueChanged.AddListener(isOn =>
+                    {
+                        entry.BoxedValue = isOn;
+                        friendlySAIN.Instance?.Config.Save();
+                    });
+                }
                 return;
             }
 
             bool currentValue = entry.BoxedValue is bool boolValue && boolValue;
             toggle.UpdateValue(currentValue, false, null, null);
-            toggle.Bind(isOn =>
+            SetSettingsControlInteractable(toggle.transform, interactable);
+            toggle.enabled = interactable;
+            if (interactable)
             {
-                entry.BoxedValue = isOn;
-                friendlySAIN.Instance?.Config.Save();
-            });
+                toggle.Bind(isOn =>
+                {
+                    entry.BoxedValue = isOn;
+                    friendlySAIN.Instance?.Config.Save();
+                });
+            }
         }
 
-        private void CreateIntSliderSettingControl(RectTransform parent, ConfigEntryBase entry, AcceptableValueRange<int> acceptableRange)
+        private void CreateIntSliderSettingControl(RectTransform parent, ConfigEntryBase entry, AcceptableValueRange<int> acceptableRange, bool interactable)
         {
             NumberSlider slider = CloneStockNumberSlider(parent);
             if (slider == null)
@@ -485,8 +638,33 @@ namespace friendlySAIN.Components
                 fallbackSlider.wholeNumbers = true;
                 fallbackSlider.value = Convert.ToSingle(entry.BoxedValue);
                 valueLabel.text = entry.BoxedValue?.ToString() ?? "0";
+                SetSettingsControlInteractable(sliderRoot, interactable);
 
-                fallbackSlider.onValueChanged.AddListener(value =>
+                if (interactable)
+                {
+                    fallbackSlider.onValueChanged.AddListener(value =>
+                    {
+                        int boxed = Mathf.RoundToInt(value);
+                        if (Equals(entry.BoxedValue, boxed))
+                        {
+                            return;
+                        }
+
+                        entry.BoxedValue = boxed;
+                        valueLabel.text = boxed.ToString();
+                        friendlySAIN.Instance?.Config.Save();
+                    });
+                }
+                return;
+            }
+
+            slider.Show(acceptableRange.MinValue, acceptableRange.MaxValue, "0");
+            slider.UpdateValue(Convert.ToSingle(entry.BoxedValue), false, acceptableRange.MinValue, acceptableRange.MaxValue);
+            SetSettingsControlInteractable(slider.transform, interactable);
+            slider.enabled = interactable;
+            if (interactable)
+            {
+                slider.Bind(value =>
                 {
                     int boxed = Mathf.RoundToInt(value);
                     if (Equals(entry.BoxedValue, boxed))
@@ -495,28 +673,12 @@ namespace friendlySAIN.Components
                     }
 
                     entry.BoxedValue = boxed;
-                    valueLabel.text = boxed.ToString();
                     friendlySAIN.Instance?.Config.Save();
                 });
-                return;
             }
-
-            slider.Show(acceptableRange.MinValue, acceptableRange.MaxValue, "0");
-            slider.UpdateValue(Convert.ToSingle(entry.BoxedValue), false, acceptableRange.MinValue, acceptableRange.MaxValue);
-            slider.Bind(value =>
-            {
-                int boxed = Mathf.RoundToInt(value);
-                if (Equals(entry.BoxedValue, boxed))
-                {
-                    return;
-                }
-
-                entry.BoxedValue = boxed;
-                friendlySAIN.Instance?.Config.Save();
-            });
         }
 
-        private void CreateShortcutSettingControl(RectTransform parent, ConfigEntry<KeyboardShortcut> entry)
+        private void CreateShortcutSettingControl(RectTransform parent, ConfigEntry<KeyboardShortcut> entry, bool interactable)
         {
             if (entry == null)
             {
@@ -526,16 +688,20 @@ namespace friendlySAIN.Components
 
             Button button = CreateActionButton(parent, out TextMeshProUGUI label);
             label.text = FormatShortcut(entry.Value);
-            button.onClick.AddListener(() =>
+            SetSettingsControlInteractable(button.transform, interactable);
+            if (interactable)
             {
-                if (ReferenceEquals(activeShortcutCaptureEntry, entry))
+                button.onClick.AddListener(() =>
                 {
-                    CancelShortcutCapture(true);
-                    return;
-                }
+                    if (ReferenceEquals(activeShortcutCaptureEntry, entry))
+                    {
+                        CancelShortcutCapture(true);
+                        return;
+                    }
 
-                BeginShortcutCapture(entry, button, label);
-            });
+                    BeginShortcutCapture(entry, button, label);
+                });
+            }
         }
 
         private void CreateReadOnlySettingControl(RectTransform parent, string value)
@@ -1080,9 +1246,20 @@ namespace friendlySAIN.Components
             activeShortcutCaptureEntry = entry;
             activeShortcutCaptureButton = button;
             activeShortcutCaptureLabel = label;
+            activeShortcutCaptureStartFrame = Time.frameCount;
+            SeedSuppressedNativeKeys();
             if (activeShortcutCaptureLabel != null)
             {
                 activeShortcutCaptureLabel.text = GetSocialUiText("SettingsPressKey", "Press key...");
+            }
+
+            if (friendlySAIN.Instance != null)
+            {
+                shortcutCaptureCoroutine = friendlySAIN.Instance.StartCoroutine(ShortcutCaptureCoroutine());
+            }
+            else
+            {
+                CancelShortcutCapture(true);
             }
         }
 
@@ -1091,9 +1268,18 @@ namespace friendlySAIN.Components
             ConfigEntry<KeyboardShortcut> capturedEntry = activeShortcutCaptureEntry;
             TextMeshProUGUI capturedLabel = activeShortcutCaptureLabel;
 
+            Coroutine captureCoroutine = shortcutCaptureCoroutine;
+            shortcutCaptureCoroutine = null;
+            if (captureCoroutine != null && friendlySAIN.Instance != null)
+            {
+                friendlySAIN.Instance.StopCoroutine(captureCoroutine);
+            }
+
             activeShortcutCaptureEntry = null;
             activeShortcutCaptureButton = null;
             activeShortcutCaptureLabel = null;
+            activeShortcutCaptureStartFrame = -1;
+            shortcutCaptureSuppressedKeys.Clear();
 
             if (refreshLabel && capturedEntry != null && capturedLabel != null)
             {

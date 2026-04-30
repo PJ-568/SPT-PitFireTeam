@@ -102,7 +102,6 @@ namespace friendlySAIN
         public Dictionary<string, string> pingTime { get; set; }
         public Dictionary<string, string> enemyContact { get; set; }
         public Dictionary<string, string> overThere { get; set; }
-
         public Dictionary<string, string> gestures { get; set; }
 
         public Dictionary<string, string> botStatus { get; set; }
@@ -196,9 +195,9 @@ namespace friendlySAIN
 
         public static ConfigEntry<KeyboardShortcut> contactKey;
         public static ConfigEntry<KeyboardShortcut> overThereKey;
-
         public static ConfigEntry<KeyboardShortcut> teleportKey;
         public static ConfigEntry<KeyboardShortcut> healKey;
+
         public static TarkovApplication application;
 
         private static Dictionary<ConfigDefinition, string> savedConfigValues;
@@ -434,11 +433,12 @@ namespace friendlySAIN
 
         private static LanguageOptions LoadLanguageOptions(string languageCode)
         {
-            LanguageOptions fallback = TempEnglishLanguageProvider.Create();
+            LanguageOptions fallback = EmbeddedEnglishLanguageProvider.Create();
 
             try
             {
-                string requestBody = JsonConvert.SerializeObject(new { locale = languageCode });
+                string embeddedEnglishJson = JsonConvert.SerializeObject(fallback);
+                string requestBody = JsonConvert.SerializeObject(new { locale = languageCode, englishJson = embeddedEnglishJson });
                 string responseJson = RequestHandler.PostJson("/singleplayer/friendlysain/lang", requestBody);
                 LanguageOptions loaded = JsonConvert.DeserializeObject<LanguageOptions>(responseJson);
                 return ApplyLanguageFallback(loaded, fallback);
@@ -930,7 +930,10 @@ namespace friendlySAIN
             CheckLanguageSettingChanged();
 
             GameWorld gameWorld = Singleton<GameWorld>.Instance;
-            if (gameWorld == null) return;
+            if (gameWorld == null)
+            {
+                return;
+            }
 
             if (GamePlayerOwner.MyPlayer == null || GamePlayerOwner.MyPlayer.HealthController == null || !GamePlayerOwner.MyPlayer.HealthController.IsAlive)
             {

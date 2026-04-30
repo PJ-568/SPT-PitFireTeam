@@ -7,4 +7,7 @@ public record FriendlyLanguageRequest : IRequestData
 {
     [JsonPropertyName("locale")]
     public string? Locale { get; set; }
+
+    [JsonPropertyName("englishJson")]
+    public string? EnglishJson { get; set; }
 }

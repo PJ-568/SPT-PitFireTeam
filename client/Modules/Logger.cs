@@ -12,17 +12,18 @@ namespace friendlySAIN.Modules
 
         public static void LogInfo(string message)
         {
-#if DEBUG
-            friendlySAIN.Log.LogInfo($"[{Time.time}] " + message);
-#endif
+            if (friendlySAIN.IsDebugBuild)
+                friendlySAIN.Log.LogInfo($"[{Time.time}] " + message);
+
         }
 
         public static void LogTrace(string message)
         {
-#if DEBUG
-            var stackTrace = new StackTrace();
-            friendlySAIN.Log.LogDebug($"[{Time.time}] {message}\nStackTrace:\n{stackTrace}");
-#endif
+            if (friendlySAIN.IsDebugBuild)
+            {
+                var stackTrace = new StackTrace();
+                friendlySAIN.Log.LogDebug($"[{Time.time}] {message}\nStackTrace:\n{stackTrace}");
+            }
         }
 
         public static void LogError(string message)

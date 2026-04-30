@@ -1,6 +1,7 @@
 ﻿using Comfort.Common;
 using EFT;
 using EFT.Interactive;
+using EFT.InventoryLogic;
 using friendlySAIN.Modules;
 using friendlySAIN.Utils;
 using System;
@@ -52,7 +53,9 @@ namespace friendlySAIN.Components
         private const float TeamStatusGestureDistance = 15f;
         private const float ContactLookDistance = 45f;
         private const float GestureCommandDistance = 15f;
+        private const float HoldGestureDistance = 25f;
         private const float PhraseCommandDistance = 30f;
+        private const float StopPhraseDistance = 35f;
         private const float CommandLookOverrideMinSeconds = 1.5f;
         private const float CommandLookOverrideMaxSeconds = 3.5f;
         private const float ComeWithMeMaxDistance = 25f;
@@ -95,8 +98,6 @@ namespace friendlySAIN.Components
             Singleton<BotEventHandler>.Instance.OnPhraseSay += PhraseSaid;
             Singleton<BotEventHandler>.Instance.OnGestusShow += GestusShown;
 
-            //_botsController.Bots.OnBotAdd += OnBotAdd;
-
         }
 
         // disabled
@@ -108,76 +109,6 @@ namespace friendlySAIN.Components
         public new void OfferBot(BotOwner bot)
         {
             return;
-        }
-
-        /**
-         * This it to help fix 0.16 bug where followers are not attacking same side players despite badguy flag being set
-         * to be removed
-         * @deprecated
-         */
-        public void OnBotAdd(BotOwner bot)
-        {
-            if (BossPlayers.IsFollower(bot)) return;
-
-            WildSpawnType role = bot.Profile.Info.Settings.Role;
-
-            if (realPlayer.Side == EPlayerSide.Savage)
-            {
-                if (Utils.Props.ZombieTypes.Contains(role) && bossGroup != null)
-                {
-                    AddEnemyToGroup(bot);
-                }
-                return;
-            }
-
-            List<WildSpawnType> _rougeTypes = Utils.Props.BossFollowersType.ToList();
-            _rougeTypes.Add(WildSpawnType.exUsec);
-
-            if (Utils.Utils.FlagGet("isBadGuy") && (!_rougeTypes.Contains(role) || !Utils.Utils.PlayerHasKnightQuest(realPlayer.Profile)))
-            {
-                if (bossGroup != null)
-                {
-                    AddEnemyToGroup(bot);
-                }
-            }
-        }
-        /**
-         * to be remove if we remove OnBotAdd
-         */
-        public void AddEnemyToGroup(BotOwner bot)
-        {
-            if (!bossGroup.AddEnemy(bot, EBotEnemyCause.addPlayerToBoss))
-            {
-                bool isInEnemyList = false;
-                bool isInNeutralList = false;
-
-                if (bossGroup.Enemies.TryGetValue(bot, out var enemy))
-                {
-                    isInEnemyList = true;
-                }
-
-                if (bossGroup.Neutrals.TryGetValue(bot, out var neutral))
-                {
-                    isInNeutralList = true;
-                }
-
-                if (isInEnemyList) return;
-
-                var botSettingsClass = new BotSettingsClass(bot.GetPlayer, bossGroup, EBotEnemyCause.addPlayerToBoss);
-
-                bossGroup.Enemies.Add(bot, botSettingsClass);
-                if (isInNeutralList)
-                {
-                    bossGroup.Neutrals.Remove(bot);
-                }
-
-                for (int i = 0; i < bossGroup.MembersCount; i++)
-                {
-                    var member = bossGroup.Member(i);
-
-                    member.Memory.AddEnemy(bot, botSettingsClass, false);
-                }
-            }
         }
 
         private void OnDead(EDamageType _damageType)
@@ -200,6 +131,9 @@ namespace friendlySAIN.Components
         {
             if (info.PlayerRequester != null && info.PlayerRequester.ProfileId == realPlayer.ProfileId)
             {
+                // Phrase command path:
+                // player voice line -> this boss-side router -> BotFollowerPlayer command state.
+                // FollowerRequestLayer later consumes that state and starts the matching BigBrain action.
                 if (info.phrase == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
                     float now = Time.time;
@@ -215,6 +149,11 @@ namespace friendlySAIN.Components
                 else if (info.phrase == (EPhraseTrigger)CustomPhrases.OverThere)
                 {
                     ProcessContactCommand(info.PlayerRequester, true);
+                }
+                else if (info.phrase == EPhraseTrigger.NeedSniper)
+                {
+                    ApplyNeedSniperPhrase(info.PlayerRequester);
+                    return;
                 }
                 else if (info.phrase == EPhraseTrigger.OnRepeatedContact)
                 {
@@ -236,9 +175,24 @@ namespace friendlySAIN.Components
                     ApplyStopPhrase(info.PlayerRequester);
                     return;
                 }
+                else if (info.phrase == EPhraseTrigger.HoldPosition)
+                {
+                    ApplyHoldPositionCombatAggression(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.Gogogo)
+                {
+                    ApplyGoGoGoCombatAggression(info.PlayerRequester);
+                    return;
+                }
                 else if (info.phrase == EPhraseTrigger.GoForward)
                 {
                     ApplyGoForwardPhrase(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.Suppress)
+                {
+                    ApplySuppressPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.Regroup)
@@ -273,6 +227,8 @@ namespace friendlySAIN.Components
 
             if (info.Player != null && info.Player.ProfileId == realPlayer.ProfileId)
             {
+                // Gesture command path mirrors phrases, but gesture visibility/range gates are stricter.
+                // Commands handled here are consumed before the gesture is forwarded to vanilla receivers.
                 if (info.Gesture == (EInteraction)CustomGestures.OverThere)
                 {
                     _ignoreNextThereGestureUntil = Time.time + 0.75f;
@@ -599,6 +555,7 @@ namespace friendlySAIN.Components
             if (followerData != null &&
                 followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) &&
                 activeCommand != FollowerCommandType.PushEnemy &&
+                activeCommand != FollowerCommandType.SuppressEnemy &&
                 follower.Memory.HaveEnemy)
             {
                 followerData.ClearCommand($"ContactEnemy:RegisterContactEnemyForFollower active={activeCommand}");
@@ -1090,6 +1047,7 @@ namespace friendlySAIN.Components
 
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
                 followerData?.ClearCommand("Attention:Look");
+                followerData?.ClearTemporaryCombatAggressionOverride();
 
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
@@ -1161,6 +1119,7 @@ namespace friendlySAIN.Components
                 }
             }
 
+            FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(follower);
             follower.Memory.GoalEnemy = null;
             follower.Memory.LastEnemy = null;
         }
@@ -1205,18 +1164,20 @@ namespace friendlySAIN.Components
 
             if (requester is Player requesterPlayer)
             {
-                BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, GestureCommandDistance);
+                // Focused hold path: if the boss is looking at one valid follower, command only that follower.
+                BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, HoldGestureDistance);
                 if (lookedFollower != null)
                 {
                     bool applied = false;
                     if (!lookedFollower.IsDead &&
                         lookedFollower.BotState == EBotState.Active &&
                         !lookedFollower.Memory.HaveEnemy &&
-                        CanReactToBossGesture(lookedFollower, requesterPlayer))
+                        CanReactToBossGesture(lookedFollower, requesterPlayer, HoldGestureDistance))
                     {
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
+                            // Gesture hold becomes a persistent HoldPosition command with crouch enabled.
                             lookedFollowerData.SetHoldPosition(float.PositiveInfinity);
                             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
                             applied = true;
@@ -1234,12 +1195,13 @@ namespace friendlySAIN.Components
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 if (follower.Memory.HaveEnemy) continue;
-                if ((follower.Position - requester.Position).sqrMagnitude > GestureCommandDistance * GestureCommandDistance) continue;
-                if (!CanReactToBossGesture(follower, requester)) continue;
+                if ((follower.Position - requester.Position).sqrMagnitude > HoldGestureDistance * HoldGestureDistance) continue;
+                if (!CanReactToBossGesture(follower, requester, HoldGestureDistance)) continue;
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
+                // Broadcast hold path: nearby visible followers without enemies receive the same hold state.
                 followerData.SetHoldPosition(float.PositiveInfinity);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
@@ -1251,14 +1213,15 @@ namespace friendlySAIN.Components
 
             if (requester is Player requesterPlayer)
             {
-                BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, PhraseCommandDistance);
+                // Stop phrase uses the same HoldPosition command as hold gesture, but leaves crouch unchanged.
+                BotOwner lookedFollower = FindLookedAtFollower(requesterPlayer, StopPhraseDistance);
                 if (lookedFollower != null)
                 {
                     bool applied = false;
                     if (!lookedFollower.IsDead &&
                         lookedFollower.BotState == EBotState.Active &&
                         !lookedFollower.Memory.HaveEnemy &&
-                        CanReactToBossPhrase(lookedFollower, requesterPlayer, PhraseCommandDistance))
+                        CanReactToBossPhrase(lookedFollower, requesterPlayer, StopPhraseDistance))
                     {
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
@@ -1280,11 +1243,12 @@ namespace friendlySAIN.Components
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 if (follower.Memory.HaveEnemy) continue;
-                if (!CanReactToBossPhrase(follower, requester, PhraseCommandDistance)) continue;
+                if (!CanReactToBossPhrase(follower, requester, StopPhraseDistance)) continue;
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
+                // Phrase stop can broadcast farther than gesture hold and does not force crouch.
                 followerData.SetHoldPosition(float.PositiveInfinity, crouch: false);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
@@ -1305,6 +1269,8 @@ namespace friendlySAIN.Components
 
                 if (useSainRegroupRoute)
                 {
+                    // SAIN combat regroup path: clear/prepare SAIN decision state, then mark a regroup command
+                    // for the addon combat layer to pick up instead of the core request movement action.
                     bool ignore = combatRegroupContext
                         ? ShouldIgnoreCombatRegroup(follower, bossPos)
                         : ShouldIgnoreRegroup(follower, bossPos);
@@ -1322,6 +1288,7 @@ namespace friendlySAIN.Components
                     continue;
                 }
 
+                // Core regroup path: FollowerRequestLayer consumes SetRegroup and runs the vanilla/core regroup action.
                 if (ShouldIgnoreRegroup(follower, bossPos))
                 {
                     followerData.ClearCommand("Regroup:ignoredCloseOrHealing");
@@ -1398,6 +1365,8 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            // Loot command path: reserve the world loot target, then store a timed TakeLootItem command
+            // so GestureCommandAction can move to the item and transfer it.
             closestFollowerData.SetTakeLootItem(35f);
             closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
@@ -1487,6 +1456,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            // Door command path: reserve the door opener, then store a timed OpenDoor command for request action execution.
             closestFollowerData.SetOpenDoor(12f);
             closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
@@ -1714,6 +1684,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
+            // Come-with-me is a targeted short command; after arrival the follower returns to normal patrol.
             followerData.SetComeCloser(10f);
             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
         }
@@ -1760,6 +1731,7 @@ namespace friendlySAIN.Components
 
             if (CanAcceptThereCommand(closestFollower))
             {
+                // There gesture path: sampled world point -> MoveToPoint command -> GestureCommandAction movement.
                 followerData.SetMoveToPoint(commandTarget, 0f);
             }
 
@@ -1872,6 +1844,56 @@ namespace friendlySAIN.Components
             return BotFollowerPlayer.TrySetCommandLookOverride(follower, lookTarget, duration);
         }
 
+        private void ApplyHoldPositionCombatAggression(IPlayer requester)
+        {
+            ApplyTemporaryCombatAggressionCommand(requester, 0f, EPhraseTrigger.Roger);
+        }
+
+        private void ApplyGoGoGoCombatAggression(IPlayer requester)
+        {
+            ApplyTemporaryCombatAggressionCommand(requester, null, EPhraseTrigger.Roger);
+        }
+
+        private void ApplyTemporaryCombatAggressionCommand(IPlayer requester, float? overrideAggression, EPhraseTrigger response)
+        {
+            if (requester == null) return;
+
+            BotOwner focusedFollower = null;
+            if (requester is Player requesterPlayer)
+            {
+                focusedFollower = FindLookedAtFollower(requesterPlayer, PhraseCommandDistance, 0.15f, 4f);
+            }
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (focusedFollower != null && follower != focusedFollower) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                if (overrideAggression.HasValue)
+                {
+                    if (followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
+                        command == FollowerCommandType.PushEnemy)
+                    {
+                        followerData.ClearCommand("HoldPositionAggression");
+                    }
+
+                    // Combat hold phrase is stored as a temporary aggression override, not as a movement command.
+                    followerData.SetTemporaryCombatAggressionOverride(overrideAggression.Value);
+                }
+                else
+                {
+                    // Gogogo clears the temporary override so combat logic reads the persisted tactic aggression again.
+                    followerData.ClearTemporaryCombatAggressionOverride();
+                }
+
+                follower.BotTalk.TrySay(response, false);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
         private void ApplyGoForwardPhrase(IPlayer requester)
         {
             if (requester == null) return;
@@ -1899,6 +1921,7 @@ namespace friendlySAIN.Components
 
                 if (hasCombatEnemy)
                 {
+                    // GoForward in combat is not a movement ping; it becomes PushEnemy for combat objective routing.
                     followerData.SetPushEnemy(12f);
                     if (followerData.CombatTactic != FollowerCombatTactic.Marksman)
                     {
@@ -1914,9 +1937,177 @@ namespace friendlySAIN.Components
                     return;
                 }
 
+                // Out of combat, GoForward falls back to the same MoveToPoint command as the There gesture.
                 followerData.SetMoveToPoint(commandTarget, 0f);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
+        }
+
+        private void ApplySuppressPhrase(IPlayer requester)
+        {
+            if (requester == null) return;
+            if (Time.time < _nextThereGestureAt) return;
+            _nextThereGestureAt = Time.time + 0.6f;
+
+            BotOwner focusedFollower = null;
+            if (requester is Player requesterPlayer)
+            {
+                focusedFollower = FindLookedAtFollower(requesterPlayer, PhraseCommandDistance);
+            }
+
+            List<Player> bossVisibleEnemies = GetBossVisibleEnemiesForContact(requester);
+            if (friendlySAIN.IsSAINInstalled && (bossVisibleEnemies == null || bossVisibleEnemies.Count == 0))
+            {
+                bossVisibleEnemies = GetSainContactFallbackEnemies(requester);
+            }
+            bossVisibleEnemies = PrioritizeContactEnemies(requester, bossVisibleEnemies);
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                if (focusedFollower != null && follower != focusedFollower) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                if (followerData.CombatTactic == FollowerCombatTactic.Marksman)
+                {
+                    continue;
+                }
+
+                if (!TryEnsureSuppressEnemy(follower, bossVisibleEnemies))
+                {
+                    continue;
+                }
+
+                followerData.SetSuppressEnemy(8f);
+                follower.BotTalk.TrySay(EPhraseTrigger.Covering, false);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ApplyNeedSniperPhrase(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            // Seed fresh contact first, then let marksman combat convert it into a firing-position move.
+            ProcessContactCommand(requester);
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+
+                BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null || followerData.CombatTactic != FollowerCombatTactic.Marksman)
+                {
+                    continue;
+                }
+
+                if (IsMarksmanUnavailableForNeedSniper(follower))
+                {
+                    follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                    follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                    continue;
+                }
+
+                followerData.SetNeedSniper(10f);
+                followerData.ClearTemporaryCombatAggressionOverride();
+                follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+            }
+        }
+
+        private static bool IsMarksmanUnavailableForNeedSniper(BotOwner follower)
+        {
+            return IsMarksmanBusyWithOwnFight(follower) ||
+                   IsFollowerHealingOrNeedsHeal(follower);
+        }
+
+        private static bool IsFollowerHealingOrNeedsHeal(BotOwner follower)
+        {
+            if (follower?.Medecine == null)
+            {
+                return false;
+            }
+
+            ETagStatus? healthStatus = follower.GetPlayer?.HealthStatus;
+            return follower.Medecine.FirstAid?.Have2Do == true ||
+                   follower.Medecine.SurgicalKit?.HaveWork == true ||
+                   follower.Medecine.FirstAid?.Using == true ||
+                   follower.Medecine.SurgicalKit?.Using == true ||
+                   follower.Medecine.Stimulators?.Using == true ||
+                   healthStatus == ETagStatus.BadlyInjured ||
+                   healthStatus == ETagStatus.Dying;
+        }
+
+        private static bool IsMarksmanBusyWithOwnFight(BotOwner follower)
+        {
+            EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return true;
+            }
+
+            if (follower.DogFight?.DogFightState > BotDogFightStatus.none)
+            {
+                return true;
+            }
+
+            if (goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance() &&
+                follower.WeaponManager?.Selector?.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon)
+            {
+                return true;
+            }
+
+            string? reason = follower.Brain?.Agent?.LastResult().Reason;
+            return reason != null && Enemy.Distance(goalEnemy) <= Enemy.EnemyDistance.VeryClose &&
+                   (reason.StartsWith("sniper.closeSearch", StringComparison.Ordinal) ||
+                    reason.StartsWith("sniper.closeAuto", StringComparison.Ordinal) ||
+                    reason.StartsWith("sniper.startClose", StringComparison.Ordinal));
+        }
+
+        private bool TryEnsureSuppressEnemy(BotOwner follower, List<Player> bossVisibleEnemies)
+        {
+            EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
+            if (goalEnemy?.Person?.HealthController?.IsAlive == true)
+            {
+                return true;
+            }
+
+            if (bossVisibleEnemies == null || bossVisibleEnemies.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < bossVisibleEnemies.Count; i++)
+            {
+                Player enemy = bossVisibleEnemies[i];
+                if (enemy == null ||
+                    enemy.HealthController?.IsAlive != true ||
+                    enemy.ProfileId == follower.ProfileId ||
+                    enemy.ProfileId == realPlayer.ProfileId)
+                {
+                    continue;
+                }
+
+                if (enemy.IsAI)
+                {
+                    WildSpawnType? role = enemy.Profile?.Info?.Settings?.Role;
+                    if (role.HasValue && Props.friendlyBotTypes.Contains(role.Value))
+                    {
+                        continue;
+                    }
+                }
+
+                RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal: true, allowGoalPromotion: true);
+                return follower.Memory?.GoalEnemy?.Person?.HealthController?.IsAlive == true;
+            }
+
+            return false;
         }
 
         private static bool TryGetGoToCommandTarget(IPlayer requester, out Vector3 commandTarget)
@@ -2021,9 +2212,13 @@ namespace friendlySAIN.Components
 
         private BotOwner FindLookedAtFollower(Player requester, float distance)
         {
+            return FindLookedAtFollower(requester, distance, 0.4f, 10f);
+        }
+
+        private BotOwner FindLookedAtFollower(Player requester, float distance, float sphereRadius, float maxAngleDegrees)
+        {
             if (requester == null) return null;
 
-            const float sphereRadius = 0.4f;
             RaycastHit[] hits = new RaycastHit[10];
             Ray ray = requester.InteractionRay;
             int hitCount = Physics.SphereCastNonAlloc(ray, sphereRadius, hits, distance, LayerMaskClass.PlayerMask);
@@ -2037,13 +2232,38 @@ namespace friendlySAIN.Components
                 if (bot == null) continue;
                 if (!BossPlayers.IsFollower(bot, this)) continue;
 
-                if (CanBossSeeFollowerGestureTarget(bot, requester))
+                if (IsLookAlignedWithFollower(requester, bot, maxAngleDegrees) &&
+                    CanBossSeeFollowerGestureTarget(bot, requester))
                 {
                     return bot;
                 }
             }
 
             return null;
+        }
+
+        private static bool IsLookAlignedWithFollower(Player requester, BotOwner follower, float maxAngleDegrees)
+        {
+            if (requester == null || follower == null)
+            {
+                return false;
+            }
+
+            Ray ray = requester.InteractionRay;
+            Vector3 target = follower.Position + Vector3.up * 1.1f;
+            if (follower.GetPlayer?.MainParts != null &&
+                follower.GetPlayer.MainParts.TryGetValue(BodyPartType.body, out var bodyPart))
+            {
+                target = bodyPart.Position;
+            }
+
+            Vector3 toFollower = target - ray.origin;
+            if (toFollower.sqrMagnitude < 0.01f)
+            {
+                return false;
+            }
+
+            return Vector3.Angle(ray.direction, toFollower.normalized) <= maxAngleDegrees;
         }
 
         private static bool CanBossSeeFollowerGestureTarget(BotOwner follower, Player requester)

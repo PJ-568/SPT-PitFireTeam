@@ -15,6 +15,8 @@ namespace friendlySAIN.Utils
         private const float SurgeryStuckTimeout = 40f;
         private const float HandsAfterMedicalStuckTimeout = 5f;
         private const float RecentMedicalWindow = 8f;
+        private const float FirstAidMinVisibleNormalizedHealth = 0.06f;
+        private const float EmergencySurgeryHealthPenalty = 0.5f;
 
         private static readonly EBodyPart[] SurgeryRecoveryParts =
         {
@@ -68,10 +70,10 @@ namespace friendlySAIN.Utils
 
             if (recoverDestroyedSurgeryParts)
             {
-                RestoreDestroyedSurgeryPartsToOne(bot.GetPlayer);
+                NormalizeSurgeryRecoveredPartsForFirstAid(bot.GetPlayer);
                 if (bot.AIData?.Player != null && bot.AIData.Player != bot.GetPlayer)
                 {
-                    RestoreDestroyedSurgeryPartsToOne(bot.AIData.Player);
+                    NormalizeSurgeryRecoveredPartsForFirstAid(bot.AIData.Player);
                 }
             }
 
@@ -166,7 +168,7 @@ namespace friendlySAIN.Utils
             }
         }
 
-        private static void RestoreDestroyedSurgeryPartsToOne(Player player)
+        private static void NormalizeSurgeryRecoveredPartsForFirstAid(Player player)
         {
             if (player?.ActiveHealthController == null)
             {
@@ -176,11 +178,58 @@ namespace friendlySAIN.Utils
             for (int i = 0; i < SurgeryRecoveryParts.Length; i++)
             {
                 EBodyPart part = SurgeryRecoveryParts[i];
+                ClampImpossibleBodyPartHealth(player, part);
+
                 if (player.ActiveHealthController.IsBodyPartDestroyed(part))
                 {
-                    player.ActiveHealthController.RestoreBodyPart(part, 1f);
+                    player.ActiveHealthController.RestoreBodyPart(part, EmergencySurgeryHealthPenalty);
+                    ClampImpossibleBodyPartHealth(player, part);
+                }
+
+                ValueStruct health = player.ActiveHealthController.GetBodyPartHealth(part, false);
+                if (health.Maximum <= 0f || health.Current <= 0f)
+                {
+                    continue;
+                }
+
+                float minHealth = GetFirstAidVisibleHealth(player, part);
+                if (health.Current < minHealth)
+                {
+                    player.ActiveHealthController.ChangeHealth(part, minHealth - health.Current, GClass3051.MedKitUse);
                 }
             }
+        }
+
+        private static float GetFirstAidVisibleHealth(Player player, EBodyPart part)
+        {
+            ValueStruct health = player.ActiveHealthController.GetBodyPartHealth(part, false);
+            return Mathf.Max(1f, health.Maximum * FirstAidMinVisibleNormalizedHealth);
+        }
+
+        private static void ClampImpossibleBodyPartHealth(Player player, EBodyPart part)
+        {
+            if (player?.ActiveHealthController?.Dictionary_0 == null ||
+                player.Profile?.Health?.BodyParts == null ||
+                !player.Profile.Health.BodyParts.TryGetValue(part, out Profile.ProfileHealthClass.ProfileBodyPartHealthClass profilePart) ||
+                profilePart?.Health == null ||
+                profilePart.Health.Maximum <= 0f ||
+                !player.ActiveHealthController.Dictionary_0.TryGetValue(part, out GClass3009<ActiveHealthController.GClass3008>.BodyPartState state) ||
+                state?.Health == null)
+            {
+                return;
+            }
+
+            float profileMaximum = profilePart.Health.Maximum;
+            if (state.Health.Maximum <= profileMaximum * 1.1f)
+            {
+                return;
+            }
+
+            float oldMaximum = state.Health.Maximum;
+            float current = Mathf.Min(state.Health.Current, profileMaximum);
+            float minimum = Mathf.Min(state.Health.Minimum, profileMaximum);
+            state.Health = new HealthValue(current, profileMaximum, minimum);
+            Modules.Logger.LogInfo($"[Medical] Clamped impossible follower {part} health max from {oldMaximum:0.##} to {profileMaximum:0.##}: {player.Profile?.Nickname ?? player.name}");
         }
 
         private static void RefreshBotMovementAfterHealing(BotOwner bot, bool ignoreBrokenLegPenalty)
@@ -360,10 +409,10 @@ namespace friendlySAIN.Utils
             try
             {
                 CancelActiveMedical(bot);
-                RestoreDestroyedSurgeryPartsToOne(player);
+                NormalizeSurgeryRecoveredPartsForFirstAid(player);
                 if (bot?.AIData?.Player != null && bot.AIData.Player != player)
                 {
-                    RestoreDestroyedSurgeryPartsToOne(bot.AIData.Player);
+                    NormalizeSurgeryRecoveredPartsForFirstAid(bot.AIData.Player);
                 }
 
                 try
@@ -412,10 +461,16 @@ namespace friendlySAIN.Utils
             }
         }
 
-        private static void RefreshMedicalWork(BotOwner bot)
+        public static void RefreshMedicalWork(BotOwner bot)
         {
             try
             {
+                NormalizeSurgeryRecoveredPartsForFirstAid(bot.GetPlayer);
+                if (bot.AIData?.Player != null && bot.AIData.Player != bot.GetPlayer)
+                {
+                    NormalizeSurgeryRecoveredPartsForFirstAid(bot.AIData.Player);
+                }
+
                 bot.Medecine.RefreshCurMeds();
                 bot.Medecine.GetDamaged();
                 bot.Medecine.SurgicalKit.FindDamagedPart();

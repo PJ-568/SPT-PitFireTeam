@@ -386,6 +386,7 @@ namespace friendlySAIN.Utils
 
                     if (BossPlayers.IsFollower(bt.Data))
                     {
+                        BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(bt.Data);
                         if (IsFollowerCurrentlyHealing(bt.Data))
                         {
                             stringBuilder.Append($" | " + friendlySAIN.optionsLang.botStatus["Heal"]);
@@ -397,7 +398,6 @@ namespace friendlySAIN.Utils
                         else
                         {
                             string tactic = friendlySAIN.optionsLang.tacticOptions[0];
-                            BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(bt.Data);
                             if (followerData != null)
                             {
                                 tactic = followerData.CombatTactic switch
@@ -410,6 +410,18 @@ namespace friendlySAIN.Utils
                             if (tactic != null)
                             {
                                 stringBuilder.Append($" | MD: {tactic}");
+                            }
+                        }
+
+                        if (friendlySAIN.IsDebugBuild)
+                        {
+                            if (followerData != null)
+                            {
+                                stringBuilder.Append($" | AGG: {Mathf.RoundToInt(followerData.EffectiveCombatAggression)}");
+                                if (followerData.IsTemporaryCombatAggressionOverrideActive)
+                                {
+                                    stringBuilder.Append("*");
+                                }
                             }
                         }
                     }

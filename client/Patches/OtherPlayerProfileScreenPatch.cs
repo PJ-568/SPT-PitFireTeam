@@ -616,10 +616,9 @@ namespace friendlySAIN.Patches
                 lowerRoot.gameObject.SetActive(false);
             }
 
-            bool isMarksmanTactic = IsMarksmanTactic(options.CurrentTactic);
             float aggressionValue = Mathf.Clamp(options.Aggression, 0f, 100f);
 
-            CreateAggressionRowContent(rowClone, profile, aggressionValue, !isMarksmanTactic, isMarksmanTactic);
+            CreateAggressionRowContent(rowClone, profile, aggressionValue, true);
             AggressionSelector = rowClone;
             return rowClone;
         }
@@ -637,70 +636,43 @@ namespace friendlySAIN.Patches
             }
 
             CanvasGroup rowCanvasGroup = AggressionSelector.GetComponent<CanvasGroup>() ?? AggressionSelector.gameObject.AddComponent<CanvasGroup>();
-            rowCanvasGroup.alpha = isMarksman ? 0.3f : 1f;
+            rowCanvasGroup.alpha = 1f;
 
             CustomTextMeshProUGUI label = AggressionSelector.Find("friendlySAIN_AggressionLabel")?.GetComponent<CustomTextMeshProUGUI>();
             if (label != null)
             {
-                label.color = isMarksman ? new Color(0.62f, 0.62f, 0.62f, 1f) : Color.white;
+                label.color = Color.white;
             }
 
             NumberSlider slider = AggressionSelector.GetComponentsInChildren<NumberSlider>(true)
                 .FirstOrDefault(candidate => candidate != null && string.Equals(candidate.name, "friendlySAIN_ProfileAggressionSlider", StringComparison.Ordinal));
             if (slider != null)
             {
-                slider.enabled = !isMarksman;
+                slider.enabled = true;
+                slider.UpdateValue(isMarksman ? 30f : 50f, false, 0f, 100f);
 
                 Slider stockSlider = slider.GetComponentInChildren<Slider>(true);
                 if (stockSlider != null)
                 {
-                    stockSlider.interactable = !isMarksman;
+                    stockSlider.interactable = true;
                 }
 
                 TMP_InputField valueInput = NumberSliderValueInputField?.GetValue(slider) as TMP_InputField;
                 if (valueInput != null)
                 {
-                    valueInput.readOnly = isMarksman;
-                    valueInput.interactable = !isMarksman;
+                    valueInput.readOnly = false;
+                    valueInput.interactable = true;
                 }
             }
 
             Transform existingTooltip = AggressionSelector.Find("friendlySAIN_AggressionDisabledTooltip");
-            if (!isMarksman)
+            if (existingTooltip != null)
             {
-                if (existingTooltip != null)
-                {
-                    GameObject.Destroy(existingTooltip.gameObject);
-                }
-
-                return;
+                GameObject.Destroy(existingTooltip.gameObject);
             }
-
-            RectTransform sliderRoot = slider?.transform as RectTransform;
-            if (existingTooltip != null || sliderRoot == null)
-            {
-                return;
-            }
-
-            GameObject tooltipAreaObject = new GameObject("friendlySAIN_AggressionDisabledTooltip", typeof(RectTransform), typeof(Image));
-            tooltipAreaObject.transform.SetParent(sliderRoot, false);
-
-            RectTransform tooltipAreaRect = tooltipAreaObject.GetComponent<RectTransform>();
-            tooltipAreaRect.anchorMin = Vector2.zero;
-            tooltipAreaRect.anchorMax = Vector2.one;
-            tooltipAreaRect.offsetMin = Vector2.zero;
-            tooltipAreaRect.offsetMax = Vector2.zero;
-            tooltipAreaRect.localScale = Vector3.one;
-
-            Image tooltipAreaImage = tooltipAreaObject.GetComponent<Image>();
-            tooltipAreaImage.color = new Color(0f, 0f, 0f, 0f);
-            tooltipAreaImage.raycastTarget = true;
-
-            ProfileTooltipHoverController tooltipHover = tooltipAreaObject.AddComponent<ProfileTooltipHoverController>();
-            tooltipHover.Configure(GetSocialUiText("ProfileAggressionMarksmanTooltip", "Agression not available for Marksman"));
         }
 
-        private static void CreateAggressionRowContent(RectTransform rowRoot, ResultProfile profile, float aggressionValue, bool interactable, bool isMarksman)
+        private static void CreateAggressionRowContent(RectTransform rowRoot, ResultProfile profile, float aggressionValue, bool interactable)
         {
             if (rowRoot == null || profile == null)
             {
@@ -708,7 +680,7 @@ namespace friendlySAIN.Patches
             }
 
             CanvasGroup rowCanvasGroup = rowRoot.GetComponent<CanvasGroup>() ?? rowRoot.gameObject.AddComponent<CanvasGroup>();
-            rowCanvasGroup.alpha = isMarksman ? 0.3f : 1f;
+            rowCanvasGroup.alpha = 1f;
 
             CustomTextMeshProUGUI label = CreateAggressionLabel(
                 "friendlySAIN_AggressionLabel",
@@ -769,26 +741,6 @@ namespace friendlySAIN.Patches
                 if (label != null)
                 {
                     label.color = disabledColor;
-                }
-
-                if (sliderRoot != null)
-                {
-                    GameObject tooltipAreaObject = new GameObject("friendlySAIN_AggressionDisabledTooltip", typeof(RectTransform), typeof(Image));
-                    tooltipAreaObject.transform.SetParent(sliderRoot, false);
-
-                    RectTransform tooltipAreaRect = tooltipAreaObject.GetComponent<RectTransform>();
-                    tooltipAreaRect.anchorMin = Vector2.zero;
-                    tooltipAreaRect.anchorMax = Vector2.one;
-                    tooltipAreaRect.offsetMin = Vector2.zero;
-                    tooltipAreaRect.offsetMax = Vector2.zero;
-                    tooltipAreaRect.localScale = Vector3.one;
-
-                    Image tooltipAreaImage = tooltipAreaObject.GetComponent<Image>();
-                    tooltipAreaImage.color = new Color(0f, 0f, 0f, 0f);
-                    tooltipAreaImage.raycastTarget = true;
-
-                    ProfileTooltipHoverController tooltipHover = tooltipAreaObject.AddComponent<ProfileTooltipHoverController>();
-                    tooltipHover.Configure(GetSocialUiText("ProfileAggressionMarksmanTooltip", "Agression not available for Marksman"));
                 }
             }
 

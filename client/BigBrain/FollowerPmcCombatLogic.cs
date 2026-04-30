@@ -21,5 +21,12 @@ namespace friendlySAIN.BigBrain
         {
             return defaultObjective;
         }
+
+        protected override bool ShouldConsumeSuppressCommand(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
+                   command == FollowerCommandType.SuppressEnemy;
+        }
     }
 }

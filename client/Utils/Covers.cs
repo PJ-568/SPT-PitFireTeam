@@ -329,8 +329,10 @@ namespace friendlySAIN.Utils
                 .ToList();
 
             CoverSearchData searchData = BuildCoverSearchData(botOwner, centerPosition, searchRadius, shootPoint, pointToBeClose, label, maxCandidates, searchTypeOverride);
+            float searchRadiusSqr = searchRadius * searchRadius;
             CustomNavigationPoint? primary = botOwner.BotsGroup.CoverPointMaster.GetCoverPointMain(searchData, false);
-            if (primary != null)
+            if (primary != null &&
+                (primary.Position - centerPosition).sqrMagnitude <= searchRadiusSqr)
             {
                 areaCovers.RemoveAll(point => point == null || point.Id == primary.Id);
                 areaCovers.Insert(0, primary);

@@ -11,7 +11,9 @@ namespace friendlySAIN.BigBrain
         protected enum CombatObjectiveKind
         {
             Default,
-            Regroup
+            Regroup,
+            Suppression,
+            NeedSniper
         }
 
         protected readonly BotOwner BotOwner;
@@ -21,6 +23,8 @@ namespace friendlySAIN.BigBrain
         protected readonly FollowerCombatObjectiveBase defaultObjective;
         protected readonly FollowerCombatObjectiveBase sniperObjective;
         protected readonly FollowerCombatObjectiveBase regroupObjective;
+        protected readonly FollowerCombatObjectiveBase suppressionObjective;
+        protected readonly FollowerCombatObjectiveBase needSniperObjective;
         protected CombatObjectiveKind currentObjective = CombatObjectiveKind.Default;
 
         protected FollowerCombatLogicBase(BotOwner botOwner)
@@ -31,6 +35,8 @@ namespace friendlySAIN.BigBrain
             defaultObjective = CreateDefaultObjective(botOwner, combatCommon);
             sniperObjective = CreateSniperObjective(botOwner, combatCommon);
             regroupObjective = CreateRegroupObjective(botOwner, combatCommon);
+            suppressionObjective = CreateSuppressionObjective(botOwner, combatCommon);
+            needSniperObjective = CreateNeedSniperObjective(botOwner, combatCommon);
         }
 
         public bool ShallUseNow() => combatCommon.HasActiveCombatEnemy();
@@ -41,6 +47,8 @@ namespace friendlySAIN.BigBrain
             defaultObjective.Reset();
             sniperObjective.Reset();
             regroupObjective.Reset();
+            suppressionObjective.Reset();
+            needSniperObjective.Reset();
             currentObjective = CombatObjectiveKind.Default;
         }
 
@@ -90,6 +98,41 @@ namespace friendlySAIN.BigBrain
         public virtual AICoreActionEndStruct ShallEndCurrentDecision(
             AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (currentObjective != CombatObjectiveKind.Suppression &&
+                goalEnemy != null &&
+                ShouldConsumeSuppressCommand(followerData, goalEnemy))
+            {
+                if (!CanInterruptForSuppressionOrder(currentDecision))
+                {
+                    return GetCurrentObjective().ShallEndCurrentDecision(currentDecision);
+                }
+
+                if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
+                {
+                    followerData?.ClearCommand("CombatObjective:RejectSuppression");
+                    return GetCurrentObjective().ShallEndCurrentDecision(currentDecision);
+                }
+
+                return new AICoreActionEndStruct("objectiveSuppressionOrder", true);
+            }
+
+            if (currentObjective != CombatObjectiveKind.NeedSniper &&
+                goalEnemy != null &&
+                ShouldConsumeNeedSniperCommand(followerData, goalEnemy))
+            {
+                if (ShouldRejectNeedSniperObjective(goalEnemy))
+                {
+                    followerData?.ClearCommand("CombatObjective:RejectNeedSniper");
+                    BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
+                    BotOwner.Gesture?.TryGestus(EInteraction.NoGesture, false);
+                    return FollowerCombatCommon.Continue();
+                }
+
+                return new AICoreActionEndStruct("objectiveNeedSniperOrder", true);
+            }
+
             // Objective ownership is stateful, not encoded in the action reason. Regroup may emit
             // shared interrupt actions such as heal/dogFight, and those still need to return to regroup.
             return GetCurrentObjective().ShallEndCurrentDecision(currentDecision);
@@ -136,6 +179,20 @@ namespace friendlySAIN.BigBrain
             return new FollowerCombatRegroupObjective(botOwner, combatCommon);
         }
 
+        protected virtual FollowerCombatObjectiveBase CreateSuppressionObjective(
+            BotOwner botOwner,
+            FollowerCombatCommon combatCommon)
+        {
+            return new FollowerCombatSuppressionObjective(botOwner, combatCommon);
+        }
+
+        protected virtual FollowerCombatObjectiveBase CreateNeedSniperObjective(
+            BotOwner botOwner,
+            FollowerCombatCommon combatCommon)
+        {
+            return new FollowerCombatNeedSniperObjective(botOwner, combatCommon);
+        }
+
         protected virtual bool ShouldConsumeRegroupCommand(BotFollowerPlayer? followerData)
         {
             // RegroupNearBoss is only a trigger for combat objective selection.
@@ -145,12 +202,48 @@ namespace friendlySAIN.BigBrain
                    command == FollowerCommandType.RegroupNearBoss;
         }
 
+        protected virtual bool ShouldConsumeNeedSniperCommand(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return false;
+        }
+
+        protected virtual bool ShouldConsumeSuppressCommand(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return false;
+        }
+
+        protected virtual bool CanInterruptForSuppressionOrder(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
+        {
+            return !combatCommon.IsInFight(currentDecision.Action) &&
+                   currentDecision.Action != BotLogicDecision.heal &&
+                   currentDecision.Action != BotLogicDecision.healStimulators;
+        }
+
         protected virtual bool ShouldReturnToPrimaryObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
         {
             // Regroup is temporary combat intent: finish it when it completes, combat ends, or
-            // an explicit push order arrives and should hand control back to the tactic's primary stack.
+            // an explicit combat order arrives and should hand control back to the tactic's primary stack.
             return HasActivePushOrder(followerData) ||
+                   HasActiveSuppressOrder(followerData) ||
+                   HasActiveNeedSniperOrder(followerData) ||
                    regroupObjective.IsComplete ||
+                   !combatCommon.HasActiveCombatEnemy(goalEnemy);
+        }
+
+        protected virtual bool ShouldReturnFromSuppressionObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return HasActivePushOrder(followerData) ||
+                   HasActiveNeedSniperOrder(followerData) ||
+                   suppressionObjective.IsComplete ||
+                   !combatCommon.HasActiveCombatEnemy(goalEnemy);
+        }
+
+        protected virtual bool ShouldReturnFromNeedSniperObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return HasActivePushOrder(followerData) ||
+                   HasActiveSuppressOrder(followerData) ||
+                   needSniperObjective.IsComplete ||
                    !combatCommon.HasActiveCombatEnemy(goalEnemy);
         }
 
@@ -163,7 +256,29 @@ namespace friendlySAIN.BigBrain
                 return;
             }
 
+            if (ShouldConsumeSuppressCommand(followerData, goalEnemy))
+            {
+                ActivateSuppressionObjective(followerData!, goalEnemy);
+                return;
+            }
+
+            if (ShouldConsumeNeedSniperCommand(followerData, goalEnemy))
+            {
+                ActivateNeedSniperObjective(followerData!, goalEnemy);
+                return;
+            }
+
             if (currentObjective == CombatObjectiveKind.Regroup && ShouldReturnToPrimaryObjective(followerData, goalEnemy))
+            {
+                ActivatePrimaryObjective();
+            }
+
+            if (currentObjective == CombatObjectiveKind.Suppression && ShouldReturnFromSuppressionObjective(followerData, goalEnemy))
+            {
+                ActivatePrimaryObjective();
+            }
+
+            if (currentObjective == CombatObjectiveKind.NeedSniper && ShouldReturnFromNeedSniperObjective(followerData, goalEnemy))
             {
                 ActivatePrimaryObjective();
             }
@@ -189,6 +304,52 @@ namespace friendlySAIN.BigBrain
             BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateRegroup");
         }
 
+        private void ActivateSuppressionObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)
+        {
+            if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
+            {
+                followerData.ClearCommand("CombatObjective:RejectSuppression");
+                return;
+            }
+
+            followerData.ClearCommand("CombatObjective:ConsumeSuppression");
+            if (currentObjective != CombatObjectiveKind.Suppression)
+            {
+                suppressionObjective.Activate();
+                currentObjective = CombatObjectiveKind.Suppression;
+                BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateSuppression");
+            }
+        }
+
+        private void ActivateNeedSniperObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)
+        {
+            if (ShouldRejectNeedSniperObjective(goalEnemy))
+            {
+                followerData.ClearCommand("CombatObjective:RejectNeedSniper");
+                BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
+                BotOwner.Gesture?.TryGestus(EInteraction.NoGesture, false);
+                return;
+            }
+
+            followerData.ClearCommand("CombatObjective:ConsumeNeedSniper");
+            if (currentObjective != CombatObjectiveKind.NeedSniper)
+            {
+                needSniperObjective.Activate();
+                currentObjective = CombatObjectiveKind.NeedSniper;
+                BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateNeedSniper");
+            }
+        }
+
+        private bool ShouldRejectNeedSniperObjective(EnemyInfo goalEnemy)
+        {
+            return combatCommon.HasActiveOrPendingHealWork() ||
+                   BotOwner.Memory.IsUnderFire ||
+                   FollowerCombatCommon.WasHitRecently(BotOwner, 0.75f) ||
+                   (goalEnemy.IsVisible &&
+                    goalEnemy.CanShoot &&
+                    goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance());
+        }
+
         protected void ActivatePrimaryObjectiveForStart()
         {
             currentObjective = CombatObjectiveKind.Default;
@@ -203,6 +364,8 @@ namespace friendlySAIN.BigBrain
             }
 
             regroupObjective.Deactivate();
+            suppressionObjective.Deactivate();
+            needSniperObjective.Deactivate();
             // Re-enter tactic combat with clean local primary-objective state, but do not call
             // StartDecision() here or the bot would incorrectly get a fresh combat opener.
             GetObjective().Activate();
@@ -212,9 +375,13 @@ namespace friendlySAIN.BigBrain
 
         protected FollowerCombatObjectiveBase GetCurrentObjective()
         {
-            return currentObjective == CombatObjectiveKind.Regroup
-                ? regroupObjective
-                : GetObjective();
+            return currentObjective switch
+            {
+                CombatObjectiveKind.Regroup => regroupObjective,
+                CombatObjectiveKind.Suppression => suppressionObjective,
+                CombatObjectiveKind.NeedSniper => needSniperObjective,
+                _ => GetObjective(),
+            };
         }
 
         protected abstract FollowerCombatObjectiveBase GetObjective();
@@ -224,6 +391,20 @@ namespace friendlySAIN.BigBrain
             return followerData != null &&
                    followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
                    command == FollowerCommandType.PushEnemy;
+        }
+
+        private static bool HasActiveSuppressOrder(BotFollowerPlayer? followerData)
+        {
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
+                   command == FollowerCommandType.SuppressEnemy;
+        }
+
+        private static bool HasActiveNeedSniperOrder(BotFollowerPlayer? followerData)
+        {
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
+                   command == FollowerCommandType.NeedSniper;
         }
     }
 }

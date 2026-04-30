@@ -1,9 +1,11 @@
 # Combat Tactics Notes
 
+Last updated: 2026-04-30
+
 ## Scope
 
 - This document covers the core follower combat path under `client/BigBrain`.
-- It does not describe the optional SAIN addon combat path.
+- It only mentions the optional SAIN addon combat path where a boss command crosses the core/addon boundary.
 - Treat this as current runtime documentation, not a backlog.
 
 ## Runtime Ownership
@@ -11,13 +13,105 @@
 Core combat is objective-routed.
 
 - `FollowerCombatLogicBase` owns objective selection and command handoff.
-- Default/balanced combat is implemented by `FollowerCombatDefaultObjective` plus `FollowerCombatDefault`.
+- Rifleman/default combat is implemented by `FollowerCombatDefaultObjective` plus `FollowerCombatDefault`.
 - Marksman combat is implemented by `FollowerCombatSniperObjective` plus `FollowerCombatSniper`.
 - Combat regroup is implemented by `FollowerCombatRegroupObjective`.
+- Ordered suppression is implemented by `FollowerCombatSuppressionObjective`.
+- Ordered marksman support is implemented by `FollowerCombatNeedSniperObjective`.
 - Shared state and primitives live in `FollowerCombatCommon`.
 - Push selection and push commitment live in `FollowerCombatPush`.
 
-Objective ownership matters: heal, dogfight, grenade, and immediate fire can interrupt the current objective, but they do not automatically change the owning objective. Explicit combat regroup activates the regroup objective. Explicit push returns control to the active tactic's primary objective.
+Objective ownership matters: heal, dogfight, grenade, and immediate fire can interrupt the current objective, but they do not automatically change the owning objective. Explicit combat regroup activates the regroup objective. Explicit suppression activates the suppression objective for Rifleman/default followers. Explicit Need Sniper activates the marksman support objective for Marksman followers. Explicit push returns control to the active tactic's primary objective and lets that tactic build a push plan.
+
+## Boss Combat Commands
+
+Combat command state lives on `BotFollowerPlayer` and is intentionally separate from persisted profile settings.
+
+- `EPhraseTrigger.HoldPosition` applies a temporary `0%` effective combat-aggression override in combat.
+- `EPhraseTrigger.Gogogo` clears that temporary override and returns each follower to its saved aggression.
+- `EPhraseTrigger.GoForward` becomes `PushEnemy` when the follower has an active combat enemy.
+- `EPhraseTrigger.Suppress` becomes `SuppressEnemy` for Rifleman/default combat.
+- `EPhraseTrigger.NeedSniper` becomes `NeedSniper` for Marksman combat.
+- Core combat reads `EffectiveCombatAggression` through `FollowerCombatCommon.GetAggression01()`.
+- Tactic changes reset saved aggression to that tactic's default: Rifleman uses `50%`, Marksman uses `30%`.
+- The override is cleared when the follower is safely out of combat and patrol can resume.
+- `BotReceiverPhraseOverridePatch` suppresses vanilla follower receiver handling for `Stop`, `HoldPosition`, and `Gogogo`, so `AIBossPlayer` owns these commands.
+
+SAIN addon note:
+
+- `SAINFollowerCombatLayer` treats the temporary HoldPosition aggression override as boss-protection/regroup intent.
+- This keeps the command behavior aligned with core `0%` aggression even though SAIN addon decisions do not use `FollowerCombatCommon`.
+
+### Hold Position
+
+Combat `HoldPosition` is not a normal movement hold. It temporarily sets effective aggression to `0%`.
+
+Expected behavior:
+
+- Rifleman suppresses proactive push/search pressure.
+- Marksman suppresses proactive automatic close-search/auto-search.
+- Defensive behavior still works: immediate fire, dogfight, heal, boss protection, and survival can still interrupt.
+- The saved aggression value is not changed.
+- `Gogogo` clears the override immediately.
+- The override also clears after combat when the follower is safe to return to patrol.
+
+Out of combat, `HoldPosition` is handled by the request layer as a normal hold command and can crouch/hold in place depending on how the command was issued.
+
+### Go Forward / Push Enemy
+
+Combat `GoForward` becomes `PushEnemy` if the follower already has an active enemy.
+
+Rifleman/default behavior:
+
+- The command returns control to the primary Rifleman objective.
+- Ordered push first tries to build a committed firing-position move using the enemy's current body position.
+- If no firing position exists, it falls back to `FollowerCombatPush.EngageEnemy(true, ...)`.
+- The selected push is committed as `push.*`, so the bot should finish the chosen push phase unless interrupted by real danger, enemy loss, enemy change, or another explicit command.
+- Ordered push refreshes enemy retention during the committed push so it should not forget the enemy mid-route.
+- If the enemy becomes visible/shootable during direct movement, the push can convert into immediate fire or short suppression rather than churn into unrelated movement.
+
+Marksman behavior:
+
+- Generic `GoForward`/push is not a marksman assault order.
+- Marksman supports team push/search by finding a shooting position or support cover.
+- If close automatic support is allowed by marksman aggression and safety checks, marksman can use automatic secondary behavior.
+- If a nearby Rifleman can reasonably take the push, marksman should prefer support/reposition instead of becoming the primary pusher.
+
+### Suppression Order
+
+Combat `Suppress` becomes `SuppressEnemy` and is consumed by `FollowerCombatSuppressionObjective` for Rifleman/default followers.
+
+Objective behavior:
+
+- The command is consumed into an objective, like regroup, so it is not polled inside the normal Default decision tree.
+- It does not interrupt active healing or an already active fight action; it waits until that action's normal end logic allows a switch.
+- It targets the current enemy's best known shoot/suppress point.
+- If the bot already has a safe lane, it suppresses from place.
+- If direct fire is blocked but suppression was explicitly ordered, it may still suppress the obstructed known point, as long as friendly shot safety passes.
+- If a better suppress-from point exists, the action can move there and suppress from that point.
+- The objective has an ordered-suppression protected window so one short obstruction or controller completion does not instantly cancel it.
+- It completes when suppression completes, target data disappears, friendly shot safety blocks the lane beyond the protected window, or the enemy is gone.
+
+Autonomous suppression remains separate:
+
+- Default can still choose `autoSuppress.*` as a normal tactical branch.
+- Autonomous suppression is shorter and more conservative than ordered suppression.
+
+### Need Sniper Order
+
+`NeedSniper` is a marksman-only combat objective implemented by `FollowerCombatNeedSniperObjective`.
+
+Objective behavior:
+
+- The command is consumed by `FollowerSniperCombatLogic`, not by `FollowerCombatSniper`'s normal autonomous router.
+- It does not pollute normal marksman support/reposition branches.
+- The sniper rejects or ignores the order when self-preservation must win: active/pending heal work, under fire, recent hit, or point-blank visible shootable threat.
+- If accepted, it tries immediate fire first.
+- If current cover can shoot, it shoots from cover.
+- Otherwise it finds a firing cover or firing position using the enemy's current position when possible.
+- It is allowed to use closer/forward/lateral firing positions than autonomous marksman support, because this is an explicit player support request.
+- On arrival, it arms a short committed `sniper.NeedSniper.positionHold` settle window before reassessing.
+- It completes when it reaches a valid shot, settles without a lane, the enemy disappears, or a stronger interruption takes over.
 
 ## Shared Commitment Model
 
@@ -27,6 +121,8 @@ Commitment types:
 
 - `initialDecision`: one-shot opener prepared when combat starts.
 - `committedGrenadeDecision`: active grenade throw sequence; stays latched until throw completes or is canceled for immediate danger.
+- `suppressionObjective`: ordered Rifleman suppression state; owns ordered suppress-fire setup and completion.
+- `needSniperObjective`: ordered Marksman support state; owns ordered firing-position search and settle.
 - `committedPushDecision`: push/search pressure chosen by `FollowerCombatPush`.
 - `committedMovementDecision`: non-push movement chosen by a tactic.
 - `committedCoverPoint`: selected cover point reused across movement and cover-fire checks.
@@ -35,9 +131,9 @@ Commitment types:
 
 Shared rule: movement and cover commitments stabilize travel; arrival holders stabilize the moment after travel. Tactics decide which tactical reasons are allowed to break those commitments.
 
-## Default Router Order
+## Rifleman Router Order
 
-Default/balanced combat currently routes in this order:
+Rifleman/default combat currently routes in this order:
 
 1. Refresh shooting-cover state and validate committed cover.
 2. Immediate fight: dogfight and direct in-fight shooting, unless damage pressure should defer exposed fire into recovery.
@@ -51,19 +147,28 @@ Default/balanced combat currently routes in this order:
 10. Continue committed non-push movement.
 11. Continue committed cover movement/fire setup.
 12. Boss-distance regroup after commitments are checked.
-13. Low-aggression regroup.
+13. Low-aggression regroup, including temporary boss `HoldPosition` combat override.
 14. Boss-under-attack protection.
 15. Ally support, but only if a valid support decision can be prepared.
-16. New grenade activation.
-17. Ordered push.
-18. Visible enemy handling.
-19. Generic advance/push.
-20. Cover hold, fallback shoot, suppress, or boss hold.
+16. Autonomous suppression.
+17. New grenade activation.
+18. Ordered push.
+19. Visible enemy handling.
+20. Generic advance/push.
+21. Cover hold, fallback shoot, suppress, or boss hold.
+
+Explicit command objectives sit above this tactic router in `FollowerCombatLogicBase`:
+
+- explicit regroup can switch to regroup objective
+- explicit Rifleman suppression can switch to suppression objective
+- explicit Need Sniper can switch to NeedSniper objective for Marksman
+- explicit push returns from regroup/suppression/NeedSniper to the primary tactic objective
 
 Important policy:
 
 - Boss-distance regroup does not break active push/help/heal-style commitments.
 - Explicit regroup breaks push; explicit push does not break an already running push.
+- Explicit suppression is objective-owned and does not live as a Default-local router branch.
 - Ally support does not break a hold unless the support decision can be prepared first.
 - Hold breakers prepare the next action when possible, so the router does not break into a branch that cannot actually execute.
 
@@ -179,12 +284,19 @@ Current behavior:
 
 Heal-cover exception: arriving at heal cover hands off to healing instead of normal cover hold.
 
-## Default Combat Behavior
+## Rifleman Combat Behavior
 
-Default/balanced tactic is built around two main objectives:
+Rifleman/default tactic is built around two main objectives:
 
 - stay in useful cover near the boss when there is no good attack opportunity
 - push/search/pressure when enemy state and aggression justify it
+
+Rifleman aggression:
+
+- `50%` is the default balanced baseline.
+- Lower values bias toward boss-local cover, support, and regroup.
+- `0%` suppresses proactive push/search pressure and is also the temporary behavior used by the combat `HoldPosition` command.
+- Higher values allow farther and more frequent push/search/pressure decisions when threat checks allow them.
 
 Default situational behavior:
 
@@ -200,6 +312,14 @@ Default situational behavior:
 
 Marksman is not default with different numbers. It has separate policy but shares common commitments.
 
+Marksman aggression is tactic-relative:
+
+- `30%` is the default marksman baseline.
+- `0%` blocks proactive automatic close-search/auto-search behavior, but does not block defensive automatic secondary use in close-quarter danger.
+- Around `50%` keeps the current marksman support/reposition style but allows more willing close automatic support when conditions are safe.
+- Higher values can make marksman use automatic-weapon offensive search more like Rifleman in distance and threat tolerance.
+- Aggression affects proactive marksman automatic search/pressure only; normal marksman firing-position selection, support cover, and defensive secondary switching remain marksman policy.
+
 Marksman behavior:
 
 - prefers firing positions and support cover
@@ -207,6 +327,7 @@ Marksman behavior:
 - uses prepared-break decisions so support/protection only breaks hold when the next action is valid
 - ignores generic assault push behavior unless marksman policy asks for close support/search
 - can switch to automatic secondary for close-quarter fights
+- does not run proactive automatic close-search while temporary boss `HoldPosition` aggression override is active
 - can switch back to primary when returning to real marksman decisions
 - supports team push/search through firing-position support, not blind rushing
 - hands boss-distance regroup to the shared regroup objective

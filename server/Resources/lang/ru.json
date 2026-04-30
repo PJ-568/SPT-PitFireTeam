@@ -54,7 +54,6 @@
     "ProfileTacticMarksman": "Марксман",
     "ProfileTacticProtector": "Защитник",
     "ProfileAggression": "Агрессия",
-    "ProfileAggressionMarksmanTooltip": "Агрессия недоступна для Marksman",
     "RenameFailed": "Не удалось переименовать бойца",
     "RemoveTeammateTitle": "Удалить бойца",
     "RemoveTeammateConfirm": "Удалить",
@@ -80,6 +79,7 @@
     "SquadControlSettingsTab": "Настройки",
     "SquadControlEmptyRoster": "Вы еще не создали бойцов отряда.",
     "SettingsPressKey": "Нажмите клавишу...",
-    "SettingsNotBound": "Не назначено"
+    "SettingsNotBound": "Не назначено",
+    "SettingsUnavailableDuringRaid": "Недоступно во время рейда"
   }
 }

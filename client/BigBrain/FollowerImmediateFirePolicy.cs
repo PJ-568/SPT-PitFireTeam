@@ -16,7 +16,10 @@ namespace friendlySAIN.BigBrain
                    string.Equals(reason, "ShootImmediately", System.StringComparison.Ordinal) ||
                    string.Equals(reason, "cdgfp", System.StringComparison.Ordinal) ||
                    string.Equals(reason, "sniper.immediateShoot", System.StringComparison.Ordinal) ||
-                   string.Equals(reason, "sniper.pushSupportImmediateShoot", System.StringComparison.Ordinal);
+                   string.Equals(reason, "sniper.visibleStableShoot", System.StringComparison.Ordinal) ||
+                   string.Equals(reason, "sniper.pushSupportImmediateShoot", System.StringComparison.Ordinal) ||
+                   string.Equals(reason, "sniper.positionImmediateShoot", System.StringComparison.Ordinal) ||
+                   string.Equals(reason, "sniper.noActionImmediateShoot", System.StringComparison.Ordinal);
         }
 
         public static bool CanUseLostVisualSuppress(EnemyInfo goalEnemy)
