@@ -1,0 +1,13 @@
+# Pit Fire Team
+
+Pit Fire Team is a Single Player Tarkov mod for managing and commanding AI teammates.
+
+The project is split into three parts:
+
+- `client/` - the BepInEx game plugin, follower control logic, UI, patches, and runtime systems.
+- `server/` - the SPT server mod for teammate storage, profile/social integration, and raid support routes.
+- `addon/` - the optional SAIN bridge/addon for SAIN-specific follower combat integration.
+
+This repository is the active development home for the mod formerly developed under the friendlySAIN working name. References to SAIN are kept only where they describe integration with the external SAIN mod or the optional SAIN addon.
+
+The mod is still under active development, so implementation details and packaging can change between builds.
