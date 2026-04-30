@@ -432,7 +432,6 @@ namespace pitTeam.BigBrain.Actions
 
         private bool IsRegroupTargetCrowded(Vector3 candidate)
         {
-            float spacingSqr = RegroupReservationSpacing * RegroupReservationSpacing;
             if (BotOwner.BotFollower.BossToFollow is pitAIBossPlayer boss)
             {
                 if (boss.CombatEvents.HasDestinationClaimConflict(

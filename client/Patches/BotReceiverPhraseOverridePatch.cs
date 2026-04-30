@@ -42,6 +42,7 @@ namespace pitTeam.Patches
                 case EPhraseTrigger.Gogogo:
                 case EPhraseTrigger.Suppress:
                 case EPhraseTrigger.NeedSniper:
+                case EPhraseTrigger.NeedHelp:
                     return false;
                 default:
                     return true;

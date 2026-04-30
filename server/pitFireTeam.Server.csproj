@@ -5,16 +5,17 @@
     <AssemblyName>pitFireTeam.Server</AssemblyName>
     <RootNamespace>pitTeam.Server</RootNamespace>
     <OutputType>Library</OutputType>
+    <SptReferenceConfiguration Condition="'$(SptReferenceConfiguration)' == ''">Debug</SptReferenceConfiguration>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="SPTarkov.Common">
-      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.Common\bin\$(Configuration)\net9.0\SPTarkov.Common.dll</HintPath>
+      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.Common\bin\$(SptReferenceConfiguration)\net9.0\SPTarkov.Common.dll</HintPath>
     </Reference>
     <Reference Include="SPTarkov.DI">
-      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.DI\bin\$(Configuration)\net9.0\SPTarkov.DI.dll</HintPath>
+      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.DI\bin\$(SptReferenceConfiguration)\net9.0\SPTarkov.DI.dll</HintPath>
     </Reference>
     <Reference Include="SPTarkov.Server.Core">
-      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.Server.Core\bin\$(Configuration)\net9.0\SPTarkov.Server.Core.dll</HintPath>
+      <HintPath>..\..\SERVER-4.08\Libraries\SPTarkov.Server.Core\bin\$(SptReferenceConfiguration)\net9.0\SPTarkov.Server.Core.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>

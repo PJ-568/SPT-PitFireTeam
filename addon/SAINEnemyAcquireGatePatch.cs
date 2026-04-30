@@ -11,9 +11,6 @@ namespace pitTeam.SAINAddon
 {
     internal static class SAINEnemyAcquireGatePatch
     {
-        private static readonly bool EnableAcquireGateDebugLogs = false;
-        private static readonly Dictionary<string, float> NextLogAtByBot = new Dictionary<string, float>();
-
         public static void Apply(Harmony harmony)
         {
             MethodInfo? target = AccessTools.Method(typeof(SAINEnemyController), nameof(SAINEnemyController.CheckAddEnemy));

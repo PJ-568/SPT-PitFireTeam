@@ -155,6 +155,11 @@ namespace pitTeam.Components
                     ApplyNeedSniperPhrase(info.PlayerRequester);
                     return;
                 }
+                else if (info.phrase == EPhraseTrigger.NeedHelp)
+                {
+                    ApplyNeedHelpPhrase(info.PlayerRequester);
+                    return;
+                }
                 else if (info.phrase == EPhraseTrigger.OnRepeatedContact)
                 {
                     ProcessContactCommand(info.PlayerRequester);
@@ -2016,6 +2021,116 @@ namespace pitTeam.Components
             }
         }
 
+        private void ApplyNeedHelpPhrase(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            if (!TryGetClosestNeedHelpEnemy(out BotOwner enemyBot))
+            {
+                return;
+            }
+
+            aBossLogic.MarkManualUnderAttack(enemyBot);
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                PrioritizeEnemy(follower, enemyBot);
+            }
+        }
+
+        private bool TryGetClosestNeedHelpEnemy(out BotOwner enemyBot)
+        {
+            enemyBot = null;
+            float bestDistanceSqr = Mathf.Infinity;
+
+            ConsiderNeedHelpEnemies(bossEnemies, ref enemyBot, ref bestDistanceSqr);
+
+            if (bossGroup?.Enemies != null)
+            {
+                foreach (IPlayer enemyPlayerRef in bossGroup.Enemies.Keys)
+                {
+                    ConsiderNeedHelpEnemy(enemyPlayerRef?.AIData?.BotOwner, ref enemyBot, ref bestDistanceSqr);
+                }
+            }
+
+            List<Player> visibleEnemies = GetBossVisibleEnemiesForContact(realPlayer);
+            if (pitFireTeam.IsSAINInstalled && (visibleEnemies == null || visibleEnemies.Count == 0))
+            {
+                visibleEnemies = GetSainContactFallbackEnemies(realPlayer);
+            }
+
+            if (visibleEnemies != null)
+            {
+                foreach (Player enemy in visibleEnemies)
+                {
+                    ConsiderNeedHelpEnemy(enemy?.AIData?.BotOwner, ref enemyBot, ref bestDistanceSqr);
+                }
+            }
+
+            return enemyBot != null;
+        }
+
+        private void ConsiderNeedHelpEnemies(
+            IEnumerable<BotOwner> enemies,
+            ref BotOwner closestEnemy,
+            ref float bestDistanceSqr)
+        {
+            if (enemies == null)
+            {
+                return;
+            }
+
+            foreach (BotOwner enemy in enemies)
+            {
+                ConsiderNeedHelpEnemy(enemy, ref closestEnemy, ref bestDistanceSqr);
+            }
+        }
+
+        private void ConsiderNeedHelpEnemy(
+            BotOwner candidate,
+            ref BotOwner closestEnemy,
+            ref float bestDistanceSqr)
+        {
+            if (!IsValidNeedHelpEnemy(candidate))
+            {
+                return;
+            }
+
+            float distanceSqr = (realPlayer.Position - candidate.Position).sqrMagnitude;
+            if (distanceSqr >= bestDistanceSqr)
+            {
+                return;
+            }
+
+            closestEnemy = candidate;
+            bestDistanceSqr = distanceSqr;
+        }
+
+        private bool IsValidNeedHelpEnemy(BotOwner candidate)
+        {
+            if (candidate == null ||
+                candidate.IsDead ||
+                candidate.BotState != EBotState.Active ||
+                candidate.GetPlayer?.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+
+            if (candidate.ProfileId == realPlayer.ProfileId ||
+                Followers.Any(follower => follower != null && follower.ProfileId == candidate.ProfileId))
+            {
+                return false;
+            }
+
+            if (candidate.GetPlayer?.Profile?.Info?.Settings?.Role is WildSpawnType role &&
+                Props.friendlyBotTypes.Contains(role))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         private static bool IsMarksmanUnavailableForNeedSniper(BotOwner follower)
         {
             return IsMarksmanBusyWithOwnFight(follower) ||
@@ -2360,8 +2475,15 @@ namespace pitTeam.Components
             {
                 float dist = Mathf.Infinity;
 
-                foreach (var item in bossEnemies)
+                for (int i = bossEnemies.Count - 1; i >= 0; i--)
                 {
+                    BotOwner item = bossEnemies[i];
+                    if (!IsValidNeedHelpEnemy(item))
+                    {
+                        bossEnemies.RemoveAt(i);
+                        continue;
+                    }
+
                     float range = (this.Position - item.Position).sqrMagnitude;
                     if (range < dist)
                     {
@@ -2664,6 +2786,40 @@ namespace pitTeam.Components
                     Modules.Logger.LogError("Failed to add Enemy to group");
                     Modules.Logger.LogError(e);
                 }
+            }
+        }
+
+        public void MarkManualUnderAttack(BotOwner enemyBot)
+        {
+            if (enemyBot == null ||
+                enemyBot.IsDead ||
+                enemyBot.BotState != EBotState.Active ||
+                _aiplayer == null)
+            {
+                return;
+            }
+
+            _lastTimeHit = Time.time;
+            try
+            {
+                if (_aiplayer.bossGroup == null)
+                {
+                    _aiplayer.AddEnemy(enemyBot);
+                    return;
+                }
+
+                _aiplayer.AddEnemy(enemyBot);
+                BotOwner followerBotOwner = _aiplayer.Followers.FirstOrDefault();
+                _aiplayer.bossGroup.AddEnemy(enemyBot, EBotEnemyCause.addPlayerToBoss);
+                if (followerBotOwner != null)
+                {
+                    _aiplayer.bossGroup.ReportAboutEnemy(enemyBot, EEnemyPartVisibleType.Sence, followerBotOwner);
+                }
+            }
+            catch (Exception e)
+            {
+                Modules.Logger.LogError("Failed to mark manual boss under attack");
+                Modules.Logger.LogError(e);
             }
         }
 

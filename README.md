@@ -8,6 +8,6 @@ The project is split into three parts:
 - `server/` - the SPT server mod for teammate storage, profile/social integration, and raid support routes.
 - `addon/` - the optional SAIN bridge/addon for SAIN-specific follower combat integration.
 
-This repository is the active development home for the mod formerly developed under the friendlyPMC working name. References to SAIN are kept only where they describe integration with the external SAIN mod or the optional SAIN addon.
+This repository is the active development home for the mod formerly developed under the friendlyPMC working name.
 
 The mod is still under active development, so implementation details and packaging can change between builds.

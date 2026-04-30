@@ -510,8 +510,6 @@ namespace pitTeam.Patches
             {
                 return true;
             }
-
-            return true;
         }
     }
 }

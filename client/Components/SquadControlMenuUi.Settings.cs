@@ -231,17 +231,6 @@ namespace pitTeam.Components
             {
                 yield return setting;
             }
-
-            if (pitFireTeam.IsDebugBuild)
-            {
-                foreach (SquadSettingEntry setting in BuildSettingsSection(
-                    pitFireTeam.optionsLang?.miscSettings ?? "Miscellaneous",
-                    pitFireTeam.battleRecorderEnabled,
-                    pitFireTeam.battleRecorderSnapshotIntervalMs))
-                {
-                    yield return setting;
-                }
-            }
         }
 
         internal void RefreshLocalizedText()

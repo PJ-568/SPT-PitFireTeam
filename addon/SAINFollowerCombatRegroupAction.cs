@@ -42,7 +42,6 @@ namespace pitTeam.SAINAddon
         private bool _retreatRunLocked;
         private Vector3 _targetPosition;
         private Vector3 _lastBossPosition;
-        private float _holdInCoverUntil;
         private float _lastFallbackPointEndedAt;
         private string? _claimBossId;
         private readonly NavMeshPath _path = new NavMeshPath();
@@ -64,7 +63,6 @@ namespace pitTeam.SAINAddon
             _retreatRunLocked = false;
             _targetPosition = Vector3.zero;
             _lastBossPosition = Vector3.zero;
-            _holdInCoverUntil = 0f;
             _lastFallbackPointEndedAt = 0f;
             _claimBossId = null;
         }
@@ -111,14 +109,12 @@ namespace pitTeam.SAINAddon
                     {
                         _targetPosition = bossPosition;
                         _haveTarget = true;
-                        _holdInCoverUntil = 0f;
                         RegisterDestinationClaim(boss, _targetPosition);
                     }
                     else
                     {
                         _targetPosition = target;
                         _haveTarget = true;
-                        _holdInCoverUntil = 0f;
                         RegisterDestinationClaim(boss, _targetPosition);
                     }
                 }
@@ -126,7 +122,6 @@ namespace pitTeam.SAINAddon
                 {
                     _targetPosition = bossPosition;
                     _haveTarget = true;
-                    _holdInCoverUntil = 0f;
                     RegisterDestinationClaim(boss, _targetPosition);
                 }
 
