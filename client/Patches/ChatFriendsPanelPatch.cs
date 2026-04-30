@@ -1,7 +1,7 @@
 using EFT.Communications;
 using EFT.UI;
 using EFT.UI.Chat;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -11,11 +11,11 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class ChatFriendsPanelAddTeammateButtonPatch : ModulePatch
     {
-        private const string AddTeammateButtonName = "friendlySAIN_AddTeammateButton";
+        private const string AddTeammateButtonName = "pitFireTeam_AddTeammateButton";
         private const string DefaultAddTeammateLabel = "+ Add teammate";
 
         private static readonly FieldInfo FriendsButtonField = AccessTools.Field(typeof(ChatFriendsPanel), "_friendsButton");
@@ -201,8 +201,8 @@ namespace friendlySAIN.Patches
         {
             try
             {
-                if (friendlySAIN.optionsLang?.socialUi != null &&
-                    friendlySAIN.optionsLang.socialUi.TryGetValue(key, out string value) &&
+                if (pitFireTeam.optionsLang?.socialUi != null &&
+                    pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value) &&
                     !string.IsNullOrEmpty(value))
                 {
                     return value;

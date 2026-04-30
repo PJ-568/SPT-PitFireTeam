@@ -2,7 +2,7 @@ using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Enums;
 
-namespace friendlySAIN.Server.Services;
+namespace pitTeam.Server.Services;
 
 internal static class FriendlyCourierTraderProfile
 {
@@ -11,7 +11,7 @@ internal static class FriendlyCourierTraderProfile
     public const string CourierNickname = "SquadDelivery";
     public const string CourierLocation = "Friendly Squad Logistics";
     public const string CourierDescription = "Handles item transfers from your squadmates.";
-    public const string CourierAvatarFileName = "friendlysain-courier.png";
+    public const string CourierAvatarFileName = "pitfireteam-courier.png";
     public const string CourierAvatarPath = "/files/trader/avatar/" + CourierAvatarFileName;
 
     public static readonly MongoId CourierTraderId = new(CourierTraderIdValue);

@@ -1,5 +1,5 @@
-using friendlySAIN.Server.Models;
-using friendlySAIN.Server.Services;
+using pitTeam.Server.Models;
+using pitTeam.Server.Services;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Helpers;
 using SPTarkov.Server.Core.Models.Common;
@@ -8,7 +8,7 @@ using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Eft.Ws;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Callbacks;
+namespace pitTeam.Server.Callbacks;
 
 [Injectable]
 public class FriendlyTeammateMatchCallbacks(
@@ -51,7 +51,7 @@ public class FriendlyTeammateMatchCallbacks(
             );
         });
 
-        return new ValueTask<string>(previousOutput ?? httpResponseUtil.GetBody("friendlysain-teammate-invite"));
+        return new ValueTask<string>(previousOutput ?? httpResponseUtil.GetBody("pitfireteam-teammate-invite"));
     }
 
     public ValueTask<string> GenerateFollowerProfile(

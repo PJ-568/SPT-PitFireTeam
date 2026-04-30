@@ -1,7 +1,7 @@
 using System.Text.Json;
 using SPTarkov.Server.Core.Models.Utils;
 
-namespace friendlySAIN.Server.Models;
+namespace pitTeam.Server.Models;
 
 public record FriendlyTeammateFollowerProgressBatchRequest : IRequestData
 {

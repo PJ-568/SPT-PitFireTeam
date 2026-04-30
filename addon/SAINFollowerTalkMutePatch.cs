@@ -2,14 +2,14 @@ using EFT;
 using HarmonyLib;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using SAIN.SAINComponent.Classes.Talk;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerTalkMutePatch
     {
@@ -124,7 +124,7 @@ namespace friendlySAIN.SAINAddon
                     enemy: null,
                     "PlayerComponent.PlayVoiceLine",
                     phrase.ToString(),
-                    $"reason=botTalkThrottle value={friendlySAIN.botTalk.Value} mask={mask} aggressive={aggressive}");
+                    $"reason=botTalkThrottle value={pitFireTeam.botTalk.Value} mask={mask} aggressive={aggressive}");
                 return false;
             }
 

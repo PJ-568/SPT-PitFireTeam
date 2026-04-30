@@ -1,7 +1,7 @@
 using EFT;
 using EFT.InventoryLogic;
-using friendlySAIN.BigBrain;
-using friendlySAIN.Modules;
+using pitTeam.BigBrain;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal static class FollowerWeaponSwitchPolicyRuntime
     {
@@ -175,7 +175,7 @@ namespace friendlySAIN.Patches
                 return false;
             }
 
-            if (!string.Equals(botOwner.Brain?.Agent?.UsingLayer, "friendlySAIN.FollowerPatrol", StringComparison.Ordinal))
+            if (!string.Equals(botOwner.Brain?.Agent?.UsingLayer, "pitTeam.FollowerPatrol", StringComparison.Ordinal))
             {
                 return false;
             }
@@ -324,7 +324,7 @@ namespace friendlySAIN.Patches
                 return true;
             }
 
-            if (friendlySAIN.IsDebugBuild)
+            if (pitFireTeam.IsDebugBuild)
                 Logger.LogInfo($"[WeaponPolicy] suppress reload during hold-linger cooldown follower={botOwner.Profile?.Nickname ?? botOwner.name}");
 
             __result = false;

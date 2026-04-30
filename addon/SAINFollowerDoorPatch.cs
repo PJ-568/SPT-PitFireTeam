@@ -1,12 +1,12 @@
 using EFT;
 using EFT.Interactive;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SAIN.SAINComponent.Classes.Mover;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerDoorPatch
     {

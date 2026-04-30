@@ -1,13 +1,13 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.InventoryLogic;
-using friendlySAIN.Components;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Utils;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal sealed class CombatGoToEnemyAction : FollowerCombatActionBase
     {

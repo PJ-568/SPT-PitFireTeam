@@ -1,9 +1,9 @@
 using Comfort.Common;
 using EFT;
 using UnityEngine;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     internal static class FollowerAwareness
     {

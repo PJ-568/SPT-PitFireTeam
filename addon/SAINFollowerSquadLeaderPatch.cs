@@ -1,11 +1,11 @@
 using EFT;
 using HarmonyLib;
 using SAIN.SAINComponent.Classes.Info;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using System.Reflection;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerSquadLeaderPatch
     {

@@ -1,8 +1,8 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 using EFT.Interactive;
 using EFT.InventoryLogic;
-using friendlySAIN.Components;
+using pitTeam.Components;
 using HarmonyLib;
 using Newtonsoft.Json;
 using SPT.Common.Http;
@@ -14,7 +14,7 @@ using UnityEngine;
 using UnityEngine.AI;
 
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal class InteractableObjects
     {
@@ -579,7 +579,7 @@ namespace friendlySAIN.Modules
 
             if (boss == null || boss.bossGroup == null) return;
 
-            float scanDistance = friendlySAIN.scanDistance.Value;
+            float scanDistance = pitFireTeam.scanDistance.Value;
 
             Vector3 playerPosition = player.Transform.position;
             Vector3 playerLookDirection = player.LookDirection;
@@ -633,7 +633,7 @@ namespace friendlySAIN.Modules
                                     // do not mark as enemy an ally
                                     if (
                                         enemy.Side == player.Side && new EPlayerSide[] { EPlayerSide.Bear, EPlayerSide.Usec }.Contains(enemy.Side) &&
-                                        Utils.Utils.FlagGet("friendlySAIN") && !Utils.Utils.FlagGet("isBadGuy") &&
+                                        Utils.Utils.FlagGet("pitFireTeam") && !Utils.Utils.FlagGet("isBadGuy") &&
                                         !enemyBot.BotsGroup.IsEnemy(player)
                                        )
                                     {

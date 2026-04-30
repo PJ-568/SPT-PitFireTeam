@@ -4,7 +4,7 @@ using HarmonyLib;
 using System;
 using System.Collections.Generic;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINRegroupBootstrap
     {

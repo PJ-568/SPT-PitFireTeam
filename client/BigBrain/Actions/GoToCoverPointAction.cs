@@ -1,7 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal class GoToCoverPointAction : CustomLogic
     {

@@ -1,12 +1,12 @@
-﻿using EFT;
-using friendlySAIN.Modules;
+using EFT;
+using pitTeam.Modules;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     public class Enemy
     {

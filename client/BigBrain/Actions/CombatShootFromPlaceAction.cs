@@ -1,9 +1,9 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Utils;
+using pitTeam.Utils;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal sealed class CombatShootFromPlaceAction : FollowerCombatActionBase
     {

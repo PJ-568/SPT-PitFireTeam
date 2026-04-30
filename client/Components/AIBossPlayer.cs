@@ -1,9 +1,9 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 using EFT.Interactive;
 using EFT.InventoryLogic;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,7 +17,7 @@ using UnityEngine.AI;
 using EventInfo = BotEventHandler.GClass692;
 using GestusInfo = GClass532;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     public class pitAIBossPlayer : AIBossPlayer
     {
@@ -305,7 +305,7 @@ namespace friendlySAIN.Components
             {
                 seenEnemies = GetBossVisibleEnemiesForContact(requester);
             }
-            if (friendlySAIN.IsSAINInstalled && (seenEnemies == null || seenEnemies.Count == 0))
+            if (pitFireTeam.IsSAINInstalled && (seenEnemies == null || seenEnemies.Count == 0))
             {
                 seenEnemies = GetSainContactFallbackEnemies(requester);
             }
@@ -439,7 +439,7 @@ namespace friendlySAIN.Components
             enemyPosition = Vector3.zero;
 
             List<Player> visibleEnemies = GetBossVisibleEnemiesForContact(realPlayer);
-            if (friendlySAIN.IsSAINInstalled && (visibleEnemies == null || visibleEnemies.Count == 0))
+            if (pitFireTeam.IsSAINInstalled && (visibleEnemies == null || visibleEnemies.Count == 0))
             {
                 visibleEnemies = GetSainContactFallbackEnemies(realPlayer);
             }
@@ -621,7 +621,7 @@ namespace friendlySAIN.Components
 
         private static bool TrySyncSainEnemyState(BotOwner follower, Player enemyPlayer, bool prioritizeAsGoal)
         {
-            if (!friendlySAIN.UseSainFollowerCombat) return false;
+            if (!pitFireTeam.UseSainFollowerCombat) return false;
             if (follower == null || enemyPlayer == null) return false;
 
             try
@@ -637,7 +637,7 @@ namespace friendlySAIN.Components
 
         private static bool TryResetSainDecisionState(BotOwner follower)
         {
-            if (!friendlySAIN.UseSainFollowerCombat) return false;
+            if (!pitFireTeam.UseSainFollowerCombat) return false;
             if (follower == null) return false;
 
             try
@@ -651,7 +651,7 @@ namespace friendlySAIN.Components
                 if (!reset && !SainAddonBridge.HasRuntimeCallbacks && !_sainAddonDecisionResetBridgeErrorLogged)
                 {
                     _sainAddonDecisionResetBridgeErrorLogged = true;
-                    Modules.Logger.LogError("[SAIN] Decision reset bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
+                    Modules.Logger.LogError("[SAIN] Decision reset bridge is unavailable. Ensure pitFireTeam SAIN addon is present and loaded.");
                 }
 
                 return reset;
@@ -839,7 +839,7 @@ namespace friendlySAIN.Components
                 ? requester.LookDirection.normalized
                 : requester.Transform.forward;
             Vector3 firePos = requester.PlayerBones?.WeaponRoot?.position ?? (requesterPosition + Vector3.up * 1.2f);
-            float scanDistance = friendlySAIN.scanDistance?.Value ?? ContactLookDistance;
+            float scanDistance = pitFireTeam.scanDistance?.Value ?? ContactLookDistance;
             float scanDistanceSqr = scanDistance * scanDistance;
 
             foreach (IPlayer candidateRef in allPlayers)
@@ -930,7 +930,7 @@ namespace friendlySAIN.Components
 
             bool samePmcSide = candidate.Side == requester.Side &&
                                (candidate.Side == EPlayerSide.Bear || candidate.Side == EPlayerSide.Usec);
-            if (samePmcSide && Utils.Utils.FlagGet("friendlySAIN") && !Utils.Utils.FlagGet("isBadGuy") && !alreadyHostile)
+            if (samePmcSide && Utils.Utils.FlagGet("pitFireTeam") && !Utils.Utils.FlagGet("isBadGuy") && !alreadyHostile)
             {
                 return false;
             }
@@ -1053,7 +1053,7 @@ namespace friendlySAIN.Components
 
                 ClearEnemyStateForAttention(follower, clearedGroupIds);
 
-                if (friendlySAIN.UseSainFollowerCombat)
+                if (pitFireTeam.UseSainFollowerCombat)
                 {
                     try
                     {
@@ -1260,7 +1260,7 @@ namespace friendlySAIN.Components
 
             Vector3 bossPos = requester.Position;
             bool combatRegroupContext = IsCombatRegroupContext();
-            bool useSainRegroupRoute = friendlySAIN.ShouldUseSainRegroupRoute(combatRegroupContext);
+            bool useSainRegroupRoute = pitFireTeam.ShouldUseSainRegroupRoute(combatRegroupContext);
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -1956,7 +1956,7 @@ namespace friendlySAIN.Components
             }
 
             List<Player> bossVisibleEnemies = GetBossVisibleEnemiesForContact(requester);
-            if (friendlySAIN.IsSAINInstalled && (bossVisibleEnemies == null || bossVisibleEnemies.Count == 0))
+            if (pitFireTeam.IsSAINInstalled && (bossVisibleEnemies == null || bossVisibleEnemies.Count == 0))
             {
                 bossVisibleEnemies = GetSainContactFallbackEnemies(requester);
             }
@@ -2137,7 +2137,7 @@ namespace friendlySAIN.Components
             }
             planarDirection.Normalize();
 
-            float maxGoToDistance = friendlySAIN.goToDistance?.Value ?? DefaultGoToDistance;
+            float maxGoToDistance = pitFireTeam.goToDistance?.Value ?? DefaultGoToDistance;
             Vector3 rawTarget = requesterPos + planarDirection * maxGoToDistance;
             bool hasSurfaceHit = TryGetCommandSurfaceHit(interactionRay, rayDirection, maxGoToDistance, out RaycastHit lookHit);
             if (hasSurfaceHit)
@@ -2438,7 +2438,7 @@ namespace friendlySAIN.Components
 
             _nextBossGroupStaticUpdateAt = Time.time + 0.5f;
             ReportEnemyToIdleFollowers();
-            if (friendlySAIN.UseSainFollowerCombat)
+            if (pitFireTeam.UseSainFollowerCombat)
             {
                 SainAddonBridge.RaiseBossGroupStaticUpdate(this);
             }

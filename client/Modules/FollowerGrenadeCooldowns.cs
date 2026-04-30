@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal static class FollowerGrenadeCooldowns
     {

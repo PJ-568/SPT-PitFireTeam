@@ -1,11 +1,11 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Utils;
 using System.Collections;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal sealed class CombatHoldPositionAction : FollowerCombatActionBase
     {

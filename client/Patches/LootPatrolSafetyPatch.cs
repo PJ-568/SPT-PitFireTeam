@@ -1,12 +1,12 @@
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
 
     // BigBrain scans active layers every update. Ensure crashed vanilla LootPatrol layer is removed from that list first.
@@ -199,7 +199,7 @@ namespace friendlySAIN.Patches
                 {
                     __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                         default,
-                        "friendlySAIN_skipLootPatrol_no_owner");
+                        "pitFireTeam_skipLootPatrol_no_owner");
                     return false;
                 }
 
@@ -207,7 +207,7 @@ namespace friendlySAIN.Patches
 
                 __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BaseLogicLayerAbstractClass.HoldOrCover(botOwner),
-                    "friendlySAIN_skipLootPatrol");
+                    "pitFireTeam_skipLootPatrol");
                 return false;
             }
             catch (Exception ex)
@@ -237,13 +237,13 @@ namespace friendlySAIN.Patches
                 botOwner = _botOwnerGetter?.Invoke(__instance);
                 __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     botOwner != null ? BaseLogicLayerAbstractClass.HoldOrCover(botOwner) : default,
-                    "friendlySAIN_lootPatrol_exception_guard");
+                    "pitFireTeam_lootPatrol_exception_guard");
             }
             catch
             {
                 __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     default,
-                    "friendlySAIN_lootPatrol_exception_guard_failed");
+                    "pitFireTeam_lootPatrol_exception_guard_failed");
             }
 
             if (UnityEngine.Time.time >= _nextExceptionLogAt)

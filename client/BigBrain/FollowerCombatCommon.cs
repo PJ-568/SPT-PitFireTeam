@@ -1,9 +1,9 @@
 using EFT;
 using EFT.HealthSystem;
 using EFT.InventoryLogic;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 
@@ -13,7 +13,7 @@ using UnityEngine.AI;
 using Comfort.Common;
 using UnityDiagnostics;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal sealed class FollowerCombatCommon
     {
@@ -1069,7 +1069,7 @@ namespace friendlySAIN.BigBrain
             // If this is heal cover and bot has healed enough/threat changed, clear it and return to combat
             if (targetCover == committedHealCover && ShouldClearHealCover(goalEnemy, out string? clearReason))
             {
-                if (friendlySAIN.IsDebugBuild)
+                if (pitFireTeam.IsDebugBuild)
                 {
                     Modules.Logger.LogInfo($"[HealCover] follower={botOwner.name ?? botOwner.Profile?.Nickname ?? "unknown"} reason={clearReason ?? "unknown"}");
                 }
@@ -6810,7 +6810,7 @@ namespace friendlySAIN.BigBrain
         {
             decision = default;
 
-            if (!friendlySAIN.botGrenades.Value)
+            if (!pitFireTeam.botGrenades.Value)
             {
                 return false;
             }

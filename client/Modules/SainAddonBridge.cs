@@ -1,8 +1,8 @@
 using System;
 using EFT;
-using friendlySAIN.Components;
+using pitTeam.Components;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     public static class SainAddonBridge
     {
@@ -11,7 +11,7 @@ namespace friendlySAIN.Modules
         private static Func<BotOwner, Player, bool, bool>? _trySyncFollowerEnemyState;
         private static Func<BotOwner, bool>? _tryResetFollowerDecisionState;
 
-        public static bool IsFollowerCombatEnabled => friendlySAIN.UseSainFollowerCombat;
+        public static bool IsFollowerCombatEnabled => pitFireTeam.UseSainFollowerCombat;
 
         public static bool HasRuntimeCallbacks =>
             _isReadyForPatrolAfterCombat != null &&

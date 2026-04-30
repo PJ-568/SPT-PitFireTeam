@@ -1,7 +1,7 @@
 using EFT;
-using friendlySAIN.Components;
+using pitTeam.Components;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal sealed class FollowerSniperCombatLogic : FollowerCombatLogicBase
     {

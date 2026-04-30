@@ -1,11 +1,11 @@
 using Comfort.Common;
 using EFT;
-using friendlySAIN.Utils;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     public static class FollowerContactEnemyRetention
     {
@@ -308,7 +308,7 @@ namespace friendlySAIN.Modules
 
         private static float GetRetainSeconds()
         {
-            int configuredSeconds = friendlySAIN.enemyRemember?.Value ?? 12;
+            int configuredSeconds = pitFireTeam.enemyRemember?.Value ?? 12;
             return Mathf.Max(MinimumRetainSeconds, configuredSeconds);
         }
     }

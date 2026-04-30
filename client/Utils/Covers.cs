@@ -1,12 +1,12 @@
-﻿using EFT;
-using friendlySAIN.Components;
+using EFT;
+using pitTeam.Components;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     public class Covers
     {

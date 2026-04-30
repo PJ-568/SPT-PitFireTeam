@@ -1,16 +1,16 @@
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using SPT.Reflection.Patching;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal static class FollowerPmcCombatSuppression
     {
         public static bool Prefix(BotOwner botOwner, ref bool result)
         {
-            if (friendlySAIN.UseSainFollowerCombat)
+            if (pitFireTeam.UseSainFollowerCombat)
             {
                 return true;
             }

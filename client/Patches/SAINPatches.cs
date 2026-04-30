@@ -1,16 +1,16 @@
-﻿using EFT;
+using EFT;
 
 using EFT.InventoryLogic;
-using friendlySAIN;
-using friendlySAIN.Modules;
+using pitTeam;
+using pitTeam.Modules;
 using HarmonyLib;
 using System;
 using System.Linq;
 using System.Reflection;
-using friendlySAIN.BigBrain;
+using pitTeam.BigBrain;
 using UnityEngine;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class SAINPatch
     {
@@ -37,7 +37,7 @@ namespace friendlySAIN.Patches
         private static PropertyInfo? sainPlayerComponentPlayerProperty = null;
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
-            if (!friendlySAIN.IsSAINInstalled) return;
+            if (!pitFireTeam.IsSAINInstalled) return;
 
             if (squadType == null)
             {
@@ -311,7 +311,7 @@ namespace friendlySAIN.Patches
         [HarmonyPrefix]
         private static bool GuardSainPlayerVoiceLineForFollower(object __instance, EPhraseTrigger phrase, ETagStatus mask, bool aggressive, ref bool __result)
         {
-            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            if (!pitFireTeam.ShouldDisableSainForFollowers)
             {
                 return true;
             }
@@ -384,7 +384,7 @@ namespace friendlySAIN.Patches
         [HarmonyPrefix]
         private static bool DisableSainLayerForFollowersWithoutAddon(object __instance, ref bool __result)
         {
-            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            if (!pitFireTeam.ShouldDisableSainForFollowers)
             {
                 return true;
             }
@@ -409,7 +409,7 @@ namespace friendlySAIN.Patches
         [HarmonyPrefix]
         private static bool BlockFollowerSainClearEnemyIfRetained(object __instance)
         {
-            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            if (!pitFireTeam.ShouldDisableSainForFollowers)
             {
                 return true;
             }
@@ -433,7 +433,7 @@ namespace friendlySAIN.Patches
         [HarmonyPostfix]
         private static void ForcePatrolOffForFollowerCombat(object __instance)
         {
-            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            if (!pitFireTeam.ShouldDisableSainForFollowers)
             {
                 return;
             }
@@ -465,7 +465,7 @@ namespace friendlySAIN.Patches
         [HarmonyPrefix]
         private static bool BlockFollowerSainReloadIfAddonMissing(BotOwner botOwner)
         {
-            if (!friendlySAIN.ShouldDisableSainForFollowers)
+            if (!pitFireTeam.ShouldDisableSainForFollowers)
             {
                 return true;
             }
@@ -491,7 +491,7 @@ namespace friendlySAIN.Patches
         [HarmonyPrefix]
         private static bool GuardFollowerSainWeaponSelection(object __instance, EquipmentSlot slot)
         {
-            if (!friendlySAIN.IsSAINInstalled)
+            if (!pitFireTeam.IsSAINInstalled)
             {
                 return true;
             }

@@ -1,4 +1,4 @@
-﻿using BepInEx.Bootstrap;
+using BepInEx.Bootstrap;
 using Comfort.Common;
 using EFT;
 using EFT.InventoryLogic;
@@ -10,11 +10,11 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using DrakiaXYZ.BigBrain.Brains;
-using friendlySAIN.Patches;
+using pitTeam.Patches;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     public enum FollowerCommandType
     {
@@ -481,7 +481,7 @@ namespace friendlySAIN.Components
             settings.FileSettings.Mind.DIST_TO_ENEMY_YO_CAN_HEAL = 15f;
 
             settings.FileSettings.Mind.DIST_TO_STOP_RUN_ENEMY = 15f;
-            settings.FileSettings.Mind.TIME_TO_FORGOR_ABOUT_ENEMY_SEC = friendlySAIN.enemyRemember.Value;
+            settings.FileSettings.Mind.TIME_TO_FORGOR_ABOUT_ENEMY_SEC = pitFireTeam.enemyRemember.Value;
             settings.FileSettings.Mind.TIME_TO_FIND_ENEMY = 10f;
             settings.FileSettings.Mind.ATTACK_IMMEDIATLY_CHANCE_0_100 = 50f;
             settings.FileSettings.Mind.CHANCE_TO_RUN_CAUSE_DAMAGE_0_100 = 50f;
@@ -733,9 +733,9 @@ namespace friendlySAIN.Components
             // Override it here so both paths use the player-configured value.
             // This must run after bot.Settings = settings above, and is safe to call before SAIN
             // AddFollower postfix fires since GetSainBot falls back gracefully when SAIN is absent.
-            if (friendlySAIN.IsSAINInstalled)
+            if (pitFireTeam.IsSAINInstalled)
             {
-                TryOverrideSainForgetEnemyTime(bot, friendlySAIN.enemyRemember.Value);
+                TryOverrideSainForgetEnemyTime(bot, pitFireTeam.enemyRemember.Value);
             }
         }
 
@@ -1394,7 +1394,7 @@ namespace friendlySAIN.Components
                 return false;
             }
 
-            if (!friendlySAIN.UseSainFollowerCombat)
+            if (!pitFireTeam.UseSainFollowerCombat)
             {
                 ClearTemporaryCombatAggressionOverride();
                 return true;
@@ -1425,7 +1425,7 @@ namespace friendlySAIN.Components
             if (!bridgeAvailable && !_sainAddonPatrolBridgeErrorLogged)
             {
                 _sainAddonPatrolBridgeErrorLogged = true;
-                Modules.Logger.LogError("[SAIN] Patrol readiness bridge is unavailable. Ensure friendlySAIN SAIN addon is present and loaded.");
+                Modules.Logger.LogError("[SAIN] Patrol readiness bridge is unavailable. Ensure pitFireTeam SAIN addon is present and loaded.");
             }
 
             // With fixed SAIN/addon target, fail closed if bridge is unavailable.
@@ -1521,7 +1521,7 @@ namespace friendlySAIN.Components
                     _bot.Mover.Sprint(false, false);
                 }
 
-                if (friendlySAIN.UseSainFollowerCombat)
+                if (pitFireTeam.UseSainFollowerCombat)
                 {
                     SainAddonBridge.TryResetDecisionState(_bot);
                     SainAddonBridge.TryForceReleaseFollowerCombatState(_bot);
@@ -1734,7 +1734,7 @@ namespace friendlySAIN.Components
 
         private void EnsureSainBossAndFollowersFriendly()
         {
-            if (!friendlySAIN.UseSainFollowerCombat) return;
+            if (!pitFireTeam.UseSainFollowerCombat) return;
             if (_bot == null || _player?.realPlayer == null) return;
 
             try
@@ -1935,7 +1935,7 @@ namespace friendlySAIN.Components
 
             foreach (var kvp in brain.Dictionary_0)
             {
-                if (kvp.Value != null && kvp.Value.Name() == "friendlySAIN.FollowerPatrol")
+                if (kvp.Value != null && kvp.Value.Name() == "pitTeam.FollowerPatrol")
                 {
                     if (!brain.method_2(kvp.Value))
                     {
@@ -1946,7 +1946,7 @@ namespace friendlySAIN.Components
             }
 
             var customEntry = BrainManager.CustomLayersReadOnly
-                .FirstOrDefault(x => x.Value.customLayerType.FullName == "friendlySAIN.BigBrain.FollowerPatrolLayer");
+                .FirstOrDefault(x => x.Value.customLayerType.FullName == "pitTeam.BigBrain.FollowerPatrolLayer");
 
             if (customEntry.Value == null) return;
 
@@ -1992,7 +1992,7 @@ namespace friendlySAIN.Components
 
         private void RefreshSainEnemyListAfterGroupReassign()
         {
-            if (!friendlySAIN.UseSainFollowerCombat) return;
+            if (!pitFireTeam.UseSainFollowerCombat) return;
             if (_bot == null) return;
 
             try

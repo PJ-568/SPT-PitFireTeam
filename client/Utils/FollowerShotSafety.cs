@@ -1,8 +1,8 @@
 using EFT;
-using friendlySAIN.Components;
+using pitTeam.Components;
 using UnityEngine;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     public static class FollowerShotSafety
     {

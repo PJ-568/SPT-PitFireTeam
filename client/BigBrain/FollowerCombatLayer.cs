@@ -1,10 +1,10 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.HealthSystem;
-using friendlySAIN.BigBrain.Actions;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.BigBrain.Actions;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -12,7 +12,7 @@ using Comfort.Common;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal sealed class FollowerCombatLayer : CustomLayer
     {
@@ -41,12 +41,12 @@ namespace friendlySAIN.BigBrain
 
         public override string GetName()
         {
-            return "friendlySAIN.FollowerCombat";
+            return "pitTeam.FollowerCombat";
         }
 
         public override bool IsActive()
         {
-            if (friendlySAIN.UseSainFollowerCombat || BotOwner == null || combatLogic == null)
+            if (pitFireTeam.UseSainFollowerCombat || BotOwner == null || combatLogic == null)
             {
                 return false;
             }

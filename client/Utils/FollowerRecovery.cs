@@ -2,7 +2,7 @@ using EFT;
 using HarmonyLib;
 using System;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     public static class FollowerRecovery
     {

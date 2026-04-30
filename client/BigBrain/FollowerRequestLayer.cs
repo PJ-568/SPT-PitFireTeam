@@ -1,11 +1,11 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.BigBrain.Actions;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.BigBrain.Actions;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal sealed class FollowerRequestLayer : CustomLayer
     {
@@ -18,7 +18,7 @@ namespace friendlySAIN.BigBrain
 
         public override string GetName()
         {
-            return "friendlySAIN.FollowerRequest";
+            return "pitTeam.FollowerRequest";
         }
 
         public override void Start()
@@ -89,7 +89,7 @@ namespace friendlySAIN.BigBrain
                 if (command == FollowerCommandType.RegroupNearBoss)
                 {
                     // let sain continue the regroup on entering combat
-                    if (friendlySAIN.ShouldSainRegroupLayerHandle(BotOwner))
+                    if (pitFireTeam.ShouldSainRegroupLayerHandle(BotOwner))
                     {
                         BotOwner.StopMove();
                         return false;

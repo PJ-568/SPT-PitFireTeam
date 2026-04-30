@@ -1,4 +1,4 @@
-using friendlySAIN.Server.Models;
+using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Constants;
 using SPTarkov.Server.Core.Generators;
@@ -21,7 +21,7 @@ using CommonInfo = SPTarkov.Server.Core.Models.Eft.Common.Tables.Info;
 using System;
 using System.Text.Json;
 
-namespace friendlySAIN.Server.Services;
+namespace pitTeam.Server.Services;
 
 [Injectable]
 public class FriendlyTeammateService(
@@ -48,7 +48,7 @@ public class FriendlyTeammateService(
         "LMG",
     ];
 
-    private const string ModFolderName = "friendlySAIN-ServerMod";
+    private const string ModFolderName = "pitFireTeam-ServerMod";
     private const string TeammateFolderName = "teammates";
     private const string DefaultLoadoutName = "Default";
     private const string DefaultLoadoutId = "000000000000000000000000";

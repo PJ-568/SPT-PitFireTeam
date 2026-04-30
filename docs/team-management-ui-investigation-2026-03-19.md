@@ -4,12 +4,12 @@ Date: 2026-03-19
 
 ## Goal
 
-Document the stock EFT 4.x UI surfaces that friendlySAIN already touches, plus the stock trader/settings UI patterns that are relevant for a future dedicated Team Management screen.
+Document the stock EFT 4.x UI surfaces that pitFireTeam already touches, plus the stock trader/settings UI patterns that are relevant for a future dedicated Team Management screen.
 
 Target feature direction:
 
 - add a dedicated Team screen
-- move friendlySAIN runtime/user settings out of BepInEx config and into a Team `Settings` tab
+- move pitFireTeam runtime/user settings out of BepInEx config and into a Team `Settings` tab
 - add a Team `Roster` tab for teammate/member management
 
 This is a planning and documentation pass only. No runtime UI behavior is proposed here yet.
@@ -18,7 +18,7 @@ This is a planning and documentation pass only. No runtime UI behavior is propos
 
 Covered:
 
-- current friendlySAIN screen integration points
+- current pitFireTeam screen integration points
 - stock 4.x profile screen, account creation flow, and raid-prep screens already used by the mod
 - stock trader portrait pattern in the trader screen
 - stock settings screen structure, with focus on `Game` and `PostFX`
@@ -34,15 +34,15 @@ Important limitation:
 - decompiled C# gives reliable screen composition, fields, events, and flow
 - exact visual layout beyond serialized field composition is not fully visible without prefab/asset inspection
 
-## Current friendlySAIN UI Touchpoints
+## Current pitFireTeam UI Touchpoints
 
 ### 1. Friends / social entry point
 
-friendlySAIN injects a custom `+ Add teammate` row into the friends panel instead of creating a new screen from scratch.
+pitFireTeam injects a custom `+ Add teammate` row into the friends panel instead of creating a new screen from scratch.
 
 Relevant files:
 
-- `friendlySAIN/client/Patches/ChatFriendsPanelPatch.cs`
+- `pitFireTeam/client/Patches/ChatFriendsPanelPatch.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/Chat/ChatFriendsPanel.cs`
 
 Observed pattern:
@@ -54,7 +54,7 @@ Observed pattern:
   - friends list panel
   - requests panel
   - members panel
-- friendlySAIN inserts a new button under the search input by creating a plain `GameObject` with:
+- pitFireTeam inserts a new button under the search input by creating a plain `GameObject` with:
   - `RectTransform`
   - `LayoutElement`
   - `Image`
@@ -68,13 +68,13 @@ Implication for Team screen:
 
 ### 2. Teammate creation via stock account-side-selection flow
 
-friendlySAIN reuses the stock account creation side/head/nickname flow and converts it into teammate creation.
+pitFireTeam reuses the stock account creation side/head/nickname flow and converts it into teammate creation.
 
 Relevant files:
 
-- `friendlySAIN/client/Modules/AddTeammateCreationFlow.cs`
-- `friendlySAIN/client/Patches/AddTeammateCreationFlowPatch.cs`
-- `friendlySAIN/client/Patches/AddTeammateHeadSelectionPatch.cs`
+- `pitFireTeam/client/Modules/AddTeammateCreationFlow.cs`
+- `pitFireTeam/client/Patches/AddTeammateCreationFlowPatch.cs`
+- `pitFireTeam/client/Patches/AddTeammateHeadSelectionPatch.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/AccountSideSelectionScreen.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/EftAccountSideSelectionScreen.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/HeadSelectionState.cs`
@@ -88,7 +88,7 @@ Verified stock flow:
 - `_nextButton` and `_backButton` drive state switching
 - final submit path goes through nickname validation and then `ScreenController.ShowNextScreen()`
 
-What friendlySAIN does:
+What pitFireTeam does:
 
 - creates `EftAccountSideSelectionScreen.GClass3905` manually
 - preloads stock default bear/usec preview profiles
@@ -97,7 +97,7 @@ What friendlySAIN does:
 - hides skipped side-selection visuals
 - rewires next/back button behavior for teammate create/return
 - validates nickname locally through stock `NicknameField`
-- posts `{ nickname, voice, head }` to `/singleplayer/friendlysain/teammate/create`
+- posts `{ nickname, voice, head }` to `/singleplayer/pitfireteam/teammate/create`
 
 Important UI pattern:
 
@@ -115,11 +115,11 @@ Implication for Team screen:
 
 ### 3. Other profile screen customization
 
-friendlySAIN repurposes the stock other-player profile screen for teammate management.
+pitFireTeam repurposes the stock other-player profile screen for teammate management.
 
 Relevant files:
 
-- `friendlySAIN/client/Patches/OtherPlayerProfileScreenPatch.cs`
+- `pitFireTeam/client/Patches/OtherPlayerProfileScreenPatch.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/OtherPlayerProfileScreen.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/InventoryPlayerModelWithStatsWindow.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/InventoryClothingSelectionPanel.cs`
@@ -141,7 +141,7 @@ Verified stock profile composition:
   - `_upperButtonDropDown`
   - `_lowerButtonDropDown`
 
-What friendlySAIN does:
+What pitFireTeam does:
 
 - hides stock report/hideout behavior for teammate view
 - reuses the stock clothing panel for body/feet changes
@@ -169,11 +169,11 @@ Implication for Team screen:
 
 ### 4. Rename overlay pattern
 
-The nickname edit path in friendlySAIN is a fully custom overlay built on top of a stock screen.
+The nickname edit path in pitFireTeam is a fully custom overlay built on top of a stock screen.
 
 Relevant file:
 
-- `friendlySAIN/client/Patches/OtherPlayerProfileScreenPatch.cs`
+- `pitFireTeam/client/Patches/OtherPlayerProfileScreenPatch.cs`
 
 Observed pattern:
 
@@ -198,11 +198,11 @@ Recommendation:
 
 ### 5. Raid preparation screens already touched
 
-friendlySAIN already modifies multiple stock pre-raid screens to keep synthetic teammates compatible with offline/local flow.
+pitFireTeam already modifies multiple stock pre-raid screens to keep synthetic teammates compatible with offline/local flow.
 
 Relevant files:
 
-- `friendlySAIN/client/Patches/RaidStartPatch.cs`
+- `pitFireTeam/client/Patches/RaidStartPatch.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/Matchmaker/MatchMakerAcceptScreen.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/Matchmaker/MatchmakerTimeHasCome.cs`
 - `Client-Decompiled-4.x/Assembly-CSharp/EFT/UI/Matchmaker/PartyInfoPanel.cs`
@@ -221,7 +221,7 @@ Observed stock composition:
   - banners, sub-caption, deploying text
 - `PartyInfoPanel` is basically a list panel with click-through to inspect equipment
 
-What friendlySAIN does:
+What pitFireTeam does:
 
 - keeps stock ready-screen gating working by temporarily hiding synthetic teammates from local-only checks
 - repopulates group preview and loading preview with synthetic teammates
@@ -311,7 +311,7 @@ Important architectural pattern:
 Implication for Team screen:
 
 - this temp-edit/save/cancel pattern is the correct mental model for Team `Settings`
-- moving friendlySAIN settings out of BepInEx should follow a temporary view-model + explicit save model, not immediate mutation on every click
+- moving pitFireTeam settings out of BepInEx should follow a temporary view-model + explicit save model, not immediate mutation on every click
 
 ## Game Tab Investigation
 
@@ -503,7 +503,7 @@ The PostFX tab is a good reference for:
 - grouped controls that should gray out when disabled
 - a clear "all controls belong to one feature" layout
 
-This pattern may fit friendlySAIN features such as:
+This pattern may fit pitFireTeam features such as:
 
 - team markers enabled/disabled
 - teammate ping enabled/disabled
@@ -511,7 +511,7 @@ This pattern may fit friendlySAIN features such as:
 
 ## What Should Move From BepInEx Config
 
-Current friendlySAIN BepInEx settings registered in `friendlyPlugin.cs`:
+Current pitFireTeam BepInEx settings registered in `friendlyPlugin.cs`:
 
 - `scanDistance`
 - `patrolRadius`
@@ -520,7 +520,7 @@ Current friendlySAIN BepInEx settings registered in `friendlyPlugin.cs`:
 - `statusSound`
 - `enemyMarker`
 - `npcSendMessage`
-- `friendlySAINFLAG`
+- `pitFireTeamFLAG`
 - `badGuy`
 - `pmcArmbands`
 - `englishBear`
@@ -546,7 +546,7 @@ Likely Team `Settings` tab candidates:
 - `statusSound`
 - `enemyMarker`
 - `npcSendMessage`
-- `friendlySAINFLAG`
+- `pitFireTeamFLAG`
 - `badGuy`
 - `pmcArmbands`
 - `englishBear`
@@ -676,16 +676,16 @@ Do not use overlays as a replacement for the main Team screen structure.
 
 ## Useful File Index
 
-friendlySAIN:
+pitFireTeam:
 
-- `friendlySAIN/client/friendlyPlugin.cs`
-- `friendlySAIN/client/Modules/AddTeammateCreationFlow.cs`
-- `friendlySAIN/client/Patches/ChatFriendsPanelPatch.cs`
-- `friendlySAIN/client/Patches/AddTeammateCreationFlowPatch.cs`
-- `friendlySAIN/client/Patches/AddTeammateHeadSelectionPatch.cs`
-- `friendlySAIN/client/Patches/OtherPlayerProfileScreenPatch.cs`
-- `friendlySAIN/client/Patches/SocialPatch.cs`
-- `friendlySAIN/client/Patches/RaidStartPatch.cs`
+- `pitFireTeam/client/friendlyPlugin.cs`
+- `pitFireTeam/client/Modules/AddTeammateCreationFlow.cs`
+- `pitFireTeam/client/Patches/ChatFriendsPanelPatch.cs`
+- `pitFireTeam/client/Patches/AddTeammateCreationFlowPatch.cs`
+- `pitFireTeam/client/Patches/AddTeammateHeadSelectionPatch.cs`
+- `pitFireTeam/client/Patches/OtherPlayerProfileScreenPatch.cs`
+- `pitFireTeam/client/Patches/SocialPatch.cs`
+- `pitFireTeam/client/Patches/RaidStartPatch.cs`
 
 Decompiled EFT 4.x:
 

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     public static class BotOwnerUpdateHub
     {

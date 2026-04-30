@@ -1,12 +1,12 @@
 using EFT;
 using EFT.UI;
-using friendlySAIN.Components;
+using pitTeam.Components;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class MenuScreenShowSquadControlPatch : ModulePatch
     {

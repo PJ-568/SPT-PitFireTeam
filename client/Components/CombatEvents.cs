@@ -1,11 +1,11 @@
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     public sealed class CombatEvents
     {

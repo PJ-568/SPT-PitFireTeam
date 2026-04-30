@@ -36,7 +36,7 @@ This order is used by both:
 
 Implication: stomach is naturally picked before legs when multiple parts are candidates.
 
-### 2) Patrol layer heal trigger (friendlySAIN)
+### 2) Patrol layer heal trigger (pitFireTeam)
 
 In [client/BigBrain/FollowerPatrolLayer.cs](client/BigBrain/FollowerPatrolLayer.cs#L219):
 
@@ -46,7 +46,7 @@ In [client/BigBrain/FollowerPatrolLayer.cs](client/BigBrain/FollowerPatrolLayer.
 
 There is no combat-aware body-part triage at this decision point.
 
-### 3) Combat layer heal trigger (friendlySAIN)
+### 3) Combat layer heal trigger (pitFireTeam)
 
 In [client/BigBrain/FollowerCombatLayer.cs](client/BigBrain/FollowerCombatLayer.cs#L712):
 

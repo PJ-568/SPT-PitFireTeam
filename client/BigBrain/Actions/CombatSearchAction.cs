@@ -3,7 +3,7 @@ using EFT;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal sealed class CombatSearchAction : FollowerCombatActionBase
     {

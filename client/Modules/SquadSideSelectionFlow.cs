@@ -10,7 +10,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal static class SquadSideSelectionFlow
     {
@@ -45,21 +45,21 @@ namespace friendlySAIN.Modules
 
             if (AppMenuControllerField == null || OpenSideSelectionMethod == null)
             {
-                friendlySAIN.Log.LogWarning("[SquadFlow] MainMenuControllerClass reflection not available — cannot open side selection screen.");
+                pitFireTeam.Log.LogWarning("[SquadFlow] MainMenuControllerClass reflection not available — cannot open side selection screen.");
                 return;
             }
 
             TarkovApplication app = ResolveApp();
             if (app == null)
             {
-                friendlySAIN.Log.LogWarning("[SquadFlow] TarkovApplication not available.");
+                pitFireTeam.Log.LogWarning("[SquadFlow] TarkovApplication not available.");
                 return;
             }
 
             object menuController = AppMenuControllerField.GetValue(app);
             if (menuController == null)
             {
-                friendlySAIN.Log.LogWarning("[SquadFlow] MainMenuControllerClass instance is null.");
+                pitFireTeam.Log.LogWarning("[SquadFlow] MainMenuControllerClass instance is null.");
                 return;
             }
 
@@ -77,8 +77,8 @@ namespace friendlySAIN.Modules
                 ShowSquadScreenAlphaLabel();
                 SquadModeActive = false;
                 openingGroupAccountIds.Clear();
-                friendlySAIN.Log.LogError("[SquadFlow] Failed to open MatchMakerSideSelectionScreen.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[SquadFlow] Failed to open MatchMakerSideSelectionScreen.");
+                pitFireTeam.Log.LogError(ex);
             }
             finally
             {
@@ -102,7 +102,7 @@ namespace friendlySAIN.Modules
 
             if (!string.IsNullOrWhiteSpace(reason))
             {
-                friendlySAIN.Log.LogInfo($"[SquadFlow] Squad side-selection mode disabled: {reason}");
+                pitFireTeam.Log.LogInfo($"[SquadFlow] Squad side-selection mode disabled: {reason}");
             }
         }
 
@@ -163,18 +163,18 @@ namespace friendlySAIN.Modules
 
         private static TarkovApplication ResolveApp()
         {
-            if (friendlySAIN.application != null)
+            if (pitFireTeam.application != null)
             {
-                return friendlySAIN.application;
+                return pitFireTeam.application;
             }
 
             try
             {
-                friendlySAIN.application = ClientAppUtils.GetMainApp();
+                pitFireTeam.application = ClientAppUtils.GetMainApp();
             }
             catch { }
 
-            return friendlySAIN.application;
+            return pitFireTeam.application;
         }
 
         private static bool HasActiveSquadSideSelectionScreen()
@@ -186,8 +186,8 @@ namespace friendlySAIN.Modules
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[SquadFlow] Failed to verify active squad side-selection screen.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[SquadFlow] Failed to verify active squad side-selection screen.");
+                pitFireTeam.Log.LogError(ex);
                 return false;
             }
         }

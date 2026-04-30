@@ -13,13 +13,13 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 using ResultProfile = GClass1416;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal partial class OtherPlayerProfileScreenPatch
     {
         private static void ConfigureNicknameRenameUi(OtherPlayerProfileScreen screen, InventoryPlayerModelWithStatsWindow window, ResultProfile profile)
         {
-            if (NicknameRenameButton != null && NicknameRenameButton.name == "friendlySAIN_NicknameRenameButton")
+            if (NicknameRenameButton != null && NicknameRenameButton.name == "pitFireTeam_NicknameRenameButton")
             {
                 GameObject.Destroy(NicknameRenameButton.gameObject);
                 NicknameRenameButton = null;
@@ -154,11 +154,11 @@ namespace friendlySAIN.Patches
                     NicknameFieldInputField?.GetValue(field) is TMP_InputField);
             if (buttonTemplate == null || nicknameTemplate == null)
             {
-                friendlySAIN.Log.LogWarning("[UI] Teammate rename overlay aborted: template button or NicknameField not found.");
+                pitFireTeam.Log.LogWarning("[UI] Teammate rename overlay aborted: template button or NicknameField not found.");
                 return;
             }
 
-            GameObject overlayRoot = new GameObject("friendlySAIN_RenameOverlay", typeof(RectTransform), typeof(Image));
+            GameObject overlayRoot = new GameObject("pitFireTeam_RenameOverlay", typeof(RectTransform), typeof(Image));
             overlayRoot.transform.SetParent(screen.transform, false);
             RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
             overlayRect.anchorMin = Vector2.zero;
@@ -172,7 +172,7 @@ namespace friendlySAIN.Patches
             backdrop.color = new Color(0f, 0f, 0f, 0.08f);
             backdrop.raycastTarget = true;
 
-            GameObject panel = new GameObject("friendlySAIN_RenamePanel", typeof(RectTransform), typeof(Image));
+            GameObject panel = new GameObject("pitFireTeam_RenamePanel", typeof(RectTransform), typeof(Image));
             panel.transform.SetParent(overlayRoot.transform, false);
             RectTransform panelRect = panel.GetComponent<RectTransform>();
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -186,7 +186,7 @@ namespace friendlySAIN.Patches
             panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
             panelImage.raycastTarget = true;
 
-            GameObject header = new GameObject("friendlySAIN_RenameHeader", typeof(RectTransform), typeof(Image));
+            GameObject header = new GameObject("pitFireTeam_RenameHeader", typeof(RectTransform), typeof(Image));
             header.transform.SetParent(panel.transform, false);
             RectTransform headerRect = header.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0f, 1f);
@@ -199,7 +199,7 @@ namespace friendlySAIN.Patches
             headerImage.color = new Color(0.06f, 0.06f, 0.06f, 1f);
             headerImage.raycastTarget = true;
 
-            GameObject titleObject = new GameObject("friendlySAIN_RenameTitle", typeof(RectTransform), typeof(CustomTextMeshProUGUI));
+            GameObject titleObject = new GameObject("pitFireTeam_RenameTitle", typeof(RectTransform), typeof(CustomTextMeshProUGUI));
             titleObject.transform.SetParent(header.transform, false);
             RectTransform titleRect = titleObject.GetComponent<RectTransform>();
             titleRect.anchorMin = new Vector2(0f, 0f);
@@ -226,7 +226,7 @@ namespace friendlySAIN.Patches
             closeButton.onClick.AddListener(new UnityAction(CloseRenameOverlay));
 
             GameObject fieldRoot = GameObject.Instantiate(nicknameTemplate.gameObject, panel.transform, false);
-            fieldRoot.name = "friendlySAIN_RenameNicknameField";
+            fieldRoot.name = "pitFireTeam_RenameNicknameField";
             RectTransform fieldRect = fieldRoot.transform as RectTransform;
             if (fieldRect != null)
             {
@@ -307,7 +307,7 @@ namespace friendlySAIN.Patches
         private static DefaultUIButton CreateOverlayButton(DefaultUIButton template, Transform parent, Vector2 anchoredPosition, Vector2 size)
         {
             DefaultUIButton button = GameObject.Instantiate(template, parent, false);
-            button.name = $"friendlySAIN_{template.name}";
+            button.name = $"pitFireTeam_{template.name}";
             RectTransform rect = button.transform as RectTransform;
             if (rect != null)
             {
@@ -326,7 +326,7 @@ namespace friendlySAIN.Patches
 
         private static Button CreateWindowCloseButton(Transform parent)
         {
-            GameObject buttonObject = new GameObject("friendlySAIN_RenameCloseButton", typeof(RectTransform), typeof(Image), typeof(Button));
+            GameObject buttonObject = new GameObject("pitFireTeam_RenameCloseButton", typeof(RectTransform), typeof(Image), typeof(Button));
             buttonObject.transform.SetParent(parent, false);
 
             RectTransform rect = buttonObject.GetComponent<RectTransform>();
@@ -337,7 +337,7 @@ namespace friendlySAIN.Patches
             background.color = new Color(0.43f, 0.12f, 0.12f, 1f);
             background.raycastTarget = true;
 
-            GameObject labelObject = new GameObject("friendlySAIN_RenameCloseLabel", typeof(RectTransform), typeof(CustomTextMeshProUGUI));
+            GameObject labelObject = new GameObject("pitFireTeam_RenameCloseLabel", typeof(RectTransform), typeof(CustomTextMeshProUGUI));
             labelObject.transform.SetParent(buttonObject.transform, false);
             RectTransform labelRect = labelObject.GetComponent<RectTransform>();
             labelRect.anchorMin = Vector2.zero;

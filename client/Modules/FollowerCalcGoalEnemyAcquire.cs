@@ -1,12 +1,12 @@
 using Comfort.Common;
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     public static class FollowerCalcGoalEnemyAcquire
     {

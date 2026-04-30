@@ -2,7 +2,7 @@ using Arena.UI;
 using Comfort.Common;
 using EFT;
 using EFT.UI;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -11,7 +11,7 @@ using System.Linq;
 using System.Reflection;
 using TMPro;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal static class AddTeammateNicknameFieldUi
     {

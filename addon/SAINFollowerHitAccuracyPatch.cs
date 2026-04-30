@@ -1,10 +1,10 @@
 using EFT;
 using HarmonyLib;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerHitAccuracyPatch
     {

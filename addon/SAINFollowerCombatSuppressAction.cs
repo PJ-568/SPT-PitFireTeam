@@ -3,7 +3,7 @@ using EFT;
 using SAIN.Layers;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal sealed class SAINFollowerCombatSuppressAction : BotAction
     {

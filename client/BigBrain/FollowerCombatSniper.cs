@@ -1,13 +1,13 @@
 using EFT;
 using EFT.InventoryLogic;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal sealed class FollowerCombatSniper
     {

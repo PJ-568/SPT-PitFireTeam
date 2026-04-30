@@ -1,10 +1,10 @@
-using friendlySAIN.Server.Callbacks;
-using friendlySAIN.Server.Models;
+using pitTeam.Server.Callbacks;
+using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Routers.Static;
+namespace pitTeam.Server.Routers.Static;
 
 [Injectable]
 public class FriendlyLanguageRouter(JsonUtil jsonUtil, FriendlyLanguageCallbacks callbacks)
@@ -12,7 +12,7 @@ public class FriendlyLanguageRouter(JsonUtil jsonUtil, FriendlyLanguageCallbacks
         jsonUtil,
         [
             new RouteAction<FriendlyLanguageRequest>(
-                "/singleplayer/friendlysain/lang",
+                "/singleplayer/pitfireteam/lang",
                 async (url, info, sessionId, output) => await callbacks.Get(url, info, sessionId)
             ),
             new RouteAction<FriendlyLanguageRequest>(

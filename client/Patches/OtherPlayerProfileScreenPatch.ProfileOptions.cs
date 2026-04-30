@@ -18,14 +18,14 @@ using dropDownItem = GClass3682;
 using OtherProfileResult = GClass2213;
 using ResultProfile = GClass1416;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal partial class OtherPlayerProfileScreenPatch
     {
         private static string GetSocialUiText(string key, string fallback)
         {
-            if (friendlySAIN.optionsLang?.socialUi != null
-                && friendlySAIN.optionsLang.socialUi.TryGetValue(key, out string value)
+            if (pitFireTeam.optionsLang?.socialUi != null
+                && pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value)
                 && !string.IsNullOrWhiteSpace(value))
             {
                 return value;
@@ -74,8 +74,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError($"[UI] Failed to load teammate profile options for '{accountId}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to load teammate profile options for '{accountId}'.");
+                pitFireTeam.Log.LogError(ex);
                 return null;
             }
         }

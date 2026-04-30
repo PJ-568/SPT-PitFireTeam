@@ -3,8 +3,8 @@ using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.HealthSystem;
 using EFT.InventoryLogic;
-using friendlySAIN.BigBrain;
-using friendlySAIN.Components;
+using pitTeam.BigBrain;
+using pitTeam.Components;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
@@ -13,11 +13,11 @@ using System.Globalization;
 using System.IO;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal static class BattleRecorder
     {
-        private const string UpdateHubSubscriptionId = "friendlySAIN.BattleRecorder";
+        private const string UpdateHubSubscriptionId = "pitTeam.BattleRecorder";
 
         private static readonly object SyncRoot = new object();
         private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
@@ -77,7 +77,7 @@ namespace friendlySAIN.Modules
                 currentLocationId = string.IsNullOrWhiteSpace(locationId) ? "unknown" : locationId;
                 currentRaidId = $"{timestamp}-{currentLocationId}";
 
-                string rootDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BepInEx", "plugins", "friendlySAIN", "BattleRecords");
+                string rootDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BepInEx", "plugins", "pitFireTeam", "BattleRecords");
                 Directory.CreateDirectory(rootDirectory);
 
                 currentFilePath = Path.Combine(rootDirectory, $"{currentRaidId}.jsonl");
@@ -697,7 +697,7 @@ namespace friendlySAIN.Modules
 
         private static bool IsEnabled()
         {
-            return friendlySAIN.battleRecorderEnabled?.Value == true;
+            return pitFireTeam.battleRecorderEnabled?.Value == true;
         }
 
         private static bool IsRecording()
@@ -712,7 +712,7 @@ namespace friendlySAIN.Modules
 
         private static int GetSnapshotIntervalMs()
         {
-            return Math.Max(50, friendlySAIN.battleRecorderSnapshotIntervalMs?.Value ?? 200);
+            return Math.Max(50, pitFireTeam.battleRecorderSnapshotIntervalMs?.Value ?? 200);
         }
 
         private static float? SanitizeFloat(float value)
@@ -790,8 +790,8 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                friendlySAIN.Log.LogError(message);
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError(message);
+                pitFireTeam.Log.LogError(ex);
             }
             catch
             {

@@ -1,6 +1,6 @@
-﻿using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using EFT;
+using pitTeam.Components;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using Comfort.Common;
 
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     /** Skip checking bot's role if we have made this bot a follower of a boss player **/
     internal class BotOwnerIsFolowerPatch : ModulePatch
@@ -148,7 +148,7 @@ namespace friendlySAIN.Patches
 
         internal static void ApplyEnglishVoiceForProfile(Profile profile)
         {
-            if (friendlySAIN.englishBear?.Value != true) return;
+            if (pitFireTeam.englishBear?.Value != true) return;
             if (profile == null || profile.Info == null) return;
             WildSpawnType role = profile.Info.Settings?.Role ?? WildSpawnType.assault;
             bool isBearSide = profile.Info.Side == EPlayerSide.Bear;
@@ -177,7 +177,7 @@ namespace friendlySAIN.Patches
 
                bool isRogue = Utils.Props.BossFollowersType.ToList().AddItem(WildSpawnType.exUsec).Contains(bot.Profile.Info.Settings.Role);
 
-                if(Utils.Utils.FlagGet("friendlySAIN") && (bot.Side == EPlayerSide.Bear || bot.Side == EPlayerSide.Usec))
+                if(Utils.Utils.FlagGet("pitFireTeam") && (bot.Side == EPlayerSide.Bear || bot.Side == EPlayerSide.Usec))
                 {
                     bot.Settings.FileSettings.Boss.SHALL_WARN = false;
                     bot.Settings.FileSettings.Patrol.MAX_YDIST_TO_START_WARN_REQUEST_TO_REQUESTER = 0f;
@@ -297,7 +297,7 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(ref Task<Profile[]> __result)
         {
-            if (friendlySAIN.englishBear?.Value != true || __result == null) return;
+            if (pitFireTeam.englishBear?.Value != true || __result == null) return;
             __result = ApplyEnglishVoiceAsync(__result);
         }
 

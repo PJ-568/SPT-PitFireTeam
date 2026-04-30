@@ -1,6 +1,6 @@
 # Follower Combat: Current Runtime Behavior (2026-04-07)
 
-This document describes how follower combat currently works in friendlySAIN across both runtime paths:
+This document describes how follower combat currently works in pitFireTeam across both runtime paths:
 
 - Core/vanilla follower combat path (no SAIN addon combat layer)
 - SAIN addon follower combat path (when SAIN + addon are both present)

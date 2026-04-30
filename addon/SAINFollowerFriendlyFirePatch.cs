@@ -3,12 +3,12 @@ using HarmonyLib;
 using SAIN;
 using SAIN.Components;
 using SAIN.SAINComponent.Classes;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerFriendlyFirePatch
     {

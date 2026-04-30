@@ -1,9 +1,9 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Components;
+using pitTeam.Components;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal sealed class CombatRunToCoverAction : FollowerCombatActionBase
     {

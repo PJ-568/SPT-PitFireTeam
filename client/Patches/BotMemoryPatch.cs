@@ -1,13 +1,13 @@
-﻿using EFT;
+using EFT;
 
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Modules;
+using pitTeam.Utils;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     /**
      * Patch to yell friendly fire from teamates

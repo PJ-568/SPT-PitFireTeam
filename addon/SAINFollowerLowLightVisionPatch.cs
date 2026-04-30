@@ -1,11 +1,11 @@
 using EFT;
 using HarmonyLib;
 using SAIN.SAINComponent.Classes.EnemyClasses;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerLowLightVisionPatch
     {

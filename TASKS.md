@@ -5,7 +5,7 @@
 - (DONE) - disable patrol radius in settings
 - (INPROGRESS) sniper tactic needs it's own battle recording analysis for improvement
 - (DONE) - the temporary english language file. We need to have the client embed the english language so that we can always have a fallback if something goes wrong. On start the client will send to the server the english language and the server will write the english language to disk as en.json so that users can edit it. Thus the server will check if file is present, if file is good, if file is outdated (meaning some new keys are now avaialble), and write it again only if its missing, corrupted or outdated. This way we can ensure that the english language is always present and up to date, but also allow users to edit it if they want to.
-- name space must be renamed from "friendlySAIN" to "pitTeam"
+- name space must be renamed from "pitFireTeam" to "pitTeam"
 
 ## Combat commands - BETA
 
@@ -150,7 +150,7 @@ Implemented so far:
 - Backend:
     - creates a same-side PMC bot profile
     - overwrites nickname, voice, and head
-    - saves teammate as mod-owned JSON under `friendlySAIN-ServerMod`
+    - saves teammate as mod-owned JSON under `pitFireTeam-ServerMod`
     - exposes teammate social/profile/delete routes
     - exposes legacy-compatible `/client/game/bot/followergenerate` and `/client/game/bot/followerdetails`
     - stores generated default equipment snapshot separately so `Default` can restore the original generated kit
@@ -245,6 +245,6 @@ New Plugin Push Flow:
 
 Very similar to old flow, but with some adjustments:
 
-- Triggered by `EPhraseTrigger.Gogogo` but in the "transmision flow" is in the matter the others are in friendlySAIN (like EPhraseTrigger.OnRepeatedContact or EPhraseTrigger.Regroup)
+- Triggered by `EPhraseTrigger.Gogogo` but in the "transmision flow" is in the matter the others are in pitFireTeam (like EPhraseTrigger.OnRepeatedContact or EPhraseTrigger.Regroup)
 - Set aggression to 100% until enemy is dead or boss issues new command
 - Does nothing out of combat

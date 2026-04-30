@@ -3,16 +3,16 @@ using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.Interactive;
 using EFT.InventoryLogic;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal class GestureCommandAction : CustomLogic
     {

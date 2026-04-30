@@ -1,10 +1,10 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal sealed class FollowerCombatActionData : CustomLayer.ActionData
     {

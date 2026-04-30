@@ -1,8 +1,8 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     public class Logger
     {
@@ -12,27 +12,27 @@ namespace friendlySAIN.Modules
 
         public static void LogInfo(string message)
         {
-            if (friendlySAIN.IsDebugBuild)
-                friendlySAIN.Log.LogInfo($"[{Time.time}] " + message);
+            if (pitFireTeam.IsDebugBuild)
+                pitFireTeam.Log.LogInfo($"[{Time.time}] " + message);
 
         }
 
         public static void LogTrace(string message)
         {
-            if (friendlySAIN.IsDebugBuild)
+            if (pitFireTeam.IsDebugBuild)
             {
                 var stackTrace = new StackTrace();
-                friendlySAIN.Log.LogDebug($"[{Time.time}] {message}\nStackTrace:\n{stackTrace}");
+                pitFireTeam.Log.LogDebug($"[{Time.time}] {message}\nStackTrace:\n{stackTrace}");
             }
         }
 
         public static void LogError(string message)
         {
-            friendlySAIN.Log.LogError(message);
+            pitFireTeam.Log.LogError(message);
         }
         public static void LogError(Exception error)
         {
-            friendlySAIN.Log.LogError(error);
+            pitFireTeam.Log.LogError(error);
         }
     }
 }

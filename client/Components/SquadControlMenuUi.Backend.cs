@@ -7,8 +7,8 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
 using EFT.UI.Settings;
-using friendlySAIN.Modules;
-using friendlySAIN.Patches;
+using pitTeam.Modules;
+using pitTeam.Patches;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -27,7 +27,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     internal partial class SquadControlMenuUi
     {
@@ -42,7 +42,7 @@ namespace friendlySAIN.Components
 
             if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller == null)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Could not invite teammate '{entry.AccountId}': matchmaker controller unavailable.");
+                pitFireTeam.Log.LogWarning($"[UI] Could not invite teammate '{entry.AccountId}': matchmaker controller unavailable.");
                 return;
             }
 
@@ -69,19 +69,19 @@ namespace friendlySAIN.Components
             {
                 SetPortraitLoading(entry.AccountId, false);
                 groupRequestsInFlight.Remove(entry.AccountId);
-                friendlySAIN.Log.LogError($"[UI] Failed to send group invite for teammate '{entry.AccountId}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to send group invite for teammate '{entry.AccountId}'.");
+                pitFireTeam.Log.LogError(ex);
                 return;
             }
 
-            if (friendlySAIN.Instance == null)
+            if (pitFireTeam.Instance == null)
             {
                 SetPortraitLoading(entry.AccountId, false);
                 groupRequestsInFlight.Remove(entry.AccountId);
                 return;
             }
 
-            friendlySAIN.Instance.StartCoroutine(WaitForInviteResolutionCoroutine(entry.AccountId, entry.Nickname));
+            pitFireTeam.Instance.StartCoroutine(WaitForInviteResolutionCoroutine(entry.AccountId, entry.Nickname));
         }
 
         private void RemoveTeammateFromGroup(SquadRosterEntry entry)
@@ -95,7 +95,7 @@ namespace friendlySAIN.Components
 
             if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller == null)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Could not remove teammate '{entry.AccountId}' from the group: matchmaker controller unavailable.");
+                pitFireTeam.Log.LogWarning($"[UI] Could not remove teammate '{entry.AccountId}' from the group: matchmaker controller unavailable.");
                 return;
             }
 
@@ -122,8 +122,8 @@ namespace friendlySAIN.Components
             {
                 SetPortraitLoading(entry.AccountId, false);
                 groupRequestsInFlight.Remove(entry.AccountId);
-                friendlySAIN.Log.LogError($"[UI] Failed to remove teammate '{entry.AccountId}' from the group.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to remove teammate '{entry.AccountId}' from the group.");
+                pitFireTeam.Log.LogError(ex);
                 return;
             }
 
@@ -132,18 +132,18 @@ namespace friendlySAIN.Components
                 SetPortraitLoading(entry.AccountId, false);
                 groupRequestsInFlight.Remove(entry.AccountId);
                 SyncGroupBadgesFromKnownState();
-                friendlySAIN.Log.LogWarning($"[UI] Stock remove-player interaction was not available for teammate '{entry.AccountId}'.");
+                pitFireTeam.Log.LogWarning($"[UI] Stock remove-player interaction was not available for teammate '{entry.AccountId}'.");
                 return;
             }
 
-            if (friendlySAIN.Instance == null)
+            if (pitFireTeam.Instance == null)
             {
                 SetPortraitLoading(entry.AccountId, false);
                 groupRequestsInFlight.Remove(entry.AccountId);
                 return;
             }
 
-            friendlySAIN.Instance.StartCoroutine(WaitForGroupRemovalCoroutine(entry.AccountId, entry.Nickname));
+            pitFireTeam.Instance.StartCoroutine(WaitForGroupRemovalCoroutine(entry.AccountId, entry.Nickname));
         }
 
         private IEnumerator WaitForInviteResolutionCoroutine(string accountId, string nickname)
@@ -238,14 +238,14 @@ namespace friendlySAIN.Components
                 .FirstOrDefault(player => player?.AccountId == accountId);
             if (groupPlayer == null)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Could not resolve live group player data for teammate '{accountId}'.");
+                pitFireTeam.Log.LogWarning($"[UI] Could not resolve live group player data for teammate '{accountId}'.");
                 return false;
             }
 
             ContextInteractionsClass contextInteractions = controller.GetContextInteractions(groupPlayer, true, true);
             if (contextInteractions == null)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Could not build stock context interactions for teammate '{accountId}'.");
+                pitFireTeam.Log.LogWarning($"[UI] Could not build stock context interactions for teammate '{accountId}'.");
                 return false;
             }
 
@@ -268,7 +268,7 @@ namespace friendlySAIN.Components
             }
 
             SetPortraitLoading(entry.AccountId, true);
-            friendlySAIN.Instance.StartCoroutine(ToggleTeammateAutoJoinCoroutine(entry, nextState));
+            pitFireTeam.Instance.StartCoroutine(ToggleTeammateAutoJoinCoroutine(entry, nextState));
         }
 
         private IEnumerator ToggleTeammateAutoJoinCoroutine(SquadRosterEntry entry, bool nextState)
@@ -284,12 +284,12 @@ namespace friendlySAIN.Components
 
             try
             {
-                requestTask = Task.Run(() => RequestHandler.PostJson("/singleplayer/friendlysain/teammate/autojoin", requestBody));
+                requestTask = Task.Run(() => RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/autojoin", requestBody));
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError($"[UI] Failed to start auto join toggle request for teammate '{accountId}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to start auto join toggle request for teammate '{accountId}'.");
+                pitFireTeam.Log.LogError(ex);
             }
 
             if (requestTask != null)
@@ -307,15 +307,15 @@ namespace friendlySAIN.Components
             else if (requestTask.IsFaulted)
             {
                 backendError = requestTask.Exception?.GetBaseException().Message;
-                friendlySAIN.Log.LogError($"[UI] Failed to toggle auto join for teammate '{accountId}'.");
-                friendlySAIN.Log.LogError(requestTask.Exception);
+                pitFireTeam.Log.LogError($"[UI] Failed to toggle auto join for teammate '{accountId}'.");
+                pitFireTeam.Log.LogError(requestTask.Exception);
             }
             else
             {
                 success = TryValidateBackendSuccess(requestTask.Result, out backendError);
                 if (!success && !string.IsNullOrWhiteSpace(backendError))
                 {
-                    friendlySAIN.Log.LogWarning($"[UI] Auto join toggle rejected for teammate '{accountId}': {backendError}");
+                    pitFireTeam.Log.LogWarning($"[UI] Auto join toggle rejected for teammate '{accountId}': {backendError}");
                 }
             }
 
@@ -393,17 +393,17 @@ namespace friendlySAIN.Components
 
             try
             {
-                if (friendlySAIN.application == null)
+                if (pitFireTeam.application == null)
                 {
-                    friendlySAIN.application = SPT.Reflection.Utils.ClientAppUtils.GetMainApp();
+                    pitFireTeam.application = SPT.Reflection.Utils.ClientAppUtils.GetMainApp();
                 }
 
-                if (friendlySAIN.application == null)
+                if (pitFireTeam.application == null)
                 {
                     return false;
                 }
 
-                controller = friendlySAIN.application.MatchmakerPlayerControllerClass;
+                controller = pitFireTeam.application.MatchmakerPlayerControllerClass;
                 return controller != null;
             }
             catch
@@ -438,8 +438,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to subscribe to GroupPlayers.ItemsChanged.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI][GroupBadge] Failed to subscribe to GroupPlayers.ItemsChanged.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -457,8 +457,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to detach GroupPlayers.ItemsChanged subscription.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI][GroupBadge] Failed to detach GroupPlayers.ItemsChanged subscription.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -470,8 +470,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed while logging GroupPlayers.ItemsChanged.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI][GroupBadge] Failed while logging GroupPlayers.ItemsChanged.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -508,8 +508,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from current group.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from current group.");
+                pitFireTeam.Log.LogError(ex);
                 return false;
             }
         }
@@ -531,8 +531,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from opening snapshot.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI][GroupBadge] Failed to sync badge visibility from opening snapshot.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -543,7 +543,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            const string prefix = "friendlySAIN_RosterTile_";
+            const string prefix = "pitFireTeam_RosterTile_";
             for (int i = 0; i < rosterGridRoot.childCount; i++)
             {
                 Transform tile = rosterGridRoot.GetChild(i);

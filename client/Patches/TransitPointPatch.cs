@@ -1,14 +1,14 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 using EFT.Interactive;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     /** On extracting via transit point, remember bots the player was with so we can re-spawn them **/
     internal class TransitPointPatch : ModulePatch

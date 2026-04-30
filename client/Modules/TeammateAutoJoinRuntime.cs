@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal static class TeammateAutoJoinRuntime
     {

@@ -1,4 +1,4 @@
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINAddonToggles
     {

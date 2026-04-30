@@ -1,10 +1,10 @@
-﻿
+
 using EFT;
 using System.Collections.Generic;
 
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     public class BossFollowerPlayer : BotFollowerPlayer
     {

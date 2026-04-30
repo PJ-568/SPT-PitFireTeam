@@ -1,12 +1,12 @@
 using EFT;
 using HarmonyLib;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using SAIN.Classes;
 using SAIN.Components;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerAimSwayPatch
     {

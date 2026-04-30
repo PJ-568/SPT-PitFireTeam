@@ -1,4 +1,4 @@
-﻿
+
 using Comfort.Common;
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
@@ -9,10 +9,10 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     internal class BotData
     {
@@ -80,7 +80,7 @@ namespace friendlySAIN.Utils
         {
             if (lasttime > Time.time) return;
 
-            lasttime = Time.time + friendlySAIN.pingTime.Value;
+            lasttime = Time.time + pitFireTeam.pingTime.Value;
 
             locationPing = false;
 
@@ -279,7 +279,7 @@ namespace friendlySAIN.Utils
                     DrawBotGUI(botMap[i]);
                 }
 
-                if (friendlySAIN.enemyMarker.Value)
+                if (pitFireTeam.enemyMarker.Value)
                 {
                     for (int i = 0; i < botMap.Count; i++)
                     {
@@ -324,7 +324,7 @@ namespace friendlySAIN.Utils
 
                     if (!bt.Data.HealthController.IsAlive)
                     {
-                        stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Dead"]);
+                        stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Dead"]);
                     }
                     else if (bt.Data.Memory.HaveEnemy)
                     {
@@ -334,16 +334,16 @@ namespace friendlySAIN.Utils
                             float lastSeenAgo = Time.time - goalEnemy.PersonalLastSeenTime;
                             if (IsEnemyReliablyVisibleForMarker(bt.Data, goalEnemy) || lastSeenAgo < 5f)
                             {
-                                stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Engaged"]);
+                                stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Engaged"]);
                             }
                             else
                             {
-                                stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Alerted"]);
+                                stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Alerted"]);
                             }
                         }
                         else
                         {
-                            stringBuilder.Append(": " + friendlySAIN.optionsLang.botStatus["Alerted"]);
+                            stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Alerted"]);
                         }
                     }
 
@@ -389,22 +389,22 @@ namespace friendlySAIN.Utils
                         BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(bt.Data);
                         if (IsFollowerCurrentlyHealing(bt.Data))
                         {
-                            stringBuilder.Append($" | " + friendlySAIN.optionsLang.botStatus["Heal"]);
+                            stringBuilder.Append($" | " + pitFireTeam.optionsLang.botStatus["Heal"]);
                         }
                         else if (DoesFollowerWantToHeal(bt.Data))
                         {
-                            stringBuilder.Append($" | " + friendlySAIN.optionsLang.botStatus["WantToHeal"]);
+                            stringBuilder.Append($" | " + pitFireTeam.optionsLang.botStatus["WantToHeal"]);
                         }
                         else
                         {
-                            string tactic = friendlySAIN.optionsLang.tacticOptions[0];
+                            string tactic = pitFireTeam.optionsLang.tacticOptions[0];
                             if (followerData != null)
                             {
                                 tactic = followerData.CombatTactic switch
                                 {
                                     FollowerCombatTactic.Marksman => "Marksman",
                                     FollowerCombatTactic.Protector => "Protector",
-                                    _ => friendlySAIN.optionsLang.tacticOptions[0],
+                                    _ => pitFireTeam.optionsLang.tacticOptions[0],
                                 };
                             }
                             if (tactic != null)
@@ -413,7 +413,7 @@ namespace friendlySAIN.Utils
                             }
                         }
 
-                        if (friendlySAIN.IsDebugBuild)
+                        if (pitFireTeam.IsDebugBuild)
                         {
                             if (followerData != null)
                             {
@@ -652,7 +652,7 @@ namespace friendlySAIN.Utils
                 return false;
             }
 
-            return global::friendlySAIN.Utils.Utils.CanShootToTarget(
+            return global::pitTeam.Utils.Utils.CanShootToTarget(
                 shootPoint,
                 bot.WeaponRoot.position,
                 bot.LookSensor.Mask,

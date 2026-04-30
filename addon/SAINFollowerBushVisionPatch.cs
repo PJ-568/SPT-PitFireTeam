@@ -1,9 +1,9 @@
 using EFT;
 using HarmonyLib;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using System.Reflection;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerBushVisionPatch
     {

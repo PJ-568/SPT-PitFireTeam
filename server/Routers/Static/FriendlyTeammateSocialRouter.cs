@@ -1,4 +1,4 @@
-using friendlySAIN.Server.Callbacks;
+using pitTeam.Server.Callbacks;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Models.Eft.Common;
@@ -6,7 +6,7 @@ using SPTarkov.Server.Core.Models.Eft.Dialog;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Routers.Static;
+namespace pitTeam.Server.Routers.Static;
 
 [Injectable(typePriority: int.MaxValue)]
 public class FriendlyTeammateSocialRouter(JsonUtil jsonUtil, FriendlyTeammateSocialCallbacks callbacks)

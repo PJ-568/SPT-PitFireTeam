@@ -1,6 +1,6 @@
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using SAIN;
 using SAIN.Components;
 using SAIN.Extensions;
@@ -10,7 +10,7 @@ using SAIN.SAINComponent.Classes.Decision;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal sealed class SAINFollowerCombatLayer : SAINLayer
     {

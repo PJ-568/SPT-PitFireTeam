@@ -1,11 +1,11 @@
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     /// <summary>
     /// Shared push planner and committed-push lifecycle. Tactics ask this class to build a

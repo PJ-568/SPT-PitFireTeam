@@ -7,8 +7,8 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
 using EFT.UI.Settings;
-using friendlySAIN.Modules;
-using friendlySAIN.Patches;
+using pitTeam.Modules;
+using pitTeam.Patches;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -28,12 +28,12 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     internal partial class SquadControlMenuUi : MonoBehaviour
     {
-        private const string SquadButtonName = "friendlySAIN_SquadControlButton";
-        private const string ScreenRootName = "friendlySAIN_SquadControlScreen";
+        private const string SquadButtonName = "pitFireTeam_SquadControlButton";
+        private const string ScreenRootName = "pitFireTeam_SquadControlScreen";
         private const float RosterTileWidth = 190f;
         private const float RosterTileHeight = 214f;
         private const float RosterTileSpacing = 18f;
@@ -180,7 +180,7 @@ namespace friendlySAIN.Components
         private static readonly FieldInfo InteractionButtonsContainerButtonsRootField = AccessTools.Field(typeof(InteractionButtonsContainer), "_buttonsContainer");
         private static readonly FieldInfo MatchmakerBackButtonField = AccessTools.Field(typeof(MatchMakerSideSelectionScreen), "_backButton");
         private static readonly string PluginDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
-        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private const string TeammatesRoute = "/singleplayer/pitfireteam/teammates";
         private static Sprite squadIconSprite;
         private static Sprite rosterTileDiagonalSprite;
         private static Sprite autoJoinBadgeSprite;
@@ -877,7 +877,7 @@ namespace friendlySAIN.Components
 
             if (raidSettingsButton == null)
             {
-                Transform existing = hideScreenButton.transform.parent.Find("friendlySAIN_RaidSettingsButton");
+                Transform existing = hideScreenButton.transform.parent.Find("pitFireTeam_RaidSettingsButton");
                 if (existing != null)
                 {
                     raidSettingsButton = existing.GetComponent<DefaultUIButton>();
@@ -887,7 +887,7 @@ namespace friendlySAIN.Components
             if (raidSettingsButton == null)
             {
                 raidSettingsButton = Instantiate(hideScreenButton, hideScreenButton.transform.parent, false);
-                raidSettingsButton.name = "friendlySAIN_RaidSettingsButton";
+                raidSettingsButton.name = "pitFireTeam_RaidSettingsButton";
             }
 
             if (hideScreenButton.transform is RectTransform resumeRect
@@ -961,7 +961,7 @@ namespace friendlySAIN.Components
 
             if (needsRoster || needsSettings)
             {
-                friendlySAIN.Instance.StartCoroutine(RebuildAfterTransitionCoroutine(needsRoster, needsSettings));
+                pitFireTeam.Instance.StartCoroutine(RebuildAfterTransitionCoroutine(needsRoster, needsSettings));
             }
         }
 
@@ -1035,8 +1035,8 @@ namespace friendlySAIN.Components
 
             if (!TryCreateStockTraderChrome(rootRect))
             {
-                rosterPanel = CreateFallbackContentPanel("friendlySAIN_SquadControlRosterPanel", GetSocialUiText("SquadControlRosterTab", "Roster"));
-                settingsPanel = CreateFallbackContentPanel("friendlySAIN_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
+                rosterPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlRosterPanel", GetSocialUiText("SquadControlRosterTab", "Roster"));
+                settingsPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
                 BuildSettingsPanel();
             }
 
@@ -1046,7 +1046,7 @@ namespace friendlySAIN.Components
         private void CreateHeader(RectTransform rootRect)
         {
             GameObject titleObject = CreateText(
-                "friendlySAIN_SquadControlTitle",
+                "pitFireTeam_SquadControlTitle",
                 GetSocialUiText("SquadControlTitle", "Squad Control"),
                 44,
                 TextAlignmentOptions.Center);
@@ -1076,7 +1076,7 @@ namespace friendlySAIN.Components
             }
 
             closeButton.transform.SetParent(screenRoot.transform, false);
-            closeButton.name = "friendlySAIN_SquadControlStandaloneClose";
+            closeButton.name = "pitFireTeam_SquadControlStandaloneClose";
             closeButton.gameObject.SetActive(false);
             standaloneCloseButton = closeButton;
         }
@@ -1125,7 +1125,7 @@ namespace friendlySAIN.Components
             }
 
             stockCardsContainer = Instantiate(cardsContainerTemplate as RectTransform, rootRect, false);
-            stockCardsContainer.name = "friendlySAIN_SquadControlCardsContainer";
+            stockCardsContainer.name = "pitFireTeam_SquadControlCardsContainer";
             float rosterShellHeight = CalculateRosterShellHeight();
             currentRosterShellHeight = rosterShellHeight;
             stockCardsContainer.anchorMin = new Vector2(0.5f, 0.5f);
@@ -1140,7 +1140,7 @@ namespace friendlySAIN.Components
                 Destroy(stockCardsContainer.GetChild(i).gameObject);
             }
 
-            rosterPanel = new GameObject("friendlySAIN_SquadControlRosterPanel", typeof(RectTransform));
+            rosterPanel = new GameObject("pitFireTeam_SquadControlRosterPanel", typeof(RectTransform));
             rosterPanel.transform.SetParent(rootRect, false);
             RectTransform rosterRect = rosterPanel.GetComponent<RectTransform>();
             rosterPanelRect = rosterRect;
@@ -1161,7 +1161,7 @@ namespace friendlySAIN.Components
             UpdateRosterPanelLayout(false);
             RebuildRosterTiles();
 
-            settingsPanel = CreateFallbackContentPanel("friendlySAIN_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
+            settingsPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
             BuildSettingsPanel();
             return true;
         }

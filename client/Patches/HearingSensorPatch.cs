@@ -1,4 +1,4 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 
 using HarmonyLib;
@@ -7,10 +7,10 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Modules;
+using pitTeam.Utils;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal static class ReactionRateLimiter
     {

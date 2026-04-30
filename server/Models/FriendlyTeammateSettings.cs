@@ -1,4 +1,4 @@
-namespace friendlySAIN.Server.Models;
+namespace pitTeam.Server.Models;
 
 public record FriendlyTeammateSettings
 {

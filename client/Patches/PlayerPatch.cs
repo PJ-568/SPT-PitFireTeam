@@ -1,11 +1,11 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 using EFT.Counters;
 using EFT.HealthSystem;
 using EFT.InventoryLogic;
 using EFT.Quests;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -16,7 +16,7 @@ using UnityEngine;
 using GestureData = GClass532;
 using EventInfo = BotEventHandler.GClass692;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
 
     internal class AIDataContructPatch : ModulePatch

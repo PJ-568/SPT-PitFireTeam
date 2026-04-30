@@ -1,7 +1,7 @@
 using EFT;
 using HarmonyLib;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using SAIN.Models.Preset.Personalities;
 using SAIN.Preset;
 using SAIN.Preset.BotSettings;
@@ -11,7 +11,7 @@ using System.Collections;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerPersonalityPatch
     {
@@ -40,7 +40,7 @@ namespace friendlySAIN.SAINAddon
         {
             try
             {
-                if (!friendlySAIN.IsSAINInstalled) return;
+                if (!pitFireTeam.IsSAINInstalled) return;
                 if (bot == null || __result == null || bot.IsDead) return;
 
                 if (squadMate)
@@ -126,7 +126,7 @@ namespace friendlySAIN.SAINAddon
         /// </summary>
         private static void OverrideFollowerForgetTime(BotOwner bot)
         {
-            float forgetSeconds = (float)friendlySAIN.enemyRemember.Value;
+            float forgetSeconds = (float)pitFireTeam.enemyRemember.Value;
             if (forgetSeconds <= 0f) return;
 
             // Vanilla setting — SAIN's CalcTimeBeforeSearch overwrites this, so we restore it here.

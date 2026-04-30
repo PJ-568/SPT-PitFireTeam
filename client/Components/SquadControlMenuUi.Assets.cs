@@ -7,8 +7,8 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
 using EFT.UI.Settings;
-using friendlySAIN.Modules;
-using friendlySAIN.Patches;
+using pitTeam.Modules;
+using pitTeam.Patches;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -27,7 +27,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     internal partial class SquadControlMenuUi
     {
@@ -59,7 +59,7 @@ namespace friendlySAIN.Components
         private DefaultUIButton CreateOverlayActionButton(Transform parent, Vector2 anchoredPosition, Vector2 size)
         {
             DefaultUIButton button = Instantiate(playerButton, parent, false);
-            button.name = "friendlySAIN_OverlayActionButton";
+            button.name = "pitFireTeam_OverlayActionButton";
             RectTransform rect = button.transform as RectTransform;
             if (rect != null)
             {
@@ -206,7 +206,7 @@ namespace friendlySAIN.Components
 
         private static Scrollbar CreateFallbackScrollbar(RectTransform parent)
         {
-            GameObject root = new GameObject("friendlySAIN_SquadControlScrollbar", typeof(RectTransform), typeof(Image), typeof(Scrollbar));
+            GameObject root = new GameObject("pitFireTeam_SquadControlScrollbar", typeof(RectTransform), typeof(Image), typeof(Scrollbar));
             root.transform.SetParent(parent, false);
 
             RectTransform rootRect = root.GetComponent<RectTransform>();
@@ -281,7 +281,7 @@ namespace friendlySAIN.Components
                     continue;
                 }
 
-                if (sibling.name.StartsWith("friendlySAIN_", StringComparison.Ordinal))
+                if (sibling.name.StartsWith("pitFireTeam_", StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -304,7 +304,7 @@ namespace friendlySAIN.Components
                     continue;
                 }
 
-                if (sibling.name.StartsWith("friendlySAIN_", StringComparison.Ordinal))
+                if (sibling.name.StartsWith("pitFireTeam_", StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -358,7 +358,7 @@ namespace friendlySAIN.Components
             string iconPath = candidates.FirstOrDefault(File.Exists);
             if (string.IsNullOrEmpty(iconPath))
             {
-                friendlySAIN.Log.LogWarning("[UI] Squad Control icon could not be found.");
+                pitFireTeam.Log.LogWarning("[UI] Squad Control icon could not be found.");
                 return null;
             }
 
@@ -367,13 +367,13 @@ namespace friendlySAIN.Components
             if (!texture.LoadImage(fileData))
             {
                 Destroy(texture);
-                friendlySAIN.Log.LogWarning($"[UI] Failed to decode Squad Control icon '{iconPath}'.");
+                pitFireTeam.Log.LogWarning($"[UI] Failed to decode Squad Control icon '{iconPath}'.");
                 return null;
             }
 
-            texture.name = "friendlySAIN_SquadControlIcon";
+            texture.name = "pitFireTeam_SquadControlIcon";
             squadIconSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
-            squadIconSprite.name = "friendlySAIN_SquadControlIcon";
+            squadIconSprite.name = "pitFireTeam_SquadControlIcon";
             return squadIconSprite;
         }
 
@@ -394,7 +394,7 @@ namespace friendlySAIN.Components
             string iconPath = candidates.FirstOrDefault(File.Exists);
             if (string.IsNullOrEmpty(iconPath))
             {
-                friendlySAIN.Log.LogWarning("[UI] Roster tile diagonal overlay image could not be found.");
+                pitFireTeam.Log.LogWarning("[UI] Roster tile diagonal overlay image could not be found.");
                 return null;
             }
 
@@ -403,11 +403,11 @@ namespace friendlySAIN.Components
             if (!texture.LoadImage(fileData))
             {
                 Destroy(texture);
-                friendlySAIN.Log.LogWarning($"[UI] Failed to decode roster tile diagonal overlay '{iconPath}'.");
+                pitFireTeam.Log.LogWarning($"[UI] Failed to decode roster tile diagonal overlay '{iconPath}'.");
                 return null;
             }
 
-            texture.name = "friendlySAIN_RosterTileDiagonal";
+            texture.name = "pitFireTeam_RosterTileDiagonal";
             texture.wrapMode = TextureWrapMode.Repeat;
             texture.filterMode = FilterMode.Bilinear;
             rosterTileDiagonalSprite = Sprite.Create(
@@ -417,7 +417,7 @@ namespace friendlySAIN.Components
                 200f,
                 0u,
                 SpriteMeshType.FullRect);
-            rosterTileDiagonalSprite.name = "friendlySAIN_RosterTileDiagonal";
+            rosterTileDiagonalSprite.name = "pitFireTeam_RosterTileDiagonal";
             return rosterTileDiagonalSprite;
         }
 
@@ -433,14 +433,14 @@ namespace friendlySAIN.Components
                 Path.Combine(PluginDirectory, "auto-join.png"),
                 Path.Combine(PluginDirectory, "resources", "auto-join.png"),
                 Path.Combine(Directory.GetParent(PluginDirectory)?.FullName ?? PluginDirectory, "resources", "auto-join.png"),
-                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "auto-join.png"),
-                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "resources", "auto-join.png")
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "pitFireTeam", "auto-join.png"),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "pitFireTeam", "resources", "auto-join.png")
             };
 
             string iconPath = candidates.FirstOrDefault(File.Exists);
             if (string.IsNullOrEmpty(iconPath))
             {
-                friendlySAIN.Log.LogWarning("[UI] Auto-join badge icon could not be found.");
+                pitFireTeam.Log.LogWarning("[UI] Auto-join badge icon could not be found.");
                 return null;
             }
 
@@ -449,13 +449,13 @@ namespace friendlySAIN.Components
             if (!texture.LoadImage(fileData))
             {
                 Destroy(texture);
-                friendlySAIN.Log.LogWarning($"[UI] Failed to decode auto-join badge icon '{iconPath}'.");
+                pitFireTeam.Log.LogWarning($"[UI] Failed to decode auto-join badge icon '{iconPath}'.");
                 return null;
             }
 
-            texture.name = "friendlySAIN_AutoJoinBadge";
+            texture.name = "pitFireTeam_AutoJoinBadge";
             autoJoinBadgeSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
-            autoJoinBadgeSprite.name = "friendlySAIN_AutoJoinBadge";
+            autoJoinBadgeSprite.name = "pitFireTeam_AutoJoinBadge";
             return autoJoinBadgeSprite;
         }
 
@@ -471,8 +471,8 @@ namespace friendlySAIN.Components
                 Path.Combine(PluginDirectory, "icon_group.png"),
                 Path.Combine(PluginDirectory, "resources", "icon_group.png"),
                 Path.Combine(Directory.GetParent(PluginDirectory)?.FullName ?? PluginDirectory, "resources", "icon_group.png"),
-                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "icon_group.png"),
-                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "friendlySAIN", "resources", "icon_group.png")
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "pitFireTeam", "icon_group.png"),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "pitFireTeam", "resources", "icon_group.png")
             };
 
             string iconPath = candidates.FirstOrDefault(File.Exists);
@@ -489,16 +489,16 @@ namespace friendlySAIN.Components
                 return null;
             }
 
-            texture.name = "friendlySAIN_GroupBadge";
+            texture.name = "pitFireTeam_GroupBadge";
             groupBadgeSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
-            groupBadgeSprite.name = "friendlySAIN_GroupBadge";
+            groupBadgeSprite.name = "pitFireTeam_GroupBadge";
             return groupBadgeSprite;
         }
 
         private static string GetSocialUiText(string key, string fallback)
         {
-            if (friendlySAIN.optionsLang?.socialUi != null
-                && friendlySAIN.optionsLang.socialUi.TryGetValue(key, out string value)
+            if (pitFireTeam.optionsLang?.socialUi != null
+                && pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value)
                 && !string.IsNullOrWhiteSpace(value))
             {
                 return value;

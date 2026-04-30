@@ -1,5 +1,5 @@
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
@@ -7,7 +7,7 @@ using UnityEngine;
 
 using EventInfo = BotEventHandler.GClass692;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     // Minimal recruit trigger for 4.x:
     // Intercept FollowMe/Cooperation phrase receipt and forward it to the existing follow-request flow.

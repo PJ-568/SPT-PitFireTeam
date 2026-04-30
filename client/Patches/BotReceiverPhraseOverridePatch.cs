@@ -1,12 +1,12 @@
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 
 using EventInfo = BotEventHandler.GClass692;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     // Route Stop through pitAIBossPlayer instead of vanilla BotReceiver.method_0 logic.
     internal class BotReceiverPhraseOverridePatch : ModulePatch

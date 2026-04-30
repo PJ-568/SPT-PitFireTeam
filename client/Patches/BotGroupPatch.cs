@@ -1,7 +1,7 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class BotGroupUsecEnemyPatch : ModulePatch
     {
@@ -147,7 +147,7 @@ namespace friendlySAIN.Patches
 
             bool isPMCGroup = __instance.Side == EPlayerSide.Bear || __instance.Side == EPlayerSide.Usec;
 
-            bool isFriendlyPMC = isPMCGroup && Utils.Utils.FlagGet("friendlySAIN");
+            bool isFriendlyPMC = isPMCGroup && Utils.Utils.FlagGet("pitFireTeam");
 
             // prevent Rogues from adding the player and his followers as enemies if they are friends with the Goons
             WildSpawnType groupRole = __instance.InitialBotType;

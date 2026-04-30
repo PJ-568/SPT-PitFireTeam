@@ -7,16 +7,16 @@ using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Utils.Json;
 using System.IO;
-using friendlySAIN.Server.Services;
+using pitTeam.Server.Services;
 using Range = SemanticVersioning.Range;
 using Version = SemanticVersioning.Version;
 
-namespace friendlySAIN.Server;
+namespace pitTeam.Server;
 
-public record FriendlySainServerMetadata : AbstractModMetadata
+public record PitFireTeamServerMetadata : AbstractModMetadata
 {
-    public override string ModGuid { get; init; } = "xyz.pit.friendlysain.server";
-    public override string Name { get; init; } = "friendlySAIN.Server";
+    public override string ModGuid { get; init; } = "xyz.pit.fireteam.server";
+    public override string Name { get; init; } = "pitFireTeam.Server";
     public override string Author { get; init; } = "pit";
     public override List<string>? Contributors { get; init; }
     public override Version Version { get; init; } = new("1.0.0");
@@ -29,8 +29,8 @@ public record FriendlySainServerMetadata : AbstractModMetadata
 }
 
 [Injectable(TypePriority = OnLoadOrder.PostDBModLoader + 1)]
-public class FriendlySainServerPlugin(
-    ISptLogger<FriendlySainServerPlugin> logger,
+public class PitFireTeamServerPlugin(
+    ISptLogger<PitFireTeamServerPlugin> logger,
     DatabaseService databaseService
 ) : IOnLoad
 {
@@ -40,7 +40,7 @@ public class FriendlySainServerPlugin(
         EnsureCourierTraderLocales();
         EnsureCourierAvatarIsServed();
         EnforcePmcArmbands();
-        logger.Info("friendlySAIN.Server loaded");
+        logger.Info("pitFireTeam.Server loaded");
         return Task.CompletedTask;
     }
 
@@ -107,7 +107,7 @@ public class FriendlySainServerPlugin(
                 serverRoot,
                 "user",
                 "mods",
-                "friendlySAIN-ServerMod",
+                "pitFireTeam-ServerMod",
                 "Resources",
                 "avatars",
                 "courier.png");

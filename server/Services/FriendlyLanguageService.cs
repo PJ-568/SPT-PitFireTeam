@@ -3,12 +3,12 @@ using System.Text.Json.Nodes;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Models.Utils;
 
-namespace friendlySAIN.Server.Services;
+namespace pitTeam.Server.Services;
 
 [Injectable]
 public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
 {
-    private const string ModFolderName = "friendlySAIN-ServerMod";
+    private const string ModFolderName = "pitFireTeam-ServerMod";
     private const string LanguageFolderName = "lang";
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -83,7 +83,7 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
         }
         catch (Exception ex)
         {
-            logger.Warning($"Failed to load friendlySAIN language file '{path}': {ex.Message}");
+            logger.Warning($"Failed to load pitFireTeam language file '{path}': {ex.Message}");
             return null;
         }
     }
@@ -103,12 +103,12 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
                 return language;
             }
 
-            logger.Warning($"friendlySAIN language source '{source}' is not a JSON object.");
+            logger.Warning($"pitFireTeam language source '{source}' is not a JSON object.");
             return null;
         }
         catch (Exception ex)
         {
-            logger.Warning($"Failed to parse friendlySAIN language source '{source}': {ex.Message}");
+            logger.Warning($"Failed to parse pitFireTeam language source '{source}': {ex.Message}");
             return null;
         }
     }
@@ -121,7 +121,7 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
         }
         catch (Exception ex)
         {
-            logger.Warning($"Failed to write friendlySAIN language file '{path}': {ex.Message}");
+            logger.Warning($"Failed to write pitFireTeam language file '{path}': {ex.Message}");
         }
     }
 

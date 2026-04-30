@@ -1,14 +1,14 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal class FollowAction : CustomLogic
     {
@@ -56,7 +56,7 @@ namespace friendlySAIN.BigBrain.Actions
 
         public FollowAction(BotOwner botOwner) : base(botOwner)
         {
-            patrolPerimeterRadius = friendlySAIN.patrolRadius.Value;
+            patrolPerimeterRadius = pitFireTeam.patrolRadius.Value;
             coverCommitment = new FollowerCoverCommitment();
         }
 

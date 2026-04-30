@@ -1,10 +1,10 @@
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class FollowerGrenadeAvailabilityPatch : ModulePatch
     {

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal sealed class LoadoutEditorUnloadAmmoPatch : ModulePatch
     {

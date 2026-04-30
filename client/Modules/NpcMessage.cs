@@ -1,4 +1,4 @@
-﻿using EFT;
+using EFT;
 using HarmonyLib;
 using Newtonsoft.Json;
 using SPT.Common.Http;
@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal class NpcMessage
     {
@@ -112,7 +112,7 @@ namespace friendlySAIN.Modules
 
         public static void NpcSendThankYou(string? id = null)
         {
-            if (Instance == null || Instance._playerDied || !friendlySAIN.npcSendMessage.Value) { return; }
+            if (Instance == null || Instance._playerDied || !pitFireTeam.npcSendMessage.Value) { return; }
 
             List<object> mates = new List<object>();
             List<object> allies = new List<object>();

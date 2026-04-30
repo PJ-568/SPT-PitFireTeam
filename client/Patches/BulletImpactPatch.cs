@@ -1,4 +1,4 @@
-﻿using EFT;
+using EFT;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Collections.Generic;
@@ -6,10 +6,10 @@ using System.Reflection;
 using Systems.Effects;
 using UnityEngine;
 
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Modules;
+using pitTeam.Utils;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     // patch to detect nearby bullet impacts
     public class BulletImpactPatch : ModulePatch

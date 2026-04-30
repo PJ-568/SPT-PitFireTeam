@@ -1,6 +1,6 @@
 using EFT;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal sealed class SAINFollowerCombatDefaultBossAction : SAINFollowerCombatRegroupAction
     {

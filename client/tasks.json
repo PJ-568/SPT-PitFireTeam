@@ -2,10 +2,10 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "build friendlySAIN",
+			"label": "build pitFireTeam",
 			"type": "shell",
 			"command": "dotnet",
-			"args": ["build", "${workspaceFolder}/friendlySAIN.csproj", "-c", "Debug"],
+			"args": ["build", "${workspaceFolder}/pitFireTeam.csproj", "-c", "Debug"],
 			"group": "build",
 			"problemMatcher": "$msCompile"
 		}

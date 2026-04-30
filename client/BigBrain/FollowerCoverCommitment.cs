@@ -2,7 +2,7 @@ using EFT;
 using System;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     /// <summary>
     /// Tracks follower's committed cover point and sector anchor.

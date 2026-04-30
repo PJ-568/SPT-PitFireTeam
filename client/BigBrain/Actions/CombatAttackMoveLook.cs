@@ -1,7 +1,7 @@
 using EFT;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal static class CombatAttackMoveLook
     {

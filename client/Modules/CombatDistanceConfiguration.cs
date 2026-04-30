@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     /// <summary>
     /// Centralized combat distance configuration that adapts based on map context.

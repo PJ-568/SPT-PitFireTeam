@@ -1,12 +1,12 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Components;
+using pitTeam.Components;
 using SAIN.Layers;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal sealed class SAINFollowerCombatFollowBossSearchAction : BotAction
     {

@@ -1,6 +1,6 @@
 # SAIN Personality Findings (2026-03-18)
 
-Scope: confirm whether friendlySAIN followers switch between Normal and Chad-like SAIN behavior personalities, and separate this from aiming/bot-settings template work.
+Scope: confirm whether pitFireTeam followers switch between Normal and Chad-like SAIN behavior personalities, and separate this from aiming/bot-settings template work.
 
 ## Confirmed Results
 
@@ -28,7 +28,7 @@ Source:
 - `SAIN-4.4.0/SAIN/Classes/Bot/Info/SAINBotInfoClass.cs`
 - `SAIN-4.4.0/SAIN/Models/Preset/Personalities/PersonalityDictionary.cs`
 
-3. friendlySAIN addon personality patch does NOT currently force a behavior personality (e.g. force Chad).
+3. pitFireTeam addon personality patch does NOT currently force a behavior personality (e.g. force Chad).
 
 - It applies a per-follower clone of SAIN `followerBigPipe` bot settings template (`_fileSettings`).
 - It rebuilds SAIN info from that template and aligns difficulty modifiers.
@@ -36,7 +36,7 @@ Source:
 
 Source:
 
-- `friendlySAIN/addon/SAINFollowerPersonalityPatch.cs`
+- `pitFireTeam/addon/SAINFollowerPersonalityPatch.cs`
 
 4. The active behavior baseline in addon is still template-driven, not personality-forced.
 
@@ -45,7 +45,7 @@ Source:
 
 Source:
 
-- `friendlySAIN/addon/SAINFollowerPersonalityPatch.cs`
+- `pitFireTeam/addon/SAINFollowerPersonalityPatch.cs`
 
 5. Some old SAIN follower tuning patches exist in source but are not currently wired by bootstrap.
 
@@ -54,7 +54,7 @@ Source:
 
 Source:
 
-- `friendlySAIN/addon/SAINRegroupBootstrap.cs`
+- `pitFireTeam/addon/SAINRegroupBootstrap.cs`
 
 ## Normal vs Chad Behavior Defaults (SAIN)
 
@@ -75,17 +75,17 @@ Source:
 
 - `SAIN-4.4.0/SAIN/Preset/Personalities/BasePersonality/PersonalityDefaultsClass.cs`
 
-## Practical Interpretation for friendlySAIN
+## Practical Interpretation for pitFireTeam
 
 - If follower behavior feels more/less aggressive, personality can still vary through SAIN assignment logic.
-- friendlySAIN currently does not force follower personality to Chad or Normal.
-- friendlySAIN does force bot settings template to `followerBigPipe` and adjusts difficulty modifiers.
+- pitFireTeam currently does not force follower personality to Chad or Normal.
+- pitFireTeam does force bot settings template to `followerBigPipe` and adjusts difficulty modifiers.
 
 ## Related Logging Note
 
 Recent raid logs showed repeated AI exceptions from vanilla follower patrol update path (`BotBoss.get_MoveSpeed`).
-A guard was added in friendlySAIN `PatrolDataFollowerUpdateGuardPatch` to avoid repeated exception spam/perf hit when AI boss MoveSpeed access is invalid.
+A guard was added in pitFireTeam `PatrolDataFollowerUpdateGuardPatch` to avoid repeated exception spam/perf hit when AI boss MoveSpeed access is invalid.
 
 Source:
 
-- `friendlySAIN/client/Patches/FollowerVanillaSafetyPatch.cs`
+- `pitFireTeam/client/Patches/FollowerVanillaSafetyPatch.cs`

@@ -1,5 +1,5 @@
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SAIN.Components;
 using SAIN.Layers;
@@ -7,7 +7,7 @@ using SAIN.SAINComponent.Classes.EnemyClasses;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerSearchCurrentEnemyLookPatch
     {

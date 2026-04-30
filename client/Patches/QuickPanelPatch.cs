@@ -1,14 +1,14 @@
-﻿using EFT;
+using EFT;
 using EFT.Interactive;
 using EFT.InventoryLogic;
 using EFT.UI.Gestures;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class QuickPanelPatch : ModulePatch
     {
@@ -75,7 +75,7 @@ namespace friendlySAIN.Patches
                 // Show cooperation for any alive non-follower AI target.
                 try
                 {
-                    if (!friendlySAIN.pickupEnabled.Value)
+                    if (!pitFireTeam.pickupEnabled.Value)
                     {
                         __instance.method_7(EPhraseTrigger.Cooperation, false);
                         return false;

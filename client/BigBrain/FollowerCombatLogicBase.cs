@@ -1,9 +1,9 @@
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using System;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal abstract class FollowerCombatLogicBase
     {

@@ -1,10 +1,10 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Utils;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     /// <summary>
     /// Direct port of the old plugin's FollowerAttackMove behavior onto the 4.x attack-moving base.
@@ -189,7 +189,7 @@ namespace friendlySAIN.BigBrain.Actions
                 bool allowHardTurn =
                     forceThreatLookWhenShootable ||
                     BotOwner_0.Memory.IsInCover ||
-                    global::friendlySAIN.BigBrain.FollowerCombatRegroupObjective.IsRegroupReason(currentReason);
+                    global::pitTeam.BigBrain.FollowerCombatRegroupObjective.IsRegroupReason(currentReason);
 
                 CombatAttackMoveLook.TryLookThreatFacing(BotOwner_0, goalEnemy, allowHardTurn);
             }
@@ -207,7 +207,7 @@ namespace friendlySAIN.BigBrain.Actions
                     return true;
                 }
 
-                if (global::friendlySAIN.BigBrain.FollowerCombatRegroupObjective.IsRegroupReason(currentReason) &&
+                if (global::pitTeam.BigBrain.FollowerCombatRegroupObjective.IsRegroupReason(currentReason) &&
                     BotOwner_0.GoToSomePointData != null &&
                     BotOwner_0.GoToSomePointData.IsCome())
                 {

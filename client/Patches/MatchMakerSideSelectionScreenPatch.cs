@@ -1,7 +1,7 @@
 using EFT.UI.Matchmaker;
 using EFT.UI;
 using EFT.UI.Ragfair;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using SPT.Reflection.Utils;
@@ -16,7 +16,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Events;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     /// <summary>
     /// When opened in squad mode, hides all native MatchMakerSideSelectionScreen elements
@@ -135,8 +135,8 @@ namespace friendlySAIN.Patches
                 if (label != null)
                 {
                     string title = "My Squad";
-                    if (friendlySAIN.optionsLang?.socialUi != null
-                        && friendlySAIN.optionsLang.socialUi.TryGetValue("SquadControlButton", out string localized)
+                    if (pitFireTeam.optionsLang?.socialUi != null
+                        && pitFireTeam.optionsLang.socialUi.TryGetValue("SquadControlButton", out string localized)
                         && !string.IsNullOrWhiteSpace(localized))
                     {
                         title = localized;
@@ -153,18 +153,18 @@ namespace friendlySAIN.Patches
 
         private static void ScheduleTabsOverlay(MatchMakerSideSelectionScreen screen)
         {
-            if (friendlySAIN.Instance == null || screen == null)
+            if (pitFireTeam.Instance == null || screen == null)
             {
                 return;
             }
 
             if (tabsOverlayCoroutine != null)
             {
-                friendlySAIN.Instance.StopCoroutine(tabsOverlayCoroutine);
+                pitFireTeam.Instance.StopCoroutine(tabsOverlayCoroutine);
                 tabsOverlayCoroutine = null;
             }
 
-            tabsOverlayCoroutine = friendlySAIN.Instance.StartCoroutine(ShowTabsOverlayDeferred(screen));
+            tabsOverlayCoroutine = pitFireTeam.Instance.StartCoroutine(ShowTabsOverlayDeferred(screen));
         }
 
         private static IEnumerator ShowTabsOverlayDeferred(MatchMakerSideSelectionScreen screen)
@@ -190,14 +190,14 @@ namespace friendlySAIN.Patches
             }
 
             // Invisible root — holds the ToggleGroup so Unity can enforce mutual exclusion.
-            tabsOverlayRoot = new GameObject("friendlySAIN_SideSelectionTabsOnly", typeof(RectTransform));
+            tabsOverlayRoot = new GameObject("pitFireTeam_SideSelectionTabsOnly", typeof(RectTransform));
             tabsOverlayRoot.GetComponent<RectTransform>().SetParent(screen.transform, false);
 
             overlayToggleGroup = tabsOverlayRoot.AddComponent<ToggleGroup>();
             overlayToggleGroup.allowSwitchOff = false;
 
             tabsRosterInstance = UnityEngine.Object.Instantiate(rosterTemplate, screen.transform, false);
-            tabsRosterInstance.name = "friendlySAIN_SideSelTab_Roster";
+            tabsRosterInstance.name = "pitFireTeam_SideSelTab_Roster";
             ConfigureTabForOverlay(tabsRosterInstance, new Vector2(-135f, -112f), GetSocialUiText("SquadControlRosterTab", "Roster"), selected: true,
                 onSelected: () =>
                 {
@@ -207,7 +207,7 @@ namespace friendlySAIN.Patches
                 });
 
             tabsSettingsInstance = UnityEngine.Object.Instantiate(settingsTemplate, screen.transform, false);
-            tabsSettingsInstance.name = "friendlySAIN_SideSelTab_Settings";
+            tabsSettingsInstance.name = "pitFireTeam_SideSelTab_Settings";
             ConfigureTabForOverlay(tabsSettingsInstance, new Vector2(135f, -112f), GetSocialUiText("SquadControlSettingsTab", "Settings"), selected: false,
                 onSelected: () =>
                 {
@@ -295,8 +295,8 @@ namespace friendlySAIN.Patches
 
         private static string GetSocialUiText(string key, string fallback)
         {
-            if (friendlySAIN.optionsLang?.socialUi != null
-                && friendlySAIN.optionsLang.socialUi.TryGetValue(key, out string value)
+            if (pitFireTeam.optionsLang?.socialUi != null
+                && pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value)
                 && !string.IsNullOrWhiteSpace(value))
             {
                 return value;
@@ -320,9 +320,9 @@ namespace friendlySAIN.Patches
 
         internal static void CleanupTabsOverlay()
         {
-            if (friendlySAIN.Instance != null && tabsOverlayCoroutine != null)
+            if (pitFireTeam.Instance != null && tabsOverlayCoroutine != null)
             {
-                friendlySAIN.Instance.StopCoroutine(tabsOverlayCoroutine);
+                pitFireTeam.Instance.StopCoroutine(tabsOverlayCoroutine);
             }
 
             tabsOverlayCoroutine = null;
@@ -516,8 +516,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Suppressed stale matchmaker preview close failure.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Suppressed stale matchmaker preview close failure.");
+                pitFireTeam.Log.LogError(ex);
             }
 
             try
@@ -529,8 +529,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Failed to restore matchmaker preview placeholder.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Failed to restore matchmaker preview placeholder.");
+                pitFireTeam.Log.LogError(ex);
             }
 
             __result = preview;

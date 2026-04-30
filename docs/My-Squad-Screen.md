@@ -4,7 +4,7 @@ Date: 2026-04-28
 
 ## Goal
 
-Document the current verified implementation of the `My Squad` experience as it exists today in `friendlySAIN`, split into:
+Document the current verified implementation of the `My Squad` experience as it exists today in `pitFireTeam`, split into:
 
 1. `Roster`
 2. `Settings`
@@ -28,7 +28,7 @@ That means the current flow is:
 1. main menu `My Squad` button
 2. open stock side-selection screen in squad mode
 3. hide native PMC/Scav selection widgets
-4. inject friendlySAIN roster/settings panels
+4. inject pitFireTeam roster/settings panels
 5. open teammate profile from roster tile
 6. patch stock other-player profile into teammate management UI
 7. return back into `My Squad`
@@ -90,19 +90,19 @@ In squad mode it:
 - spawns two stock-style animated tabs by cloning Ragfair toggles:
     - `Roster`
     - `Settings`
-- injects the friendlySAIN panels into the live side-selection screen transform
+- injects the pitFireTeam panels into the live side-selection screen transform
 - rewires the stock back button so squad-mode back always exits to root and disables squad mode
 
 On close it restores the hidden stock elements and retracts the injected panels.
 
 ## Localization
 
-`My Squad` UI text is now loaded through the shared friendlySAIN language model.
+`My Squad` UI text is now loaded through the shared pitFireTeam language model.
 
 Current behavior:
 
 - client reads the active game language through `SharedGameSettingsClass`
-- client posts the normalized locale plus embedded English fallback JSON to `/singleplayer/friendlysain/lang`
+- client posts the normalized locale plus embedded English fallback JSON to `/singleplayer/pitfireteam/lang`
 - server creates or repairs `server/Resources/lang/en.json` from the embedded English when it is missing, corrupted, or missing keys
 - server returns `server/Resources/lang/<locale>.json` merged with the editable English fallback
 - built-in client fallback comes from `EmbeddedEnglishLanguageProvider`
@@ -125,7 +125,7 @@ When stock trader chrome is available, the roster uses a cloned trader-card shel
 
 Roster entries are loaded from:
 
-- `GET /singleplayer/friendlysain/teammates`
+- `GET /singleplayer/pitfireteam/teammates`
 
 Each tile is built from backend teammate data:
 
@@ -203,7 +203,7 @@ The roster also uses the opening group snapshot from `SquadSideSelectionFlow` so
 
 Auto-join toggles post to:
 
-- `POST /singleplayer/friendlysain/teammate/autojoin`
+- `POST /singleplayer/pitfireteam/teammate/autojoin`
 
 On success the roster updates the badge immediately and also updates `TeammateAutoJoinRuntime` suppression state locally.
 
@@ -253,7 +253,7 @@ If a stock template cannot be found, it falls back to basic runtime-created cont
 Important difference from the March design investigation:
 
 - the current `Settings` tab writes directly to live BepInEx config entries
-- it saves immediately through `friendlySAIN.Instance?.Config.Save()`
+- it saves immediately through `pitFireTeam.Instance?.Config.Save()`
 - it does not use a temporary view-model
 - it does not have save/cancel/default buttons
 - it does not prompt for unsaved changes
@@ -297,7 +297,7 @@ Verified entry groups:
     - `maximumPickup`
     - `recruitPickup`
     - `npcSendMessage`
-    - `friendlySAINFLAG`
+    - `pitFireTeamFLAG`
     - `badGuy`
 - `Miscellaneous`
     - `teleportKey`
@@ -359,7 +359,7 @@ The profile patch only activates when:
 
 - the viewed profile is not the local player
 - teammate profile options load successfully from:
-    - `POST /singleplayer/friendlysain/teammate/profile/options`
+    - `POST /singleplayer/pitfireteam/teammate/profile/options`
 - at least one loadout option exists
 
 If those conditions fail, the stock profile mostly stays in charge.
@@ -383,15 +383,15 @@ For teammate profiles the patch:
 Verified persisted actions today:
 
 - suit/body/feet change
-    - `POST /singleplayer/friendlysain/teammate/profile/suit`
+    - `POST /singleplayer/pitfireteam/teammate/profile/suit`
 - rename
-    - `POST /singleplayer/friendlysain/teammate/profile/rename`
+    - `POST /singleplayer/pitfireteam/teammate/profile/rename`
 - selected loadout from saved player equipment builds
-    - `POST /singleplayer/friendlysain/teammate/profile/loadout`
+    - `POST /singleplayer/pitfireteam/teammate/profile/loadout`
 - tactic
-    - `POST /singleplayer/friendlysain/teammate/profile/tactic`
+    - `POST /singleplayer/pitfireteam/teammate/profile/tactic`
 - aggression
-    - `POST /singleplayer/friendlysain/teammate/profile/aggression`
+    - `POST /singleplayer/pitfireteam/teammate/profile/aggression`
 
 After successful profile-side persistence the code marks the squad roster dirty so the next `My Squad` reopen can refresh changed tiles.
 

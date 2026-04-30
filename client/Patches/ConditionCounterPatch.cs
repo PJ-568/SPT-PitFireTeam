@@ -1,14 +1,14 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 using EFT.Quests;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     /** Patch kill counts in order to prevent our quests from counting if required teammate is missing **/
     internal class ConditionCounterPatch : ModulePatch

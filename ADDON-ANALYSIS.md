@@ -1,12 +1,12 @@
-# friendlySAIN SAIN Addon: Architecture & Combat Flow
+# pitFireTeam SAIN Addon: Architecture & Combat Flow
 
 > Status note: the SAIN addon is currently disabled for the initial release path.
 > Treat this file as deferred reference material, not as the authoritative description of release behavior.
 > When addon work resumes, re-verify each section against live `addon/` code before relying on it.
 
 **File:** `addon/` directory  
-**Plugin ID:** `xyz.pit.friendlysain.sainaddon`  
-**Dependencies:** BigBrain, SAIN (hard), core friendlySAIN (hard)  
+**Plugin ID:** `xyz.pit.fireteam.sainaddon`  
+**Dependencies:** BigBrain, SAIN (hard), core pitFireTeam (hard)  
 **Entry Point:** `SAINAddonPlugin.cs` → `SAINRegroupBootstrap.cs`
 
 ---

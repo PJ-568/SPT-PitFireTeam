@@ -362,7 +362,7 @@ The battle recorder is separate from normal plugin logging.
 
 It records combat-only JSONL timelines under:
 
-`E:\SPTarkov\BepInEx\plugins\friendlySAIN\BattleRecords`
+`E:\SPTarkov\BepInEx\plugins\pitFireTeam\BattleRecords`
 
 It is intended to compare observed behavior with code behavior:
 

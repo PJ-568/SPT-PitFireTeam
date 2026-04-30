@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using SPTarkov.Server.Core.Models.Enums;
 
-namespace friendlySAIN.Server.Models;
+namespace pitTeam.Server.Models;
 
 public record FriendlyTeammateBodyResponse<T>
 {

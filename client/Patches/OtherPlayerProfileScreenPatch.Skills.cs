@@ -9,7 +9,7 @@ using System.Reflection;
 using UnityEngine;
 using ResultProfile = GClass1416;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal partial class OtherPlayerProfileScreenPatch
     {
@@ -17,14 +17,14 @@ namespace friendlySAIN.Patches
         {
             if (screen == null || profile?.Skills == null || session?.Profile == null)
             {
-                friendlySAIN.Log.LogWarning("[UI] Skills panel skipped: missing screen, profile skills, or session profile.");
+                pitFireTeam.Log.LogWarning("[UI] Skills panel skipped: missing screen, profile skills, or session profile.");
                 return;
             }
 
             SkillsScreen template = FindSkillsScreenTemplate();
             if (template == null || !TryPrepareSkillsHost(screen, out RectTransform hostParent))
             {
-                friendlySAIN.Log.LogWarning($"[UI] Skills panel skipped: template={(template != null)}.");
+                pitFireTeam.Log.LogWarning($"[UI] Skills panel skipped: template={(template != null)}.");
                 return;
             }
 
@@ -40,14 +40,14 @@ namespace friendlySAIN.Patches
                 SkillsPanelHost = null;
             }
 
-            GameObject hostObject = new GameObject("friendlySAIN_ProfileSkillsHost", typeof(RectTransform));
+            GameObject hostObject = new GameObject("pitFireTeam_ProfileSkillsHost", typeof(RectTransform));
             hostObject.transform.SetParent(hostParent, false);
             RectTransform hostRect = hostObject.GetComponent<RectTransform>();
             StretchToFillParent(hostRect);
             hostRect.SetAsLastSibling();
 
             SkillsScreen clone = GameObject.Instantiate(template, hostRect, false);
-            clone.name = "friendlySAIN_ProfileSkillsScreen";
+            clone.name = "pitFireTeam_ProfileSkillsScreen";
             if (clone.transform is RectTransform cloneRect)
             {
                 ConfigureInjectedSkillsScreenRect(screen, cloneRect);
@@ -65,7 +65,7 @@ namespace friendlySAIN.Patches
             object healthController = ResolveSkillsHealthController(profile, session);
             if (healthController == null)
             {
-                friendlySAIN.Log.LogWarning("[UI] Skills panel skipped: unable to resolve any health controller.");
+                pitFireTeam.Log.LogWarning("[UI] Skills panel skipped: unable to resolve any health controller.");
                 GameObject.Destroy(hostObject);
                 GameObject.Destroy(clone.gameObject);
                 return;
@@ -90,7 +90,7 @@ namespace friendlySAIN.Patches
 
             SkillsPanelHost = hostRect;
             SkillsPanel = clone;
-            friendlySAIN.Log.LogWarning($"[UI] Follower skills panel shown for '{profile.AccountId}'.");
+            pitFireTeam.Log.LogWarning($"[UI] Follower skills panel shown for '{profile.AccountId}'.");
         }
 
         private static Profile BuildSkillsProfile(Profile sessionProfile, SkillManager sourceSkills)
@@ -207,7 +207,7 @@ namespace friendlySAIN.Patches
             SkillsScreen direct = Resources.FindObjectsOfTypeAll<SkillsScreen>()
                 .FirstOrDefault(screen =>
                     screen != null &&
-                    screen.name != "friendlySAIN_ProfileSkillsScreen" &&
+                    screen.name != "pitFireTeam_ProfileSkillsScreen" &&
                     screen.transform is RectTransform);
             if (direct != null)
             {
@@ -231,7 +231,7 @@ namespace friendlySAIN.Patches
                 return fromInventory;
             }
 
-            friendlySAIN.Log.LogWarning("[UI] Unable to locate a stock SkillsScreen template.");
+            pitFireTeam.Log.LogWarning("[UI] Unable to locate a stock SkillsScreen template.");
             return null;
         }
 

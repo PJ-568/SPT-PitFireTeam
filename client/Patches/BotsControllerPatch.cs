@@ -1,9 +1,9 @@
-﻿using Comfort.Common;
+using Comfort.Common;
 using EFT;
 using EFT.Quests;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using SPT.Common.Http;
@@ -25,7 +25,7 @@ using ProfileEndPointHelper = GClass1392;
 using ProfileResult = CompleteProfileDescriptorClass;
 using spawnPosition = GClass682;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class CancelToken : GInterface22
     {
@@ -285,8 +285,8 @@ namespace friendlySAIN.Patches
             Dictionary<string, dynamic> customization = new Dictionary<string, dynamic>();
 
             // send health multiplier
-            customization["Health"] = friendlySAIN.heatlhMultiplier.Value;
-            customization["English"] = friendlySAIN.englishBear.Value;
+            customization["Health"] = pitFireTeam.heatlhMultiplier.Value;
+            customization["English"] = pitFireTeam.englishBear.Value;
 
             var botPresets = AccessTools.Field(typeof(BotCreator), "Ginterface21_0").GetValue(botCreator) as BotsPresets;
             var profileEndpoint = AccessTools.Field(typeof(BotsPresets), "ISession").GetValue(botPresets) as ProfileEndPoint;
@@ -1292,7 +1292,7 @@ namespace friendlySAIN.Patches
                 spawnedPlayers.Add(playerBoss);
 
                 // prefetch follower profile data
-                if (!HasFika() && friendlySAIN.botPrefetch.Value)
+                if (!HasFika() && pitFireTeam.botPrefetch.Value)
                 {
                     if (playerBoss.Player().Side != EPlayerSide.Savage)
                     {
@@ -1575,8 +1575,8 @@ namespace friendlySAIN.Patches
             if (raidTransit)
             {
                 Utils.Utils.FlagSet("RaidTransit", true);
-                Utils.Utils.FlagSet("isBadGuy", friendlySAIN.badGuy.Value || SpawnHelper.spawnMemberIdsBoss.Count > 0);
-                Utils.Utils.FlagSet("friendlySAIN", friendlySAIN.friendlySAINFLAG.Value);
+                Utils.Utils.FlagSet("isBadGuy", pitFireTeam.badGuy.Value || SpawnHelper.spawnMemberIdsBoss.Count > 0);
+                Utils.Utils.FlagSet("pitFireTeam", pitFireTeam.pitFireTeamFLAG.Value);
             }
 
             return true;

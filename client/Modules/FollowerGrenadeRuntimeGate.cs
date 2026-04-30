@@ -2,7 +2,7 @@ using EFT;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal static class FollowerGrenadeRuntimeGate
     {
@@ -37,7 +37,7 @@ namespace friendlySAIN.Modules
                 return;
             }
 
-            if (!friendlySAIN.botGrenades.Value)
+            if (!pitFireTeam.botGrenades.Value)
             {
                 EnforceDisabled(bot);
                 return;
@@ -133,7 +133,7 @@ namespace friendlySAIN.Modules
                 return false;
             }
 
-            if (!friendlySAIN.botGrenades.Value)
+            if (!pitFireTeam.botGrenades.Value)
             {
                 return false;
             }

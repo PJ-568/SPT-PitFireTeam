@@ -1,7 +1,7 @@
 using EFT;
 using EFT.InventoryLogic;
 using HarmonyLib;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using SAIN;
 using SAIN.Components;
 using SAIN.Preset.BotSettings.SAINSettings;
@@ -10,7 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerRecoilPatch
     {

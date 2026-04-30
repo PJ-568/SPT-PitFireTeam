@@ -2,8 +2,8 @@
     <PropertyGroup>
         <TargetFramework>net472</TargetFramework>
         <OutputType>Library</OutputType>
-        <RootNamespace>friendlySAIN.SAINAddon</RootNamespace>
-        <AssemblyName>friendlySAIN.SAINAddon</AssemblyName>
+        <RootNamespace>pitTeam.SAINAddon</RootNamespace>
+        <AssemblyName>pitFireTeam.SAINAddon</AssemblyName>
         <LangVersion>latest</LangVersion>
         <Nullable>enable</Nullable>
         <Deterministic>true</Deterministic>
@@ -11,7 +11,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\client\friendlySAIN.csproj" />
+        <ProjectReference Include="..\client\pitFireTeam.csproj" />
     </ItemGroup>
 
     <ItemGroup>

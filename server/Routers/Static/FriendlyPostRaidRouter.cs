@@ -1,10 +1,10 @@
-using friendlySAIN.Server.Callbacks;
-using friendlySAIN.Server.Models;
+using pitTeam.Server.Callbacks;
+using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Routers.Static;
+namespace pitTeam.Server.Routers.Static;
 
 [Injectable]
 public class FriendlyPostRaidRouter(JsonUtil jsonUtil, FriendlyPostRaidCallbacks callbacks)
@@ -20,7 +20,7 @@ public class FriendlyPostRaidRouter(JsonUtil jsonUtil, FriendlyPostRaidCallbacks
                 async (url, info, sessionId, output) => await callbacks.TeamEscaped(url, info, sessionId)
             ),
             new RouteAction<FriendlyRecruitPickupRequest>(
-                "/singleplayer/friendlysain/recruitpickup",
+                "/singleplayer/pitfireteam/recruitpickup",
                 async (url, info, sessionId, output) => await callbacks.RecruitPickup(url, info, sessionId)
             ),
         ]

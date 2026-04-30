@@ -1,5 +1,5 @@
-using friendlySAIN.Modules;
-using friendlySAIN.Components;
+using pitTeam.Modules;
+using pitTeam.Components;
 using HarmonyLib;
 using EFT;
 using SPT.Reflection.Patching;
@@ -7,7 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal static class FollowerForcedPhraseGate
     {

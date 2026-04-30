@@ -1,10 +1,10 @@
-﻿using EFT;
+using EFT;
 using EFT.Game.Spawning;
 using Comfort.Common;
 using EFT.InventoryLogic;
 using EFT.UI.Matchmaker;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -23,7 +23,7 @@ using playerGroup = System.Collections.Generic.List<GroupPlayerViewModelClass>;
 using OtherProfileResult = GClass2213;
 using ResultProfile = GClass1416;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal static class SyntheticTeammateRaidGuard
     {
@@ -48,13 +48,13 @@ namespace friendlySAIN.Patches
             RaidSettings raidSettings = AccessTools.Field(typeof(TarkovApplication), "_raidSettings").GetValue(application) as RaidSettings;
             if (raidSettings == null)
             {
-                friendlySAIN.Log.LogWarning($"[Raid] Failed to force local raid at {reason}: raid settings missing.");
+                pitFireTeam.Log.LogWarning($"[Raid] Failed to force local raid at {reason}: raid settings missing.");
                 return false;
             }
 
             raidSettings.RaidMode = ERaidMode.Local;
             raidSettings.IsPveOffline = true;
-            friendlySAIN.Log.LogInfo($"[Raid] Forced local teammate raid at {reason}. groupPlayers={MainMenuControllerPatch.GroupPlayers.Count}");
+            pitFireTeam.Log.LogInfo($"[Raid] Forced local teammate raid at {reason}. groupPlayers={MainMenuControllerPatch.GroupPlayers.Count}");
             return true;
         }
 
@@ -187,7 +187,7 @@ namespace friendlySAIN.Patches
     internal static class SyntheticTeammateAutoJoinLoader
     {
         private const string AutoJoinRoute = "/singleplayer/autoteam";
-        private const string ProfileRoute = "/singleplayer/friendlysain/teammate/profile";
+        private const string ProfileRoute = "/singleplayer/pitfireteam/teammate/profile";
 
         public static void EnsureLoaded(MatchmakerPlayerControllerClass controller)
         {
@@ -285,8 +285,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Failed to load persisted auto-join teammate ids.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Failed to load persisted auto-join teammate ids.");
+                pitFireTeam.Log.LogError(ex);
                 return Array.Empty<string>();
             }
         }
@@ -306,7 +306,7 @@ namespace friendlySAIN.Patches
 
                 if (body?.err != 0)
                 {
-                    friendlySAIN.Log.LogWarning($"[UI] Failed to build auto-join teammate '{accountId}': {body?.errmsg}");
+                    pitFireTeam.Log.LogWarning($"[UI] Failed to build auto-join teammate '{accountId}': {body?.errmsg}");
                     return null;
                 }
 
@@ -367,8 +367,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Failed to materialize auto-join teammate '{accountId}' for matchmaker.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning($"[UI] Failed to materialize auto-join teammate '{accountId}' for matchmaker.");
+                pitFireTeam.Log.LogError(ex);
                 return null;
             }
         }
@@ -409,8 +409,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Failed to update follower preview UI.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Failed to update follower preview UI.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
     }
@@ -431,7 +431,7 @@ namespace friendlySAIN.Patches
         [PatchPostfix]
         private static void PatchPostfix(Class308 __instance, RaidSettings settings)
         {
-            bool badGuy = friendlySAIN.badGuy.Value;
+            bool badGuy = pitFireTeam.badGuy.Value;
 
             Utils.SpawnHelper.spawnMemberIds.Clear();
             Utils.SpawnHelper.spawnMemberIdsScav.Clear();
@@ -573,10 +573,10 @@ namespace friendlySAIN.Patches
             {
                 Config = new Dictionary<string, object>
                 {
-                    { "friendlySAIN", friendlySAIN.friendlySAINFLAG.Value },
+                    { "pitFireTeam", pitFireTeam.pitFireTeamFLAG.Value },
                     { "badGuy", badGuy },
-                    { "pmcArmbands", friendlySAIN.pmcArmbands.Value },
-                    { "englishBear", friendlySAIN.englishBear.Value },
+                    { "pmcArmbands", pitFireTeam.pmcArmbands.Value },
+                    { "englishBear", pitFireTeam.englishBear.Value },
                     { "location", settings.LocationId }
                 }
 
@@ -621,8 +621,8 @@ namespace friendlySAIN.Patches
  */
             //if (Utils.SpawnHelper.ScavSquadSize < 1) Utils.SpawnHelper.ScavSquad = false;
 
-            if (friendlySAIN.badGuy.Value) Utils.Utils.FlagSet("isBadGuy", true);
-            if (friendlySAIN.friendlySAINFLAG.Value) Utils.Utils.FlagSet("friendlySAIN", true);
+            if (pitFireTeam.badGuy.Value) Utils.Utils.FlagSet("isBadGuy", true);
+            if (pitFireTeam.pitFireTeamFLAG.Value) Utils.Utils.FlagSet("pitFireTeam", true);
         }
     }
     /**
@@ -648,7 +648,7 @@ namespace friendlySAIN.Patches
      */
     internal class MatchmakerPlayerControllerClassAddMemberPatch : ModulePatch
     {
-        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private const string TeammatesRoute = "/singleplayer/pitfireteam/teammates";
         private static readonly HashSet<string> TeammateAccountIds = new HashSet<string>(StringComparer.Ordinal);
         private static float _nextRefreshTime;
 
@@ -748,8 +748,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Failed to refresh teammate cache for matchmaker icon normalization.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Failed to refresh teammate cache for matchmaker icon normalization.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
     }
@@ -932,15 +932,15 @@ namespace friendlySAIN.Patches
                     }
                     catch (Exception ex)
                     {
-                        friendlySAIN.Log.LogWarning($"[Raid] Failed to add teammate {item?.AccountId} to raid group on MatchmakerTimeHasComeShow");
-                        friendlySAIN.Log.LogError(ex);
+                        pitFireTeam.Log.LogWarning($"[Raid] Failed to add teammate {item?.AccountId} to raid group on MatchmakerTimeHasComeShow");
+                        pitFireTeam.Log.LogError(ex);
                     }
                 }
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[Raid] Failed to inject teammates into MatchmakerTimeHasCome");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[Raid] Failed to inject teammates into MatchmakerTimeHasCome");
+                pitFireTeam.Log.LogError(ex);
                 return;
             }
 
@@ -964,8 +964,8 @@ namespace friendlySAIN.Patches
                             }
                             catch (Exception ex)
                             {
-                                friendlySAIN.Log.LogWarning($"[Raid] Failed to add transit player {item?.AccountId} to raid group");
-                                friendlySAIN.Log.LogError(ex);
+                                pitFireTeam.Log.LogWarning($"[Raid] Failed to add transit player {item?.AccountId} to raid group");
+                                pitFireTeam.Log.LogError(ex);
                             }
                         }
                     }
@@ -974,8 +974,8 @@ namespace friendlySAIN.Patches
                 }
                 catch (Exception ex)
                 {
-                    friendlySAIN.Log.LogWarning("[Raid] Failed to process transit players on MatchmakerTimeHasCome");
-                    friendlySAIN.Log.LogError(ex);
+                    pitFireTeam.Log.LogWarning("[Raid] Failed to process transit players on MatchmakerTimeHasCome");
+                    pitFireTeam.Log.LogError(ex);
                 }
             }
         }
@@ -1009,8 +1009,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Failed to normalize teammate health before showing party equipment.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Failed to normalize teammate health before showing party equipment.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
     }
@@ -1060,14 +1060,14 @@ namespace friendlySAIN.Patches
                         }
 
                         controller.GroupPlayers.Add(teammate);
-                        friendlySAIN.Log.LogInfo($"[UI] Added teammate {teammate.AccountId} to controller before preview population");
+                        pitFireTeam.Log.LogInfo($"[UI] Added teammate {teammate.AccountId} to controller before preview population");
                     }
                 }
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Failed to inject teammates in MatchMakerAcceptScreenPatch prefix");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Failed to inject teammates in MatchMakerAcceptScreenPatch prefix");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -1091,12 +1091,12 @@ namespace friendlySAIN.Patches
                 // Rebuild the entire group preview with updated controller.GroupPlayers
                 groupPreview.Show(string_2, controller, raidSettings_0, new Func<GroupPlayerViewModelClass, bool, bool, ContextInteractionsClass>(controller.GetContextInteractions));
 
-                friendlySAIN.Log.LogInfo($"[UI] Rebuilt group preview with {controller.GroupPlayers.Count} players");
+                pitFireTeam.Log.LogInfo($"[UI] Rebuilt group preview with {controller.GroupPlayers.Count} players");
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning("[UI] Failed to rebuild group preview in postfix");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogWarning("[UI] Failed to rebuild group preview in postfix");
+                pitFireTeam.Log.LogError(ex);
             }
         }
     }
@@ -1148,7 +1148,7 @@ namespace friendlySAIN.Patches
         [PatchPrefix]
         private static void PatchPrefix(ref ESpawnCategory category, EPlayerSide side, string groupId, string teamId, IPlayer person, string infiltration, string profileId)
         {
-            if (!friendlySAIN.spawnPoint.Value || infiltration == "Hideout") return;
+            if (!pitFireTeam.spawnPoint.Value || infiltration == "Hideout") return;
 
             if (!string.IsNullOrEmpty(profileId))
             {

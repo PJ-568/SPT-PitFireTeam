@@ -4,7 +4,7 @@ using SPTarkov.Server.Core.Models.Eft.Dialog;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Utils;
 
-namespace friendlySAIN.Server.Models;
+namespace pitTeam.Server.Models;
 
 public record FriendlyRecruitPickupRequest : IRequestData
 {

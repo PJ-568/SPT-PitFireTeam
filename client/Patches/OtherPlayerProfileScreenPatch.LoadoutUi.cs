@@ -19,7 +19,7 @@ using UnityEngine.UI;
 using OtherProfileResult = GClass2213;
 using ResultProfile = GClass1416;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal partial class OtherPlayerProfileScreenPatch
     {
@@ -38,11 +38,11 @@ namespace friendlySAIN.Patches
             DefaultUIButton buttonTemplate = BackButtonField?.GetValue(screen) as DefaultUIButton;
             if (buttonTemplate == null)
             {
-                friendlySAIN.Log.LogWarning("[UI] Loadout editor overlay aborted: template button not found.");
+                pitFireTeam.Log.LogWarning("[UI] Loadout editor overlay aborted: template button not found.");
                 return;
             }
 
-            GameObject overlayRoot = new GameObject("friendlySAIN_LoadoutEditorOverlay", typeof(RectTransform), typeof(Image));
+            GameObject overlayRoot = new GameObject("pitFireTeam_LoadoutEditorOverlay", typeof(RectTransform), typeof(Image));
             overlayRoot.transform.SetParent(screen.transform, false);
             RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
             overlayRect.anchorMin = Vector2.zero;
@@ -56,7 +56,7 @@ namespace friendlySAIN.Patches
             backdrop.color = new Color(0f, 0f, 0f, 0.2f);
             backdrop.raycastTarget = true;
 
-            GameObject panel = new GameObject("friendlySAIN_LoadoutEditorPanel", typeof(RectTransform), typeof(Image));
+            GameObject panel = new GameObject("pitFireTeam_LoadoutEditorPanel", typeof(RectTransform), typeof(Image));
             panel.transform.SetParent(overlayRoot.transform, false);
             RectTransform panelRect = panel.GetComponent<RectTransform>();
             panelRect.anchorMin = Vector2.zero;
@@ -70,7 +70,7 @@ namespace friendlySAIN.Patches
             panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.985f);
             panelImage.raycastTarget = true;
 
-            GameObject header = new GameObject("friendlySAIN_LoadoutEditorHeader", typeof(RectTransform), typeof(Image));
+            GameObject header = new GameObject("pitFireTeam_LoadoutEditorHeader", typeof(RectTransform), typeof(Image));
             header.transform.SetParent(panel.transform, false);
             RectTransform headerRect = header.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0f, 1f);
@@ -87,7 +87,7 @@ namespace friendlySAIN.Patches
             dragHandle.Target = panelRect;
 
             CreateOverlayText(
-                "friendlySAIN_LoadoutEditorTitle",
+                "pitFireTeam_LoadoutEditorTitle",
                 header.transform,
                 new Vector2(18f, 0f),
                 new Vector2(-54f, 0f),
@@ -108,7 +108,7 @@ namespace friendlySAIN.Patches
             closeButton.onClick.AddListener(new UnityAction(CloseLoadoutEditorOverlay));
 
             CreateOverlayText(
-                "friendlySAIN_LoadoutEditorSubtitle",
+                "pitFireTeam_LoadoutEditorSubtitle",
                 panel.transform,
                 new Vector2(28f, -62f),
                 new Vector2(-28f, -98f),
@@ -121,7 +121,7 @@ namespace friendlySAIN.Patches
 
             RectTransform leftSection = CreateLoadoutEditorSection(
                 panel.transform,
-                "friendlySAIN_PlayerStashSection",
+                "pitFireTeam_PlayerStashSection",
                 GetSocialUiText("PlayerStash", "Player Stash"),
                 new Vector2(0f, 0f),
                 new Vector2(0.5f, 1f),
@@ -130,7 +130,7 @@ namespace friendlySAIN.Patches
 
             RectTransform rightSection = CreateLoadoutEditorSection(
                 panel.transform,
-                "friendlySAIN_BotInventorySection",
+                "pitFireTeam_BotInventorySection",
                 GetSocialUiText("BotInventory", "Follower Inventory"),
                 new Vector2(0.5f, 0f),
                 new Vector2(1f, 1f),
@@ -140,7 +140,7 @@ namespace friendlySAIN.Patches
             TryBuildLoadoutEditorPanels(profile, leftSection, rightSection);
 
             DefaultUIButton cancelButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
-            cancelButton.name = "friendlySAIN_LoadoutEditorCancelButton";
+            cancelButton.name = "pitFireTeam_LoadoutEditorCancelButton";
             cancelButton.SetRawText(GetSocialUiText("Cancel", "Cancel"), 20);
             cancelButton.OnClick.RemoveAllListeners();
             cancelButton.OnClick.AddListener(CloseLoadoutEditorOverlay);
@@ -154,7 +154,7 @@ namespace friendlySAIN.Patches
             }
 
             DefaultUIButton doneButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
-            doneButton.name = "friendlySAIN_LoadoutEditorDoneButton";
+            doneButton.name = "pitFireTeam_LoadoutEditorDoneButton";
             doneButton.SetRawText(GetSocialUiText("Done", "Done"), 20);
             doneButton.OnClick.RemoveAllListeners();
             doneButton.OnClick.AddListener(async () =>
@@ -165,8 +165,8 @@ namespace friendlySAIN.Patches
                 }
                 catch (Exception ex)
                 {
-                    friendlySAIN.Log.LogError("[UI] Failed to commit teammate loadout editor changes.");
-                    friendlySAIN.Log.LogError(ex);
+                    pitFireTeam.Log.LogError("[UI] Failed to commit teammate loadout editor changes.");
+                    pitFireTeam.Log.LogError(ex);
                 }
             });
             if (doneButton.transform is RectTransform doneRect)
@@ -234,14 +234,14 @@ namespace friendlySAIN.Patches
                 || ActiveProfileInventoryController == null)
             {
                 const string missingReason = "missing profile equipment, stash, or inventory controller";
-                friendlySAIN.Log.LogWarning("[UI] Loadout editor inventory build aborted: missing profile equipment, stash, or inventory controller.");
+                pitFireTeam.Log.LogWarning("[UI] Loadout editor inventory build aborted: missing profile equipment, stash, or inventory controller.");
                 CreateLoadoutEditorFallbackText(
                     leftSection,
-                    "friendlySAIN_PlayerStashFallback",
+                    "pitFireTeam_PlayerStashFallback",
                     string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), missingReason));
                 CreateLoadoutEditorFallbackText(
                     rightSection,
-                    "friendlySAIN_BotInventoryFallback",
+                    "pitFireTeam_BotInventoryFallback",
                     string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), missingReason));
                 return;
             }
@@ -250,14 +250,14 @@ namespace friendlySAIN.Patches
             if (itemUiContext == null)
             {
                 const string reason = "ItemUiContext.Instance is null";
-                friendlySAIN.Log.LogWarning("[UI] Loadout editor inventory build aborted: ItemUiContext.Instance is null.");
+                pitFireTeam.Log.LogWarning("[UI] Loadout editor inventory build aborted: ItemUiContext.Instance is null.");
                 CreateLoadoutEditorFallbackText(
                     leftSection,
-                    "friendlySAIN_PlayerStashFallback",
+                    "pitFireTeam_PlayerStashFallback",
                     string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), reason));
                 CreateLoadoutEditorFallbackText(
                     rightSection,
-                    "friendlySAIN_BotInventoryFallback",
+                    "pitFireTeam_BotInventoryFallback",
                     string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), reason));
                 return;
             }
@@ -265,14 +265,14 @@ namespace friendlySAIN.Patches
             if (!TryCreateLoadoutEditorProfile(profile, out Profile editorProfile, out InventoryController editorInventoryController))
             {
                 const string reason = "failed to create local editor inventory";
-                friendlySAIN.Log.LogWarning("[UI] Loadout editor inventory build aborted: failed to create local editor inventory.");
+                pitFireTeam.Log.LogWarning("[UI] Loadout editor inventory build aborted: failed to create local editor inventory.");
                 CreateLoadoutEditorFallbackText(
                     leftSection,
-                    "friendlySAIN_PlayerStashFallback",
+                    "pitFireTeam_PlayerStashFallback",
                     string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), reason));
                 CreateLoadoutEditorFallbackText(
                     rightSection,
-                    "friendlySAIN_BotInventoryFallback",
+                    "pitFireTeam_BotInventoryFallback",
                     string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), reason));
                 return;
             }
@@ -325,8 +325,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to create local teammate loadout editor profile.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to create local teammate loadout editor profile.");
+                pitFireTeam.Log.LogError(ex);
                 editorProfile = null;
                 editorInventoryController = null;
                 return false;
@@ -364,8 +364,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError($"[UI] Failed to sanitize loadout editor slot '{slot}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to sanitize loadout editor slot '{slot}'.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -390,7 +390,7 @@ namespace friendlySAIN.Patches
                     false);
 
                 SimpleStashPanel stashPanel = GameObject.Instantiate(stashTemplate, leftSection, false);
-                stashPanel.name = "friendlySAIN_LoadoutEditorStashPanel";
+                stashPanel.name = "pitFireTeam_LoadoutEditorStashPanel";
                 if (stashPanel.transform is RectTransform stashRect)
                 {
                     StretchToFillParent(stashRect);
@@ -410,11 +410,11 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to build cloned stash panel.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to build cloned stash panel.");
+                pitFireTeam.Log.LogError(ex);
                 CreateLoadoutEditorFallbackText(
                     leftSection,
-                    "friendlySAIN_PlayerStashFallback",
+                    "pitFireTeam_PlayerStashFallback",
                     string.Format(
                         GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"),
                         ex.GetType().Name + ": " + ex.Message));
@@ -441,7 +441,7 @@ namespace friendlySAIN.Patches
                 LoadoutEditorEquipmentContext = equipmentContext;
 
                 ComplexStashPanel equipmentPanelRoot = GameObject.Instantiate(equipmentTemplate, rightSection, false);
-                equipmentPanelRoot.name = "friendlySAIN_LoadoutEditorEquipmentPanel";
+                equipmentPanelRoot.name = "pitFireTeam_LoadoutEditorEquipmentPanel";
                 if (equipmentPanelRoot.transform is RectTransform equipmentRect)
                 {
                     StretchToFillParent(equipmentRect);
@@ -461,11 +461,11 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to build cloned follower inventory.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to build cloned follower inventory.");
+                pitFireTeam.Log.LogError(ex);
                 CreateLoadoutEditorFallbackText(
                     rightSection,
-                    "friendlySAIN_BotInventoryFallback",
+                    "pitFireTeam_BotInventoryFallback",
                     string.Format(
                         GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"),
                         ex.GetType().Name + ": " + ex.Message));
@@ -481,7 +481,7 @@ namespace friendlySAIN.Patches
             }
 
             return Resources.FindObjectsOfTypeAll<SimpleStashPanel>()
-                .FirstOrDefault(panel => panel != null && !panel.name.StartsWith("friendlySAIN_", StringComparison.Ordinal));
+                .FirstOrDefault(panel => panel != null && !panel.name.StartsWith("pitFireTeam_", StringComparison.Ordinal));
         }
 
         private static ComplexStashPanel ResolveLoadoutEditorEquipmentTemplate()
@@ -494,7 +494,7 @@ namespace friendlySAIN.Patches
             }
 
             return Resources.FindObjectsOfTypeAll<ComplexStashPanel>()
-                .FirstOrDefault(panel => panel != null && !panel.name.StartsWith("friendlySAIN_", StringComparison.Ordinal));
+                .FirstOrDefault(panel => panel != null && !panel.name.StartsWith("pitFireTeam_", StringComparison.Ordinal));
         }
 
         private static void ShowLoadoutEditorEquipmentPanel(
@@ -558,8 +558,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError($"[UI] Failed to hide loadout editor container slot '{slot}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to hide loadout editor container slot '{slot}'.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -775,8 +775,8 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to restore teammate profile ItemUiContext after closing loadout editor.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to restore teammate profile ItemUiContext after closing loadout editor.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 

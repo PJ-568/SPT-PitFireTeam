@@ -1,8 +1,8 @@
 using EFT;
-using friendlySAIN.Components;
+using pitTeam.Components;
 using System;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     public static class FollowerTalkFrequencyGate
     {
@@ -32,7 +32,7 @@ namespace friendlySAIN.Modules
 
         private static bool ShouldBlockForConfiguredFrequency()
         {
-            int freq = friendlySAIN.botTalk.Value;
+            int freq = pitFireTeam.botTalk.Value;
             if (freq <= 0)
             {
                 return true;

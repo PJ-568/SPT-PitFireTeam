@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal sealed class CommittedCoverPhaseState
     {

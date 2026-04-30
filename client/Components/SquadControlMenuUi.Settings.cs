@@ -7,8 +7,8 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
 using EFT.UI.Settings;
-using friendlySAIN.Modules;
-using friendlySAIN.Patches;
+using pitTeam.Modules;
+using pitTeam.Patches;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -27,7 +27,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     internal partial class SquadControlMenuUi
     {
@@ -76,7 +76,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject scrollRootObject = new GameObject("friendlySAIN_SquadControlSettingsScroll", typeof(RectTransform), typeof(ScrollRectNoDrag));
+            GameObject scrollRootObject = new GameObject("pitFireTeam_SquadControlSettingsScroll", typeof(RectTransform), typeof(ScrollRectNoDrag));
             scrollRootObject.transform.SetParent(panelRect, false);
             RectTransform scrollRoot = scrollRootObject.GetComponent<RectTransform>();
             Stretch(scrollRoot);
@@ -96,9 +96,9 @@ namespace friendlySAIN.Components
             viewportImage.raycastTarget = true;
 
             settingsScrollbar = CreateRosterScrollbar(scrollRoot);
-            settingsScrollbar.name = "friendlySAIN_SquadControlSettingsScrollbar";
+            settingsScrollbar.name = "pitFireTeam_SquadControlSettingsScrollbar";
 
-            GameObject contentObject = new GameObject("friendlySAIN_SquadControlSettingsContent", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            GameObject contentObject = new GameObject("pitFireTeam_SquadControlSettingsContent", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
             contentObject.transform.SetParent(settingsViewport, false);
             settingsContentRoot = contentObject.GetComponent<RectTransform>();
             settingsContentRoot.anchorMin = new Vector2(0f, 1f);
@@ -172,72 +172,72 @@ namespace friendlySAIN.Components
         private IEnumerable<SquadSettingEntry> BuildSquadSettingsEntries()
         {
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                friendlySAIN.optionsLang?.baseSettings ?? "Base Settings",
-                friendlySAIN.spawnPoint,
-                friendlySAIN.englishBear,
-                friendlySAIN.pingRadioVolume,
-                friendlySAIN.pingTime))
+                pitFireTeam.optionsLang?.baseSettings ?? "Base Settings",
+                pitFireTeam.spawnPoint,
+                pitFireTeam.englishBear,
+                pitFireTeam.pingRadioVolume,
+                pitFireTeam.pingTime))
             {
                 yield return setting;
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                friendlySAIN.optionsLang?.followSettings ?? "Follow Settings",
-                friendlySAIN.goToDistance))
+                pitFireTeam.optionsLang?.followSettings ?? "Follow Settings",
+                pitFireTeam.goToDistance))
             {
                 yield return setting;
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                friendlySAIN.optionsLang?.combatSettings ?? "Combat Settings",
-                friendlySAIN.botGrenades,
-                friendlySAIN.enemyMarker,
-                friendlySAIN.statusSound,
-                friendlySAIN.enemyRemember,
-                friendlySAIN.scanDistance,
-                friendlySAIN.botTalk))
+                pitFireTeam.optionsLang?.combatSettings ?? "Combat Settings",
+                pitFireTeam.botGrenades,
+                pitFireTeam.enemyMarker,
+                pitFireTeam.statusSound,
+                pitFireTeam.enemyRemember,
+                pitFireTeam.scanDistance,
+                pitFireTeam.botTalk))
             {
                 yield return setting;
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                friendlySAIN.optionsLang?.inputSettings ?? "Input Settings",
-                friendlySAIN.pingKey,
-                friendlySAIN.contactKey,
-                friendlySAIN.overThereKey))
+                pitFireTeam.optionsLang?.inputSettings ?? "Input Settings",
+                pitFireTeam.pingKey,
+                pitFireTeam.contactKey,
+                pitFireTeam.overThereKey))
             {
                 yield return setting;
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                friendlySAIN.optionsLang?.raidSettings ?? "Raid Settings",
-                friendlySAIN.pickupEnabled,
-                friendlySAIN.tieredPickup,
-                friendlySAIN.maximumPickup,
-                friendlySAIN.recruitPickup,
-                friendlySAIN.npcSendMessage,
-                friendlySAIN.friendlySAINFLAG,
-                friendlySAIN.badGuy))
+                pitFireTeam.optionsLang?.raidSettings ?? "Raid Settings",
+                pitFireTeam.pickupEnabled,
+                pitFireTeam.tieredPickup,
+                pitFireTeam.maximumPickup,
+                pitFireTeam.recruitPickup,
+                pitFireTeam.npcSendMessage,
+                pitFireTeam.pitFireTeamFLAG,
+                pitFireTeam.badGuy))
             {
                 yield return setting;
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                friendlySAIN.optionsLang?.miscSettings ?? "Miscellaneous",
-                friendlySAIN.teleportKey,
-                friendlySAIN.healKey,
-                friendlySAIN.heatlhMultiplier,
-                friendlySAIN.botPrefetch))
+                pitFireTeam.optionsLang?.miscSettings ?? "Miscellaneous",
+                pitFireTeam.teleportKey,
+                pitFireTeam.healKey,
+                pitFireTeam.heatlhMultiplier,
+                pitFireTeam.botPrefetch))
             {
                 yield return setting;
             }
 
-            if (friendlySAIN.IsDebugBuild)
+            if (pitFireTeam.IsDebugBuild)
             {
                 foreach (SquadSettingEntry setting in BuildSettingsSection(
-                    friendlySAIN.optionsLang?.miscSettings ?? "Miscellaneous",
-                    friendlySAIN.battleRecorderEnabled,
-                    friendlySAIN.battleRecorderSnapshotIntervalMs))
+                    pitFireTeam.optionsLang?.miscSettings ?? "Miscellaneous",
+                    pitFireTeam.battleRecorderEnabled,
+                    pitFireTeam.battleRecorderSnapshotIntervalMs))
                 {
                     yield return setting;
                 }
@@ -289,12 +289,12 @@ namespace friendlySAIN.Components
 
         private static bool IsBetaHiddenSetting(ConfigEntryBase entry)
         {
-            return entry == friendlySAIN.patrolRadius;
+            return entry == pitFireTeam.patrolRadius;
         }
 
         private void CreateSettingsSectionHeader(string title)
         {
-            GameObject headerObject = new GameObject($"friendlySAIN_SettingsHeader_{title}", typeof(RectTransform), typeof(LayoutElement));
+            GameObject headerObject = new GameObject($"pitFireTeam_SettingsHeader_{title}", typeof(RectTransform), typeof(LayoutElement));
             headerObject.transform.SetParent(settingsContentRoot, false);
 
             LayoutElement layout = headerObject.GetComponent<LayoutElement>();
@@ -337,7 +337,7 @@ namespace friendlySAIN.Components
 
             bool disabledDuringRaid = ShouldDisableSettingDuringRaid(entry);
             GameObject rowObject = new GameObject(
-                $"friendlySAIN_Setting_{SanitizeName(entry.Definition.Key)}",
+                $"pitFireTeam_Setting_{SanitizeName(entry.Definition.Key)}",
                 typeof(RectTransform),
                 typeof(Image),
                 typeof(LayoutElement));
@@ -468,14 +468,14 @@ namespace friendlySAIN.Components
 
         private static bool RequiresRaidRestart(ConfigEntryBase entry)
         {
-            return entry == friendlySAIN.spawnPoint
-                || entry == friendlySAIN.englishBear
-                || entry == friendlySAIN.enemyRemember
-                || entry == friendlySAIN.heatlhMultiplier
-                || entry == friendlySAIN.friendlySAINFLAG
-                || entry == friendlySAIN.badGuy
-                || entry == friendlySAIN.botPrefetch
-                || entry == friendlySAIN.battleRecorderEnabled;
+            return entry == pitFireTeam.spawnPoint
+                || entry == pitFireTeam.englishBear
+                || entry == pitFireTeam.enemyRemember
+                || entry == pitFireTeam.heatlhMultiplier
+                || entry == pitFireTeam.pitFireTeamFLAG
+                || entry == pitFireTeam.badGuy
+                || entry == pitFireTeam.botPrefetch
+                || entry == pitFireTeam.battleRecorderEnabled;
         }
 
         private bool IsRaidRestrictedSettingsContext()
@@ -542,7 +542,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject tooltipAreaObject = new GameObject("friendlySAIN_SettingDisabledDuringRaidTooltip", typeof(RectTransform), typeof(Image));
+            GameObject tooltipAreaObject = new GameObject("pitFireTeam_SettingDisabledDuringRaidTooltip", typeof(RectTransform), typeof(Image));
             tooltipAreaObject.transform.SetParent(rowObject.transform, false);
 
             RectTransform tooltipAreaRect = tooltipAreaObject.GetComponent<RectTransform>();
@@ -603,7 +603,7 @@ namespace friendlySAIN.Components
                     fallbackToggle.onValueChanged.AddListener(isOn =>
                     {
                         entry.BoxedValue = isOn;
-                        friendlySAIN.Instance?.Config.Save();
+                        pitFireTeam.Instance?.Config.Save();
                     });
                 }
                 return;
@@ -618,7 +618,7 @@ namespace friendlySAIN.Components
                 toggle.Bind(isOn =>
                 {
                     entry.BoxedValue = isOn;
-                    friendlySAIN.Instance?.Config.Save();
+                    pitFireTeam.Instance?.Config.Save();
                 });
             }
         }
@@ -652,7 +652,7 @@ namespace friendlySAIN.Components
 
                         entry.BoxedValue = boxed;
                         valueLabel.text = boxed.ToString();
-                        friendlySAIN.Instance?.Config.Save();
+                        pitFireTeam.Instance?.Config.Save();
                     });
                 }
                 return;
@@ -673,7 +673,7 @@ namespace friendlySAIN.Components
                     }
 
                     entry.BoxedValue = boxed;
-                    friendlySAIN.Instance?.Config.Save();
+                    pitFireTeam.Instance?.Config.Save();
                 });
             }
         }
@@ -721,7 +721,7 @@ namespace friendlySAIN.Components
             }
 
             settingsScrollRect = Instantiate(template, panelRect, false);
-            settingsScrollRect.name = "friendlySAIN_SquadControlSettingsScroll";
+            settingsScrollRect.name = "pitFireTeam_SquadControlSettingsScroll";
 
             RectTransform scrollRect = settingsScrollRect.transform as RectTransform;
             if (scrollRect != null)
@@ -804,7 +804,7 @@ namespace friendlySAIN.Components
             }
 
             GameObject clonedRow = Instantiate(rowTemplate.gameObject, settingsContentRoot, false);
-            clonedRow.name = $"friendlySAIN_StockToggleRow_{SanitizeName(entry.Definition.Key)}";
+            clonedRow.name = $"pitFireTeam_StockToggleRow_{SanitizeName(entry.Definition.Key)}";
             ConfigureStockSettingsRow(clonedRow.transform as RectTransform, rowTemplate as RectTransform);
 
             UpdatableToggle clonedToggle = FindComponentByPath<UpdatableToggle>(rowTemplate, clonedRow.transform, template.transform);
@@ -820,7 +820,7 @@ namespace friendlySAIN.Components
             clonedToggle.Bind(isOn =>
             {
                 entry.BoxedValue = isOn;
-                friendlySAIN.Instance?.Config.Save();
+                pitFireTeam.Instance?.Config.Save();
             });
 
             return true;
@@ -841,7 +841,7 @@ namespace friendlySAIN.Components
             }
 
             GameObject clonedRow = Instantiate(rowTemplate.gameObject, settingsContentRoot, false);
-            clonedRow.name = $"friendlySAIN_StockSliderRow_{SanitizeName(entry.Definition.Key)}";
+            clonedRow.name = $"pitFireTeam_StockSliderRow_{SanitizeName(entry.Definition.Key)}";
             ConfigureStockSettingsRow(clonedRow.transform as RectTransform, rowTemplate as RectTransform);
 
             NumberSlider clonedSlider = FindComponentByPath<NumberSlider>(rowTemplate, clonedRow.transform, template.transform);
@@ -863,7 +863,7 @@ namespace friendlySAIN.Components
                 }
 
                 entry.BoxedValue = boxed;
-                friendlySAIN.Instance?.Config.Save();
+                pitFireTeam.Instance?.Config.Save();
             });
 
             return true;
@@ -950,7 +950,7 @@ namespace friendlySAIN.Components
             }
 
             UpdatableToggle toggle = Instantiate(template, parent, false);
-            toggle.name = "friendlySAIN_StockToggle";
+            toggle.name = "pitFireTeam_StockToggle";
             RectTransform rect = toggle.transform as RectTransform;
             if (rect != null)
             {
@@ -983,7 +983,7 @@ namespace friendlySAIN.Components
                 return null;
             }
 
-            slider.name = "friendlySAIN_StockNumberSlider";
+            slider.name = "pitFireTeam_StockNumberSlider";
             if (sliderRoot != null)
             {
                 Stretch(sliderRoot);
@@ -1253,9 +1253,9 @@ namespace friendlySAIN.Components
                 activeShortcutCaptureLabel.text = GetSocialUiText("SettingsPressKey", "Press key...");
             }
 
-            if (friendlySAIN.Instance != null)
+            if (pitFireTeam.Instance != null)
             {
-                shortcutCaptureCoroutine = friendlySAIN.Instance.StartCoroutine(ShortcutCaptureCoroutine());
+                shortcutCaptureCoroutine = pitFireTeam.Instance.StartCoroutine(ShortcutCaptureCoroutine());
             }
             else
             {
@@ -1270,9 +1270,9 @@ namespace friendlySAIN.Components
 
             Coroutine captureCoroutine = shortcutCaptureCoroutine;
             shortcutCaptureCoroutine = null;
-            if (captureCoroutine != null && friendlySAIN.Instance != null)
+            if (captureCoroutine != null && pitFireTeam.Instance != null)
             {
-                friendlySAIN.Instance.StopCoroutine(captureCoroutine);
+                pitFireTeam.Instance.StopCoroutine(captureCoroutine);
             }
 
             activeShortcutCaptureEntry = null;
@@ -1295,7 +1295,7 @@ namespace friendlySAIN.Components
             }
 
             activeShortcutCaptureEntry.Value = shortcut;
-            friendlySAIN.Instance?.Config.Save();
+            pitFireTeam.Instance?.Config.Save();
             CancelShortcutCapture(true);
         }
 
@@ -1441,40 +1441,40 @@ namespace friendlySAIN.Components
 
         private static Dictionary<string, string> GetSettingLanguageEntry(ConfigEntryBase entry)
         {
-            LanguageOptions language = friendlySAIN.optionsLang;
+            LanguageOptions language = pitFireTeam.optionsLang;
             if (language == null || entry == null)
             {
                 return null;
             }
 
-            if (entry == friendlySAIN.scanDistance) return language.scanDistance;
-            if (entry == friendlySAIN.patrolRadius) return language.patrolRadius;
-            if (entry == friendlySAIN.enemyRemember) return language.enemyRemember;
-            if (entry == friendlySAIN.heatlhMultiplier) return language.healthMultiplier;
-            if (entry == friendlySAIN.statusSound) return language.statusSound;
-            if (entry == friendlySAIN.enemyMarker) return language.enemyMarker;
-            if (entry == friendlySAIN.pickupEnabled) return language.pickup;
-            if (entry == friendlySAIN.tieredPickup) return language.tieredPickup;
-            if (entry == friendlySAIN.maximumPickup) return language.maximumPickup;
-            if (entry == friendlySAIN.recruitPickup) return language.recruitPickup;
-            if (entry == friendlySAIN.npcSendMessage) return language.npcSendMessage;
-            if (entry == friendlySAIN.friendlySAINFLAG) return language.friendlySAIN;
-            if (entry == friendlySAIN.badGuy) return language.badGuy;
-            if (entry == friendlySAIN.englishBear) return language.englishBear;
-            if (entry == friendlySAIN.botGrenades) return language.botGrenades;
-            if (entry == friendlySAIN.pingKey) return language.pingSquad;
-            if (entry == friendlySAIN.pingRadioVolume) return language.pingRadioVolume;
-            if (entry == friendlySAIN.pingTime) return language.pingTime;
-            if (entry == friendlySAIN.contactKey) return language.enemyContact;
-            if (entry == friendlySAIN.overThereKey) return language.overThere;
-            if (entry == friendlySAIN.teleportKey) return language.botTeleport;
-            if (entry == friendlySAIN.healKey) return language.botHeal;
-            if (entry == friendlySAIN.botPrefetch) return language.botPrefetch;
-            if (entry == friendlySAIN.botTalk) return language.botTalk;
-            if (entry == friendlySAIN.spawnPoint) return language.spawnPoint;
-            if (entry == friendlySAIN.goToDistance) return language.goToDistance;
-            if (entry == friendlySAIN.battleRecorderEnabled) return language.battleRecorder;
-            if (entry == friendlySAIN.battleRecorderSnapshotIntervalMs) return language.battleRecorderSnapshotIntervalMs;
+            if (entry == pitFireTeam.scanDistance) return language.scanDistance;
+            if (entry == pitFireTeam.patrolRadius) return language.patrolRadius;
+            if (entry == pitFireTeam.enemyRemember) return language.enemyRemember;
+            if (entry == pitFireTeam.heatlhMultiplier) return language.healthMultiplier;
+            if (entry == pitFireTeam.statusSound) return language.statusSound;
+            if (entry == pitFireTeam.enemyMarker) return language.enemyMarker;
+            if (entry == pitFireTeam.pickupEnabled) return language.pickup;
+            if (entry == pitFireTeam.tieredPickup) return language.tieredPickup;
+            if (entry == pitFireTeam.maximumPickup) return language.maximumPickup;
+            if (entry == pitFireTeam.recruitPickup) return language.recruitPickup;
+            if (entry == pitFireTeam.npcSendMessage) return language.npcSendMessage;
+            if (entry == pitFireTeam.pitFireTeamFLAG) return language.pitFireTeam;
+            if (entry == pitFireTeam.badGuy) return language.badGuy;
+            if (entry == pitFireTeam.englishBear) return language.englishBear;
+            if (entry == pitFireTeam.botGrenades) return language.botGrenades;
+            if (entry == pitFireTeam.pingKey) return language.pingSquad;
+            if (entry == pitFireTeam.pingRadioVolume) return language.pingRadioVolume;
+            if (entry == pitFireTeam.pingTime) return language.pingTime;
+            if (entry == pitFireTeam.contactKey) return language.enemyContact;
+            if (entry == pitFireTeam.overThereKey) return language.overThere;
+            if (entry == pitFireTeam.teleportKey) return language.botTeleport;
+            if (entry == pitFireTeam.healKey) return language.botHeal;
+            if (entry == pitFireTeam.botPrefetch) return language.botPrefetch;
+            if (entry == pitFireTeam.botTalk) return language.botTalk;
+            if (entry == pitFireTeam.spawnPoint) return language.spawnPoint;
+            if (entry == pitFireTeam.goToDistance) return language.goToDistance;
+            if (entry == pitFireTeam.battleRecorderEnabled) return language.battleRecorder;
+            if (entry == pitFireTeam.battleRecorderSnapshotIntervalMs) return language.battleRecorderSnapshotIntervalMs;
 
             return null;
         }

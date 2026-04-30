@@ -1,4 +1,4 @@
-﻿using ChatShared;
+using ChatShared;
 using Comfort.Common;
 
 using EFT;
@@ -20,7 +20,7 @@ using System.Threading.Tasks;
 using UI.Matchmaker.Group;
 using UnityEngine;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class SocialNetworkClassPatch : ModulePatch
     {
@@ -110,7 +110,7 @@ namespace friendlySAIN.Patches
 
     internal class TeammateContextMenuButtonsPatch : ModulePatch
     {
-        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private const string TeammatesRoute = "/singleplayer/pitfireteam/teammates";
         private static readonly HashSet<string> TeammateAccountIds = new HashSet<string>(StringComparer.Ordinal);
         private static float _nextRefreshTime;
 
@@ -198,7 +198,7 @@ namespace friendlySAIN.Patches
 
     internal class FriendListInvitePlayerPanelPatch : ModulePatch
     {
-        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private const string TeammatesRoute = "/singleplayer/pitfireteam/teammates";
 
         private sealed class TeammateInviteEntry
         {
@@ -377,7 +377,7 @@ namespace friendlySAIN.Patches
 
     internal class TeammateGroupContextMenuButtonsPatch : ModulePatch
     {
-        private const string TeammatesRoute = "/singleplayer/friendlysain/teammates";
+        private const string TeammatesRoute = "/singleplayer/pitfireteam/teammates";
         private static readonly HashSet<string> TeammateAccountIds = new HashSet<string>(StringComparer.Ordinal);
         private static float _nextRefreshTime;
 

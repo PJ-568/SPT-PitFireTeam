@@ -1,4 +1,4 @@
-﻿using EFT;
+using EFT;
 using EFT.Counters;
 
 using HarmonyLib;
@@ -9,10 +9,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-using friendlySAIN.Components;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Utils;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal class RecruitPickupCandidateRequest
     {
@@ -316,7 +316,7 @@ namespace friendlySAIN.Modules
 
                     if (!item.IsSquadMate)
                     {
-                        if (friendlySAIN.recruitPickup.Value && item.GetBoss()?.realPlayer?.Side != EPlayerSide.Savage)
+                        if (pitFireTeam.recruitPickup.Value && item.GetBoss()?.realPlayer?.Side != EPlayerSide.Savage)
                         {
                             string voiceId = pr.Customization != null && pr.Customization.TryGetValue(EBodyModelPart.Voice, out MongoID voice) ? voice.ToString() : string.Empty;
                             string headId = pr.Customization != null && pr.Customization.TryGetValue(EBodyModelPart.Head, out MongoID head) ? head.ToString() : string.Empty;
@@ -390,7 +390,7 @@ namespace friendlySAIN.Modules
 
             if (recruitCandidates.Count > 0)
             {
-                RequestHandler.PostJson("/singleplayer/friendlysain/recruitpickup", new RecruitPickupRequest
+                RequestHandler.PostJson("/singleplayer/pitfireteam/recruitpickup", new RecruitPickupRequest
                 {
                     Candidates = recruitCandidates
                 }.ToJson(_defaultJsonConverters));

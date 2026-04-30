@@ -1,8 +1,8 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     internal sealed class CombatThrowGrenadeFromPlaceAction : FollowerCombatActionBase
     {

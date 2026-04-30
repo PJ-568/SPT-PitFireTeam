@@ -4,7 +4,7 @@ using SPT.Reflection.Patching;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class AICoreAgentUpdatePatch : ModulePatch
     {

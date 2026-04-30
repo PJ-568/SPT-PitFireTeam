@@ -1,12 +1,12 @@
 using EFT;
 using EFT.Interactive;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class FollowerDoorAutoClosePatch : ModulePatch
     {

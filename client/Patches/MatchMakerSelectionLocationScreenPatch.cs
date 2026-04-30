@@ -1,10 +1,10 @@
-﻿using EFT;
+using EFT;
 using EFT.UI.Matchmaker;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class MatchMakerSelectionLocationScreenPatch : ModulePatch
     {

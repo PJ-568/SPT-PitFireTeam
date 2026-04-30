@@ -2,8 +2,8 @@ using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using SAIN;
 using SAIN.Components;
 using SAIN.Models.Enums;
@@ -11,7 +11,7 @@ using SAIN.SAINComponent.Classes.EnemyClasses;
 using UnityEngine;
 using HarmonyLib;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerRuntimeBridge
     {

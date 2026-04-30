@@ -3,7 +3,7 @@ using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Utils;
 
-namespace friendlySAIN.Server.Models;
+namespace pitTeam.Server.Models;
 
 public record FriendlyPostRaidTeamEscapedRequest : IRequestData
 {

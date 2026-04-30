@@ -2,8 +2,8 @@
   <Import Project="..\..\SERVER-4.08\Build.props" />
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>friendlySAIN.Server</AssemblyName>
-    <RootNamespace>friendlySAIN.Server</RootNamespace>
+    <AssemblyName>pitFireTeam.Server</AssemblyName>
+    <RootNamespace>pitTeam.Server</RootNamespace>
     <OutputType>Library</OutputType>
   </PropertyGroup>
   <ItemGroup>
@@ -28,10 +28,10 @@
       <OutputDll Include="$(ProjectDir)$(OutDir)$(TargetName).dll" />
       <Resources Include="$(ProjectDir)Resources\**\*.*" />
     </ItemGroup>
-    <Copy SourceFiles="@(OutputDll)" DestinationFolder="F:\Projects\SPT-Tarkov\SERVER-4.08\SPTarkov.Server\bin\$(Configuration)\net9.0\user\mods\friendlySAIN-ServerMod" />
+    <Copy SourceFiles="@(OutputDll)" DestinationFolder="F:\Projects\SPT-Tarkov\SERVER-4.08\SPTarkov.Server\bin\$(Configuration)\net9.0\user\mods\pitFireTeam-ServerMod" />
     <Copy
       SourceFiles="@(Resources)"
-      DestinationFolder="F:\Projects\SPT-Tarkov\SERVER-4.08\SPTarkov.Server\bin\$(Configuration)\net9.0\user\mods\friendlySAIN-ServerMod\Resources\%(RecursiveDir)"
+      DestinationFolder="F:\Projects\SPT-Tarkov\SERVER-4.08\SPTarkov.Server\bin\$(Configuration)\net9.0\user\mods\pitFireTeam-ServerMod\Resources\%(RecursiveDir)"
       SkipUnchangedFiles="true"
     />
   </Target>

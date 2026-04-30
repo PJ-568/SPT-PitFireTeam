@@ -1,10 +1,10 @@
-﻿using EFT;
+using EFT;
 using UnityEngine;
 using UnityEngine.AI;
 
 using StandardBrain = GClass26;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     public class BotLogicDecisions
     {

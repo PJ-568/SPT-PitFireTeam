@@ -1,10 +1,10 @@
 using EFT;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     // Route follower gesture commands through pitAIBossPlayer command handling, not vanilla BotReceiver.method_6 logic.
     internal class BotReceiverGestureOverridePatch : ModulePatch

@@ -1,11 +1,11 @@
-# friendlySAIN 4.x Brain Migration Notes
+# pitFireTeam 4.x Brain Migration Notes
 
 ## Goal
 
 Move from custom follower brains/actions/receiver to:
 
 - SAIN + BigBrain as the primary combat/action authority
-- friendlySAIN adds only a lightweight follower-regroup layer
+- pitFireTeam adds only a lightweight follower-regroup layer
 - no custom `BaseBrain` replacement, no custom `AICoreAgentClass`, no custom `BotReceiver`
 
 ## What Makes A Bot Tick (4.x)
@@ -43,31 +43,31 @@ SAIN registers BigBrain layers per brain short-name and per role via `BrainManag
 
 This is the correct architecture for 4.x when avoiding custom brain replacement.
 
-## FriendlyPMC/FriendlySAIN 3.11 -> 4.x Client Mapping
+## FriendlyPMC/PitFireTeam 3.11 -> 4.x Client Mapping
 
-Verified mappings already present in ported `friendlySAIN` patches:
+Verified mappings already present in ported `pitFireTeam` patches:
 
 - `Class303` -> `Class308` (`SendRaidSettings` target)
   - `friendlypmc/client/Patches/RaidStartPatch.cs`
-  - `friendlySAIN/client/Patches/RaidStartPatch.cs`
+  - `pitFireTeam/client/Patches/RaidStartPatch.cs`
 - `GClass3497` -> `ContextInteractionsClass` (group remove context)
   - `friendlypmc/client/Patches/RaidStartPatch.cs`
-  - `friendlySAIN/client/Patches/RaidStartPatch.cs`
+  - `pitFireTeam/client/Patches/RaidStartPatch.cs`
 - `MatchmakerPlayerControllerClass` method targets changed to `GClass3926<RaidSettings>` for `method_39` and `method_21`
   - `friendlypmc/client/Patches/RaidStartPatch.cs`
-  - `friendlySAIN/client/Patches/RaidStartPatch.cs`
+  - `pitFireTeam/client/Patches/RaidStartPatch.cs`
 - `GClass567` -> `PlayerAIDataClass` (constructor patch)
   - `friendlypmc/client/Patches/PlayerPatch.cs`
-  - `friendlySAIN/client/Patches/PlayerPatch.cs`
+  - `pitFireTeam/client/Patches/PlayerPatch.cs`
 - `"<AIBossPlayer>k__BackingField"` -> `"AibossPlayer_0"`
   - `friendlypmc/client/Patches/PlayerPatch.cs`
-  - `friendlySAIN/client/Patches/PlayerPatch.cs`
+  - `pitFireTeam/client/Patches/PlayerPatch.cs`
 - `BotReceiver` private field `"botOwner_0"` -> `"BotOwner_0"`
   - `friendlypmc/client/Patches/BotReceiverPatch.cs`
-  - `friendlySAIN/client/Patches/BotReceiverPatch.cs`
+  - `pitFireTeam/client/Patches/BotReceiverPatch.cs`
 - `BotMemoryClass` private field `"botOwner_0"` -> `"BotOwner_0"`
   - `friendlypmc/client/Patches/BotMemoryPatch.cs`
-  - `friendlySAIN/client/Patches/BotMemoryPatch.cs`
+  - `pitFireTeam/client/Patches/BotMemoryPatch.cs`
 - `BaseLogicLayerAbstractClass` flag `"bool_1"` -> `"Bool_1"`
   - seen in custom layer ports
 - `BotsPresets`/session fields:
@@ -75,11 +75,11 @@ Verified mappings already present in ported `friendlySAIN` patches:
   - `"iSession"` -> `"ISession"`
   - `ProfileEndPoint` `"gclass1321_0"` -> `"Gclass1392_0"`
   - `friendlypmc/client/Patches/BotsControllerPatch.cs`
-  - `friendlySAIN/client/Patches/BotsControllerPatch.cs`
+  - `pitFireTeam/client/Patches/BotsControllerPatch.cs`
 - `GesturesMenu` list fields:
   - `"list_0"`/`"list_1"` -> `"list_1"`/`"list_2"`
   - `friendlypmc/client/Patches/GestureMenuPatch.cs`
-  - `friendlySAIN/client/Patches/GestureMenuPatch.cs`
+  - `pitFireTeam/client/Patches/GestureMenuPatch.cs`
 
 ## Server 3.11 TS -> Server 4.08 C# Mapping (for mod API touchpoints)
 
@@ -126,5 +126,5 @@ Already moved toward this model:
 - plugin no longer enables receiver/talk/gesture/hearing/bullet phrase-control patches
 - bot follow setup no longer swaps brain/agent/receiver to custom types
 - BigBrain follower regroup layer added:
-  - `friendlySAIN/client/BigBrain/FollowerRegroupLayer.cs`
+  - `pitFireTeam/client/BigBrain/FollowerRegroupLayer.cs`
 

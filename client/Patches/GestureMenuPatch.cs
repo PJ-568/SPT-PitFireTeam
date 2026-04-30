@@ -1,4 +1,4 @@
-﻿using EFT.UI.Gestures;
+using EFT.UI.Gestures;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -7,7 +7,7 @@ using System.Reflection;
 using GestureAction = EFT.UI.Gestures.GestureBaseItem.GStruct449;
 using GestureMenuItem = EFT.UI.Gestures.GesturesMenu.Class3396;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     // Add new prhases to the menu
     internal class GestureMenuPatch : ModulePatch
@@ -92,17 +92,17 @@ namespace friendlySAIN.Patches
             {
                 if (trigger == EPhraseTrigger.OnRepeatedContact)
                 {
-                    __result = friendlySAIN.optionsLang.gestures["OnRepeatedContact"];
+                    __result = pitFireTeam.optionsLang.gestures["OnRepeatedContact"];
                     return false;
                 }
                 else if (trigger == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
-                    __result = friendlySAIN.optionsLang.gestures["TeamStatus"];
+                    __result = pitFireTeam.optionsLang.gestures["TeamStatus"];
                     return false;
                 }
                 else if (trigger == (EPhraseTrigger)CustomPhrases.OverThere)
                 {
-                    __result = friendlySAIN.optionsLang.gestures["OverThere"];
+                    __result = pitFireTeam.optionsLang.gestures["OverThere"];
                     return false;
                 }
             }

@@ -1,12 +1,12 @@
 using EFT;
 using HarmonyLib;
 using SAIN.SAINComponent.Classes.Talk;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerGroupTalkDirectionPatch
     {

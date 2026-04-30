@@ -1,5 +1,5 @@
-using friendlySAIN.Server.Models;
-using friendlySAIN.Server.Services;
+using pitTeam.Server.Models;
+using pitTeam.Server.Services;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
@@ -7,7 +7,7 @@ using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Callbacks;
+namespace pitTeam.Server.Callbacks;
 
 [Injectable]
 public class FriendlyTeammateCallbacks(

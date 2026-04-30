@@ -1,4 +1,4 @@
-﻿using EFT.InventoryLogic;
+using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.DragAndDrop;
 using HarmonyLib;
@@ -8,7 +8,7 @@ using System.Reflection;
 
 using ModSlotViewTP = EFT.UI.DragAndDrop.ModSlotView.GStruct448;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     // Make all followers items unlootable
     internal class UnlootableComponentPatch : ModulePatch

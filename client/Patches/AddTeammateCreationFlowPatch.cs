@@ -1,12 +1,12 @@
 using EFT.UI;
 using EFT.UI.Screens;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class AddTeammateBackButtonPatch : ModulePatch
     {

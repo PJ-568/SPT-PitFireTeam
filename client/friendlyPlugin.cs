@@ -1,4 +1,4 @@
-﻿using BepInEx;
+using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using Comfort.Common;
@@ -16,14 +16,14 @@ using UnityEngine;
 using UnityEngine.AI;
 using Newtonsoft.Json;
 
-using friendlySAIN.Modules;
-using friendlySAIN.BigBrain;
-using friendlySAIN.Components;
-using friendlySAIN.Localization;
-using friendlySAIN.Utils;
-using friendlySAIN.Patches;
+using pitTeam.Modules;
+using pitTeam.BigBrain;
+using pitTeam.Components;
+using pitTeam.Localization;
+using pitTeam.Utils;
+using pitTeam.Patches;
 
-namespace friendlySAIN
+namespace pitTeam
 {
 
     public enum CustomBotRequestType
@@ -92,7 +92,7 @@ namespace friendlySAIN
         public Dictionary<string, string> npcSendMessage { get; set; }
 
         [JsonProperty("friendlyPMC")]
-        public Dictionary<string, string> friendlySAIN { get; set; }
+        public Dictionary<string, string> pitFireTeam { get; set; }
         public Dictionary<string, string> badGuy { get; set; }
         public Dictionary<string, string> pmcArmbands { get; set; }
         public Dictionary<string, string> englishBear { get; set; }
@@ -132,16 +132,16 @@ namespace friendlySAIN
         public string[] friendlyEscaped { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.friendlysain", "friendlySAIN", "1.0.0")]
+    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "1.0.0")]
     [BepInDependency("xyz.drakia.bigbrain")]
-    public class friendlySAIN : BaseUnityPlugin
+    public class pitFireTeam : BaseUnityPlugin
     {
         public const string SainPluginId = "me.sol.sain";
-        public const string SainAddonPluginId = "xyz.pit.friendlysain.sainaddon";
+        public const string SainAddonPluginId = "xyz.pit.fireteam.sainaddon";
 
         public static bool awaken;
 
-        internal static friendlySAIN Instance { get; private set; }
+        internal static pitFireTeam Instance { get; private set; }
 
         public static LanguageOptions optionsLang;
 
@@ -159,7 +159,7 @@ namespace friendlySAIN
         public static ConfigEntry<int> maximumPickup;
         public static ConfigEntry<bool> recruitPickup;
 
-        public static ConfigEntry<bool> friendlySAINFLAG;
+        public static ConfigEntry<bool> pitFireTeamFLAG;
         public static ConfigEntry<bool> badGuy;
 
         public static ConfigEntry<bool> englishBear;
@@ -227,7 +227,7 @@ namespace friendlySAIN
             // initialize follower brain layers
             FollowerLayerRegistry.Init();
 
-            var harmony = new Harmony("xyz.pit.friendlysain");
+            var harmony = new Harmony("xyz.pit.fireteam");
 
             // bot patches to help with various scenarios while being a follower of the player
             // Temporarily disabled for 4.x stability; revisit once BotsGroup method signatures are remapped.
@@ -385,7 +385,7 @@ namespace friendlySAIN
             RefreshPluginFlags();
             if (IsSAINInstalled && !IsSAINAddonInstalled)
             {
-                Logger.LogWarning("[Init] SAIN detected but friendlySAIN SAIN addon is missing.");
+                Logger.LogWarning("[Init] SAIN detected but pitFireTeam SAIN addon is missing.");
                 Logger.LogWarning($"[Init] Followers will fall back to core vanilla combat behavior. Install plugin '{SainAddonPluginId}' to enable SAIN follower combat.");
             }
         }
@@ -439,13 +439,13 @@ namespace friendlySAIN
             {
                 string embeddedEnglishJson = JsonConvert.SerializeObject(fallback);
                 string requestBody = JsonConvert.SerializeObject(new { locale = languageCode, englishJson = embeddedEnglishJson });
-                string responseJson = RequestHandler.PostJson("/singleplayer/friendlysain/lang", requestBody);
+                string responseJson = RequestHandler.PostJson("/singleplayer/pitfireteam/lang", requestBody);
                 LanguageOptions loaded = JsonConvert.DeserializeObject<LanguageOptions>(responseJson);
                 return ApplyLanguageFallback(loaded, fallback);
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogInfo($"Failed to load friendlySAIN language '{languageCode}', using English fallback: {ex.Message}");
+                Modules.Logger.LogInfo($"Failed to load pitFireTeam language '{languageCode}', using English fallback: {ex.Message}");
                 return fallback;
             }
         }
@@ -588,7 +588,7 @@ namespace friendlySAIN
 
             npcSendMessage = Config.Bind("", "11 NpcSendMessage", true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, CreateConfigAttributes(-1001, false, optionsLang.npcSendMessage)));
 
-            friendlySAINFLAG = Config.Bind("", "12 FriendlySAIN", true, new ConfigDescription(optionsLang.friendlySAIN["Description"], null, CreateConfigAttributes(-1002, false, optionsLang.friendlySAIN)));
+            pitFireTeamFLAG = Config.Bind("", "12 PitFireTeam", true, new ConfigDescription(optionsLang.pitFireTeam["Description"], null, CreateConfigAttributes(-1002, false, optionsLang.pitFireTeam)));
 
             badGuy = Config.Bind("", "13 BadGuy", false, new ConfigDescription(optionsLang.badGuy["Description"], null, CreateConfigAttributes(-1003, false, optionsLang.badGuy)));
 
@@ -741,8 +741,8 @@ namespace friendlySAIN
 
                     if (follower != null && bot.HealthController.IsAlive)
                     {
-                        global::friendlySAIN.Utils.FollowerMedical.CancelAllHealing(bot, recoverDestroyedSurgeryParts: true);
-                        global::friendlySAIN.Utils.FollowerMedical.ForceHeal(bot);
+                        global::pitTeam.Utils.FollowerMedical.CancelAllHealing(bot, recoverDestroyedSurgeryParts: true);
+                        global::pitTeam.Utils.FollowerMedical.ForceHeal(bot);
                     }
                 }
             }

@@ -1,8 +1,8 @@
 ---
 name: bepinex
 description: |
-  Develops BepInEx plugins with hooks, patches, and mod initialization for Unity games.
-  Use when: Creating BepInEx plugins, setting up plugin entry points, configuring mod settings, or integrating with Harmony patches.
+    Develops BepInEx plugins with hooks, patches, and mod initialization for Unity games.
+    Use when: Creating BepInEx plugins, setting up plugin entry points, configuring mod settings, or integrating with Harmony patches.
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 ---
 
@@ -15,28 +15,28 @@ BepInEx is the plugin framework for Unity game modding. This project uses BepInE
 ### Plugin Entry Point
 
 ```csharp
-[BepInPlugin("xyz.pit.friendlysain", "friendlySAIN", "1.0.0")]
+[BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "1.0.0")]
 [BepInDependency("xyz.drakia.bigbrain")]
-public class friendlySAIN : BaseUnityPlugin
+public class pitFireTeam : BaseUnityPlugin
 {
     public static ManualLogSource Log { get; private set; }
-    
+
     private void Awake()
     {
-        
+
     }
 }
 ```
 
 ## Key Concepts
 
-| Concept | Usage | Example |
-|---------|-------|---------|
-| Plugin GUID | Unique identifier | `"com.author.modname"` |
-| Hard dependency | Required mod | `DependencyFlags.HardDependency` |
-| Soft dependency | Optional mod | `DependencyFlags.SoftDependency` |
-| ConfigEntry | Runtime setting | `config.Bind("Section", "Key", default)` |
-| ManualLogSource | Logging | `Logger.LogInfo("message")` |
+| Concept         | Usage             | Example                                  |
+| --------------- | ----------------- | ---------------------------------------- |
+| Plugin GUID     | Unique identifier | `"com.author.modname"`                   |
+| Hard dependency | Required mod      | `DependencyFlags.HardDependency`         |
+| Soft dependency | Optional mod      | `DependencyFlags.SoftDependency`         |
+| ConfigEntry     | Runtime setting   | `config.Bind("Section", "Key", default)` |
+| ManualLogSource | Logging           | `Logger.LogInfo("message")`              |
 
 ## Common Patterns
 

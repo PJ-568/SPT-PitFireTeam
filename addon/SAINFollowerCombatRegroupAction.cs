@@ -1,6 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using friendlySAIN.Components;
+using pitTeam.Components;
 using SAIN.Layers;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using System;
@@ -8,7 +8,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal class SAINFollowerCombatRegroupAction : BotAction
     {
@@ -353,7 +353,7 @@ namespace friendlySAIN.SAINAddon
         private bool TrySelectClosestCoverTarget(pitAIBossPlayer boss, Vector3 bossPosition, float minBossDistance, float maxBossDistance, out Vector3 target)
         {
             target = default;
-            CustomNavigationPoint point = global::friendlySAIN.Utils.Covers.GetClosestCoverPoint(
+            CustomNavigationPoint point = global::pitTeam.Utils.Covers.GetClosestCoverPoint(
                 BotOwner,
                 bossPosition,
                 maxBossDistance,

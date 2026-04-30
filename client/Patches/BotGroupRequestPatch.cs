@@ -1,8 +1,8 @@
-﻿using EFT;
+using EFT;
 using EFT.Interactive;
-using friendlySAIN.BigBrain;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.BigBrain;
+using pitTeam.Components;
+using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -11,7 +11,7 @@ using System.Reflection;
 using UnityEngine;
 
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class FollowRequestPatch : ModulePatch
     {
@@ -72,7 +72,7 @@ namespace friendlySAIN.Patches
                         return false;
                     }
 
-                    if (!friendlySAIN.pickupEnabled.Value)
+                    if (!pitFireTeam.pickupEnabled.Value)
                     {
                         posibleExecuter.BotTalk.TrySay(EPhraseTrigger.Negative);
                         posibleExecuter.Gesture.TryGestus(EInteraction.NoGesture, true);
@@ -93,11 +93,11 @@ namespace friendlySAIN.Patches
                                bot.GetPlayer.HealthController != null &&
                                bot.GetPlayer.HealthController.IsAlive;
                     });
-                    int configuredPickups = Math.Max(0, friendlySAIN.maximumPickup.Value);
+                    int configuredPickups = Math.Max(0, pitFireTeam.maximumPickup.Value);
                     int hardPickupLimit = Math.Min(10, configuredPickups);
                     int currentPickups = activeFollowers.FindAll(f => !f.IsSquadMate).Count;
                     // Tiered pickup uses the old player-vs-bot acceptance rules.
-                    if (friendlySAIN.tieredPickup.Value)
+                    if (pitFireTeam.tieredPickup.Value)
                     {
                         // - SCAV : based on fence level
                         if (player.Side == EPlayerSide.Savage)
@@ -185,7 +185,7 @@ namespace friendlySAIN.Patches
                                            bot.GetPlayer.HealthController != null &&
                                            bot.GetPlayer.HealthController.IsAlive;
                                 });
-                                int deferredConfiguredPickups = Math.Max(0, friendlySAIN.maximumPickup.Value);
+                                int deferredConfiguredPickups = Math.Max(0, pitFireTeam.maximumPickup.Value);
                                 int deferredHardPickupLimit = Math.Min(10, deferredConfiguredPickups);
                                 int deferredCurrentPickups = deferredActiveFollowers.FindAll(f => !f.IsSquadMate).Count;
                                 if (deferredCurrentPickups >= deferredHardPickupLimit)
@@ -300,7 +300,7 @@ namespace friendlySAIN.Patches
                 bot.BotTalk.SetSilence(0f);
                 bot.BotTalk.DropNextSayPeriod();
                 bool saidPhrase = false;
-                if (friendlySAIN.ShouldDisableSainForFollowers)
+                if (pitFireTeam.ShouldDisableSainForFollowers)
                 {
                     saidPhrase = TryPlayDirectFollowerPhrase(bot, phrase);
                 }

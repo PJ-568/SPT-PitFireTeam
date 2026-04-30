@@ -17,9 +17,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
-using friendlySAIN.Patches;
+using pitTeam.Patches;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal static class AddTeammateCreationFlow
     {
@@ -77,7 +77,7 @@ namespace friendlySAIN.Modules
         {
             if (pendingReturnAction != null)
             {
-                if (friendlySAIN.Instance == null)
+                if (pitFireTeam.Instance == null)
                 {
                     InvokePendingReturnAction();
                     return;
@@ -85,15 +85,15 @@ namespace friendlySAIN.Modules
 
                 if (returnCoroutine != null)
                 {
-                    friendlySAIN.Instance.StopCoroutine(returnCoroutine);
+                    pitFireTeam.Instance.StopCoroutine(returnCoroutine);
                 }
 
                 returnInProgress = true;
-                returnCoroutine = friendlySAIN.Instance.StartCoroutine(ReturnToPendingScreen());
+                returnCoroutine = pitFireTeam.Instance.StartCoroutine(ReturnToPendingScreen());
                 return;
             }
 
-            if (friendlySAIN.Instance == null)
+            if (pitFireTeam.Instance == null)
             {
                 CurrentScreenSingletonClass.Instance.TryReturnToRootScreen().HandleExceptions();
                 InvokePendingReturnAction();
@@ -102,11 +102,11 @@ namespace friendlySAIN.Modules
 
             if (returnCoroutine != null)
             {
-                friendlySAIN.Instance.StopCoroutine(returnCoroutine);
+                pitFireTeam.Instance.StopCoroutine(returnCoroutine);
             }
 
             returnInProgress = true;
-            returnCoroutine = friendlySAIN.Instance.StartCoroutine(ReturnToMainScreenWithOverlay());
+            returnCoroutine = pitFireTeam.Instance.StartCoroutine(ReturnToMainScreenWithOverlay());
         }
 
         public static void RefreshSubmitButton()
@@ -165,17 +165,17 @@ namespace friendlySAIN.Modules
             };
 
             string json = JsonConvert.SerializeObject(payload);
-            friendlySAIN.Log.LogInfo($"[UI] Add teammate selection complete: {json}");
+            pitFireTeam.Log.LogInfo($"[UI] Add teammate selection complete: {json}");
 
             submitInProgress = true;
             ConfigureHeadSelectionUi(screen);
 
-            if (submitCoroutine != null && friendlySAIN.Instance != null)
+            if (submitCoroutine != null && pitFireTeam.Instance != null)
             {
-                friendlySAIN.Instance.StopCoroutine(submitCoroutine);
+                pitFireTeam.Instance.StopCoroutine(submitCoroutine);
             }
 
-            submitCoroutine = friendlySAIN.Instance.StartCoroutine(SubmitTeammateCoroutine(payload));
+            submitCoroutine = pitFireTeam.Instance.StartCoroutine(SubmitTeammateCoroutine(payload));
             return true;
         }
 
@@ -188,7 +188,7 @@ namespace friendlySAIN.Modules
                 if (session == null)
                 {
                     ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed", DefaultOpenFailed));
-                    friendlySAIN.Log.LogError("[UI] Could not start add teammate flow: session is not available.");
+                    pitFireTeam.Log.LogError("[UI] Could not start add teammate flow: session is not available.");
                     return;
                 }
 
@@ -196,7 +196,7 @@ namespace friendlySAIN.Modules
                 if (playerSide != EPlayerSide.Bear && playerSide != EPlayerSide.Usec)
                 {
                     ShowToast(GetLocalizedSocialUi("AddTeammateUnsupportedSide", DefaultUnsupportedSide));
-                    friendlySAIN.Log.LogWarning($"[UI] Add teammate flow aborted because current side is {playerSide}.");
+                    pitFireTeam.Log.LogWarning($"[UI] Add teammate flow aborted because current side is {playerSide}.");
                     return;
                 }
 
@@ -209,7 +209,7 @@ namespace friendlySAIN.Modules
                 if (GClass2305.Profile_0 == null || GClass2305.Profile_1 == null)
                 {
                     ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed", DefaultOpenFailed));
-                    friendlySAIN.Log.LogError("[UI] Could not start add teammate flow: default preview profiles are missing.");
+                    pitFireTeam.Log.LogError("[UI] Could not start add teammate flow: default preview profiles are missing.");
                     return;
                 }
 
@@ -240,8 +240,8 @@ namespace friendlySAIN.Modules
             {
                 CleanupActiveFlow();
                 ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed", DefaultOpenFailed));
-                friendlySAIN.Log.LogError("[UI] Failed to open add teammate creation flow.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to open add teammate creation flow.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -265,13 +265,13 @@ namespace friendlySAIN.Modules
 
         private static void HandleScreenShown()
         {
-            if (skipScheduled || activeController == null || friendlySAIN.Instance == null)
+            if (skipScheduled || activeController == null || pitFireTeam.Instance == null)
             {
                 return;
             }
 
             skipScheduled = true;
-            advanceCoroutine = friendlySAIN.Instance.StartCoroutine(AdvanceToHeadSelection());
+            advanceCoroutine = pitFireTeam.Instance.StartCoroutine(AdvanceToHeadSelection());
         }
 
         private static IEnumerator AdvanceToHeadSelection()
@@ -295,8 +295,8 @@ namespace friendlySAIN.Modules
                             }
                             catch (Exception ex)
                             {
-                                friendlySAIN.Log.LogError("[UI] Failed to skip side selection for add teammate flow.");
-                                friendlySAIN.Log.LogError(ex);
+                                pitFireTeam.Log.LogError("[UI] Failed to skip side selection for add teammate flow.");
+                                pitFireTeam.Log.LogError(ex);
                             }
                             break;
                         }
@@ -331,19 +331,19 @@ namespace friendlySAIN.Modules
                 activeController.OnClose -= CleanupActiveFlow;
             }
 
-            if (advanceCoroutine != null && friendlySAIN.Instance != null)
+            if (advanceCoroutine != null && pitFireTeam.Instance != null)
             {
-                friendlySAIN.Instance.StopCoroutine(advanceCoroutine);
+                pitFireTeam.Instance.StopCoroutine(advanceCoroutine);
             }
 
-            if (returnCoroutine != null && friendlySAIN.Instance != null)
+            if (returnCoroutine != null && pitFireTeam.Instance != null)
             {
-                friendlySAIN.Instance.StopCoroutine(returnCoroutine);
+                pitFireTeam.Instance.StopCoroutine(returnCoroutine);
             }
 
-            if (submitCoroutine != null && friendlySAIN.Instance != null)
+            if (submitCoroutine != null && pitFireTeam.Instance != null)
             {
-                friendlySAIN.Instance.StopCoroutine(submitCoroutine);
+                pitFireTeam.Instance.StopCoroutine(submitCoroutine);
             }
 
             advanceCoroutine = null;
@@ -365,25 +365,25 @@ namespace friendlySAIN.Modules
 
         private static TarkovApplication ResolveApplication()
         {
-            if (friendlySAIN.application != null)
+            if (pitFireTeam.application != null)
             {
-                return friendlySAIN.application;
+                return pitFireTeam.application;
             }
 
             try
             {
-                friendlySAIN.application = ClientAppUtils.GetMainApp();
+                pitFireTeam.application = ClientAppUtils.GetMainApp();
             }
             catch
             {
             }
 
-            if (friendlySAIN.application == null && Singleton<ClientApplication<ISession>>.Instantiated)
+            if (pitFireTeam.application == null && Singleton<ClientApplication<ISession>>.Instantiated)
             {
-                friendlySAIN.application = Singleton<ClientApplication<ISession>>.Instance as TarkovApplication;
+                pitFireTeam.application = Singleton<ClientApplication<ISession>>.Instance as TarkovApplication;
             }
 
-            return friendlySAIN.application;
+            return pitFireTeam.application;
         }
 
         internal static void ShowToast(string message)
@@ -399,8 +399,8 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                if (friendlySAIN.optionsLang?.socialUi != null &&
-                    friendlySAIN.optionsLang.socialUi.TryGetValue(key, out string value) &&
+                if (pitFireTeam.optionsLang?.socialUi != null &&
+                    pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value) &&
                     !string.IsNullOrEmpty(value))
                 {
                     return value;
@@ -431,8 +431,8 @@ namespace friendlySAIN.Modules
 
             if (returnTask.IsFaulted)
             {
-                friendlySAIN.Log.LogError("[UI] Failed while returning from add teammate flow to root screen.");
-                friendlySAIN.Log.LogError(returnTask.Exception);
+                pitFireTeam.Log.LogError("[UI] Failed while returning from add teammate flow to root screen.");
+                pitFireTeam.Log.LogError(returnTask.Exception);
             }
 
             InvokePendingReturnAction();
@@ -496,8 +496,8 @@ namespace friendlySAIN.Modules
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to hide skipped side selection visuals.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to hide skipped side selection visuals.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -529,8 +529,8 @@ namespace friendlySAIN.Modules
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to configure head selection UI for add teammate flow.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to configure head selection UI for add teammate flow.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -611,7 +611,7 @@ namespace friendlySAIN.Modules
         private static IEnumerator SubmitTeammateCoroutine(FriendlyTeammateCreateRequest payload)
         {
             Task<string> requestTask = Task.Run(() => RequestHandler.PostJson(
-                "/singleplayer/friendlysain/teammate/create",
+                "/singleplayer/pitfireteam/teammate/create",
                 SerializeRequest(payload)));
 
             while (!requestTask.IsCompleted)
@@ -624,8 +624,8 @@ namespace friendlySAIN.Modules
             if (requestTask.IsFaulted)
             {
                 submitInProgress = false;
-                friendlySAIN.Log.LogError("[UI] Failed to create teammate in backend.");
-                friendlySAIN.Log.LogError(requestTask.Exception);
+                pitFireTeam.Log.LogError("[UI] Failed to create teammate in backend.");
+                pitFireTeam.Log.LogError(requestTask.Exception);
                 ShowToast(GetLocalizedSocialUi("AddTeammateCreateFailed", DefaultCreateFailed));
                 RefreshSubmitButton();
                 yield break;
@@ -638,8 +638,8 @@ namespace friendlySAIN.Modules
             catch (Exception ex)
             {
                 submitInProgress = false;
-                friendlySAIN.Log.LogError("[UI] Failed to process teammate create response.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to process teammate create response.");
+                pitFireTeam.Log.LogError(ex);
                 ShowToast(GetLocalizedSocialUi("AddTeammateCreateFailed", DefaultCreateFailed));
                 RefreshSubmitButton();
             }
@@ -654,8 +654,8 @@ namespace friendlySAIN.Modules
                 throw new Exception(string.IsNullOrEmpty(backendError) ? DefaultCreateFailed : backendError);
             }
 
-            friendlySAIN.Log.LogInfo($"[UI] Add teammate created in backend: {responseJson}");
-            friendlySAIN.Instance.StartCoroutine(ShowSuccessAndReturn(payload.nickname));
+            pitFireTeam.Log.LogInfo($"[UI] Add teammate created in backend: {responseJson}");
+            pitFireTeam.Instance.StartCoroutine(ShowSuccessAndReturn(payload.nickname));
         }
 
         private static IEnumerator ShowSuccessAndReturn(string nickname)
@@ -686,8 +686,8 @@ namespace friendlySAIN.Modules
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to invoke add teammate return action.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to invoke add teammate return action.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -718,8 +718,8 @@ namespace friendlySAIN.Modules
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to resolve default JSON converters for add teammate request.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to resolve default JSON converters for add teammate request.");
+                pitFireTeam.Log.LogError(ex);
             }
 
             return defaultJsonConverters;

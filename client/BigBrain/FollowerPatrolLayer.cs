@@ -1,14 +1,14 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.InventoryLogic;
-using friendlySAIN.BigBrain.Actions;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.BigBrain.Actions;
+using pitTeam.Components;
+using pitTeam.Modules;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal static class FollowerLayerRegistry
     {
@@ -101,7 +101,7 @@ namespace friendlySAIN.BigBrain
 
         public override string GetName()
         {
-            return "friendlySAIN.FollowerPatrol";
+            return "pitTeam.FollowerPatrol";
         }
 
         public override bool IsActive()

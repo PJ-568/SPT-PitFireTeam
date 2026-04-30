@@ -1,11 +1,11 @@
 using BepInEx;
-using friendlySAIN.Modules;
+using pitTeam.Modules;
 using HarmonyLib;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
-    [BepInPlugin("xyz.pit.friendlysain.sainaddon", "friendlySAIN SAIN Addon", "1.0.0")]
-    [BepInDependency("xyz.pit.friendlysain", BepInDependency.DependencyFlags.HardDependency)]
+    [BepInPlugin("xyz.pit.fireteam.sainaddon", "pitFireTeam SAIN Addon", "1.0.0")]
+    [BepInDependency("xyz.pit.fireteam", BepInDependency.DependencyFlags.HardDependency)]
     [BepInDependency("me.sol.sain", BepInDependency.DependencyFlags.HardDependency)]
     [BepInDependency("xyz.drakia.bigbrain", BepInDependency.DependencyFlags.HardDependency)]
     public class SAINAddonPlugin : BaseUnityPlugin
@@ -15,8 +15,8 @@ namespace friendlySAIN.SAINAddon
         private void Awake()
         {
             Instance = this;
-            var harmony = new Harmony("xyz.pit.friendlysain.sainaddon");
-            Logger.LogInfo("[Init] friendlySAIN SAIN addon loaded.");
+            var harmony = new Harmony("xyz.pit.fireteam.sainaddon");
+            Logger.LogInfo("[Init] pitFireTeam SAIN addon loaded.");
 
             SainAddonBridge.RegisterRuntimeCallbacks(
                 SAINFollowerRuntimeBridge.IsReadyForPatrolAfterCombat,

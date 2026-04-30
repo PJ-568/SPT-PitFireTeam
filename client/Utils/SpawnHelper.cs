@@ -1,7 +1,7 @@
-﻿using EFT;
+using EFT;
 using System.Collections.Generic;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     internal class SpawnHelper
     {

@@ -10,7 +10,7 @@ using EFT.UI;
 using EFT.UI.DragAndDrop;
 using EFT.UI.Screens;
 using EFT.UI.Settings;
-using friendlySAIN.Utils;
+using pitTeam.Utils;
 using HarmonyLib;
 using Newtonsoft.Json;
 using SPT.Common.Http;
@@ -31,7 +31,7 @@ using dropDownItem = GClass3682;
 using OtherProfileResult = GClass2213;
 using ResultProfile = GClass1416;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     internal class FriendlyProfileDropdownItem : dropDownItem
     {
@@ -278,13 +278,13 @@ namespace friendlySAIN.Patches
             }
         }
 
-        private const string OptionsRoute = "/singleplayer/friendlysain/teammate/profile/options";
-        private const string SuitRoute = "/singleplayer/friendlysain/teammate/profile/suit";
-        private const string RenameRoute = "/singleplayer/friendlysain/teammate/profile/rename";
-        private const string LoadoutRoute = "/singleplayer/friendlysain/teammate/profile/loadout";
-        private const string DefaultEquipmentRoute = "/singleplayer/friendlysain/teammate/profile/default-equipment";
-        private const string AggressionRoute = "/singleplayer/friendlysain/teammate/profile/aggression";
-        private const string TacticRoute = "/singleplayer/friendlysain/teammate/profile/tactic";
+        private const string OptionsRoute = "/singleplayer/pitfireteam/teammate/profile/options";
+        private const string SuitRoute = "/singleplayer/pitfireteam/teammate/profile/suit";
+        private const string RenameRoute = "/singleplayer/pitfireteam/teammate/profile/rename";
+        private const string LoadoutRoute = "/singleplayer/pitfireteam/teammate/profile/loadout";
+        private const string DefaultEquipmentRoute = "/singleplayer/pitfireteam/teammate/profile/default-equipment";
+        private const string AggressionRoute = "/singleplayer/pitfireteam/teammate/profile/aggression";
+        private const string TacticRoute = "/singleplayer/pitfireteam/teammate/profile/tactic";
         private const string DefaultLoadoutId = "000000000000000000000000";
         private const string DefaultLoadoutName = "Default";
 
@@ -462,7 +462,7 @@ namespace friendlySAIN.Patches
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Failed to restore bottom navigation buttons after teammate profile: {ex.Message}");
+                pitFireTeam.Log.LogWarning($"[UI] Failed to restore bottom navigation buttons after teammate profile: {ex.Message}");
             }
         }
 
@@ -506,17 +506,17 @@ namespace friendlySAIN.Patches
 
             if (options.Loadouts == null || options.Loadouts.Count == 0)
             {
-                friendlySAIN.Log.LogWarning($"[UI] Teammate profile patch aborted: no loadout options returned for '{profile.AccountId}'.");
+                pitFireTeam.Log.LogWarning($"[UI] Teammate profile patch aborted: no loadout options returned for '{profile.AccountId}'.");
                 return;
             }
 
             if (!TryGetClothingPanel(__instance, playerModelWindow, out RectTransform clothingPanel, out InventoryClothingSelectionPanel clothingSelectionPanel, out Transform parent))
             {
-                friendlySAIN.Log.LogWarning("[UI] Teammate profile patch aborted: clothing panel not found on profile screen.");
+                pitFireTeam.Log.LogWarning("[UI] Teammate profile patch aborted: clothing panel not found on profile screen.");
                 return;
             }
 
-            friendlySAIN.Log.LogInfo($"[UI] Applying teammate profile customization UI for '{profile.AccountId}'.");
+            pitFireTeam.Log.LogInfo($"[UI] Applying teammate profile customization UI for '{profile.AccountId}'.");
             ViewedProfile = profile;
             ActiveProfileInventoryController = inventoryController;
             ActiveProfileSession = session;
@@ -553,7 +553,7 @@ namespace friendlySAIN.Patches
             StopPendingAggressionPersist();
 
             RectTransform clone = GameObject.Instantiate(clothingPanel, parent, true);
-            clone.name = "friendlySAIN_LoadoutSelector";
+            clone.name = "pitFireTeam_LoadoutSelector";
             clone.anchoredPosition = clothingPanel.anchoredPosition + new Vector2(0f, -72f);
 
             InventoryClothingSelectionPanel loadoutPanel = clone.GetComponent<InventoryClothingSelectionPanel>();
@@ -600,7 +600,7 @@ namespace friendlySAIN.Patches
             }
 
             RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
-            rowClone.name = "friendlySAIN_AggressionRow";
+            rowClone.name = "pitFireTeam_AggressionRow";
             rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f);
             rowClone.gameObject.SetActive(true);
 
@@ -638,14 +638,14 @@ namespace friendlySAIN.Patches
             CanvasGroup rowCanvasGroup = AggressionSelector.GetComponent<CanvasGroup>() ?? AggressionSelector.gameObject.AddComponent<CanvasGroup>();
             rowCanvasGroup.alpha = 1f;
 
-            CustomTextMeshProUGUI label = AggressionSelector.Find("friendlySAIN_AggressionLabel")?.GetComponent<CustomTextMeshProUGUI>();
+            CustomTextMeshProUGUI label = AggressionSelector.Find("pitFireTeam_AggressionLabel")?.GetComponent<CustomTextMeshProUGUI>();
             if (label != null)
             {
                 label.color = Color.white;
             }
 
             NumberSlider slider = AggressionSelector.GetComponentsInChildren<NumberSlider>(true)
-                .FirstOrDefault(candidate => candidate != null && string.Equals(candidate.name, "friendlySAIN_ProfileAggressionSlider", StringComparison.Ordinal));
+                .FirstOrDefault(candidate => candidate != null && string.Equals(candidate.name, "pitFireTeam_ProfileAggressionSlider", StringComparison.Ordinal));
             if (slider != null)
             {
                 slider.enabled = true;
@@ -665,7 +665,7 @@ namespace friendlySAIN.Patches
                 }
             }
 
-            Transform existingTooltip = AggressionSelector.Find("friendlySAIN_AggressionDisabledTooltip");
+            Transform existingTooltip = AggressionSelector.Find("pitFireTeam_AggressionDisabledTooltip");
             if (existingTooltip != null)
             {
                 GameObject.Destroy(existingTooltip.gameObject);
@@ -683,7 +683,7 @@ namespace friendlySAIN.Patches
             rowCanvasGroup.alpha = 1f;
 
             CustomTextMeshProUGUI label = CreateAggressionLabel(
-                "friendlySAIN_AggressionLabel",
+                "pitFireTeam_AggressionLabel",
                 rowRoot,
                 GetSocialUiText("ProfileAggression", "Aggression"),
                 new Vector2(0f, 0.5f),
@@ -840,7 +840,7 @@ namespace friendlySAIN.Patches
                 return null;
             }
 
-            slider.name = "friendlySAIN_ProfileAggressionSlider";
+            slider.name = "pitFireTeam_ProfileAggressionSlider";
             sliderRoot.localScale = Vector3.one;
 
             TMP_InputField valueInput = NumberSliderValueInputField?.GetValue(slider) as TMP_InputField;
@@ -928,21 +928,21 @@ namespace friendlySAIN.Patches
         {
             StopPendingAggressionPersist();
 
-            if (string.IsNullOrWhiteSpace(accountId) || friendlySAIN.Instance == null)
+            if (string.IsNullOrWhiteSpace(accountId) || pitFireTeam.Instance == null)
             {
                 return;
             }
 
             int revision = ++PendingAggressionPersistRevision;
-            PendingAggressionPersistCoroutine = friendlySAIN.Instance.StartCoroutine(
+            PendingAggressionPersistCoroutine = pitFireTeam.Instance.StartCoroutine(
                 PersistAggressionDelayed(accountId, aggression, revision));
         }
 
         internal static void StopPendingAggressionPersist()
         {
-            if (PendingAggressionPersistCoroutine != null && friendlySAIN.Instance != null)
+            if (PendingAggressionPersistCoroutine != null && pitFireTeam.Instance != null)
             {
-                friendlySAIN.Instance.StopCoroutine(PendingAggressionPersistCoroutine);
+                pitFireTeam.Instance.StopCoroutine(PendingAggressionPersistCoroutine);
             }
 
             PendingAggressionPersistCoroutine = null;
@@ -1011,7 +1011,7 @@ namespace friendlySAIN.Patches
 
         private static string GetTacticOptionFallback(int index, string fallback)
         {
-            string[] options = friendlySAIN.optionsLang?.tacticOptions;
+            string[] options = pitFireTeam.optionsLang?.tacticOptions;
             return options != null && index >= 0 && index < options.Length && !string.IsNullOrWhiteSpace(options[index])
                 ? options[index]
                 : fallback;
@@ -1036,7 +1036,7 @@ namespace friendlySAIN.Patches
             }
 
             RectTransform rowClone = GameObject.Instantiate(loadoutSelector, parent, true);
-            rowClone.name = "friendlySAIN_LoadoutEdit";
+            rowClone.name = "pitFireTeam_LoadoutEdit";
             rowClone.anchoredPosition = loadoutSelector.anchoredPosition + new Vector2(0f, -72f * Mathf.Max(1, rowOffset));
             rowClone.gameObject.SetActive(true);
 
@@ -1056,7 +1056,7 @@ namespace friendlySAIN.Patches
             if (buttonTemplate == null)
             {
                 GameObject.Destroy(rowClone.gameObject);
-                friendlySAIN.Log.LogWarning("[UI] Edit Loadout button aborted: hideout button template not found.");
+                pitFireTeam.Log.LogWarning("[UI] Edit Loadout button aborted: hideout button template not found.");
                 return;
             }
 
@@ -1064,11 +1064,11 @@ namespace friendlySAIN.Patches
             if (button == null)
             {
                 GameObject.Destroy(rowClone.gameObject);
-                friendlySAIN.Log.LogWarning("[UI] Edit Loadout button aborted: cloned hideout button not found.");
+                pitFireTeam.Log.LogWarning("[UI] Edit Loadout button aborted: cloned hideout button not found.");
                 return;
             }
 
-            button.name = "friendlySAIN_EditLoadoutButton";
+            button.name = "pitFireTeam_EditLoadoutButton";
             button.gameObject.SetActive(true);
             button.Interactable = true;
             button.SetRawText(GetSocialUiText("EditLoadout", "Edit Loadout"), 18);
@@ -1142,7 +1142,7 @@ namespace friendlySAIN.Patches
             catch (Exception ex)
             {
                 TaskBarDisabledForReturnOverride = false;
-                friendlySAIN.Log.LogWarning($"[UI] Failed to disable bottom navigation buttons for teammate profile: {ex.Message}");
+                pitFireTeam.Log.LogWarning($"[UI] Failed to disable bottom navigation buttons for teammate profile: {ex.Message}");
             }
         }
 
@@ -1358,7 +1358,7 @@ namespace friendlySAIN.Patches
 
             if (OtherPlayerProfileScreenPatch.NicknameRenameButton != null)
             {
-                if (OtherPlayerProfileScreenPatch.NicknameRenameButton.name == "friendlySAIN_NicknameRenameButton")
+                if (OtherPlayerProfileScreenPatch.NicknameRenameButton.name == "pitFireTeam_NicknameRenameButton")
                 {
                     GameObject.Destroy(OtherPlayerProfileScreenPatch.NicknameRenameButton.gameObject);
                 }
@@ -1410,13 +1410,13 @@ namespace friendlySAIN.Patches
                 return;
             }
 
-            if (friendlySAIN.Instance == null)
+            if (pitFireTeam.Instance == null)
             {
                 callback();
                 return;
             }
 
-            friendlySAIN.Instance.StartCoroutine(InvokeBackOverrideNextFrame(callback));
+            pitFireTeam.Instance.StartCoroutine(InvokeBackOverrideNextFrame(callback));
         }
 
         private static System.Collections.IEnumerator InvokeBackOverrideNextFrame(Action callback)

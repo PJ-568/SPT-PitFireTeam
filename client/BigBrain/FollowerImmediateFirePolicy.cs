@@ -1,8 +1,8 @@
 using EFT;
-using friendlySAIN.Utils;
+using pitTeam.Utils;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal static class FollowerImmediateFirePolicy
     {

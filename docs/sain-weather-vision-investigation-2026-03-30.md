@@ -10,7 +10,7 @@ No code changes were made as part of this investigation.
 
 Verified result: yes, SAIN can make bots weaker than vanilla in weather-related and time-of-day-related conditions.
 
-This is SAIN-owned behavior, not friendlySAIN addon logic.
+This is SAIN-owned behavior, not pitFireTeam addon logic.
 
 ## Verified SAIN-owned behavior
 

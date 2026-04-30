@@ -1,10 +1,10 @@
 using EFT;
-using friendlySAIN.Components;
-using friendlySAIN.Utils;
+using pitTeam.Components;
+using pitTeam.Utils;
 using System;
 using UnityEngine;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal sealed class FollowerCombatNeedSniperObjective : FollowerCombatObjectiveBase
     {

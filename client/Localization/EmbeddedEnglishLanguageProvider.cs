@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace friendlySAIN.Localization
+namespace pitTeam.Localization
 {
     internal static class EmbeddedEnglishLanguageProvider
     {
@@ -84,7 +84,7 @@ namespace friendlySAIN.Localization
                 npcSendMessage = Entry(
                     "Raid End Messages",
                     "Followers will send message at the end of the raid based on conditions such as if all made it out or if you picked up a follower and kept him alive. Return items messages are excluded"),
-                friendlySAIN = Entry(
+                pitFireTeam = Entry(
                     "Friendly PMC Side",
                     "Should PMC Bots of the same side always be friendly to each other"),
                 badGuy = Entry(

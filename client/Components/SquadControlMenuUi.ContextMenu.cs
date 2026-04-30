@@ -7,8 +7,8 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
 using EFT.UI.Settings;
-using friendlySAIN.Modules;
-using friendlySAIN.Patches;
+using pitTeam.Modules;
+using pitTeam.Patches;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -27,7 +27,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     internal partial class SquadControlMenuUi
     {
@@ -54,7 +54,7 @@ namespace friendlySAIN.Components
                 ? (Action)(() => RemoveTeammateFromGroup(entry))
                 : () => InviteTeammateToGroup(entry);
 
-            GameObject overlayRoot = new GameObject("friendlySAIN_PortraitContextMenuOverlay", typeof(RectTransform), typeof(Image), typeof(Button));
+            GameObject overlayRoot = new GameObject("pitFireTeam_PortraitContextMenuOverlay", typeof(RectTransform), typeof(Image), typeof(Button));
             overlayRoot.transform.SetParent(overlayParent, false);
             RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
             Stretch(overlayRect);
@@ -74,7 +74,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject menuObject = new GameObject("friendlySAIN_PortraitContextMenu", typeof(RectTransform), typeof(Image), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            GameObject menuObject = new GameObject("pitFireTeam_PortraitContextMenu", typeof(RectTransform), typeof(Image), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
             menuObject.transform.SetParent(overlayRoot.transform, false);
             RectTransform menuRect = menuObject.GetComponent<RectTransform>();
             menuRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -146,7 +146,7 @@ namespace friendlySAIN.Components
             }
 
             SimpleContextMenu menu = Instantiate(template, overlayParent, false);
-            menu.name = "friendlySAIN_PortraitContextMenu";
+            menu.name = "pitFireTeam_PortraitContextMenu";
             menu.gameObject.SetActive(true);
             menu.enabled = false;
 
@@ -261,7 +261,7 @@ namespace friendlySAIN.Components
 
         private void CreateContextMenuButton(Transform parent, string label, Action onClick)
         {
-            GameObject buttonObject = new GameObject("friendlySAIN_ContextMenuButton", typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
+            GameObject buttonObject = new GameObject("pitFireTeam_ContextMenuButton", typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
             buttonObject.transform.SetParent(parent, false);
 
             LayoutElement layout = buttonObject.GetComponent<LayoutElement>();

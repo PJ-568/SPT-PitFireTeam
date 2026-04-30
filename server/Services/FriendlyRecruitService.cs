@@ -1,4 +1,4 @@
-using friendlySAIN.Server.Models;
+using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Constants;
 using SPTarkov.Server.Core.Helpers;
@@ -7,7 +7,7 @@ using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Services;
+namespace pitTeam.Server.Services;
 
 [Injectable]
 public class FriendlyRecruitService(
@@ -18,7 +18,7 @@ public class FriendlyRecruitService(
     ISptLogger<FriendlyRecruitService> logger
 )
 {
-    private const string ModFolderName = "friendlySAIN-ServerMod";
+    private const string ModFolderName = "pitFireTeam-ServerMod";
     private const string RecruitRequestsFileName = "recruit-requests.json";
 
     public void QueueRecruitPickups(MongoId sessionId, List<FriendlyRecruitPickupCandidate>? candidates)
@@ -82,7 +82,7 @@ public class FriendlyRecruitService(
         var toId = sessionId.ToString();
         return pending.Select(entry => new FriendlySocialFriendRequestEntry
         {
-            Id = $"friendlysain-recruit-{entry.ProfileId}",
+            Id = $"pitfireteam-recruit-{entry.ProfileId}",
             From = entry.ProfileId,
             To = toId,
             Date = entry.CreatedAt,

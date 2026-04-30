@@ -1,6 +1,6 @@
-# AI Role: friendlySAIN AI Mod Engineer
+# AI Role: pitFireTeam AI Mod Engineer
 
-You are an AI engineering agent working on `friendlySAIN`, a C# mod for Single Player Tarkov built with BepInEx, Harmony, BigBrain, and optional SAIN integration.
+You are an AI engineering agent working on `pitFireTeam`, a C# mod for Single Player Tarkov built with BepInEx, Harmony, BigBrain, and optional SAIN integration.
 
 Your job is to make safe, context-aware changes that preserve runtime stability, respect current architecture, and avoid assumptions about Tarkov/SPT/SAIN internals.
 
@@ -9,7 +9,7 @@ You must think like a maintainer of a fragile gameplay-AI integration project, n
 ## Terminology
 
 - **SAIN Plugin** (or "SAIN mod", "SAIN") — the third-party SAIN mod by Sol (`me.sol.sain`), located at `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`. This is an external dependency.
-- **SAIN Addon** — our own addon DLL (`addon/`, plugin ID `xyz.pit.friendlysain.sainaddon`) that integrates SAIN brain layers with followers. This is our code.
+- **SAIN Addon** — our own addon DLL (`addon/`, plugin ID `xyz.pit.fireteam.sainaddon`) that integrates SAIN brain layers with followers. This is our code.
 
 Never confuse these two. When the user says "SAIN plugin" or "SAIN mod" they mean the external SAIN mod, not our addon.
 
@@ -57,15 +57,15 @@ When multiple approaches are possible, prefer:
 
 ---
 
-# friendlySAIN: Current Implementation Summary
+# pitFireTeam: Current Implementation Summary
 
 **Last updated:** 2026-04-28  
-**Scope:** Runtime behavior across `friendlySAIN/client`, `friendlySAIN/addon`, and `friendlySAIN/server`.  
+**Scope:** Runtime behavior across `pitFireTeam/client`, `pitFireTeam/addon`, and `pitFireTeam/server`.  
 **SAIN Addon is optional and runtime-gated**
 
 ## Project Overview
 
-**friendlySAIN** is a three-tier modular architecture:
+**pitFireTeam** is a three-tier modular architecture:
 
 1. **CLIENT** (`client/`) — Game-side follower control and team UI.
     - Implements BigBrain layers for follower movement, commands, and decision-making.
@@ -96,7 +96,7 @@ When multiple approaches are possible, prefer:
 
 # CLIENT SIDE: Follower AI & Team Management
 
-**Plugin ID:** `xyz.pit.friendlysain`  
+**Plugin ID:** `xyz.pit.fireteam`  
 **Main entry:** `client/friendlyPlugin.cs`
 
 ## 0a) Teammate System Status (In Progress)
@@ -107,7 +107,7 @@ Current verified custom teammate feature state:
     - main menu now has a localized `My Squad` entry that opens the real `MatchMakerSideSelectionScreen` in squad mode
     - roster/settings panels from `SquadControlMenuUi` are injected into side-selection and controlled by EFT-style animated tabs (`Roster` / `Settings`)
     - roster tab supports add/remove teammate flows, delayed sequential portrait loading, teammate profile open/return, and scrolling layout for larger squads
-    - settings tab exposes the main friendlySAIN config set in a stock-style scrollable UI using EFT toggle/slider controls for checkbox and ranged settings
+    - settings tab exposes the main pitFireTeam config set in a stock-style scrollable UI using EFT toggle/slider controls for checkbox and ranged settings
     - settings entries are grouped/reordered for the current squad-management UX and the duplicated BepInEx ConfigurationManager view is hidden for those settings
     - squad-mode lifecycle is explicit-action based: mode is cleared on side-selection `Back`, bottom-bar `MainMenu` root return, and `Play` transition
 - Teammate creation flow is implemented through the stock appearance screen:
@@ -116,8 +116,8 @@ Current verified custom teammate feature state:
     - head and voice selection
     - localized validation/prompt text overrides
     - custom back/submit handling
-    - submit posts `{ nickname, voice, head }` to `/singleplayer/friendlysain/teammate/create`
-    - server creates a PMC bot of the player side and stores it under `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
+    - submit posts `{ nickname, voice, head }` to `/singleplayer/pitfireteam/teammate/create`
+    - server creates a PMC bot of the player side and stores it under `user/mods/pitFireTeam-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
 - Stock social/profile flows are bridged for teammates:
     - teammates are merged into `/client/friend/list`
     - teammate profile view is merged into `/client/profile/view`
@@ -143,7 +143,7 @@ Current verified custom teammate feature state:
     - stock clothes dropdowns are reused for teammate suit selection
     - custom loadout dropdown is injected below the clothes selector
     - loadout choices come from the player profile's saved equipment builds plus `Default`
-    - selected teammate loadout persists through `/singleplayer/friendlysain/teammate/profile/loadout`
+    - selected teammate loadout persists through `/singleplayer/pitfireteam/teammate/profile/loadout`
     - persisted loadout selection flows through follower details and shows as the current teammate equipment name
     - teammate rename is implemented through a custom overlay + backend rename route
     - stock `SkillsScreen` is cloned into teammate profile view with filtered follower-relevant skills
@@ -173,16 +173,16 @@ Current verified custom teammate feature state:
 - New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
 - SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`
 - Positioning:
-    - `friendlySAIN` is both:
+    - `pitFireTeam` is both:
         - a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment,
         - and an alternative plugin implementation with new BigBrain-native follower layers/actions.
 
 ## 1) Core Runtime Model
 
-- Plugin: `xyz.pit.friendlysain` (`client/friendlyPlugin.cs`)
+- Plugin: `xyz.pit.fireteam` (`client/friendlyPlugin.cs`)
 - Dependency: BigBrain (`xyz.drakia.bigbrain`)
 - Optional integration: SAIN (`me.sol.sain`) detected at runtime.
-- Optional SAIN addon integration: `xyz.pit.friendlysain.sainaddon` (separate DLL in `addon/`)
+- Optional SAIN addon integration: `xyz.pit.fireteam.sainaddon` (separate DLL in `addon/`)
 - Core runtime flags in `client/friendlyPlugin.cs`:
     - `UseSainFollowerCombat` = SAIN installed + addon present
     - `ShouldDisableSainForFollowers` = SAIN installed + addon missing
@@ -411,7 +411,7 @@ Cross-tactic rule:
     - heal and stim actions have timeout exits to avoid stuck medical states.
 - Core combat cover search is back on the mod-owned routing path:
     - `TryCommitCombatCover()` again prefers `PointToShoot`, retreat/attack cover, and boss-cover fallback,
-    - `Covers.cs` now seeds candidate space from EFT `CoverSearchData` / `CoverPointMaster`, then applies friendlySAIN filtering and final selection,
+    - `Covers.cs` now seeds candidate space from EFT `CoverSearchData` / `CoverPointMaster`, then applies pitFireTeam filtering and final selection,
     - so the current experiment is "our routing and filters, vanilla-backed candidate discovery".
 - Combat cover is no longer boss-leashed by EFT `MAX_DIST_COVER_BOSS_SQRT`:
     - general combat cover uses a mod-owned 120m max distance from the follower,
@@ -620,8 +620,8 @@ Supported commands via `GestureCommandAction`:
 
 # SERVER SIDE: Teammate Backend & Social Integration
 
-**Plugin ID:** `xyz.pit.friendlysain` (server component)  
-**Main entry:** `server/friendlySAIN.Server.cs`
+**Plugin ID:** `xyz.pit.fireteam` (server component)  
+**Main entry:** `server/pitFireTeam.Server.cs`
 
 ## Backend Responsibilities
 
@@ -633,14 +633,14 @@ Supported commands via `GestureCommandAction`:
 **Profile Management:**
 
 - Create mod-owned teammate profiles (PMC bot + custom nickname/voice/head)
-- Store on disk: `user/mods/friendlySAIN-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
+- Store on disk: `user/mods/pitFireTeam-ServerMod/Resources/teammates/<sessionId>/<aid>.json`
 - Fetch full profiles for team UI (roster, profile view)
 - Persistence: clothes, head, voice, loadout, auto-join flag, raid-earned XP, and common skills per teammate
 - Teammate IDs use stock `HashUtil.GenerateAccountId()` collision-checked allocation
 
 ## REST API Routes
 
-**Teammate Management** (`/singleplayer/friendlysain/`):
+**Teammate Management** (`/singleplayer/pitfireteam/`):
 
 - `POST /teammate/create` — Create custom teammate (nickname/voice/head from UI) → saves to disk
 - `GET /teammates` — List all teammates for session
@@ -677,7 +677,7 @@ Supported commands via `GestureCommandAction`:
 
 - `POST /returnitems` — Return teammate items via mail (NOT YET POSTED in client runtime)
 - `POST /teamescaped` — Log escape/death outcome + notify teammates
-- `POST /friendlysain/recruitpickup` — Queue defeated NPC candidates as friend requests
+- `POST /pitfireteam/recruitpickup` — Queue defeated NPC candidates as friend requests
 
 ## Backend Services
 
@@ -733,7 +733,7 @@ Supported commands via `GestureCommandAction`:
 
 # SAIN ADDON: Combat & Retention System
 
-**Plugin ID:** `xyz.pit.friendlysain.sainaddon`  
+**Plugin ID:** `xyz.pit.fireteam.sainaddon`  
 **Main entry:** `addon/SAINAddonPlugin.cs`  
 **Bootstrap:** `addon/SAINRegroupBootstrap.cs`
 
@@ -870,7 +870,7 @@ Files:
 
 Behavior currently implemented:
 
-- Registers `friendlySAIN.FollowerPatrol` layer for multiple brains (`PmcBear`, `PmcUsec`, `ExUsec`, `PMC`, `Assault`, `Knight`, etc.).
+- Registers `pitFireTeam.FollowerPatrol` layer for multiple brains (`PmcBear`, `PmcUsec`, `ExUsec`, `PMC`, `Assault`, `Knight`, etc.).
 - Layer active only when:
     - bot is alive/active,
     - bot follows `pitAIBossPlayer`,
@@ -901,7 +901,7 @@ Follow movement:
 
 Request/gesture movement:
 
-- Registers `friendlySAIN.FollowerRequest` custom layer (priority `73`) above combat (`72`) and patrol (`71`).
+- Registers `pitFireTeam.FollowerRequest` custom layer (priority `73`) above combat (`72`) and patrol (`71`).
 - `FollowerRequestLayer` activates when follower has an active command in `BotFollowerPlayer`.
 - `GestureCommandAction` handles:
     - `HoldPosition`: stop, crouch pose, periodic random look-around, no command timeout (persists until replaced/cleared).
@@ -963,7 +963,7 @@ Request/gesture movement:
 - New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
 - SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`
 
-**Positioning:** `friendlySAIN` is both a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment and an alternative plugin implementation with new BigBrain-native follower layers/actions.
+**Positioning:** `pitFireTeam` is both a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment and an alternative plugin implementation with new BigBrain-native follower layers/actions.
 
 ---
 
@@ -1111,8 +1111,8 @@ SAIN integration:
 
 - `SAINPatch.PatchSAINIfInstalled(harmony)` applies selective SAIN behavior patches when SAIN assembly is present.
 - SAIN combat follower integration is implemented in a separate addon DLL:
-    - addon project: `addon/friendlySAIN.SAINAddon.csproj`
-    - plugin ID: `xyz.pit.friendlysain.sainaddon`
+    - addon project: `addon/pitFireTeam.SAINAddon.csproj`
+    - plugin ID: `xyz.pit.fireteam.sainaddon`
     - runtime path registers custom `SAINFollowerCombatLayer` at priority `73`.
     - this layer replicates SAIN squad-combat decision routing for followers, but re-centers behavior around player boss leadership (instead of vanilla SAIN squad leader ownership).
     - follower action mapping currently routes to:

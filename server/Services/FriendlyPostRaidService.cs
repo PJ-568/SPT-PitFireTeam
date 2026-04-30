@@ -1,4 +1,4 @@
-using friendlySAIN.Server.Models;
+using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Helpers;
 using SPTarkov.Server.Core.Models.Common;
@@ -9,7 +9,7 @@ using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Services;
+namespace pitTeam.Server.Services;
 
 [Injectable]
 public class FriendlyPostRaidService(

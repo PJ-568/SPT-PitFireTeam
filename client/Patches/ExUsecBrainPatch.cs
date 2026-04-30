@@ -1,9 +1,9 @@
-﻿using EFT;
+using EFT;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
 
-namespace friendlySAIN.Patches
+namespace pitTeam.Patches
 {
     /**
      * Patch for exUsec brain to not add player as an enemy because he just killed an Usec (Goons dependent)
@@ -24,7 +24,7 @@ namespace friendlySAIN.Patches
                 player != null && victim != null && victim.Profile.Side == EPlayerSide.Usec &&
                 (
                     (player.iPlayer.Profile.Side != EPlayerSide.Usec && Utils.Utils.PlayerHasKnightQuest(player.iPlayer.Profile)) ||
-                    (player.iPlayer.Profile.Side == EPlayerSide.Usec && Utils.Utils.FlagGet("friendlySAIN"))
+                    (player.iPlayer.Profile.Side == EPlayerSide.Usec && Utils.Utils.FlagGet("pitFireTeam"))
                 )
             )
             {

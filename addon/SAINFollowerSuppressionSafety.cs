@@ -1,8 +1,8 @@
 using EFT;
-using friendlySAIN.Utils;
+using pitTeam.Utils;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINFollowerSuppressionSafety
     {

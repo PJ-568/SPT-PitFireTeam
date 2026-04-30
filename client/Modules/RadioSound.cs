@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.Networking;
 using System;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     internal class RadioSound : MonoBehaviour
     {
@@ -64,7 +64,7 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                float level = (friendlySAIN.pingRadioVolume.Value / 100f) * 0.5f;
+                float level = (pitFireTeam.pingRadioVolume.Value / 100f) * 0.5f;
                 // Lazy load when async Enable() has not completed yet.
                 if (radioClip == null || radioClip.length == 0)
                 {
@@ -84,7 +84,7 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                float level = (friendlySAIN.pingRadioVolume.Value / 100f) * 0.5f;
+                float level = (pitFireTeam.pingRadioVolume.Value / 100f) * 0.5f;
                 if (radioClip == null || radioClip.length == 0)
                 {
                     radioClip = await LoadAudioClip("file://" + ResolveSoundPath("radiochat.ogg"));
@@ -132,7 +132,7 @@ namespace friendlySAIN.Modules
         {
             try
             {
-                float level = (friendlySAIN.statusSound.Value / 100f) * 0.6f;
+                float level = (pitFireTeam.statusSound.Value / 100f) * 0.6f;
                 // Lazy load when async Enable() has not completed yet.
                 if (locationClip == null || locationClip.length == 0)
                 {

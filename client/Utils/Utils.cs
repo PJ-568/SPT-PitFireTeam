@@ -1,11 +1,11 @@
-﻿using EFT;
-using friendlySAIN.Components;
+using EFT;
+using pitTeam.Components;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.Utils
+namespace pitTeam.Utils
 {
     internal class BotDetails
     {

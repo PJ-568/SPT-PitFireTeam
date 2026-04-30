@@ -7,8 +7,8 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
 using EFT.UI.Settings;
-using friendlySAIN.Modules;
-using friendlySAIN.Patches;
+using pitTeam.Modules;
+using pitTeam.Patches;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -27,7 +27,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-namespace friendlySAIN.Components
+namespace pitTeam.Components
 {
     internal partial class SquadControlMenuUi
     {
@@ -137,7 +137,7 @@ namespace friendlySAIN.Components
                 return false;
             }
 
-            Transform existingTile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{entry.AccountId}");
+            Transform existingTile = rosterGridRoot.Find($"pitFireTeam_RosterTile_{entry.AccountId}");
             if (existingTile == null)
             {
                 return false;
@@ -196,8 +196,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError("[UI] Failed to build Squad Control roster.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError("[UI] Failed to build Squad Control roster.");
+                pitFireTeam.Log.LogError(ex);
             }
 
             return entries
@@ -229,7 +229,7 @@ namespace friendlySAIN.Components
             }
 
             addTeammateButton = Instantiate(playerButton, rosterRect, false);
-            addTeammateButton.name = "friendlySAIN_SquadControlAddTeammateButton";
+            addTeammateButton.name = "pitFireTeam_SquadControlAddTeammateButton";
             addTeammateButton.SetRawText(GetSocialUiText("AddTeammate", "+ Add teammate"), playerButton.HeaderSize);
             addTeammateButton.SetIcon(null);
             addTeammateButton.Interactable = true;
@@ -266,7 +266,7 @@ namespace friendlySAIN.Components
             }
 
             GameObject textObject = CreateText(
-                "friendlySAIN_EmptyRosterLabel",
+                "pitFireTeam_EmptyRosterLabel",
                 GetSocialUiText("SquadControlEmptyRoster", "You have not created any team members yet, press the add button below to get started"),
                 24f,
                 TextAlignmentOptions.Center);
@@ -303,7 +303,7 @@ namespace friendlySAIN.Components
         private GameObject CreateRosterTile(RectTransform parent, SquadRosterEntry entry, int buildVersion)
         {
             GameObject tileObject = new GameObject(
-                $"friendlySAIN_RosterTile_{entry.AccountId}",
+                $"pitFireTeam_RosterTile_{entry.AccountId}",
                 typeof(RectTransform),
                 typeof(Image),
                 typeof(LayoutElement),
@@ -374,7 +374,7 @@ namespace friendlySAIN.Components
 
         private void CreateRemoveButton(RectTransform tileRect, SquadRosterEntry entry)
         {
-            GameObject buttonObject = new GameObject("friendlySAIN_RemoveButton", typeof(RectTransform), typeof(Image), typeof(Button));
+            GameObject buttonObject = new GameObject("pitFireTeam_RemoveButton", typeof(RectTransform), typeof(Image), typeof(Button));
             buttonObject.transform.SetParent(tileRect, false);
 
             RectTransform rect = buttonObject.GetComponent<RectTransform>();
@@ -437,7 +437,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject badgeObject = new GameObject("friendlySAIN_AutoJoinBadge", typeof(RectTransform), typeof(Image));
+            GameObject badgeObject = new GameObject("pitFireTeam_AutoJoinBadge", typeof(RectTransform), typeof(Image));
             badgeObject.transform.SetParent(tileRect, false);
 
             RectTransform rect = badgeObject.GetComponent<RectTransform>();
@@ -467,13 +467,13 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            Transform tile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{accountId}");
+            Transform tile = rosterGridRoot.Find($"pitFireTeam_RosterTile_{accountId}");
             if (tile == null)
             {
                 return;
             }
 
-            Transform badge = tile.Find("friendlySAIN_AutoJoinBadge");
+            Transform badge = tile.Find("pitFireTeam_AutoJoinBadge");
             if (badge != null)
             {
                 badge.gameObject.SetActive(enabled);
@@ -493,7 +493,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject badgeObject = new GameObject("friendlySAIN_GroupBadge", typeof(RectTransform), typeof(Image));
+            GameObject badgeObject = new GameObject("pitFireTeam_GroupBadge", typeof(RectTransform), typeof(Image));
             badgeObject.transform.SetParent(tileRect, false);
 
             RectTransform rect = badgeObject.GetComponent<RectTransform>();
@@ -525,13 +525,13 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            Transform tile = rosterGridRoot.Find($"friendlySAIN_RosterTile_{accountId}");
+            Transform tile = rosterGridRoot.Find($"pitFireTeam_RosterTile_{accountId}");
             if (tile == null)
             {
                 return;
             }
 
-            Transform badge = tile.Find("friendlySAIN_GroupBadge");
+            Transform badge = tile.Find("pitFireTeam_GroupBadge");
             if (badge != null)
             {
                 badge.gameObject.SetActive(enabled);
@@ -548,7 +548,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject overlayRoot = new GameObject("friendlySAIN_RemoveOverlay", typeof(RectTransform), typeof(Image));
+            GameObject overlayRoot = new GameObject("pitFireTeam_RemoveOverlay", typeof(RectTransform), typeof(Image));
             overlayRoot.transform.SetParent(overlayParent, false);
             RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
             Stretch(overlayRect);
@@ -558,7 +558,7 @@ namespace friendlySAIN.Components
             backdrop.color = new Color(0f, 0f, 0f, 0.12f);
             backdrop.raycastTarget = true;
 
-            GameObject panel = new GameObject("friendlySAIN_RemovePanel", typeof(RectTransform), typeof(Image));
+            GameObject panel = new GameObject("pitFireTeam_RemovePanel", typeof(RectTransform), typeof(Image));
             panel.transform.SetParent(overlayRoot.transform, false);
             RectTransform panelRect = panel.GetComponent<RectTransform>();
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -570,7 +570,7 @@ namespace friendlySAIN.Components
             panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
             panelImage.raycastTarget = true;
 
-            GameObject header = new GameObject("friendlySAIN_RemoveHeader", typeof(RectTransform), typeof(Image));
+            GameObject header = new GameObject("pitFireTeam_RemoveHeader", typeof(RectTransform), typeof(Image));
             header.transform.SetParent(panel.transform, false);
             RectTransform headerRect = header.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0f, 1f);
@@ -584,7 +584,7 @@ namespace friendlySAIN.Components
             headerImage.raycastTarget = true;
 
             GameObject titleObject = CreateText(
-                "friendlySAIN_RemoveTitle",
+                "pitFireTeam_RemoveTitle",
                 GetSocialUiText("RemoveTeammateTitle", "Remove teammate").ToUpperInvariant(),
                 18f,
                 TextAlignmentOptions.MidlineLeft);
@@ -595,7 +595,7 @@ namespace friendlySAIN.Components
             titleRect.offsetMin = new Vector2(16f, 0f);
             titleRect.offsetMax = new Vector2(-42f, 0f);
 
-            Button closeButton = CreateWindowCloseButton(header.transform, "friendlySAIN_RemoveCloseButton");
+            Button closeButton = CreateWindowCloseButton(header.transform, "pitFireTeam_RemoveCloseButton");
             if (closeButton.transform is RectTransform closeRect)
             {
                 closeRect.anchorMin = new Vector2(1f, 0.5f);
@@ -607,7 +607,7 @@ namespace friendlySAIN.Components
             closeButton.onClick.AddListener(CloseRemoveConfirmOverlay);
 
             GameObject bodyObject = CreateText(
-                "friendlySAIN_RemoveBody",
+                "pitFireTeam_RemoveBody",
                 string.Format(
                     GetSocialUiText("RemoveTeammatePrompt", "Are you sure you want to delete member {0}? Process cannot be undone."),
                     entry.Nickname),
@@ -645,7 +645,7 @@ namespace friendlySAIN.Components
                 SocialNetworkClass socialNetwork = chatInteractions?.SocialNetwork;
                 if (socialNetwork?.FriendsList == null)
                 {
-                    friendlySAIN.Log.LogError("[UI] Failed to delete teammate: social network is unavailable.");
+                    pitFireTeam.Log.LogError("[UI] Failed to delete teammate: social network is unavailable.");
                     return;
                 }
 
@@ -658,7 +658,7 @@ namespace friendlySAIN.Components
 
                 if (member == null)
                 {
-                    friendlySAIN.Log.LogError($"[UI] Failed to delete teammate '{entry.AccountId}': social member was not found.");
+                    pitFireTeam.Log.LogError($"[UI] Failed to delete teammate '{entry.AccountId}': social member was not found.");
                     return;
                 }
 
@@ -671,8 +671,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError($"[UI] Failed to delete teammate '{entry.AccountId}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to delete teammate '{entry.AccountId}'.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -742,7 +742,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject borderObject = new GameObject("friendlySAIN_PortraitBorder", typeof(RectTransform), typeof(Image), typeof(Outline));
+            GameObject borderObject = new GameObject("pitFireTeam_PortraitBorder", typeof(RectTransform), typeof(Image), typeof(Outline));
             borderObject.transform.SetParent(portraitRoot, false);
             borderObject.transform.SetAsLastSibling();
 
@@ -900,7 +900,7 @@ namespace friendlySAIN.Components
 
         private static void CreatePortraitBackground(Transform clonedRoot)
         {
-            GameObject backgroundObject = new GameObject("friendlySAIN_PortraitBackground", typeof(RectTransform), typeof(Image));
+            GameObject backgroundObject = new GameObject("pitFireTeam_PortraitBackground", typeof(RectTransform), typeof(Image));
             backgroundObject.transform.SetParent(clonedRoot, false);
             backgroundObject.transform.SetAsFirstSibling();
 
@@ -914,7 +914,7 @@ namespace friendlySAIN.Components
 
         private void CreatePortraitLevelBadge(Transform clonedRoot, int level)
         {
-            GameObject badgeObject = new GameObject("friendlySAIN_LevelBadge", typeof(RectTransform), typeof(Image));
+            GameObject badgeObject = new GameObject("pitFireTeam_LevelBadge", typeof(RectTransform), typeof(Image));
             badgeObject.transform.SetParent(clonedRoot, false);
 
             RectTransform badgeRect = badgeObject.GetComponent<RectTransform>();
@@ -1065,7 +1065,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject triggerObject = new GameObject("friendlySAIN_PortraitProfileTrigger", typeof(RectTransform), typeof(Image));
+            GameObject triggerObject = new GameObject("pitFireTeam_PortraitProfileTrigger", typeof(RectTransform), typeof(Image));
             triggerObject.transform.SetParent(portraitHost, false);
 
             RectTransform triggerRect = triggerObject.GetComponent<RectTransform>();
@@ -1114,7 +1114,7 @@ namespace friendlySAIN.Components
                 return true;
             }
 
-            Transform tile = rosterGridRoot?.Find($"friendlySAIN_RosterTile_{accountId}");
+            Transform tile = rosterGridRoot?.Find($"pitFireTeam_RosterTile_{accountId}");
             Transform progressTransform = FindChildRecursive(tile, "Progress");
             if (progressTransform == null)
             {
@@ -1132,7 +1132,7 @@ namespace friendlySAIN.Components
 
             if (_portraitQueueCoroutine == null)
             {
-                _portraitQueueCoroutine = friendlySAIN.Instance.StartCoroutine(DrainPortraitQueueCoroutine());
+                _portraitQueueCoroutine = pitFireTeam.Instance.StartCoroutine(DrainPortraitQueueCoroutine());
             }
         }
 
@@ -1142,7 +1142,7 @@ namespace friendlySAIN.Components
 
             if (_portraitQueueCoroutine != null)
             {
-                friendlySAIN.Instance.StopCoroutine(_portraitQueueCoroutine);
+                pitFireTeam.Instance.StopCoroutine(_portraitQueueCoroutine);
                 _portraitQueueCoroutine = null;
             }
         }
@@ -1189,8 +1189,8 @@ namespace friendlySAIN.Components
             }
             catch (Exception ex)
             {
-                friendlySAIN.Log.LogError($"[UI] Failed to load teammate portrait for '{accountId}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to load teammate portrait for '{accountId}'.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -1211,8 +1211,8 @@ namespace friendlySAIN.Components
                         if (continuation.IsFaulted)
                         {
                             OtherPlayerProfileScreenPatch.ClearPendingReturnOverride();
-                            friendlySAIN.Log.LogError($"[UI] Failed to open profile for '{accountId}'.");
-                            friendlySAIN.Log.LogError(continuation.Exception);
+                            pitFireTeam.Log.LogError($"[UI] Failed to open profile for '{accountId}'.");
+                            pitFireTeam.Log.LogError(continuation.Exception);
                         }
                     },
                     TaskContinuationOptions.OnlyOnFaulted);
@@ -1220,8 +1220,8 @@ namespace friendlySAIN.Components
             catch (Exception ex)
             {
                 OtherPlayerProfileScreenPatch.ClearPendingReturnOverride();
-                friendlySAIN.Log.LogError($"[UI] Failed to start profile open for '{accountId}'.");
-                friendlySAIN.Log.LogError(ex);
+                pitFireTeam.Log.LogError($"[UI] Failed to start profile open for '{accountId}'.");
+                pitFireTeam.Log.LogError(ex);
             }
         }
 
@@ -1232,7 +1232,7 @@ namespace friendlySAIN.Components
                 return;
             }
 
-            GameObject scrollRootObject = new GameObject("friendlySAIN_SquadControlRosterScroll", typeof(RectTransform), typeof(ScrollRectNoDrag));
+            GameObject scrollRootObject = new GameObject("pitFireTeam_SquadControlRosterScroll", typeof(RectTransform), typeof(ScrollRectNoDrag));
             scrollRootObject.transform.SetParent(shellRect, false);
             RectTransform scrollRoot = scrollRootObject.GetComponent<RectTransform>();
             Stretch(scrollRoot);
@@ -1253,7 +1253,7 @@ namespace friendlySAIN.Components
 
             rosterScrollbar = CreateRosterScrollbar(scrollRoot);
 
-            GameObject contentObject = new GameObject("friendlySAIN_SquadControlRosterContent", typeof(RectTransform));
+            GameObject contentObject = new GameObject("pitFireTeam_SquadControlRosterContent", typeof(RectTransform));
             contentObject.transform.SetParent(rosterViewport, false);
             rosterContentRoot = contentObject.GetComponent<RectTransform>();
             rosterContentRoot.anchorMin = new Vector2(0f, 1f);
@@ -1262,7 +1262,7 @@ namespace friendlySAIN.Components
             rosterContentRoot.anchoredPosition = Vector2.zero;
             rosterContentRoot.sizeDelta = new Vector2(0f, 0f);
 
-            GameObject gridObject = new GameObject("friendlySAIN_SquadControlRosterGrid", typeof(RectTransform));
+            GameObject gridObject = new GameObject("pitFireTeam_SquadControlRosterGrid", typeof(RectTransform));
             gridObject.transform.SetParent(rosterContentRoot, false);
             rosterGridRoot = gridObject.GetComponent<RectTransform>();
             ConfigureRosterContentContainer(rosterGridRoot);
@@ -1291,7 +1291,7 @@ namespace friendlySAIN.Components
             if (template != null)
             {
                 scrollbar = Instantiate(template, parent, false);
-                scrollbar.name = "friendlySAIN_SquadControlScrollbar";
+                scrollbar.name = "pitFireTeam_SquadControlScrollbar";
             }
             else
             {

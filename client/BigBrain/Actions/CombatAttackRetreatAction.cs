@@ -1,6 +1,6 @@
 using EFT;
 
-namespace friendlySAIN.BigBrain.Actions
+namespace pitTeam.BigBrain.Actions
 {
     /// <summary>
     /// Port of old FollowerAttackRetreat: same attack-move aim behavior, but it keeps pushing

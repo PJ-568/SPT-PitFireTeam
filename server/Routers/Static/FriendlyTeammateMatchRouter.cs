@@ -1,12 +1,12 @@
-using friendlySAIN.Server.Callbacks;
-using friendlySAIN.Server.Models;
+using pitTeam.Server.Callbacks;
+using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Utils;
 
-namespace friendlySAIN.Server.Routers.Static;
+namespace pitTeam.Server.Routers.Static;
 
 [Injectable(typePriority: int.MaxValue)]
 public class FriendlyTeammateMatchRouter(JsonUtil jsonUtil, FriendlyTeammateMatchCallbacks callbacks)

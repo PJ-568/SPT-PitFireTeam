@@ -1,13 +1,13 @@
 using EFT;
 using HarmonyLib;
 using SAIN.SAINComponent.Classes.EnemyClasses;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
+using pitTeam.Components;
+using pitTeam.Modules;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace friendlySAIN.SAINAddon
+namespace pitTeam.SAINAddon
 {
     internal static class SAINEnemyAcquireGatePatch
     {

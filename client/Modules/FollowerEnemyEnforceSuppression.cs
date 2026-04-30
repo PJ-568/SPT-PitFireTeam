@@ -2,7 +2,7 @@ using EFT;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace friendlySAIN.Modules
+namespace pitTeam.Modules
 {
     public static class FollowerEnemyEnforceSuppression
     {

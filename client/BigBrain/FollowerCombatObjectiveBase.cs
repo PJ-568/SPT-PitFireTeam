@@ -1,6 +1,6 @@
 using EFT;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     internal abstract class FollowerCombatObjectiveBase
     {

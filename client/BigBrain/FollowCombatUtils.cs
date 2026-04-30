@@ -1,17 +1,17 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.HealthSystem;
-using friendlySAIN.BigBrain.Actions;
-using friendlySAIN.Components;
-using friendlySAIN.Modules;
-using friendlySAIN.Utils;
+using pitTeam.BigBrain.Actions;
+using pitTeam.Components;
+using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace friendlySAIN.BigBrain
+namespace pitTeam.BigBrain
 {
     public class FollowCombatUtils
     {
