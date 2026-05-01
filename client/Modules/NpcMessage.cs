@@ -2,9 +2,11 @@ using EFT;
 using HarmonyLib;
 using Newtonsoft.Json;
 using SPT.Common.Http;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace pitTeam.Modules
 {
@@ -159,10 +161,23 @@ namespace pitTeam.Modules
 
             var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
 
-            RequestHandler.PostJson("/singleplayer/teamescaped", new
+            string escapedJson = new
             {
                 member = info,
-            }.ToJson(_defaultJsonConverters));
+            }.ToJson(_defaultJsonConverters);
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    RequestHandler.PostJson("/singleplayer/teamescaped", escapedJson);
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("Failed to send post-raid teammate escaped message");
+                    Modules.Logger.LogError(ex);
+                }
+            });
         }
 
         public static void Flush()

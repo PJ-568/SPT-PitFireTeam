@@ -552,7 +552,11 @@ namespace pitTeam.Modules
 
             if (inputField != null)
             {
+                inputField.interactable = true;
+                inputField.readOnly = false;
                 inputField.SetTextWithoutNotify(string.Empty);
+                inputField.Select();
+                inputField.ActivateInputField();
             }
 
             headSelectionState._nicknameField?.method_6(ENicknameError.ValidNickname, false);

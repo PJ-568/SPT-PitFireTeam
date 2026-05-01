@@ -576,8 +576,8 @@ namespace pitTeam.Patches
                 DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
                 ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
                 CreateAggressionSliderRow(__instance, clone, parent, profile, options);
-                CreateEditNameButton(__instance, clone, parent, profile, 2);
-                CreateEditLoadoutButton(__instance, clone, parent, profile, 3);
+                CreateEditLoadoutButton(__instance, clone, parent, profile, 2);
+                CreateEditNameButton(__instance, clone, parent, profile, 3);
                 DisplaySkillsPanel(__instance, profile, session);
             }
             catch (Exception ex)

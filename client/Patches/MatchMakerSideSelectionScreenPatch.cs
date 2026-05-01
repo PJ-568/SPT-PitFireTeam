@@ -1,6 +1,8 @@
 using EFT.UI.Matchmaker;
 using EFT.UI;
+using EFT.InputSystem;
 using EFT.UI.Ragfair;
+using Comfort.Common;
 using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
@@ -35,7 +37,7 @@ namespace pitTeam.Patches
         private static readonly FieldInfo SpawnableToggleHeaderLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_headerLabel");
         private static readonly FieldInfo SpawnableToggleSizeLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_sizeLabel");
         private static readonly FieldInfo BackButtonField = AccessTools.Field(typeof(MatchMakerSideSelectionScreen), "_backButton");
-        private static readonly UnityAction BackExitAction = () =>
+        internal static readonly UnityAction BackExitAction = () =>
         {
             SquadSideSelectionFlow.Deactivate("side-selection-back");
             CurrentScreenSingletonClass.Instance.TryReturnToRootScreen().HandleExceptions();
@@ -347,6 +349,28 @@ namespace pitTeam.Patches
                 UnityEngine.Object.Destroy(tabsSettingsInstance.gameObject);
                 tabsSettingsInstance = null;
             }
+        }
+    }
+
+    internal class MatchMakerSideSelectionScreenTranslateCommandPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(MatchMakerSideSelectionScreen), nameof(MatchMakerSideSelectionScreen.TranslateCommand));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(ECommand command, ref InputNode.ETranslateResult __result)
+        {
+            if (!SquadSideSelectionFlow.SquadModeActive || !command.IsCommand(ECommand.Escape))
+            {
+                return true;
+            }
+
+            Singleton<GUISounds>.Instance.PlayUISound(EUISoundType.MenuEscape);
+            MatchMakerSideSelectionScreenShowPatch.BackExitAction.Invoke();
+            __result = InputNode.ETranslateResult.BlockAll;
+            return false;
         }
     }
 

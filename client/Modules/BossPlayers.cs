@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 using pitTeam.Components;
 using pitTeam.Utils;
@@ -377,10 +378,11 @@ namespace pitTeam.Modules
                     });
                 }
 
-                RequestHandler.PostJson("/client/game/bot/followerprogress", new
+                string progressJson = new
                 {
                     Entries = data
-                }.ToJson(_defaultJsonConverters));
+                }.ToJson(_defaultJsonConverters);
+                PostRaidRequestAsync("/client/game/bot/followerprogress", progressJson, "followers progress");
             }
             catch (Exception ex)
             {
@@ -390,12 +392,30 @@ namespace pitTeam.Modules
 
             if (recruitCandidates.Count > 0)
             {
-                RequestHandler.PostJson("/singleplayer/pitfireteam/recruitpickup", new RecruitPickupRequest
+                string recruitJson = new RecruitPickupRequest
                 {
                     Candidates = recruitCandidates
-                }.ToJson(_defaultJsonConverters));
+                }.ToJson(_defaultJsonConverters);
+                PostRaidRequestAsync("/singleplayer/pitfireteam/recruitpickup", recruitJson, "recruit pickup");
             }
         }
+
+        private static void PostRaidRequestAsync(string route, string json, string description)
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    RequestHandler.PostJson(route, json);
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError($"Failed to send post-raid {description}");
+                    Modules.Logger.LogError(ex);
+                }
+            });
+        }
+
         private bool IsBotFollower(BotOwner bot, AIBossPlayer boss = null)
         {
             if (bot == null || bot.BotFollower == null || !bot.BotFollower.HaveBoss) return false;

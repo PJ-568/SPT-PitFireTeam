@@ -345,6 +345,7 @@ namespace pitTeam
             new MenuScreenReconnectVisibilitySquadControlPatch().Enable();
             new MenuScreenMinimizedVisibilitySquadControlPatch().Enable();
             new MatchMakerSideSelectionScreenShowPatch().Enable();
+            new MatchMakerSideSelectionScreenTranslateCommandPatch().Enable();
             new MatchMakerSideSelectionScreenClosePatch().Enable();
             new MainMenuControllerOpenSideSelectionGuardPatch().Enable();
             new CurrentScreenTryReturnToRootScreenPatch().Enable();

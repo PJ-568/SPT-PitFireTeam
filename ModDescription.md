@@ -85,7 +85,7 @@ Teammates can be customized from their profile screen.
 
 **Aggression slider:**
 
-Aggression controls how willing a follower is to leave boss-local safety for proactive pressure. Lower aggression keeps followers more defensive and boss-local. Higher aggression allows more search, push, and pressure when combat conditions justify it. At 0%, followers avoid proactive pressure and prefer to stay around the boss. The combat **Hold Position** command temporarily behaves like 0% aggression until combat ends or **Go Go GO** clears it.
+Aggression controls how willing a follower is to leave boss-local safety for proactive pressure. Lower aggression keeps followers more defensive and boss-local. Higher aggression allows more search, push, and pressure when combat conditions justify it. At 0%, followers avoid proactive pressure and prefer to stay around the boss. The combat **Hold Position** command temporarily behaves like 0% aggression until combat ends or **Go Go Go** clears it.
 
 **Rifleman aggression:** Rifleman uses 50% as its default balanced baseline. Lower values bias toward cover, support, and regroup. Higher values make Riflemen more willing to push or search farther from the boss when threat checks allow it.
 
@@ -105,7 +105,7 @@ Commands use Tarkov's existing phrase and gesture system. Depending on voice and
 - **Attention / Look** - clears command pressure and makes followers focus on the boss or indicated direction.
 - **Regroup** - tells followers to converge near the boss. In combat, this becomes a combat regroup objective.
 - **Hold Position** - in combat, temporarily behaves like setting follower aggression to 0%. The override resets after combat ends or when replaced by another command. Can be applied to an individual follower by looking at him.
-- **Go Go GO** - clears the temporary Hold Position combat-aggression override and returns followers to their saved aggression. Can be applied to an individual follower by looking at him.
+- **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns followers to their saved aggression. Can be applied to an individual follower by looking at him.
 - **Go Forward** - orders followers with an enemy to push or pressure that enemy. Outside combat, it can send followers toward the pointed location. Can be applied to an individual follower by looking at him.
 - **Stop** - stops followers out of combat without forcing crouch. If the boss moves too far away, followers resume normal follow behavior. Can be applied to an individual follower by looking at him.
 
@@ -145,7 +145,7 @@ Picked-up allies and saved teammates do not have identical behavior. Saved teamm
 
 - Use **Regroup** when followers are too far away or need to return to the boss.
 - Use **Hold Position** when you want them to stop pushing and stay more defensive for the current fight.
-- Use **Go Go GO** when you want them to return to their saved aggression.
+- Use **Go Go Go** when you want them to return to their saved aggression.
 - Use **Go Forward** when you want active combat pressure on the current enemy.
 - Use **Contact**, **Over There**, or directional calls to point followers toward a threat or suspected threat direction.
 
@@ -183,7 +183,7 @@ The mod changes bot grouping, follower ownership, commands, and combat routing. 
 - Followers can linger after combat. Use **Attention** to reset them.
 - Teleporting followers while they are interacting with doors or other objects can leave them in a bad state.
 - The game has navigation problems that even SAIN is not able to fully resolve. If your bots get stuck, use teleportation. In other situations their movement is in teleportation-like bursts.
-- SAIN can interfere with teleportation, teleporting the bot back to previous location. You will need to hit the teleportation button a couple of times to get to stick.
+- SAIN can interfere with teleportation, teleporting the bot back to previous location. You will need to hit the teleportation button a couple of times to get it to stick.
 - Followers can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix completely.
 - Followers may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
 

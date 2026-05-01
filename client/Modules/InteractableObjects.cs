@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -94,11 +95,24 @@ namespace pitTeam.Modules
                     member = _followersWithLoot.Values.FirstOrDefault();
                 }
 
-                RequestHandler.PostJson("/singleplayer/returnitems", new
+                string returnItemsJson = new
                 {
                     items = flatItems,
                     member,
-                }.ToJson(_defaultJsonConverters));
+                }.ToJson(_defaultJsonConverters);
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        RequestHandler.PostJson("/singleplayer/returnitems", returnItemsJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Failed to send post-raid returned follower items");
+                        Logger.LogError(ex);
+                    }
+                });
 
                 return true;
             }

@@ -3,16 +3,16 @@
 - make squad settings that need raid restart be disabled during raid and have tooltip message saying "Not available during raid" on them. We disable the "agression" slider and present a tooltip in our squad screen for a certain scenario. So you can follow that
 - (DONE) - disable "protector" tactic as selectable tactic in beta release.
 - (DONE) - disable patrol radius in settings
-- (INPROGRESS) sniper tactic needs it's own battle recording analysis for improvement
+- (DONE) sniper tactic needs it's own battle recording analysis for improvement
 - (DONE) - the temporary english language file. We need to have the client embed the english language so that we can always have a fallback if something goes wrong. On start the client will send to the server the english language and the server will write the english language to disk as en.json so that users can edit it. Thus the server will check if file is present, if file is good, if file is outdated (meaning some new keys are now avaialble), and write it again only if its missing, corrupted or outdated. This way we can ensure that the english language is always present and up to date, but also allow users to edit it if they want to.
-- name space must be renamed from "pitFireTeam" to "pitTeam"
+- (DONE) - name space must be renamed from "pitFireTeam" to "pitTeam"
 
 ## Combat commands - BETA
 
 Description:
 
 - (DONE) - "Hold Position" - functions the same as setting agression to 0% but will reset once combat ends or new command is received.
-- (TO TEST) - "Suppress" - do supression as per old plugin
+- (DONE) - "Suppress" - do supression as per old plugin
 
 # Combat commands
 
@@ -70,7 +70,7 @@ Description:
 
 - add CURIOSITY settings slider that will determine how likely the follower is to investigate a noise or when sensing an enemy.
 - attention makes the follower drop the curiosity and also set the enemy that trigger the investigation to be ignored for 2 minutes.
-- only Default and Protector have this setting
+- only Default has this setting
 
 # ADD THE GOONS (AFTER INITIAL RELEASE)
 
@@ -88,7 +88,6 @@ Description:
 
 # FUTURE IDEAS
 
-- Hide the main menu bottom navigation bar when `My Squad` screen is open (same as it is hidden when the Add Teammate character creation screen opens).
 - Tracking setting where followers use Realistic or Simple tracking. This means they will rely heavily on enemy last known position instead of using actual enemy position. This will be visible even with the enemy tracker symbol.
 - Add setting to control bot difficulty which will be measured in accuracy and reactions.
 
