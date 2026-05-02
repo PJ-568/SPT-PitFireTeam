@@ -54,7 +54,7 @@ Extract the downloaded archive into your SPT install directory. It should add fi
 
 ![My Squad screen](https://iili.io/BsjHsql.png)
 
-**My Squad** is the main management screen for this beta release.
+**My Squad** is the main management screen.
 
 It has two main tabs:
 
@@ -157,6 +157,7 @@ Followers still use Tarkov bot movement and navigation. They can choose cover or
 - If you remove a teammate from the current group, they will not auto-join again until manually re-added or toggled.
 
 **Loot Carrying**
+
 Have followers carry your loot: look at an item and press the interaction prompt shown in the lower-left of the screen. The follower will pick it up if he has space and is not in combat. You must successfully extract with him for the loot to be returned after the raid via a SquadDelivery message. If he dies or you do not extract, the loot is lost.
 
 **Basic combat advice:**
@@ -205,7 +206,7 @@ The mod changes bot grouping, follower ownership, commands, and combat routing. 
 - Followers can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix completely.
 - Followers may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
 - Bushes are cursed with SAIN. You followers can stand in a bush and not shoot while having visibility of the enemy.
-- If you have problems with My Squad screen and are not on Englighs lanuage, switch to it, to see if that works. If so, post the issue along with the language that you originally tried.
+- If you have problems with My Squad screen and are not on English lanuage, switch to it, to see if that works. If so, post the issue along with the language that you originally tried.
 
 If a follower appears stuck, try Attention or teleportation before assuming the raid is unrecoverable.
 
