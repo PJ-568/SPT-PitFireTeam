@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Thin wrapper for vanilla eat/drink logic when the follower has been routed into a consume item
+    /// action. The layer owns when this is allowed; the action only executes the vanilla node.
+    /// </summary>
     internal class EatDrinkAction : CustomLogic
     {
         private readonly GClass261 baseLogic;

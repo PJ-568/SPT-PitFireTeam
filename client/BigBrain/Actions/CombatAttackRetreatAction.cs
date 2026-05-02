@@ -3,9 +3,9 @@ using EFT;
 namespace pitTeam.BigBrain.Actions
 {
     /// <summary>
-    /// Port of old FollowerAttackRetreat: same attack-move aim behavior, but it keeps pushing
-    /// the already selected cover point so the bot backpedals/strafe-retreats instead of
-    /// letting vanilla attack-moving immediately search a new forward cover.
+    /// Retreating fire action. It reuses the follower attack-moving wrapper, keeps the caller's
+    /// selected retreat cover authoritative, and forces threat look when a shot is available so the
+    /// follower does not turn his back while backing out.
     /// </summary>
     internal sealed class CombatAttackRetreatAction : CombatAttackMovingAction
     {

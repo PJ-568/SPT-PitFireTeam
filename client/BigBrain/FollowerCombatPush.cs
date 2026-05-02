@@ -22,6 +22,8 @@ namespace pitTeam.BigBrain
         private readonly FollowerCombatCommon combatCommon;
         private float runToEnemyNonSprintSince;
         private float committedPushActionableVisibleSince;
+        private Vector3 stalledPushLastPosition;
+        private float stalledPushSince;
 
         public FollowerCombatPush(BotOwner botOwner, FollowerCombatCommon combatCommon)
         {
@@ -113,6 +115,12 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("pushRunNotSprinting", true);
             }
 
+            if (ShouldConvertStalledPushToSuppress(goalEnemy, currentDecision))
+            {
+                ClearCommittedPush("pushStalledSuppress");
+                return new AICoreActionEndStruct("pushStalledSuppress", true);
+            }
+
             AICoreActionEndStruct endResult = currentDecision.Action switch
             {
                 BotLogicDecision.runToEnemy => combatCommon.EndBaseGoToEnemy(),
@@ -140,6 +148,8 @@ namespace pitTeam.BigBrain
             combatCommon.ClearCommittedPushDecision();
             runToEnemyNonSprintSince = 0f;
             committedPushActionableVisibleSince = 0f;
+            stalledPushLastPosition = Vector3.zero;
+            stalledPushSince = 0f;
         }
 
         public bool IsPushCommittedDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
@@ -417,6 +427,8 @@ namespace pitTeam.BigBrain
 
         private void CommitPush(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
+            // The pusher commits locally first, then may publish a squad push event. The event is
+            // only a support trigger for other followers; it is not required for this bot's push.
             combatCommon.CommitPushDecision(decision);
             combatCommon.RefreshCommittedPushEnemyRetention();
             TryEmitPushEvent(decision);
@@ -491,6 +503,92 @@ namespace pitTeam.BigBrain
             return Time.time - runToEnemyNonSprintSince >= RunToEnemyNonSprintGraceSeconds;
         }
 
+        private bool ShouldConvertStalledPushToSuppress(
+            EnemyInfo goalEnemy,
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
+        {
+            if (currentDecision.Action != BotLogicDecision.runToEnemy &&
+                currentDecision.Action != BotLogicDecision.goToEnemy)
+            {
+                ResetStalledPushTracking();
+                return false;
+            }
+
+            if (!HasCloseObscuredPushTarget(goalEnemy))
+            {
+                ResetStalledPushTracking();
+                return false;
+            }
+
+            if (stalledPushSince <= 0f)
+            {
+                stalledPushSince = Time.time;
+                stalledPushLastPosition = botOwner.Position;
+                return false;
+            }
+
+            if ((botOwner.Position - stalledPushLastPosition).sqrMagnitude > 0.25f * 0.25f)
+            {
+                stalledPushSince = Time.time;
+                stalledPushLastPosition = botOwner.Position;
+                return false;
+            }
+
+            if (Time.time - stalledPushSince < 1.1f)
+            {
+                return false;
+            }
+
+            if (!combatCommon.TryCreateSoftObstructedSuppressDecision(
+                    goalEnemy,
+                    "autoSuppress.pushStalled",
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> suppressDecision))
+            {
+                return false;
+            }
+
+            combatCommon.SetInitialDecision(suppressDecision);
+            ResetStalledPushTracking();
+            return true;
+        }
+
+        private bool HasCloseObscuredPushTarget(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy == null || goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            Vector3 enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
+            if (!FollowerCombatCommon.IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            Vector3 toEnemy = enemyAnchor - botOwner.Position;
+            toEnemy.y = 0f;
+            float distance = toEnemy.magnitude;
+            if (distance > 25f || distance <= 0.1f)
+            {
+                return false;
+            }
+
+            Vector3 look = botOwner.LookDirection;
+            look.y = 0f;
+            if (look.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            return Vector3.Angle(look.normalized, toEnemy / distance) <= 35f;
+        }
+
+        private void ResetStalledPushTracking()
+        {
+            stalledPushLastPosition = Vector3.zero;
+            stalledPushSince = 0f;
+        }
+
         private void PreparePushVisibilityFireDecision(EnemyInfo goalEnemy)
         {
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
@@ -517,6 +615,20 @@ namespace pitTeam.BigBrain
                 return;
             }
 
+            // Helpers that are already reacting to another follower's event must not become a new
+            // emitter. This keeps one push leader and N support followers.
+            if (combatCommon.HasActivePushFromOther())
+            {
+                return;
+            }
+
+            // Boss-issued GoForward is a direct command, not an autonomous squad trigger. Otherwise
+            // one ordered push would fan out into every nearby follower.
+            if (IsOrderedPushReason(decision.Reason) || HasActiveOrderedPushCommand())
+            {
+                return;
+            }
+
             EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy) || string.IsNullOrEmpty(goalEnemy.ProfileId))
             {
@@ -530,6 +642,19 @@ namespace pitTeam.BigBrain
                 GetPushDestination(goalEnemy),
                 decision.Reason ?? string.Empty,
                 IsEnemySearchPushReason(decision.Reason));
+        }
+
+        private bool HasActiveOrderedPushCommand()
+        {
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(botOwner);
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType activeCommand, out _) &&
+                   activeCommand == FollowerCommandType.PushEnemy;
+        }
+
+        private static bool IsOrderedPushReason(string? reason)
+        {
+            return reason != null && reason.StartsWith("push.ordered", StringComparison.Ordinal);
         }
 
         private void ReleasePushEvent(string reason)

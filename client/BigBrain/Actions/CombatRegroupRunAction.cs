@@ -6,6 +6,11 @@ using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Dedicated regroup run toward the boss or a bossward sampled point. It keeps a cached target,
+    /// refreshes it at controlled intervals, and uses sprint/path checks so regroup does not become
+    /// repeated cover hopping.
+    /// </summary>
     internal sealed class CombatRegroupRunAction : FollowerCombatActionBase
     {
         private const float RegroupRunSpreadMinRadius = 1f;

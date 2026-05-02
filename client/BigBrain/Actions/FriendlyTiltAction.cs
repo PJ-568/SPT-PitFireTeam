@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Thin wrapper for vanilla friendly tilt behavior. Used by peaceful/follower layers when the
+    /// bot should lean or tilt without entering combat movement.
+    /// </summary>
     internal class FriendlyTiltAction : CustomLogic
     {
         private readonly GClass262 baseLogic;

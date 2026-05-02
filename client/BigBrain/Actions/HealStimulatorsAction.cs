@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Thin wrapper for vanilla stimulator use. The combat/patrol layers decide when stimulators are
+    /// safe or urgent; this action only updates the stock stim node.
+    /// </summary>
     internal class HealStimulatorsAction : CustomLogic
     {
         private readonly GClass283 baseLogic;

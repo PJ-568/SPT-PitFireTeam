@@ -159,7 +159,9 @@ namespace pitTeam.BigBrain
                     out AICoreActionResultStruct<BotLogicDecision, GClass26> currentPositionDecision,
                     preferBackline: false,
                     enforceMarksmanPositionPolicy: true,
-                    allowForwardPositions: true))
+                    allowForwardPositions: true,
+                    allowBattlefieldPositions: true,
+                    maxNavDistance: 140f))
             {
                 return currentPositionDecision;
             }
@@ -171,7 +173,9 @@ namespace pitTeam.BigBrain
                     out AICoreActionResultStruct<BotLogicDecision, GClass26> positionDecision,
                     preferBackline: false,
                     enforceMarksmanPositionPolicy: true,
-                    allowForwardPositions: true))
+                    allowForwardPositions: true,
+                    allowBattlefieldPositions: true,
+                    maxNavDistance: 140f))
             {
                 return positionDecision;
             }

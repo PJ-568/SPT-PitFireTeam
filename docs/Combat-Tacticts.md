@@ -69,6 +69,7 @@ Rifleman/default behavior:
 - The selected push is committed as `push.*`, so the bot should finish the chosen push phase unless interrupted by real danger, enemy loss, enemy change, or another explicit command.
 - Ordered push refreshes enemy retention during the committed push so it should not forget the enemy mid-route.
 - If the enemy becomes visible/shootable during direct movement, the push can convert into immediate fire or short suppression rather than churn into unrelated movement.
+- Other nearby Riflemen can react to the push event as support instead of starting a duplicate independent push: shoot from current cover, take a support shot, move to push-support cover, or move to a firing point.
 
 Marksman behavior:
 
@@ -180,6 +181,8 @@ Default and marksman can ask push code for a pressure plan, but they still keep 
 
 - Default push means assault pressure toward the enemy, an approach cover, or a search point.
 - Marksman push support means finding a better shooting/support position, not rushing like default.
+- Rifleman push support uses the same push event but keeps Rifleman policy: eligible nearby helpers support from cover or a nearby firing point and avoid duplicating the active pusher's destination.
+- Push events are globally locked: one emitter owns the active push event, helpers cannot emit their own push while that event is active, and a short cooldown prevents emit/release/emit chains.
 - Against marksman enemies, push does not manufacture a fake hold if no valid firing-position push exists. It returns no push decision and lets the tactic continue routing.
 
 Committed push breaks for:

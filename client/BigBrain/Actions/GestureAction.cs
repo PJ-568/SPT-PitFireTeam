@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Thin wrapper for vanilla gesture execution. Higher layers decide which gesture is appropriate;
+    /// this action only runs the stock gesture node.
+    /// </summary>
     internal class GestureAction : CustomLogic
     {
         private readonly GClass263 baseLogic;

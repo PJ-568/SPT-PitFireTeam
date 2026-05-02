@@ -43,6 +43,9 @@ namespace pitTeam.BigBrain
         private const float DogFightOutOfRangeCooldownSeconds = 1.25f;
         private const float PointBlankRetreatBlockDistance = 8f;
         private const float CloseVisibleThreatBreakDistance = 18f;
+        private const float CloseThreatDogFightDistance = 8f;
+        private const float CloseThreatAdvanceBreakDistance = 18f;
+        private const float CloseThreatRecentSeenSeconds = 0.75f;
         private const float NoSprintHealSuppressRecentSeenSeconds = 3f;
         private const float HealCoverStallBlacklistSeconds = 10f;
         private const float HealHidePointMinDistance = 4f;
@@ -1266,6 +1269,55 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        public bool TryGetActivePushEvent(out CombatEvents.PushEvent pushEvent)
+        {
+            pushEvent = default;
+            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            return boss.CombatEvents.TryGetActivePushFor(botOwner, out pushEvent);
+        }
+
+        // Helper eligibility for Rifleman-style push support. We require both straight-line and
+        // nav-distance proximity so a follower across a wall/building does not "join" a push that
+        // is tactically nearby but unreachable without a long detour.
+        public bool TryGetNearbyActivePushEvent(
+            float maxStraightDistance,
+            float maxNavDistance,
+            out CombatEvents.PushEvent pushEvent)
+        {
+            if (!TryGetActivePushEvent(out pushEvent))
+            {
+                return false;
+            }
+
+            if (!IsFinite(pushEvent.Owner.Position))
+            {
+                return false;
+            }
+
+            float straightDistance = Vector3.Distance(botOwner.Position, pushEvent.Owner.Position);
+            if (straightDistance > maxStraightDistance)
+            {
+                return false;
+            }
+
+            float navDistance = Utils.Utils.GetNavDistance(botOwner.Position, pushEvent.Owner.Position);
+            return !IsFinite(navDistance) || navDistance <= maxNavDistance;
+        }
+
+        public bool HasActivePushFromOther()
+        {
+            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return false;
+            }
+
+            return boss.CombatEvents.HasActivePushFromOther(botOwner);
+        }
+
         public bool TryCommitSupportFiringCover(
             EnemyInfo supportEnemy,
             string reason,
@@ -1641,7 +1693,8 @@ namespace pitTeam.BigBrain
             decision = default;
             if (string.IsNullOrEmpty(reasonPrefix) ||
                 !HasActiveCombatEnemy(goalEnemy) ||
-                botOwner.SuppressShoot == null)
+                botOwner.SuppressShoot == null ||
+                !CanCurrentWeaponSuppress())
             {
                 return false;
             }
@@ -1679,17 +1732,141 @@ namespace pitTeam.BigBrain
             }
 
             if (allowObstructedSuppression &&
+                IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, botOwner.LookSensor.Mask) &&
                 !FollowerShotSafety.IsFriendlyInShotLane(botOwner, fireOrigin, suppressTarget) &&
                 botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
             {
                 botOwner.Steering.LookToPoint(suppressTarget);
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.suppressFire,
-                    $"{reasonPrefix}.obstructedPlace");
+                    $"{reasonPrefix}.softObstructedPlace");
                 return true;
             }
 
             return false;
+        }
+
+        public bool TryCreateSoftObstructedSuppressDecision(
+            EnemyInfo goalEnemy,
+            string reasonPrefix,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            if (TryCreateSuppressDecision(goalEnemy, reasonPrefix, out decision))
+            {
+                return true;
+            }
+
+            decision = default;
+            if (string.IsNullOrEmpty(reasonPrefix) ||
+                !HasActiveCombatEnemy(goalEnemy) ||
+                botOwner.SuppressShoot == null ||
+                !CanCurrentWeaponSuppress() ||
+                !TryGetSuppressTarget(goalEnemy, out Vector3 suppressTarget))
+            {
+                return false;
+            }
+
+            Vector3 fireOrigin = botOwner.WeaponRoot != null
+                ? botOwner.WeaponRoot.position
+                : botOwner.Position + Vector3.up * 1.2f;
+
+            if (!IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, botOwner.LookSensor.Mask) ||
+                FollowerShotSafety.IsFriendlyInShotLane(botOwner, fireOrigin, suppressTarget) ||
+                !botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
+            {
+                return false;
+            }
+
+            botOwner.Steering.LookToPoint(suppressTarget);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.suppressFire,
+                $"{reasonPrefix}.softObstructedPlace");
+            return true;
+        }
+
+        internal bool IsSoftObstructedSuppressionLane(Vector3 fireOrigin, Vector3 suppressTarget)
+        {
+            return IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, botOwner.LookSensor.Mask);
+        }
+
+        internal static bool IsSoftObstructedSuppressionLane(Vector3 fireOrigin, Vector3 suppressTarget, LayerMask mask)
+        {
+            Vector3 direction = suppressTarget - fireOrigin;
+            float distance = direction.magnitude;
+            if (distance <= 0.001f)
+            {
+                return false;
+            }
+
+            RaycastHit[] softObstructionHits = new RaycastHit[1];
+            int hitCount = Physics.RaycastNonAlloc(
+                new Ray(fireOrigin, direction / distance),
+                softObstructionHits,
+                distance,
+                mask);
+            if (hitCount <= 0)
+            {
+                return false;
+            }
+
+            Collider collider = softObstructionHits[0].collider;
+            if (collider == null)
+            {
+                return false;
+            }
+
+            return IsSoftFoliageCollider(collider);
+        }
+
+        private static bool IsSoftFoliageCollider(Collider collider)
+        {
+            GameObject gameObject = collider.gameObject;
+            if (IsLayerInMask(gameObject.layer, LayerMaskClass.Grass) ||
+                IsLayerInMask(gameObject.layer, LayerMaskClass.Foliage))
+            {
+                return true;
+            }
+
+            if (ContainsSoftFoliageToken(gameObject.name) ||
+                ContainsSoftFoliageToken(collider.name))
+            {
+                return true;
+            }
+
+            Transform parent = collider.transform?.parent;
+            while (parent != null)
+            {
+                if (ContainsSoftFoliageToken(parent.name))
+                {
+                    return true;
+                }
+
+                parent = parent.parent;
+            }
+
+            return false;
+        }
+
+        private static bool IsLayerInMask(int layer, LayerMask mask)
+        {
+            return (mask.value & (1 << layer)) != 0;
+        }
+
+        private static bool ContainsSoftFoliageToken(string? value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return false;
+            }
+
+            return value.IndexOf("bush", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("foliage", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("grass", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("shrub", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("reed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("leaf", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("leaves", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("branch", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private bool TryFindSuppressFromPoint(Vector3 suppressTarget, out CustomNavigationPoint? suppressFrom)
@@ -2999,6 +3176,7 @@ namespace pitTeam.BigBrain
             // branch pass can immediately replace.
             bool preferBackline = GetFollowerTactic() is FollowerCombatTactic.Marksman or FollowerCombatTactic.Protector;
             bool enforceMarksmanPositionPolicy = GetFollowerTactic() == FollowerCombatTactic.Marksman;
+            bool allowMarksmanBattlefieldPosition = GetFollowerTactic() == FollowerCombatTactic.Marksman;
             if (!TryCommitSupportFiringCover(
                     selectedEnemy,
                     "allySupportCover",
@@ -3012,7 +3190,10 @@ namespace pitTeam.BigBrain
                         "allySupportPosition",
                         out AICoreActionResultStruct<BotLogicDecision, GClass26> positionDecision,
                         preferBackline,
-                        enforceMarksmanPositionPolicy))
+                        enforceMarksmanPositionPolicy,
+                        allowForwardPositions: false,
+                        allowBattlefieldPositions: allowMarksmanBattlefieldPosition,
+                        maxNavDistance: allowMarksmanBattlefieldPosition ? 90f : 45f))
                 {
                     return null;
                 }
@@ -3040,7 +3221,9 @@ namespace pitTeam.BigBrain
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision,
             bool preferBackline,
             bool enforceMarksmanPositionPolicy = false,
-            bool allowForwardPositions = false)
+            bool allowForwardPositions = false,
+            bool allowBattlefieldPositions = false,
+            float maxNavDistance = 45f)
         {
             decision = default;
             if (!HasActiveCombatEnemy(supportEnemy))
@@ -3060,6 +3243,8 @@ namespace pitTeam.BigBrain
                     preferBackline,
                     enforceMarksmanPositionPolicy,
                     allowForwardPositions,
+                    allowBattlefieldPositions,
+                    maxNavDistance,
                     out Vector3 supportPoint))
             {
                 return false;
@@ -3087,7 +3272,9 @@ namespace pitTeam.BigBrain
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision,
             bool preferBackline,
             bool enforceMarksmanPositionPolicy = false,
-            bool allowForwardPositions = false)
+            bool allowForwardPositions = false,
+            bool allowBattlefieldPositions = false,
+            float maxNavDistance = 45f)
         {
             decision = default;
             if (!HasActiveCombatEnemy(supportEnemy) || !IsFinite(enemyPosition))
@@ -3101,6 +3288,8 @@ namespace pitTeam.BigBrain
                     preferBackline,
                     enforceMarksmanPositionPolicy,
                     allowForwardPositions,
+                    allowBattlefieldPositions,
+                    maxNavDistance,
                     out Vector3 supportPoint))
             {
                 return false;
@@ -3184,6 +3373,8 @@ namespace pitTeam.BigBrain
             bool preferBackline,
             bool enforceMarksmanPositionPolicy,
             bool allowForwardPositions,
+            bool allowBattlefieldPositions,
+            float maxNavDistance,
             out Vector3 supportPoint)
         {
             supportPoint = Vector3.zero;
@@ -3204,7 +3395,7 @@ namespace pitTeam.BigBrain
 
             anchorToEnemy.Normalize();
             Vector3 side = new Vector3(-anchorToEnemy.z, 0f, anchorToEnemy.x);
-            Vector3[] candidates =
+            List<Vector3> candidates = new List<Vector3>
             {
                 anchor - anchorToEnemy * 10f,
                 anchor - anchorToEnemy * 14f,
@@ -3224,12 +3415,17 @@ namespace pitTeam.BigBrain
                 allowForwardPositions ? botOwner.Position + anchorToEnemy * 6f - side * 6f : Vector3.positiveInfinity
             };
 
+            if (allowBattlefieldPositions)
+            {
+                AddBattlefieldFiringCandidates(candidates, anchor, botOwner.Position, enemyAnchor, anchorToEnemy, side);
+            }
+
             ShootPointClass shootPoint = new ShootPointClass(enemyAnchor + Vector3.up * 1.1f, 1f);
             Vector3 weaponOffset = Vector3.up * 1.2f;
             float bestScore = float.MaxValue;
             bool found = false;
 
-            for (int i = 0; i < candidates.Length; i++)
+            for (int i = 0; i < candidates.Count; i++)
             {
                 if (!IsFinite(candidates[i]))
                 {
@@ -3276,7 +3472,7 @@ namespace pitTeam.BigBrain
                     navDistance = Vector3.Distance(botOwner.Position, candidate);
                 }
 
-                if (navDistance > 45f)
+                if (navDistance > maxNavDistance)
                 {
                     continue;
                 }
@@ -3292,6 +3488,47 @@ namespace pitTeam.BigBrain
             }
 
             return found;
+        }
+
+        private void AddBattlefieldFiringCandidates(
+            List<Vector3> candidates,
+            Vector3 anchor,
+            Vector3 botPosition,
+            Vector3 enemyAnchor,
+            Vector3 anchorToEnemy,
+            Vector3 side)
+        {
+            float safeFloor = CombatDistanceConfiguration.Instance.GetCloseQuarterDistance() + 8f;
+            float anchorEnemyDistance = Vector3.Distance(anchor, enemyAnchor);
+            float botEnemyDistance = Vector3.Distance(botPosition, enemyAnchor);
+
+            AddForwardCandidateSet(candidates, anchor, anchorToEnemy, side, anchorEnemyDistance, safeFloor, 24f, 36f, 50f, 70f, 95f);
+            AddForwardCandidateSet(candidates, botPosition, anchorToEnemy, side, botEnemyDistance, safeFloor, 24f, 40f, 60f, 85f, 115f);
+        }
+
+        private static void AddForwardCandidateSet(
+            List<Vector3> candidates,
+            Vector3 origin,
+            Vector3 direction,
+            Vector3 side,
+            float enemyDistance,
+            float safeFloor,
+            params float[] forwardDistances)
+        {
+            for (int i = 0; i < forwardDistances.Length; i++)
+            {
+                float distance = forwardDistances[i];
+                if (distance >= enemyDistance - safeFloor)
+                {
+                    continue;
+                }
+
+                Vector3 forwardPoint = origin + direction * distance;
+                float sideOffset = Mathf.Clamp(distance * 0.2f, 8f, 16f);
+                candidates.Add(forwardPoint);
+                candidates.Add(forwardPoint + side * sideOffset);
+                candidates.Add(forwardPoint - side * sideOffset);
+            }
         }
 
         public bool IsMarksmanFiringPositionAllowed(EnemyInfo goalEnemy, Vector3 position)
@@ -3316,7 +3553,7 @@ namespace pitTeam.BigBrain
 
             float safeFloor = CombatDistanceConfiguration.Instance.GetCloseQuarterDistance() + 5f;
             float aggression = GetAggression01();
-            if (aggression >= 0.75f)
+            if (aggression > 0.55f)
             {
                 return positionEnemyDistance >= safeFloor;
             }
@@ -3570,8 +3807,14 @@ namespace pitTeam.BigBrain
             bool hasLiveVisibleDogFightContact = goalEnemy.IsVisible && goalEnemy.CanShoot;
             if (!hasLiveVisibleDogFightContact)
             {
-                ClearDogFightState();
-                return null;
+                if (!IsEnemyActivelyThreateningMe(goalEnemy, CloseThreatDogFightDistance, CloseThreatRecentSeenSeconds))
+                {
+                    ClearDogFightState();
+                    return null;
+                }
+
+                SetDogFightState(BotDogFightStatus.dogFight);
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "closeThreatDogFight");
             }
 
             BotDogFightStatus dogFightState = botOwner.DogFight?.DogFightState ?? BotDogFightStatus.none;
@@ -5401,7 +5644,7 @@ namespace pitTeam.BigBrain
 
             if (!HasActiveCombatEnemy(goalEnemy) || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
             {
-                return false;
+                return IsEnemyActivelyThreateningMe(goalEnemy, CloseThreatAdvanceBreakDistance, CloseThreatRecentSeenSeconds);
             }
 
             // While a committed cover run is still inside its initial lock window, treat the move as
@@ -5441,6 +5684,32 @@ namespace pitTeam.BigBrain
         {
             Weapon? activeWeapon = botOwner?.WeaponManager?.ShootController?.Item;
             return IsAutomaticWeapon(activeWeapon);
+        }
+
+        /// <summary>
+        /// Suppression is only useful with enough fire volume. Single-shot/small-mag weapons should
+        /// keep using normal shoot/reposition decisions instead of wasting precise ammo into cover.
+        /// </summary>
+        public bool CanCurrentWeaponSuppress()
+        {
+            Weapon? activeWeapon = botOwner?.WeaponManager?.ShootController?.Item;
+            return IsSuppressCapableWeapon(activeWeapon);
+        }
+
+        public static bool IsSuppressCapableWeapon(Weapon? weapon)
+        {
+            if (weapon == null)
+            {
+                return false;
+            }
+
+            if (IsAutomaticWeapon(weapon))
+            {
+                return true;
+            }
+
+            MagazineItemClass? magazine = weapon.GetCurrentMagazine();
+            return magazine?.MaxCount >= 25;
         }
 
         /// <summary>
@@ -5575,7 +5844,7 @@ namespace pitTeam.BigBrain
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
             if (!HasActiveCombatEnemy(goalEnemy) || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
             {
-                return false;
+                return IsEnemyActivelyThreateningMe(goalEnemy, CloseThreatAdvanceBreakDistance, CloseThreatRecentSeenSeconds);
             }
 
             if (Enemy.Distance(goalEnemy) > Enemy.EnemyDistance.Close &&
@@ -5596,6 +5865,24 @@ namespace pitTeam.BigBrain
             }
 
             return Utils.Utils.CanShootToTarget(shootPoint, botOwner.WeaponRoot.position, botOwner.LookSensor.Mask, false);
+        }
+
+        public bool IsEnemyActivelyThreateningMe(
+            EnemyInfo? goalEnemy,
+            float maxDistance,
+            float recentSeenWindow)
+        {
+            if (!HasActiveCombatEnemy(goalEnemy) ||
+                goalEnemy == null ||
+                goalEnemy.Distance > maxDistance ||
+                !botOwner.IsEnemyLookingAtMe(goalEnemy))
+            {
+                return false;
+            }
+
+            return goalEnemy.IsVisible ||
+                   Time.time - goalEnemy.PersonalSeenTime <= recentSeenWindow ||
+                   Time.time - goalEnemy.PersonalLastSeenTime <= recentSeenWindow;
         }
 
         /// <summary>
@@ -6107,11 +6394,21 @@ namespace pitTeam.BigBrain
 
             if (goalEnemy == null || !goalEnemy.CanShoot || !goalEnemy.IsVisible)
             {
+                if (ShouldKeepCloseDogFightThroughVisualFlicker(goalEnemy))
+                {
+                    return Continue();
+                }
+
                 ClearDogFightState();
                 return new AICoreActionEndStruct("dogFightNoValidEnemy", true);
             }
 
             return Continue();
+        }
+
+        private bool ShouldKeepCloseDogFightThroughVisualFlicker(EnemyInfo? goalEnemy)
+        {
+            return IsEnemyActivelyThreateningMe(goalEnemy, CloseThreatDogFightDistance, 0.6f);
         }
 
         /// <summary>
@@ -6679,6 +6976,22 @@ namespace pitTeam.BigBrain
 
                 followerData?.ClearCommand("SuppressEnemy:blockedLane");
                 return new AICoreActionEndStruct("followerSuppressBlockedLane", true);
+            }
+
+            if (!Utils.Utils.CanShootToTarget(
+                    new ShootPointClass(point.Value, 1f),
+                    fireOrigin,
+                    botOwner.LookSensor.Mask,
+                    false) &&
+                !IsSoftObstructedSuppressionLane(fireOrigin, point.Value))
+            {
+                if (suppressElapsed < protectedSeconds)
+                {
+                    return Continue();
+                }
+
+                followerData?.ClearCommand("SuppressEnemy:hardBlockedLane");
+                return new AICoreActionEndStruct("followerSuppressHardBlockedLane", true);
             }
 
             return Continue();

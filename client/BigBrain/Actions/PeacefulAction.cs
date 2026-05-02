@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Thin wrapper for vanilla peaceful idle behavior. Used when the follower should remain in a
+    /// non-combat state while other follower layers own movement or command selection.
+    /// </summary>
     internal class PeacefulAction : CustomLogic
     {
         private readonly GClass266 baseLogic;

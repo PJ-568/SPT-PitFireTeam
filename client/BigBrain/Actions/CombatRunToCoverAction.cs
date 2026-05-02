@@ -5,6 +5,10 @@ using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Runs to the currently committed/assigned cover point. The action trusts the decision layer
+    /// for cover selection, executes sprint movement, and turns back toward the threat on arrival.
+    /// </summary>
     internal sealed class CombatRunToCoverAction : FollowerCombatActionBase
     {
         private const float PathRefreshInterval = 1.5f;

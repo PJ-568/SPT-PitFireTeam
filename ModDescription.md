@@ -2,9 +2,15 @@ This is the official successor of the Friendly PMC mod that was available for SP
 
 Pit Fire Team makes it possible to have bots follow you around and fight alongside you against enemies. You can create a customizable PMC squad, bring selected teammates into raids, recruit eligible same-side bots during a raid, and use Tarkov's existing phrase and gesture system to command your followers.
 
-If you would like to continue to show your appreciation, you can support me at [Ko-Fi](https://ko-fi.com/n00bish).
+---
+
+If you would like to show your appreciation, you can support me at [Ko-Fi](https://ko-fi.com/n00bish).
+
+---
 
 **Beta release note:** This is the first beta of the new version. Not every feature from the previous version has been ported yet. Features that are planned but not currently available are listed under Upcoming.
+
+---
 
 # Tabs {.tabset}
 
@@ -18,10 +24,10 @@ You can manage your teammates from the in-game **My Squad** screen. From there, 
 - **Teammate customization** - change teammate name, appearance, voice, tactic, aggression, and loadout.
 - **Raid group support** - invite teammates into your group manually or use Auto Join to preload selected teammates into your next PMC raid.
 - **Follower commands** - issue combat, movement, attention, loot, and door commands through existing Tarkov phrases and gestures.
-- **Map transitions** - eligible teammates can continue with you through transit between maps.
+- **Map transitions** - teammates who you spawned with can follow you through map transitions.
 - **Progression system** - followers gain raid experience and common-skill progress that persists between raids.
 - **Quest assist** - follower kills can count toward player kill quests when the kill meets the quest criteria.
-- **Loot return** - eligible squad members can return items after the raid.
+- **Loot return** - teammates who you spawned with can return items after the raid.
 
 **Compatibility tested with:**
 
@@ -55,12 +61,11 @@ It has two main tabs:
 - **Roster** - create teammates, view existing teammates, invite them to the group, toggle Auto Join, open their profile, or remove them.
 - **Settings** - configure squad options from an in-game screen instead of relying only on the BepInEx configuration window.
 
-**Roster portrait actions:**
+**Teammate portrait actions (Right-click):**
 
 - **Invite to group** - adds the teammate to your current pre-raid group.
 - **View profile** - opens the teammate profile for customization.
 - **Auto Join on/off** - controls whether this teammate automatically joins your next PMC raid setup.
-- **Remove** - deletes the teammate from your roster.
 
 During a raid, the settings view can also be opened from the pause menu through the My Squad settings entry.
 
@@ -78,7 +83,7 @@ Teammates can be customized from their profile screen.
 - Adjust aggression for Rifleman and Marksman tactics.
 - View follower-relevant skills.
 
-**Tactics available in beta:**
+**Tactics available:**
 
 - **`Rifleman`** - the default balanced combat style. Riflemen stay useful near the boss when there is no good attack opportunity, but can push, search, and pressure when the enemy state and aggression allow it.
 - **`Marksman`** - ranged-focused behavior for sniper-style followers. Marksmen prefer firing positions and distance, avoid generic assault pushes, and can switch to an automatic secondary for close fights when appropriate.
@@ -98,6 +103,8 @@ The current loadout editor uses cloned/local items. Editing a teammate loadout d
 ## Squad Commands
 
 Commands use Tarkov's existing phrase and gesture system. Depending on voice and side, some phrases may appear in different places or may not be available for every voice.
+Some of the commands can be applied to individual followers by looking directly at them when issuing the command.
+Commands influence follower behavior but do not force exact actions. Followers will adapt based on combat conditions and may not always respond immediately if engaged or under threat.
 
 **In COMMAND:**
 
@@ -108,10 +115,11 @@ Commands use Tarkov's existing phrase and gesture system. Depending on voice and
 - **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns followers to their saved aggression. Can be applied to an individual follower by looking at him.
 - **Go Forward** - orders followers with an enemy to push or pressure that enemy. Outside combat, it can send followers toward the pointed location. Can be applied to an individual follower by looking at him.
 - **Stop** - stops followers out of combat without forcing crouch. If the boss moves too far away, followers resume normal follow behavior. Can be applied to an individual follower by looking at him.
+- **Suppress** - orders non-Marksman followers to suppress the current enemy. The follower must have a suitable suppress-capable weapon: full-auto or a magazine capacity of at least 25 rounds. If ordered without a suitable weapon, he will say "negative" and continue normal combat decisions.
 
 **In HELP:**
 
-- **Need Sniper** - orders Marksman to prioritize your enemy and find a shooting spot to engage them. Be careful ordering this when fighting multiple enemies. Marksman cannot reliably tell which enemy you want prioritized, so he can stick with the one he already has despite another enemy closing in on your position.
+- **Need Sniper** - urge Marksman to provide sniper support against the closest enemy to you. He will say "negative" if no suitable spot is found.
 - **Need Help** - urge your followers to provide combat support against the closest enemy to you.
 
 **In CONTACT:**
@@ -129,9 +137,16 @@ Commands use Tarkov's existing phrase and gesture system. Depending on voice and
 - **Open Door** - the closest eligible follower opens the targeted door.
 - **Loot This** - the closest eligible follower picks up the targeted loot item.
 
-Picked-up allies and saved teammates do not have identical behavior. Saved teammates are the main supported squad-member path for this beta.
+Recruited allies are temporary and limited in behavior. Saved teammates are fully supported squad members with customization, progression, and reliable command response.
 
 ## Gameplay Guide
+
+---
+
+Saved teammates automatically have ammo and medical supplies available and do not require these items in their loadout. Recruited allies found during a raid do not receive this behavior and rely on their existing equipment.
+Followers still use Tarkov bot movement and navigation. They can choose cover or movement paths that are not exactly where you expected, especially in complex interiors.
+
+---
 
 **Adding teammates to a raid:**
 
@@ -139,7 +154,10 @@ Picked-up allies and saved teammates do not have identical behavior. Saved teamm
 - Create or select a teammate from the roster.
 - Use the roster portrait/context action **Invite to group** to add them to the current raid group.
 - Use **Auto Join** if you want that teammate to be preloaded into future PMC raid setup automatically.
-- If you remove a teammate from the current ready/group flow, they are suppressed from that auto-join cycle until re-added or reset.
+- If you remove a teammate from the current group, they will not auto-join again until manually re-added or toggled.
+
+**Loot Carrying**
+Have followers carry your loot: look at an item and press the interaction prompt shown in the lower-left of the screen. The follower will pick it up if he has space and is not in combat. You must successfully extract with him for the loot to be returned after the raid via a SquadDelivery message. If he dies or you do not extract, the loot is lost.
 
 **Basic combat advice:**
 
@@ -149,8 +167,6 @@ Picked-up allies and saved teammates do not have identical behavior. Saved teamm
 - Use **Go Forward** when you want active combat pressure on the current enemy.
 - Use **Contact**, **Over There**, or directional calls to point followers toward a threat or suspected threat direction.
 
-Followers still use Tarkov bot movement and navigation. They can choose cover or movement paths that are not exactly where you expected, especially in complex interiors.
-
 ## Upcoming
 
 **Planned commands:**
@@ -158,6 +174,7 @@ Followers still use Tarkov bot movement and navigation. They can choose cover or
 - **Get Back** - increases following distance as well as the distance at which bots auto-regroup near the boss during combat. Command resets on **Regroup**.
 - **On Your Own** - followers will no longer care about boss position and will fight the enemy on their own. When out of combat, followers will patrol around you at a configurable distance using Patrol Radius. Resets on **Cover Me**.
 - **Spread Out** - in combat, tells followers who are not actively engaged to find cover.
+- **Silence** - tells followers to stop talking. Maximum time will be controlled via settings.
 
 **Planned settings:**
 
@@ -165,7 +182,7 @@ Followers still use Tarkov bot movement and navigation. They can choose cover or
 
 - **Simple** - edit or choose a follower loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death.
 - **Immersive** - any gear used for a follower loadout will be taken from the player's stash. Gear is not lost on death.
-- **Hardcore** - same as Immersive, but if followers die, their gear is also lost.
+- **Hardcore** - same as Immersive, but followers equipement get damaged and if they die, their gear is also lost.
 
 **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping followers alive, and keeping picked-up raid allies alive. Points are lost if you kill followers or allies.
 
@@ -181,11 +198,14 @@ Followers still use Tarkov bot movement and navigation. They can choose cover or
 The mod changes bot grouping, follower ownership, commands, and combat routing. Mods that heavily change bot AI, spawning, hostility, senses, or group behavior can conflict with it.
 
 - Followers can linger after combat. Use **Attention** to reset them.
+- Followers might not heal their health all the way. It is a game issue, use the Heal key to force heal.
 - Teleporting followers while they are interacting with doors or other objects can leave them in a bad state.
-- The game has navigation problems that even SAIN is not able to fully resolve. If your bots get stuck, use teleportation. In other situations their movement is in teleportation-like bursts.
-- SAIN can interfere with teleportation, teleporting the bot back to previous location. You will need to hit the teleportation button a couple of times to get it to stick.
+- The game has navigation problems that even SAIN is not able to fully resolve. If your bots get stuck, use teleportation. In other situations, their movement is in teleportation-like bursts.
+- SAIN can interfere with teleportation, teleporting the bot back to previous location. You may need to trigger teleportation multiple times for it to stick.
 - Followers can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix completely.
 - Followers may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
+- Bushes are cursed with SAIN. You followers can stand in a bush and not shoot while having visibility of the enemy.
+- If you have problems with My Squad screen and are not on Englighs lanuage, switch to it, to see if that works. If so, post the issue along with the language that you originally tried.
 
 If a follower appears stuck, try Attention or teleportation before assuming the raid is unrecoverable.
 

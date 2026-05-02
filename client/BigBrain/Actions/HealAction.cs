@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Thin wrapper for vanilla first-aid/surgery logic. Layer end conditions own timeouts and
+    /// stuck-state cleanup; this action only lets the medical node update.
+    /// </summary>
     internal class HealAction : CustomLogic
     {
         private GClass197 baseLogic;

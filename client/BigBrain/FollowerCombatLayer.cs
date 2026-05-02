@@ -17,6 +17,8 @@ namespace pitTeam.BigBrain
     internal sealed class FollowerCombatLayer : CustomLayer
     {
         private const float PostEnemyKeepActiveSeconds = 3f;
+        private const float PostCombatFirstAidKeepActiveSeconds = 7f;
+        private const float PostCombatSurgeryKeepActiveSeconds = 20f;
         private const string LingerReason = "linger";
 
         private static readonly HashSet<BotLogicDecision> LoggedUnsupportedDecisions = new HashSet<BotLogicDecision>();
@@ -31,6 +33,7 @@ namespace pitTeam.BigBrain
         private float lingerUntil;
         private bool lingerArmed;
         private float lingerHardUntil;
+        private float medicalKeepActiveStartedAt;
         private bool combatLogicResetForInactive;
 
         public FollowerCombatLayer(BotOwner botOwner, int priority) : base(botOwner, priority)
@@ -85,11 +88,10 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
-            if (HasPendingMedicalWork())
+            if (ShouldKeepCombatLayerForMedicalWork())
             {
-                hadCombatSinceActivation = false;
                 ClearLinger();
-                return false;
+                return true;
             }
 
             if (!hadCombatSinceActivation)
@@ -116,6 +118,7 @@ namespace pitTeam.BigBrain
             hadCombatSinceActivation = false;
             combatLogicResetForInactive = false;
             ClearLinger();
+            ClearMedicalKeepActive();
             MarkActive(true);
             BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
@@ -137,6 +140,7 @@ namespace pitTeam.BigBrain
             hadCombatSinceActivation = false;
             combatLogicResetForInactive = false;
             ClearLinger();
+            ClearMedicalKeepActive();
             FollowerContactEnemyRetention.Clear(BotOwner);
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
             combatLogic?.Reset();
@@ -156,7 +160,9 @@ namespace pitTeam.BigBrain
             }
 
             AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision;
-            if (!ShouldTreatCombatAsActive())
+            bool combatActive = ShouldTreatCombatAsActive();
+            bool keepForMedical = !combatActive && ShouldKeepCombatLayerForMedicalWork();
+            if (!combatActive && !keepForMedical)
             {
                 // As soon as live enemy is gone, hand off to a short linger hold while the
                 // combat layer remains active for release/handoff timing.
@@ -169,6 +175,16 @@ namespace pitTeam.BigBrain
 
                 ArmLingerIfNeeded();
                 nextDecision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, LingerReason);
+            }
+            else if (keepForMedical)
+            {
+                // Medical work discovered during combat must remain in this layer. Handing the
+                // bot to patrol while heal/surgery is pending can leave vanilla med nodes stuck.
+                BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
+                combatLogicResetForInactive = false;
+                ClearLinger();
+                nextDecision = combatLogic.GetMedicalDecision();
+                combatLogic.DecisionChanged(currentDecision, nextDecision);
             }
             else
             {
@@ -220,9 +236,8 @@ namespace pitTeam.BigBrain
                     return true;
                 }
 
-                if (HasPendingMedicalWork())
+                if (ShouldKeepCombatLayerForMedicalWork())
                 {
-                    hadCombatSinceActivation = false;
                     ClearLinger();
                     return true;
                 }
@@ -277,6 +292,11 @@ namespace pitTeam.BigBrain
             lingerUntil = 0f;
             lingerHardUntil = 0f;
             lingerArmed = false;
+        }
+
+        private void ClearMedicalKeepActive()
+        {
+            medicalKeepActiveStartedAt = 0f;
         }
 
         private bool IsLingerExpired()
@@ -387,7 +407,40 @@ namespace pitTeam.BigBrain
                    (BotOwner.Medecine.FirstAid?.Have2Do == true ||
                     BotOwner.Medecine.SurgicalKit?.HaveWork == true ||
                     BotOwner.Medecine.FirstAid?.Using == true ||
-                    BotOwner.Medecine.SurgicalKit?.Using == true);
+                    BotOwner.Medecine.SurgicalKit?.Using == true ||
+                    BotOwner.Medecine.Stimulators?.Using == true ||
+                    combatLogic?.HasActiveOrPendingHealWork() == true);
+        }
+
+        private bool ShouldKeepCombatLayerForMedicalWork()
+        {
+            if (!HasPendingMedicalWork())
+            {
+                ClearMedicalKeepActive();
+                return false;
+            }
+
+            if (!hadCombatSinceActivation && !IsHealingDecision(currentDecision))
+            {
+                return false;
+            }
+
+            if (medicalKeepActiveStartedAt <= 0f)
+            {
+                medicalKeepActiveStartedAt = Time.time;
+            }
+
+            float timeout = BotOwner.Medecine?.SurgicalKit?.HaveWork == true ||
+                            BotOwner.Medecine?.SurgicalKit?.Using == true
+                ? PostCombatSurgeryKeepActiveSeconds
+                : PostCombatFirstAidKeepActiveSeconds;
+            if (Time.time - medicalKeepActiveStartedAt > timeout)
+            {
+                ClearMedicalKeepActive();
+                return false;
+            }
+
+            return true;
         }
 
         private static bool IsHealingDecision(AICoreActionResultStruct<BotLogicDecision, GClass26>? decision)

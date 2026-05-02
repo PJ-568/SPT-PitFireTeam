@@ -41,6 +41,20 @@ namespace pitTeam.BigBrain
 
         public bool ShallUseNow() => combatCommon.HasActiveCombatEnemy();
 
+        public bool HasActiveOrPendingHealWork() => combatCommon.HasActiveOrPendingHealWork();
+
+        public AICoreActionResultStruct<BotLogicDecision, GClass26> GetMedicalDecision()
+        {
+            combatCommon.RepairGoalEnemyMemory();
+            AICoreActionResultStruct<BotLogicDecision, GClass26>? healDecision = combatCommon.TryGetNeedHealDecision();
+            if (healDecision != null)
+            {
+                return healDecision.Value;
+            }
+
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "medicalHold");
+        }
+
         public virtual void Reset()
         {
             combatCommon.Reset();
@@ -104,6 +118,14 @@ namespace pitTeam.BigBrain
                 goalEnemy != null &&
                 ShouldConsumeSuppressCommand(followerData, goalEnemy))
             {
+                if (!combatCommon.CanCurrentWeaponSuppress())
+                {
+                    followerData?.ClearCommand("CombatObjective:RejectSuppressionWeapon");
+                    BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
+                    BotOwner.Gesture?.TryGestus(EInteraction.NoGesture, false);
+                    return GetCurrentObjective().ShallEndCurrentDecision(currentDecision);
+                }
+
                 if (!CanInterruptForSuppressionOrder(currentDecision))
                 {
                     return GetCurrentObjective().ShallEndCurrentDecision(currentDecision);
@@ -309,6 +331,14 @@ namespace pitTeam.BigBrain
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
             {
                 followerData.ClearCommand("CombatObjective:RejectSuppression");
+                return;
+            }
+
+            if (!combatCommon.CanCurrentWeaponSuppress())
+            {
+                followerData.ClearCommand("CombatObjective:RejectSuppressionWeapon");
+                BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
+                BotOwner.Gesture?.TryGestus(EInteraction.NoGesture, false);
                 return;
             }
 

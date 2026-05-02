@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Thin wrapper for EFT's attack-moving flank node. Used when the decision tree wants vanilla
+    /// flank movement semantics rather than the follower-owned attack-moving wrapper.
+    /// </summary>
     internal sealed class CombatAttackMovingFlankAction : FollowerCombatActionBase
     {
         private readonly GClass209 baseLogic;

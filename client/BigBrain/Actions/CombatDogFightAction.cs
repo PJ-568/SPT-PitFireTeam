@@ -6,6 +6,11 @@ using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Close-quarters fight action. It owns short lateral/backward movement, keeps the follower
+    /// crouched and unsprinted for weapon control, blocks friendly shot lanes, and forces threat
+    /// facing so dogfight movement does not expose the follower's back.
+    /// </summary>
     internal sealed class CombatDogFightAction : FollowerCombatActionBase
     {
         private const float MoveUpdateMinDelay = 0.1f;
@@ -55,9 +60,11 @@ namespace pitTeam.BigBrain.Actions
         {
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
 
+            // Dogfight is about weapon control, not travel speed. Keep movement slow, update a
+            // short SAIN-like dodge destination, then force crouch/no-sprint before shooting.
             BotOwner.Mover.SetTargetMoveSpeed(1f);
             bool unsafeCloseFacing = IsUnsafeCloseThreatFacing(goalEnemy);
-            if (goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible)
+            if (goalEnemy != null && ShouldKeepFacingCloseThreat(goalEnemy))
             {
                 MaintainThreatFacing(goalEnemy, goalEnemy.GetBodyPartPosition(), allowHardTurn: true);
             }
@@ -68,6 +75,14 @@ namespace pitTeam.BigBrain.Actions
 
             if (goalEnemy == null || !goalEnemy.CanShoot || !goalEnemy.IsVisible)
             {
+                // If the enemy flickers out at point blank, keep facing him but stop firing. This
+                // prevents the bot from spraying through the player/followers or turning away.
+                if (goalEnemy != null && ShouldKeepFacingCloseThreat(goalEnemy))
+                {
+                    MaintainThreatFacing(goalEnemy, goalEnemy.GetBodyPartPosition(), allowHardTurn: true);
+                    BotOwner.Mover.Stop();
+                }
+
                 StopCombatShooting();
                 BotOwner.LookData.SetLookPointByHearing(null);
                 return;
@@ -86,6 +101,9 @@ namespace pitTeam.BigBrain.Actions
 
             Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.CurrPosition;
             MaintainThreatFacing(goalEnemy, shootPoint, allowHardTurn: true);
+
+            // Close retreat movement is dangerous if it turns the bot away from the attacker. Stop
+            // movement when the threat-facing guard still considers the angle unsafe.
             if (unsafeCloseFacing && IsUnsafeCloseThreatFacing(goalEnemy))
             {
                 BotOwner.Mover.Stop();
@@ -99,6 +117,9 @@ namespace pitTeam.BigBrain.Actions
             Vector3 fireOrigin = BotOwner.WeaponRoot != null
                 ? BotOwner.WeaponRoot.position
                 : BotOwner.Position + Vector3.up * 1.2f;
+
+            // Dogfight tends to happen inside the squad. Friendly lane safety is the hard stop before
+            // either our fast-fire helper or the vanilla shoot node can press the trigger.
             if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, shootPoint))
             {
                 StopCombatShooting();
@@ -270,6 +291,12 @@ namespace pitTeam.BigBrain.Actions
                    goalEnemy.CanShoot &&
                    goalEnemy.Distance <= UnsafeCloseThreatDistance &&
                    CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) > UnsafeCloseThreatLookAngle;
+        }
+
+        private bool ShouldKeepFacingCloseThreat(EnemyInfo goalEnemy)
+        {
+            return goalEnemy.Distance <= UnsafeCloseThreatDistance &&
+                   (goalEnemy.IsVisible || Time.time - goalEnemy.PersonalSeenTime <= RecentSeenThreshold);
         }
 
         private void MaintainThreatFacing(EnemyInfo goalEnemy, Vector3 shootPoint, bool allowHardTurn)

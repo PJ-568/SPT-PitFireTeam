@@ -9,6 +9,11 @@ using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Decisive sprint push toward an enemy or committed push destination. Unlike go-to-enemy, this
+    /// action prioritizes closing distance quickly, while still refreshing pathing, handling stairs,
+    /// and choosing safe look modes during the sprint.
+    /// </summary>
     internal sealed class CombatRunToEnemyAction : FollowerCombatActionBase
     {
         private enum RunLookMode

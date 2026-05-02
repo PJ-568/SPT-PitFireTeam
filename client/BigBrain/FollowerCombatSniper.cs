@@ -799,7 +799,10 @@ namespace pitTeam.BigBrain
                         "sniper.FireSupport.position",
                         out decision,
                         preferBackline: true,
-                        enforceMarksmanPositionPolicy: true))
+                        enforceMarksmanPositionPolicy: true,
+                        allowForwardPositions: false,
+                        allowBattlefieldPositions: true,
+                        maxNavDistance: 90f))
                 {
                     return false;
                 }
@@ -1004,6 +1007,8 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            // Marksman consumes the same push event as Rifleman helpers, but its support policy is
+            // stricter: prefer current shot/cover, then support cover/firing position, not assault.
             if (!string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
             {
                 CombatCommon.TryPromoteTrackedEnemyAsGoal(pushEvent.EnemyProfileId);
@@ -1062,7 +1067,10 @@ namespace pitTeam.BigBrain
                         "sniper.FireSupport.pushPosition",
                         out decision,
                         preferBackline: true,
-                        enforceMarksmanPositionPolicy: true))
+                        enforceMarksmanPositionPolicy: true,
+                        allowForwardPositions: false,
+                        allowBattlefieldPositions: true,
+                        maxNavDistance: 90f))
                 {
                     return false;
                 }
@@ -1294,7 +1302,10 @@ namespace pitTeam.BigBrain
                     reason,
                     out decision,
                     preferBackline: true,
-                    enforceMarksmanPositionPolicy: true))
+                    enforceMarksmanPositionPolicy: true,
+                    allowForwardPositions: false,
+                    allowBattlefieldPositions: true,
+                    maxNavDistance: 90f))
             {
                 return false;
             }
@@ -1978,18 +1989,12 @@ namespace pitTeam.BigBrain
 
         private bool ShouldBreakForPushSupportOpportunity()
         {
-            return TryGetActivePushEvent(out _);
+            return CombatCommon.TryGetActivePushEvent(out _);
         }
 
         private bool TryGetActivePushEvent(out CombatEvents.PushEvent pushEvent)
         {
-            pushEvent = default;
-            if (BotOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
-            {
-                return false;
-            }
-
-            return boss.CombatEvents.TryGetActivePushFor(BotOwner, out pushEvent);
+            return CombatCommon.TryGetActivePushEvent(out pushEvent);
         }
 
         private bool ShouldRescanShootingPosition(EnemyInfo goalEnemy)
@@ -2086,7 +2091,10 @@ namespace pitTeam.BigBrain
                     "sniper.FireSupport.refreshPosition",
                     out decision,
                     preferBackline: true,
-                    enforceMarksmanPositionPolicy: true))
+                    enforceMarksmanPositionPolicy: true,
+                    allowForwardPositions: false,
+                    allowBattlefieldPositions: true,
+                    maxNavDistance: 90f))
                 {
                     return false;
                 }

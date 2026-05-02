@@ -15,6 +15,7 @@ namespace pitTeam.BigBrain
                    string.Equals(reason, "committedImmediateShoot", System.StringComparison.Ordinal) ||
                    string.Equals(reason, "ShootImmediately", System.StringComparison.Ordinal) ||
                    string.Equals(reason, "cdgfp", System.StringComparison.Ordinal) ||
+                   string.Equals(reason, "pushVisibleShoot", System.StringComparison.Ordinal) ||
                    string.Equals(reason, "sniper.immediateShoot", System.StringComparison.Ordinal) ||
                    string.Equals(reason, "sniper.visibleStableShoot", System.StringComparison.Ordinal) ||
                    string.Equals(reason, "sniper.pushSupportImmediateShoot", System.StringComparison.Ordinal) ||

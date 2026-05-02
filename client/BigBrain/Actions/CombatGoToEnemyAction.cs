@@ -9,6 +9,11 @@ using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Controlled advance toward the enemy. This is the walking/pressure push action: it commits
+    /// an advance point, refreshes pathing when progress stalls, shoots while moving when possible,
+    /// and chooses look modes that avoid staring into nearby geometry.
+    /// </summary>
     internal sealed class CombatGoToEnemyAction : FollowerCombatActionBase
     {
         private enum AdvanceLookMode
@@ -77,6 +82,10 @@ namespace pitTeam.BigBrain.Actions
 
             TryPreferPrimaryAtRange(goalEnemy);
             SetCombatSprint(shouldSprint);
+
+            // Push destinations are sticky, but nav/pathing in EFT can stall around rocks, stairs,
+            // and tight walls. Track progress every update cycle and refresh when the committed point
+            // is no longer making the bot advance.
             RefreshProgressState();
             NotMovingCheck();
             bool hasPath = BotOwner.Mover.HasPathAndNoComplete;
@@ -108,6 +117,9 @@ namespace pitTeam.BigBrain.Actions
             {
                 BotOwner.SetPose(1f);
                 bool reached = BotOwner.Mover.IsComeTo(BotOwner.Settings.FileSettings.Move.REACH_DIST, false);
+
+                // Advancing followers can spend a long time between covers. Reload only when the
+                // enemy state says it is tactically safe enough to avoid arriving empty.
                 if (ShouldReloadWhileAdvancing(goalEnemy))
                 {
                     BotOwner.WeaponManager.Reload.TryReload();

@@ -10,6 +10,7 @@ using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.Dialog;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Enums;
+using SPTarkov.Server.Core.Models.Enums.RaidSettings;
 using SPTarkov.Server.Core.Models.Spt.Bots;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Servers;
@@ -32,6 +33,7 @@ public class FriendlyTeammateService(
     JsonUtil jsonUtil,
     ItemHelper itemHelper,
     ProfileHelper profileHelper,
+    ProfileActivityService profileActivityService,
     SaveServer saveServer,
     ICloner cloner,
     ISptLogger<FriendlyTeammateService> logger
@@ -58,6 +60,7 @@ public class FriendlyTeammateService(
     private const string GrizzlyMedicalKitTemplateId = "590c657e86f77412b013051d";
     private const string Surv12SurgicalKitTemplateId = "5d02797c86f774203f38e30a";
     private const string CmsSurgicalKitTemplateId = "60d4399358ef941a33423dad";
+    private const string TeammateGenerationLocation = "factory4_day";
 
     private static readonly HashSet<string> SurgicalKitTemplateIds =
     [
@@ -74,7 +77,7 @@ public class FriendlyTeammateService(
 
         EnsureNicknameIsUnique(sessionId, nickname);
 
-        var teammate = botGenerator.PrepareAndGenerateBot(
+        var teammate = GenerateTeammateBot(
             sessionId,
             new BotGenerationDetails
             {
@@ -87,6 +90,7 @@ public class FriendlyTeammateService(
                 BotRelativeLevelDeltaMin = RelativeLevelDelta,
                 BotCountToGenerate = 1,
                 BotDifficulty = "hard",
+                Location = TeammateGenerationLocation,
                 LocationSpecificPmcLevelOverride = new MinMax<int>
                 {
                     Min = Math.Max(1, (playerPmc.Info.Level ?? 1) - RelativeLevelDelta),
@@ -124,7 +128,7 @@ public class FriendlyTeammateService(
         var head = NormalizeRequiredValue(candidate.Head, "head");
         var targetLevel = Math.Max(1, candidate.Level);
 
-        var teammate = botGenerator.PrepareAndGenerateBot(
+        var teammate = GenerateTeammateBot(
             sessionId,
             new BotGenerationDetails
             {
@@ -137,6 +141,7 @@ public class FriendlyTeammateService(
                 BotRelativeLevelDeltaMin = 0,
                 BotCountToGenerate = 1,
                 BotDifficulty = "hard",
+                Location = TeammateGenerationLocation,
                 LocationSpecificPmcLevelOverride = new MinMax<int>
                 {
                     Min = targetLevel,
@@ -181,6 +186,64 @@ public class FriendlyTeammateService(
             .Where(aid => !string.IsNullOrWhiteSpace(aid))
             .Cast<string>()
             .ToList();
+    }
+
+    private BotBase GenerateTeammateBot(MongoId sessionId, BotGenerationDetails details)
+    {
+        var raidData = profileActivityService.GetProfileActivityRaidData(sessionId);
+        var previousRaidConfiguration = raidData.RaidConfiguration;
+        var createdTemporaryRaidConfiguration = previousRaidConfiguration == null;
+
+        if (createdTemporaryRaidConfiguration)
+        {
+            raidData.RaidConfiguration = CreateMenuTeammateGenerationRaidConfiguration();
+        }
+
+        try
+        {
+            return botGenerator.PrepareAndGenerateBot(sessionId, details);
+        }
+        finally
+        {
+            if (createdTemporaryRaidConfiguration)
+            {
+                raidData.RaidConfiguration = previousRaidConfiguration;
+            }
+        }
+    }
+
+    private static GetRaidConfigurationRequestData CreateMenuTeammateGenerationRaidConfiguration()
+    {
+        return new GetRaidConfigurationRequestData
+        {
+            Location = TeammateGenerationLocation,
+            TimeVariant = DateTimeEnum.CURR,
+            IsNightRaid = false,
+            RaidMode = RaidMode.Local,
+            Side = SideType.Pmc,
+            PlayersSpawnPlace = PlayersSpawnPlace.SamePlace,
+            TransitionType = TransitionType.NONE,
+            WavesSettings = new WavesSettings
+            {
+                BotAmount = BotAmount.AsOnline,
+                BotDifficulty = BotDifficulty.Hard,
+                IsBosses = true,
+                IsTaggedAndCursed = false,
+            },
+            BotSettings = new BotSettings
+            {
+                BotAmount = BotAmount.AsOnline,
+                IsScavWars = false,
+            },
+            TimeAndWeatherSettings = new TimeAndWeatherSettings
+            {
+                IsRandomTime = false,
+                IsRandomWeather = false,
+            },
+            IsLocationTransition = false,
+            CanShowGroupPreview = false,
+            OnlinePveRaidStates = [],
+        };
     }
 
     public List<FriendlyTeammateFollowerDetailsResponse> ListFollowerDetails(MongoId sessionId)
@@ -1588,7 +1651,8 @@ public class FriendlyTeammateService(
             .Where(item =>
                 string.IsNullOrWhiteSpace(item.SlotId)
                 || (!item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
-                    && !item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase)))
+                    && !item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase)
+                    && !item.SlotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
         MongoId? pocketsId = mergedItems.FirstOrDefault(item =>

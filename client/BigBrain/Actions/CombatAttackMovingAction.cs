@@ -7,7 +7,9 @@ using UnityEngine;
 namespace pitTeam.BigBrain.Actions
 {
     /// <summary>
-    /// Direct port of the old plugin's FollowerAttackMove behavior onto the 4.x attack-moving base.
+    /// Moving fire action used for tactical retreats, regroup-with-contact, and pressure movement.
+    /// It keeps EFT's attack-moving node as the base, then adds follower-specific primary-weapon
+    /// preference, threat-facing, optional suppressive bursts, and unsafe close-threat guards.
     /// </summary>
     internal class CombatAttackMovingAction : FollowerCombatActionBase
     {
@@ -28,11 +30,18 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            // Attack-moving can run for a while, so keep non-marksman followers on their primary at
+            // range and pass the current decision reason into the wrapped node for suppress behavior.
             TryPreferPrimaryAtRange(BotOwner.Memory?.GoalEnemy);
             baseLogic.SetCurrentReason(GetReason(data));
             baseLogic.UpdateNodeByBrain(GetRawData(data));
         }
 
+        /// <summary>
+        /// Wrapper around EFT's attack-moving node. Movement and cover handling stay vanilla-owned,
+        /// while follower code controls when to look at the threat, when to suppress a recent point,
+        /// and when to stop a dangerous close retreat from turning the bot's back.
+        /// </summary>
         private sealed class FollowerAttackMovingLogic : GClass205
         {
             private const float ArrivalThreatLookAngle = 95f;
@@ -147,9 +156,7 @@ namespace pitTeam.BigBrain.Actions
             {
                 if (!forceThreatLookWhenShootable ||
                     goalEnemy == null ||
-                    !goalEnemy.IsVisible ||
-                    !goalEnemy.CanShoot ||
-                    goalEnemy.Distance > UnsafeCloseThreatDistance)
+                    !IsCloseActiveThreat(goalEnemy, UnsafeCloseThreatDistance, 0.75f))
                 {
                     return false;
                 }
@@ -196,6 +203,11 @@ namespace pitTeam.BigBrain.Actions
 
             private bool ShouldCorrectArrivalLook(EnemyInfo goalEnemy)
             {
+                if (IsCloseActiveThreat(goalEnemy, UnsafeCloseThreatDistance, 0.75f))
+                {
+                    return true;
+                }
+
                 if (!goalEnemy.IsVisible &&
                     Time.time - goalEnemy.PersonalLastSeenTime > RecentThreatLookSeconds)
                 {
@@ -221,6 +233,16 @@ namespace pitTeam.BigBrain.Actions
                 }
 
                 return (BotOwner_0.Position - cover.Position).sqrMagnitude <= NearCoverDistance * NearCoverDistance;
+            }
+
+            private bool IsCloseActiveThreat(EnemyInfo goalEnemy, float maxDistance, float recentSeenWindow)
+            {
+                return goalEnemy != null &&
+                       goalEnemy.Distance <= maxDistance &&
+                       BotOwner_0.IsEnemyLookingAtMe(goalEnemy) &&
+                       (goalEnemy.IsVisible ||
+                        Time.time - goalEnemy.PersonalSeenTime <= recentSeenWindow ||
+                        Time.time - goalEnemy.PersonalLastSeenTime <= recentSeenWindow);
             }
 
             private void ForceCurrentCoverDestination()

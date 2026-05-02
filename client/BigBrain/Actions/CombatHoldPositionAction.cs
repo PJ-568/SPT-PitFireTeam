@@ -7,6 +7,11 @@ using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Combat hold action used for committed cover holds, boss holds, no-action holds, and linger.
+    /// It keeps the bot stationary while selecting a useful look direction from current enemy data,
+    /// recent contact, command overrides, ally pressure, or boss context.
+    /// </summary>
     internal sealed class CombatHoldPositionAction : FollowerCombatActionBase
     {
         private readonly GClass278 baseLogic;
@@ -24,6 +29,10 @@ namespace pitTeam.BigBrain.Actions
         }
     }
 
+    /// <summary>
+    /// Hold-position look controller. Vanilla hold logic is retained, but follower code decides
+    /// what the bot should watch so a hold does not turn into passive staring away from the fight.
+    /// </summary>
     internal sealed class EnemyFacingHoldLogic : GClass278
     {
         private const float SignificantCornerSwitchAngle = 20f;

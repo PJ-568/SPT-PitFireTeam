@@ -4,6 +4,10 @@ using System;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Generic combat point movement. The decision layer must set <c>GoToSomePointData</c> before
+    /// selecting this action; the action only executes that destination and keeps the bot combat-ready.
+    /// </summary>
     internal sealed class CombatGoToPointAction : FollowerCombatActionBase
     {
         private readonly GClass219 baseLogic;

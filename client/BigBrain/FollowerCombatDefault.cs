@@ -26,6 +26,8 @@ namespace pitTeam.BigBrain
         private const float VisibleAlignedFireMaxDistance = 35f;
         private const float VisibleAlignedFireMaxAngle = 12f;
         private const float AutoSuppressRetryCooldownSeconds = 3.5f;
+        private const float AllyPushSupportMaxStraightDistance = 45f;
+        private const float AllyPushSupportMaxNavDistance = 65f;
 
         private enum CoverIntentKind
         {
@@ -384,6 +386,12 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (TryBuildAndCommitPushSupportDecision(out decision))
+            {
+                CommitCoverIntent(CoverIntentKind.Support);
+                return true;
+            }
+
             AICoreActionResultStruct<BotLogicDecision, GClass26>? allySupportDecision =
                 combatCommon.TryGetAllyEngagementSupportDecision();
             if (allySupportDecision == null)
@@ -399,6 +407,90 @@ namespace pitTeam.BigBrain
             CommitCoverIntent(CoverIntentKind.Support);
             decision = allySupportDecision.Value;
             return true;
+        }
+
+        private bool TryBuildAndCommitPushSupportDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            // Rifleman helper path: consume another follower's active autonomous push event and
+            // convert it into support. This branch never emits a new push event and never chooses
+            // direct go-to-enemy/run-to-enemy as its support objective.
+            if (!combatCommon.TryGetNearbyActivePushEvent(
+                    AllyPushSupportMaxStraightDistance,
+                    AllyPushSupportMaxNavDistance,
+                    out CombatEvents.PushEvent pushEvent))
+            {
+                return false;
+            }
+
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (goalEnemy == null ||
+                !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+            {
+                combatCommon.TryPromoteTrackedEnemyAsGoal(pushEvent.EnemyProfileId);
+                goalEnemy = botOwner.Memory.GoalEnemy;
+                if (!combatCommon.HasActiveCombatEnemy(goalEnemy) ||
+                    !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            if (combatCommon.CanShootFromCurrentCover(out _))
+            {
+                // Best support is doing nothing fancy: stay in cover and shoot if this position
+                // already contributes to the pusher's fight.
+                combatCommon.ExtendCommittedCover();
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.shootFromCover,
+                    "allyPushSupport.currentCover");
+                return true;
+            }
+
+            AICoreActionResultStruct<BotLogicDecision, GClass26>? immediate =
+                combatCommon.TryGetImmediateShootDecision("allyPushSupport.immediateShoot");
+            if (immediate != null)
+            {
+                decision = immediate.Value;
+                return true;
+            }
+
+            if (pushEvent.IsSearchPush &&
+                (botOwner.Position - pushEvent.Owner.Position).sqrMagnitude <= 20f * 20f &&
+                combatCommon.TryCreateTeamSearchSupportDecision(
+                    pushEvent,
+                    goalEnemy,
+                    "allyPushSupport.teamSearch",
+                    out decision))
+            {
+                // Search pushes use a small flank/backstop point near the pusher, not the enemy.
+                return true;
+            }
+
+            if (combatCommon.TryCommitPushSupportCover(
+                    goalEnemy,
+                    pushEvent.Owner.Position,
+                    pushEvent.EnemyPosition,
+                    pushEvent.Destination,
+                    "allyPushSupport.cover",
+                    out string coverReason))
+            {
+                // Normal support push: take a cover that can watch the enemy or pusher destination.
+                decision = combatCommon.CreateMoveToCommittedCoverDecision(coverReason);
+                return true;
+            }
+
+            Vector3 supportAnchor = FollowerCombatCommon.IsFinite(pushEvent.EnemyPosition)
+                ? pushEvent.EnemyPosition
+                : pushEvent.Destination;
+            // Final fallback is still a support firing point, not a direct assault push.
+            return combatCommon.TryCreateSupportFiringPositionDecision(
+                goalEnemy,
+                supportAnchor,
+                "allyPushSupport.position",
+                out decision,
+                preferBackline: false,
+                enforceMarksmanPositionPolicy: false);
         }
 
         private bool TryPrepareAllySupportBreak(
@@ -753,7 +845,8 @@ namespace pitTeam.BigBrain
                 botOwner.Memory.IsUnderFire ||
                 FollowerCombatCommon.WasHitRecently(botOwner, 1f) ||
                 FollowerAwareness.WasRecentlyHit(botOwner) ||
-                combatCommon.IsFollowerCriticallyWounded();
+                combatCommon.IsFollowerCriticallyWounded() ||
+                combatCommon.IsEnemyActivelyThreateningMe(goalEnemy, 18f, 0.75f);
 
             // If the enemy was only just lost and the bot does not have a trustworthy personal location,
             // bias toward safety instead of standing in the open waiting for certainty.
@@ -847,10 +940,18 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
-            return combatCommon.TryCreateSuppressDecision(
-                goalEnemy,
-                "pointBlankRecoverySuppress",
-                out decision);
+            // This is only a short continuity burst for a just-lost close threat. Do not create a
+            // generic suppress-from-point movement here; when the recent-contact window expires,
+            // reselecting that move every frame creates churn instead of useful pressure.
+            if (FollowerImmediateFirePolicy.CanUseRecentContactSuppress(goalEnemy))
+            {
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    "pointBlankRecoveryRecentSuppress");
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -1118,8 +1219,27 @@ namespace pitTeam.BigBrain
             }
 
             bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
-            decision = combatPush.EngageEnemy(true, enemyLowThreat);
+            decision = MarkOrderedPushDecision(combatPush.EngageEnemy(true, enemyLowThreat));
             return true;
+        }
+
+        private static AICoreActionResultStruct<BotLogicDecision, GClass26> MarkOrderedPushDecision(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            if (decision.Reason == null ||
+                decision.Reason.StartsWith("push.ordered", StringComparison.Ordinal))
+            {
+                return decision;
+            }
+
+            if (decision.Reason.StartsWith("push.", StringComparison.Ordinal))
+            {
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    decision.Action,
+                    "push.ordered." + decision.Reason.Substring("push.".Length));
+            }
+
+            return decision;
         }
 
         private bool TryGetAutonomousSuppressDecision(
@@ -1194,6 +1314,7 @@ namespace pitTeam.BigBrain
                 }
 
                 if (string.Equals(reason, "coverHold", StringComparison.Ordinal) &&
+                    combatCommon.HasCommittedCover() &&
                     !combatCommon.IsBotInCommittedCover())
                 {
                     return new AICoreActionEndStruct("leftCommittedCover", true);
@@ -1392,8 +1513,11 @@ namespace pitTeam.BigBrain
         private AICoreActionEndStruct EndCoverMoveOrAttackMoving(
             AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
+            bool isHealMove =
+                FollowerCombatCommon.IsReasonOrSubreason(currentDecision.Reason, "runToHeal") ||
+                FollowerCombatCommon.IsReasonOrSubreason(currentDecision.Reason, "moveToHeal");
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
-            if (goalEnemy != null && ShouldBreakForBossUnderAttack(goalEnemy))
+            if (!isHealMove && goalEnemy != null && ShouldBreakForBossUnderAttack(goalEnemy))
             {
                 combatCommon.ClearCommittedMovement();
                 combatCommon.ClearCommittedCover();
@@ -1401,7 +1525,8 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("bossUnderAttackBreakCoverMove", true);
             }
 
-            if (ShouldEndCurrentDecisionForBossObjective(currentDecision.Reason, allowMovingCommittedCoverBreak: true))
+            if (!isHealMove &&
+                ShouldEndCurrentDecisionForBossObjective(currentDecision.Reason, allowMovingCommittedCoverBreak: true))
             {
                 combatCommon.ClearCommittedMovement();
                 combatCommon.ClearCommittedCover();

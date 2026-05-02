@@ -3,6 +3,11 @@ using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Shared look-control helpers for attack-moving style actions. These methods keep movement
+    /// actions from aiming into walls or away from a close threat while the action itself still owns
+    /// pathing and movement speed.
+    /// </summary>
     internal static class CombatAttackMoveLook
     {
         private const float MaxForcedTurnAngle = 145f;

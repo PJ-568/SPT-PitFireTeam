@@ -2,6 +2,7 @@ using Comfort.Common;
 using EFT;
 using EFT.Interactive;
 using EFT.InventoryLogic;
+using pitTeam.BigBrain;
 using pitTeam.Modules;
 using pitTeam.Utils;
 using System;
@@ -1967,6 +1968,9 @@ namespace pitTeam.Components
             }
             bossVisibleEnemies = PrioritizeContactEnemies(requester, bossVisibleEnemies);
 
+            BotOwner? noSupressFollower = null;
+            bool willSupress = false;
+
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -1980,14 +1984,26 @@ namespace pitTeam.Components
                     continue;
                 }
 
+                if (!FollowerCombatCommon.IsSuppressCapableWeapon(follower.WeaponManager?.ShootController?.Item))
+                {
+                    if (!willSupress) noSupressFollower = follower;
+                    continue;
+                }
+
                 if (!TryEnsureSuppressEnemy(follower, bossVisibleEnemies))
                 {
                     continue;
                 }
 
-                followerData.SetSuppressEnemy(8f);
-                follower.BotTalk.TrySay(EPhraseTrigger.Covering, false);
-                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                followerData.SetSuppressEnemy(6f);
+                follower.BotTalk.TrySay(EPhraseTrigger.Covering, true);
+                noSupressFollower = null;
+                willSupress = true;
+            }
+
+            if (noSupressFollower != null)
+            {
+                noSupressFollower.BotTalk.TrySay(EPhraseTrigger.Negative, true);
             }
         }
 

@@ -10,9 +10,14 @@ namespace pitTeam.Components
     public sealed class CombatEvents
     {
         private const int DefaultBossSpreadSamples = 12;
+        private const float PushEventCooldownSeconds = 2.5f;
         private readonly List<Action<PushEvent?>> pushSubscribers = new List<Action<PushEvent?>>();
         private readonly Dictionary<string, DestinationClaim> destinationClaims = new Dictionary<string, DestinationClaim>(StringComparer.Ordinal);
+
+        // Squad push trigger. Exactly one follower owns this at a time; other followers may only
+        // consume it as support intent, not re-emit their own chained push event.
         private PushEvent? activePush;
+        private float nextPushAllowedAt;
 
         public PushEvent? CurrentPush => activePush;
 
@@ -36,9 +41,16 @@ namespace pitTeam.Components
             string reason,
             bool isSearchPush)
         {
+            // This is the global event lock. Autonomous push may start one event; ordered player
+            // pushes are filtered at the caller and should not arrive here as support triggers.
             if (!IsValidOwner(owner) || string.IsNullOrEmpty(enemyProfileId))
             {
                 return false;
+            }
+
+            if (activePush.HasValue && !IsPushStillValid(activePush.Value))
+            {
+                ClearActivePush("invalidBeforeEmit", startCooldown: true);
             }
 
             if (activePush.HasValue &&
@@ -47,6 +59,13 @@ namespace pitTeam.Components
                 return false;
             }
 
+            if (!activePush.HasValue && Time.time < nextPushAllowedAt)
+            {
+                return false;
+            }
+
+            // The event stores both the enemy anchor and the pusher destination so helpers can
+            // choose a support cover/position without duplicating the pusher's direct route.
             activePush = new PushEvent(
                 owner.ProfileId,
                 owner,
@@ -68,9 +87,8 @@ namespace pitTeam.Components
                 return false;
             }
 
-            activePush = null;
+            ClearActivePush(reason, startCooldown: true);
             BattleRecorder.RecordPushReleased(owner, reason);
-            NotifyPushSubscribers();
             return true;
         }
 
@@ -85,8 +103,7 @@ namespace pitTeam.Components
             PushEvent currentPush = activePush.Value;
             if (!IsPushStillValid(currentPush))
             {
-                activePush = null;
-                NotifyPushSubscribers();
+                ClearActivePush("invalid", startCooldown: true);
                 return false;
             }
 
@@ -95,8 +112,27 @@ namespace pitTeam.Components
                 return false;
             }
 
+            // Only non-owners receive the event. The owner continues its committed push through
+            // FollowerCombatPush; helpers route through their tactic-specific support branch.
             pushEvent = currentPush;
             return true;
+        }
+
+        public bool HasActivePushFromOther(BotOwner listener)
+        {
+            if (!activePush.HasValue)
+            {
+                return false;
+            }
+
+            PushEvent currentPush = activePush.Value;
+            if (!IsPushStillValid(currentPush))
+            {
+                ClearActivePush("invalid", startCooldown: true);
+                return false;
+            }
+
+            return !IsOwner(listener, currentPush);
         }
 
         public void Clear()
@@ -107,10 +143,9 @@ namespace pitTeam.Components
                 return;
             }
 
-            activePush = null;
+            ClearActivePush("clear", startCooldown: false);
             ClearDestinationClaims();
             BattleRecorder.RecordPushCleared("clear");
-            NotifyPushSubscribers();
         }
 
         public bool HasDestinationClaimConflict(
@@ -276,6 +311,24 @@ namespace pitTeam.Components
             }
 
             destinationClaims.Clear();
+        }
+
+        private void ClearActivePush(string reason, bool startCooldown)
+        {
+            if (!activePush.HasValue)
+            {
+                return;
+            }
+
+            activePush = null;
+            if (startCooldown)
+            {
+                // Prevents emitter ping-pong where follower A releases and follower B immediately
+                // emits the same fight as a new push event before the squad has stabilized.
+                nextPushAllowedAt = Time.time + PushEventCooldownSeconds;
+            }
+
+            NotifyPushSubscribers();
         }
 
         private void PruneStaleDestinationClaims()

@@ -34,6 +34,7 @@ namespace pitTeam.Patches
 
         private static readonly FieldInfo RagfairAllOffersToggleField = AccessTools.Field(typeof(RagfairScreen), "_allOffersToggle");
         private static readonly FieldInfo RagfairWishListToggleField = AccessTools.Field(typeof(RagfairScreen), "_wishListToggle");
+        private static readonly FieldInfo AnimatedToggleCanvasGroupField = AccessTools.Field(typeof(UIAnimatedToggleSpawner), "_canvasGroup");
         private static readonly FieldInfo SpawnableToggleHeaderLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_headerLabel");
         private static readonly FieldInfo SpawnableToggleSizeLabelField = AccessTools.Field(typeof(UISpawnableToggle), "_sizeLabel");
         private static readonly FieldInfo BackButtonField = AccessTools.Field(typeof(MatchMakerSideSelectionScreen), "_backButton");
@@ -219,6 +220,8 @@ namespace pitTeam.Patches
                 });
 
             Components.SquadControlMenuUi.FindInstance()?.InjectPanelsIntoScreen(screen.transform);
+            tabsRosterInstance.transform.SetAsLastSibling();
+            tabsSettingsInstance.transform.SetAsLastSibling();
 
             tabsOverlayCoroutine = null;
         }
@@ -242,15 +245,11 @@ namespace pitTeam.Patches
             rect.anchoredPosition = anchoredPosition;
             rect.localScale = Vector3.one;
 
-            Type canvasGroupType = AccessTools.TypeByName("UnityEngine.CanvasGroup");
-            if (canvasGroupType != null)
-            {
-                Component canvasGroup = tab.GetComponent(canvasGroupType) ?? tab.gameObject.AddComponent(canvasGroupType);
-                Traverse canvasGroupTraverse = Traverse.Create(canvasGroup);
-                canvasGroupTraverse.Property("alpha").SetValue(1f);
-                canvasGroupTraverse.Property("interactable").SetValue(true);
-                canvasGroupTraverse.Property("blocksRaycasts").SetValue(true);
-            }
+            CanvasGroup canvasGroup = tab.GetComponent<CanvasGroup>() ?? tab.gameObject.AddComponent<CanvasGroup>();
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+            AnimatedToggleCanvasGroupField?.SetValue(tab, canvasGroup);
 
             UISpawnableToggle spawnableToggle = tab.SpawnableToggle;
             spawnableToggle.method_1(overlayToggleGroup);
@@ -499,7 +498,8 @@ namespace pitTeam.Patches
         [PatchPrefix]
         private static bool PatchPrefix(ref Task __result)
         {
-            if (!SquadSideSelectionFlow.SuppressPlayerModelViewShow)
+            if (!SquadSideSelectionFlow.SuppressPlayerModelViewShow
+                && !AddTeammateCreationFlow.SuppressSkippedSideSelectionModelView)
             {
                 return true;
             }
@@ -588,7 +588,8 @@ namespace pitTeam.Patches
         [PatchPrefix]
         private static bool PatchPrefix(ref Task __result)
         {
-            if (!SquadSideSelectionFlow.SuppressPlayerModelViewShow)
+            if (!SquadSideSelectionFlow.SuppressPlayerModelViewShow
+                && !AddTeammateCreationFlow.SuppressSkippedSideSelectionModelView)
             {
                 return true;
             }

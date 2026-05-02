@@ -14,6 +14,11 @@ using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Executes boss-issued follower commands outside the combat objective system. It owns command
+    /// movement, hold/come/there/regroup behavior, loot and door interaction, and command cleanup
+    /// when combat or another command interrupts the active task.
+    /// </summary>
     internal class GestureCommandAction : CustomLogic
     {
         private BotFollowerPlayer? followerData;
@@ -101,6 +106,8 @@ namespace pitTeam.BigBrain.Actions
 
             EnsureCommandControl();
 
+            // Request-layer commands are lower priority than real combat contact. If the command can
+            // no longer safely continue, clear interaction state and let combat/patrol take over.
             if (ShouldInterruptCommandForCombat(command))
             {
                 ReleaseRegroupReservation();
@@ -115,6 +122,9 @@ namespace pitTeam.BigBrain.Actions
 
             if (command != lastCommand)
             {
+                // Command changes must release resources owned by the previous command. This avoids
+                // stale regroup reservations, loot pickup state, or door interaction state carrying
+                // into a different command.
                 if (lastCommand == FollowerCommandType.RegroupNearBoss)
                 {
                     ReleaseRegroupReservation();

@@ -28,4 +28,31 @@ namespace pitTeam.Patches
             return false;
         }
     }
+
+    internal class AddTeammateSideSelectionStateClosePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(SideSelectionState), nameof(SideSelectionState.Close));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(SideSelectionState __instance)
+        {
+            if (!AddTeammateCreationFlow.IsActive)
+            {
+                return true;
+            }
+
+            __instance.Bool_0 = false;
+            __instance.CompositeDisposableClass.Dispose();
+            if (__instance._stateCanvasGroup != null)
+            {
+                __instance._stateCanvasGroup.alpha = 0f;
+                __instance._stateCanvasGroup.gameObject.SetActive(false);
+            }
+
+            return false;
+        }
+    }
 }

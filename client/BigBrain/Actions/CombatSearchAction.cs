@@ -5,6 +5,10 @@ using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Search action for enemy-last-known areas. It wraps EFT search behavior but keeps follower
+    /// movement/look state stable so a search does not immediately collapse back into passive hold.
+    /// </summary>
     internal sealed class CombatSearchAction : FollowerCombatActionBase
     {
         private readonly GClass235 baseLogic;

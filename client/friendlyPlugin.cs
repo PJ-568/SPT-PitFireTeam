@@ -306,6 +306,7 @@ namespace pitTeam
             new PlayerKilledPatch().Enable();
             new PlayerShotPatch().Enable();
             new AddTeammateBackButtonPatch().Enable();
+            new AddTeammateSideSelectionStateClosePatch().Enable();
             new AddTeammateNicknameFieldEndEditPatch().Enable();
             new AddTeammateNicknameFieldInitPatch().Enable();
             new AddTeammateNicknameFieldStatusPatch().Enable();

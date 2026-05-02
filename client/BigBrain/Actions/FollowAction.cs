@@ -10,6 +10,11 @@ using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Out-of-combat follower patrol action. It keeps the follower near the boss, chooses stable
+    /// settle/cover positions, resumes chase when out of range, and plays peaceful look/watch actions
+    /// when no command or combat layer owns the bot.
+    /// </summary>
     internal class FollowAction : CustomLogic
     {
         private const int DefaultFollowDistance = 12;
@@ -134,6 +139,9 @@ namespace pitTeam.BigBrain.Actions
         {
             if (bossPlayer == null) return;
 
+            // A follower that is already walking to a settle point should keep the point active.
+            // Otherwise normalize posture once so the bot does not continue patrol crouched/prone
+            // after combat, looting, or a hold command.
             if (movingToSettlePoint)
             {
                 BotOwner.GoToSomePointData.UpdateToGo(false);
@@ -156,6 +164,8 @@ namespace pitTeam.BigBrain.Actions
 
             if (inRange)
             {
+                // Close enough to the boss: either settle into a committed local cover/position or
+                // hold the existing one. This is patrol stabilization, not combat cover selection.
                 if (isPathBlocked)
                 {
                     BotOwner.StopMove();
@@ -246,6 +256,8 @@ namespace pitTeam.BigBrain.Actions
             movingToSettlePoint = false;
             UpdateFollowPath(leaderPosition);
 
+            // Normal follow is allowed to sprint when the boss has opened distance. Once close enough,
+            // the settle logic above takes over and moves the follower into a stable local position.
             bool shouldSprint = distance > Mathf.Min(DefaultFollowDistance + 3f, 16f);
             if (BotOwner.Mover.TargetPose != 1f)
             {

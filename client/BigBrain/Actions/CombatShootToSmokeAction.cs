@@ -3,6 +3,10 @@ using EFT;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Smoke-fire action wrapper. Used when the combat decision intentionally wants the vanilla
+    /// shoot-to-smoke behavior rather than normal visible-enemy fire.
+    /// </summary>
     internal sealed class CombatShootToSmokeAction : FollowerCombatActionBase
     {
         private readonly GClass185 baseLogic;

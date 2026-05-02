@@ -4,6 +4,10 @@ using pitTeam.Modules;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Vanilla suppress-grenade wrapper used only when the decision tree explicitly selected grenade
+    /// suppression. Regular opportunistic grenade use is blocked elsewhere.
+    /// </summary>
     internal sealed class CombatSuppressGrenadeAction : FollowerCombatActionBase
     {
         private readonly GClass195 baseLogic;

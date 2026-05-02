@@ -251,6 +251,18 @@ namespace pitTeam.Components
                 standaloneCloseButton.SetRawText(GetSocialUiText("SquadControlBack", "Back"), standaloneCloseButton.HeaderSize);
             }
 
+            if (addTeammateButton != null)
+            {
+                addTeammateButton.SetRawText(GetSocialUiText("AddTeammate", "+ Add teammate"), addTeammateButton.HeaderSize);
+            }
+
+            if (emptyRosterLabel != null)
+            {
+                emptyRosterLabel.text = GetSocialUiText(
+                    "SquadControlEmptyRoster",
+                    "You have not created any team members yet, press the add button below to get started");
+            }
+
             if (settingsContentRoot != null)
             {
                 RebuildSettingsEntries();

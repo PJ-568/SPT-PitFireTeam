@@ -6,6 +6,10 @@ using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// BigBrain action payload used by follower combat actions. It carries the selected decision,
+    /// human-readable reason, and optional vanilla node data through the custom layer boundary.
+    /// </summary>
     internal sealed class FollowerCombatActionData : CustomLayer.ActionData
     {
         public BotLogicDecision Decision { get; }
@@ -20,6 +24,11 @@ namespace pitTeam.BigBrain.Actions
         }
     }
 
+    /// <summary>
+    /// Base class for follower combat actions. It centralizes common interop with vanilla combat
+    /// nodes: safe sprint toggling, combat cover tactic setup, typed action data access, shot cleanup,
+    /// primary-weapon preference, and short aim-alignment waits.
+    /// </summary>
     internal abstract class FollowerCombatActionBase : CustomLogic
     {
         protected FollowerCombatActionBase(BotOwner botOwner) : base(botOwner)

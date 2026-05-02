@@ -5,6 +5,11 @@ using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
 {
+    /// <summary>
+    /// Tactical point movement that can keep pressure on a known enemy while relocating. It wraps
+    /// EFT's tactical go-to-point node and adds follower look/suppression behavior for search and
+    /// support-position movement.
+    /// </summary>
     internal sealed class CombatGoToPointTacticalAction : FollowerCombatActionBase
     {
         private readonly FollowerGoToPointTacticalNode baseLogic;
@@ -58,6 +63,10 @@ namespace pitTeam.BigBrain.Actions
             BotOwner.Steering.LookToPoint(goalEnemy.GetBodyPartPosition());
         }
 
+        /// <summary>
+        /// Follower-owned wrapper around the vanilla tactical movement node. It keeps the route
+        /// vanilla-compatible while overriding aim behavior when the enemy is visible or recently lost.
+        /// </summary>
         private sealed class FollowerGoToPointTacticalNode : GClass239
         {
             private const float CornerAheadDotThreshold = 0.05f;

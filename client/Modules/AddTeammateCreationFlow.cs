@@ -50,11 +50,15 @@ namespace pitTeam.Modules
         private static bool submitInProgress;
         private static bool returnInProgress;
         private static bool nicknamePrepared;
+        private static bool suppressSkippedSideSelectionModelView;
         private static Button wiredNextButton;
         private static Button wiredBackButton;
         private static UnityAction nextButtonAction;
         private static UnityAction backButtonAction;
         private static Action pendingReturnAction;
+
+        public static bool IsActive => activeController != null;
+        public static bool SuppressSkippedSideSelectionModelView => suppressSkippedSideSelectionModelView;
 
         public static void Start(Action onReturn = null)
         {
@@ -79,6 +83,7 @@ namespace pitTeam.Modules
             {
                 if (pitFireTeam.Instance == null)
                 {
+                    CurrentScreenSingletonClass.Instance.TryReturnToRootScreen().HandleExceptions();
                     InvokePendingReturnAction();
                     return;
                 }
@@ -234,6 +239,7 @@ namespace pitTeam.Modules
                 activeController = controller;
                 skipScheduled = false;
                 nicknamePrepared = false;
+                suppressSkippedSideSelectionModelView = true;
                 controller.ShowScreen(EScreenState.Queued);
             }
             catch (Exception ex)
@@ -336,7 +342,7 @@ namespace pitTeam.Modules
                 pitFireTeam.Instance.StopCoroutine(advanceCoroutine);
             }
 
-            if (returnCoroutine != null && pitFireTeam.Instance != null)
+            if (returnCoroutine != null && pitFireTeam.Instance != null && !returnInProgress)
             {
                 pitFireTeam.Instance.StopCoroutine(returnCoroutine);
             }
@@ -353,6 +359,7 @@ namespace pitTeam.Modules
             skipScheduled = false;
             submitInProgress = false;
             nicknamePrepared = false;
+            suppressSkippedSideSelectionModelView = false;
             wiredNextButton = null;
             wiredBackButton = null;
             nextButtonAction = null;
@@ -449,7 +456,21 @@ namespace pitTeam.Modules
 
         private static IEnumerator ReturnToPendingScreen()
         {
-            yield return null;
+            EftAccountSideSelectionScreen.GClass3905 controllerToClose = activeController;
+            Task<bool> returnTask = controllerToClose != null
+                ? controllerToClose.CloseSelf(true)
+                : CurrentScreenSingletonClass.Instance.TryReturnToRootScreen();
+
+            while (!returnTask.IsCompleted)
+            {
+                yield return null;
+            }
+
+            if (returnTask.IsFaulted)
+            {
+                pitFireTeam.Log.LogError("[UI] Failed while returning from add teammate flow to pending screen.");
+                pitFireTeam.Log.LogError(returnTask.Exception?.GetBaseException()?.Message ?? "Unknown close failure.");
+            }
 
             InvokePendingReturnAction();
 
@@ -517,6 +538,7 @@ namespace pitTeam.Modules
                     return;
                 }
 
+                suppressSkippedSideSelectionModelView = false;
                 PrepareNicknameField(headSelectionState);
                 headSelectionState.StateReady = true;
                 nextButton.gameObject.SetActive(true);
