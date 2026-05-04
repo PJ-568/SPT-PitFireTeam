@@ -202,6 +202,7 @@ namespace pitTeam.Components
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.inputSettings ?? "Input Settings",
+                pitFireTeam.hideUnsupportedCommands,
                 pitFireTeam.pingKey,
                 pitFireTeam.contactKey,
                 pitFireTeam.overThereKey))
@@ -1470,6 +1471,7 @@ namespace pitTeam.Components
             if (entry == pitFireTeam.pingTime) return language.pingTime;
             if (entry == pitFireTeam.contactKey) return language.enemyContact;
             if (entry == pitFireTeam.overThereKey) return language.overThere;
+            if (entry == pitFireTeam.hideUnsupportedCommands) return language.hideUnsupportedCommands;
             if (entry == pitFireTeam.teleportKey) return language.botTeleport;
             if (entry == pitFireTeam.healKey) return language.botHeal;
             if (entry == pitFireTeam.botPrefetch) return language.botPrefetch;

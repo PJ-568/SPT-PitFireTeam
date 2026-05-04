@@ -1,18 +1,7 @@
-# BETA-RELEASE:
+# UI Tasks:
 
-- make squad settings that need raid restart be disabled during raid and have tooltip message saying "Not available during raid" on them. We disable the "agression" slider and present a tooltip in our squad screen for a certain scenario. So you can follow that
-- (DONE) - disable "protector" tactic as selectable tactic in beta release.
-- (DONE) - disable patrol radius in settings
-- (DONE) sniper tactic needs it's own battle recording analysis for improvement
-- (DONE) - the temporary english language file. We need to have the client embed the english language so that we can always have a fallback if something goes wrong. On start the client will send to the server the english language and the server will write the english language to disk as en.json so that users can edit it. Thus the server will check if file is present, if file is good, if file is outdated (meaning some new keys are now avaialble), and write it again only if its missing, corrupted or outdated. This way we can ensure that the english language is always present and up to date, but also allow users to edit it if they want to.
-- (DONE) - name space must be renamed from "pitFireTeam" to "pitTeam"
-
-## Combat commands - BETA
-
-Description:
-
-- (DONE) - "Hold Position" - functions the same as setting agression to 0% but will reset once combat ends or new command is received.
-- (DONE) - "Suppress" - do supression as per old plugin
+- add settings option to disable all gestures that are not currently supported
+- add a new gesture button with our own icon to symbolize "over there" gesture
 
 # Combat commands
 

@@ -18,6 +18,42 @@ using EventInfo = BotEventHandler.GClass692;
 
 namespace pitTeam.Patches
 {
+    internal static class BossGestureCommandRouter
+    {
+        public static bool IsBossCommandGesture(EInteraction gesture)
+        {
+            return gesture == EInteraction.ComeWithMeGesture ||
+                   gesture == EInteraction.ThereGesture ||
+                   gesture == EInteraction.HoldGesture ||
+                   gesture == (EInteraction)CustomGestures.OverThere;
+        }
+
+        public static bool TryPlayOverThereGesture(Player player)
+        {
+            if (player == null)
+            {
+                return false;
+            }
+
+            pitAIBossPlayer? boss = BossPlayers.GetBoss(player.ProfileId);
+            if (boss != null)
+            {
+                InteractableObjects.CheckSeenEnemies(boss.Player());
+                boss.GestusShown(new GestureData
+                {
+                    Gesture = (EInteraction)CustomGestures.OverThere,
+                    Player = player
+                });
+            }
+
+            if (!player.HandsController.IsInInteractionStrictCheck())
+            {
+                player.MovementContext.SetInteractInHands(EInteraction.ThereGesture);
+            }
+
+            return true;
+        }
+    }
 
     internal class AIDataContructPatch : ModulePatch
     {
@@ -64,7 +100,7 @@ namespace pitTeam.Patches
 
         }
     }
-    /** Handle firing TeamStatus and OverThere commands inside PlayPhraseOrGesture so that the enemy does not hear them **/
+    /** Handle firing TeamStatus and boss gesture commands inside PlayPhraseOrGesture so enemies do not hear command-only traffic. **/
     internal class PlayPhraseOrGesturePatch : ModulePatch
     {
         protected override MethodBase GetTargetMethod()
@@ -95,41 +131,21 @@ namespace pitTeam.Patches
                 return false;
 
             }
-            else if (!GClass3937.IsPlayerGesture(actionId) &&
-                     (EPhraseTrigger)actionId == (EPhraseTrigger)CustomPhrases.OverThere)
-            {
-
-                if (boss != null)
-                {
-                    InteractableObjects.CheckSeenEnemies(boss.Player());
-                }
-
-                if (!__instance.Player.HandsController.IsInInteractionStrictCheck())
-                {
-                    GestureData data = new GestureData
-                    {
-                        Gesture = (EInteraction)CustomGestures.OverThere,
-                        Player = __instance.Player
-                    };
-
-                    boss?.GestusShown(data);
-
-                    // Use hands controller directly for player gestures.
-                    __instance.Player.MovementContext.SetInteractInHands(EInteraction.ThereGesture);
-                }
-
-
-                return false;
-            }
             else
             {
                 // fix for boss gestures not propagating to followers
-                List<EInteraction> bossInteractions = new List<EInteraction> { EInteraction.ComeWithMeGesture, EInteraction.ThereGesture, EInteraction.HoldGesture };
-                if (boss != null && bossInteractions.Contains((EInteraction)actionId))
+                EInteraction gesture = (EInteraction)actionId;
+                if (gesture == (EInteraction)CustomGestures.OverThere)
+                {
+                    BossGestureCommandRouter.TryPlayOverThereGesture(__instance.Player);
+                    return false;
+                }
+
+                if (boss != null && BossGestureCommandRouter.IsBossCommandGesture(gesture))
                 {
                     boss.GestusShown(new GestureData
                     {
-                        Gesture = (EInteraction)actionId,
+                        Gesture = gesture,
                         Player = __instance.Player
                     });
                 }

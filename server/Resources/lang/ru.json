@@ -24,6 +24,7 @@
   "pingTime": { "Name": "Время показа отчета", "Description": "Время отображения статуса follower-ов." },
   "enemyContact": { "Name": "Клавиша контакта", "Description": "Альтернативная клавиша для Contact." },
   "overThere": { "Name": "Клавиша Туда", "Description": "Альтернативная клавиша для жеста Over There." },
+  "hideUnsupportedCommands": { "Name": "Скрыть неподдерживаемые команды", "Description": "Скрывать фразы, для которых в меню жестов игры фактически не зарегистрирована команда." },
   "botTeleport": { "Name": "Телепортировать follower-ов", "Description": "Телепортировать всех follower-ов к игроку." },
   "botHeal": { "Name": "Лечить follower-ов", "Description": "Лечить follower-ов и восстановить уничтоженные конечности." },
   "botPrefetch": { "Name": "Предзагрузка follower-ов", "Description": "Предзагрузить данные follower-ов для ускорения спавна." },

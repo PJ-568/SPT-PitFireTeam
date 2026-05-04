@@ -294,7 +294,7 @@ namespace pitTeam.Patches
         [HarmonyPrefix]
         private static bool PatchPlayerTalked(EPhraseTrigger phrase, ETagStatus mask, Player player)
         {
-            if (phrase == (EPhraseTrigger)CustomPhrases.TeamStatus || phrase == (EPhraseTrigger)CustomPhrases.OverThere)
+            if (phrase == (EPhraseTrigger)CustomPhrases.TeamStatus)
             {
                 return false;
             }

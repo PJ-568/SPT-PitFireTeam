@@ -288,6 +288,7 @@ Verified entry groups:
     - `scanDistance`
     - `botTalk`
 - `Input Settings`
+    - `hideUnsupportedCommands`
     - `pingKey`
     - `contactKey`
     - `overThereKey`

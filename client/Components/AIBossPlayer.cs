@@ -147,10 +147,6 @@ namespace pitTeam.Components
                     PingTeamates.Instance.Ping(this);
                     SignalTeamStatusFollowers();
                 }
-                else if (info.phrase == (EPhraseTrigger)CustomPhrases.OverThere)
-                {
-                    ProcessContactCommand(info.PlayerRequester, true);
-                }
                 else if (info.phrase == EPhraseTrigger.NeedSniper)
                 {
                     ApplyNeedSniperPhrase(info.PlayerRequester);

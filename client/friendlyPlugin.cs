@@ -51,7 +51,6 @@ namespace pitTeam
     public enum CustomPhrases
     {
         TeamStatus = 10001,
-        OverThere = 10002,
     }
 
     public enum CustomGestures
@@ -102,6 +101,7 @@ namespace pitTeam
         public Dictionary<string, string> pingTime { get; set; }
         public Dictionary<string, string> enemyContact { get; set; }
         public Dictionary<string, string> overThere { get; set; }
+        public Dictionary<string, string> hideUnsupportedCommands { get; set; }
         public Dictionary<string, string> gestures { get; set; }
 
         public Dictionary<string, string> botStatus { get; set; }
@@ -176,6 +176,9 @@ namespace pitTeam
         public static ConfigEntry<int> goToDistance;
 
         public static ConfigEntry<bool> spawnPoint;
+
+        public static ConfigEntry<bool> hideUnsupportedCommands;
+
         public static ConfigEntry<bool> battleRecorderEnabled;
         public static ConfigEntry<int> battleRecorderSnapshotIntervalMs;
         public static bool IsDebugBuild
@@ -320,6 +323,11 @@ namespace pitTeam
             // command/request patches
             new QuickPanelPatch().Enable();
             new GestureMenuPatch().Enable();
+            new CreatePhraseGroupPatch().Enable();
+            new CreateGesturesPatch().Enable();
+            new CustomPlayerGestureIntPatch().Enable();
+            new CustomPlayerGestureInteractionPatch().Enable();
+            new GestureCommandNamePatch().Enable();
             new GestureMenuAvailablePhrasesPatch().Enable();
             new EPhraseTriggerPatch().Enable();
             new PlayPhraseOrGesturePatch().Enable();
@@ -623,10 +631,14 @@ namespace pitTeam
 
             goToDistance = Config.Bind("", "26 GoToDistance", 50, new ConfigDescription(optionsLang.goToDistance["Description"], new AcceptableValueRange<int>(10, 150), CreateConfigAttributes(-1016, false, optionsLang.goToDistance)));
 
+            hideUnsupportedCommands = Config.Bind("", "HideUnSupportedCommands", false, new ConfigDescription(optionsLang.hideUnsupportedCommands["Description"], null, CreateConfigAttributes(-1017, false, optionsLang.hideUnsupportedCommands)));
+
             bool showBattleRecorderSettings = IsDebugBuild;
             battleRecorderEnabled = Config.Bind("Miscellaneous", "27 BattleRecorder", false, new ConfigDescription(optionsLang.battleRecorder["Description"], null, CreateConfigAttributes(-9998, showBattleRecorderSettings, optionsLang.battleRecorder)));
 
             battleRecorderSnapshotIntervalMs = Config.Bind("Miscellaneous", "28 BattleRecorderSnapshotIntervalMs", 200, new ConfigDescription(optionsLang.battleRecorderSnapshotIntervalMs["Description"], new AcceptableValueRange<int>(50, 1000), CreateConfigAttributes(-9999, showBattleRecorderSettings, optionsLang.battleRecorderSnapshotIntervalMs)));
+
+
 
             Config.SaveOnConfigSet = true;
             Config.Save();
@@ -990,7 +1002,7 @@ namespace pitTeam
                                 PlayerRequester = boss.realPlayer
                             });
                         else if (overThereKey.Value.IsUp())
-                            boss.realPlayer.Say((EPhraseTrigger)CustomPhrases.OverThere, true);
+                            BossGestureCommandRouter.TryPlayOverThereGesture(boss.realPlayer);
                         else
                             boss.realPlayer.Say(EPhraseTrigger.OnRepeatedContact, true);
                     }

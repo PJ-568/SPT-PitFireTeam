@@ -111,6 +111,9 @@ namespace pitTeam.Localization
                 overThere = Entry(
                     "Over There Shortcut",
                     "Alternative shortcut key for the Over There quick gesture"),
+                hideUnsupportedCommands = Entry(
+                    "Hide Unsupported Commands",
+                    "Hide phrases for which no command is actually registered in the game's gestures menu"),
                 botTeleport = Entry(
                     "Teleport Followers",
                     "Teleport all followers to the player's position"),

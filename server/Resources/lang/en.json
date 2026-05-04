@@ -36,6 +36,7 @@
 	"pingTime": { "Name": "Report Status Display Time", "Description": "Time in seconds to display the followers status" },
 	"enemyContact": { "Name": "Enemy Contact Shortcut", "Description": "Alternative shortcut key for the Contact quick phrase" },
 	"overThere": { "Name": "Over There Shortcut", "Description": "Alternative shortcut key for the Over There quick gesture" },
+	"hideUnsupportedCommands": { "Name": "Hide Unsupported Commands", "Description": "Hide phrases for which no command is actually registered in the game's gestures menu" },
 	"botTeleport": { "Name": "Teleport Followers", "Description": "Teleport all followers to the player's position" },
 	"botHeal": { "Name": "Heal Followers", "Description": "Heal all followers and restore blacked limbs." },
 	"botPrefetch": { "Name": "Prefetch follower data", "Description": "Prefetch follower data to reduce the time it takes to spawn them. If you experience problems with followers spawning, disable this option and try again. Take note that this can increase the spawn time." },

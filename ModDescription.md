@@ -77,7 +77,7 @@ Teammates can be customized from their profile screen.
 
 - Rename teammate.
 - Change clothing using the stock clothing selectors.
-- Select a loadout from **Default** or your saved player equipment builds.
+- Select a loadout from **Default** or your saved player equipment builds.twi
 - Edit a cloned teammate loadout with the current loadout editor.
 - Select a combat tactic.
 - Adjust aggression for Rifleman and Marksman tactics.
@@ -102,6 +102,8 @@ The current loadout editor uses cloned/local items. Editing a teammate loadout d
 
 ## Squad Commands
 
+![Gestures Menu](https://iili.io/BQdlFv1.png)
+
 Commands use Tarkov's existing phrase and gesture system. Depending on voice and side, some phrases may appear in different places or may not be available for every voice.
 Some of the commands can be applied to individual followers by looking directly at them when issuing the command.
 Commands influence follower behavior but do not force exact actions. Followers will adapt based on combat conditions and may not always respond immediately if engaged or under threat.
@@ -125,15 +127,15 @@ Commands influence follower behavior but do not force exact actions. Followers w
 **In CONTACT:**
 
 - **Contact** - makes followers look toward the boss aim direction and can help them acquire a visible enemy.
-- **Over There** - gesture-based contact/attention toward the pointed direction.
 - **Front / Left / Right / On Six** - directional look commands relative to the boss look direction.
 - **Status Report** - shows follower status, distance, health summary, and tactic information.
 
 **Implemented gesture/interaction commands:**
 
-- **Come To Me** - the looked-at follower moves close to the boss.
-- **There Direction** - sends a selected or nearby follower toward the pointed location.
-- **Stop gesture** - tells nearby followers to hold position, including crouch behavior.
+- **Come To Me Gesture** - the looked-at follower moves close to the boss.
+- **There Direction Gesture** - sends a selected or nearby follower toward the pointed location.
+- **Stop Gesture** - tells nearby followers to hold position, including crouch behavior.
+- **Over There Gesture** - gesture-based contact/attention toward the pointed direction.
 - **Open Door** - the closest eligible follower opens the targeted door.
 - **Loot This** - the closest eligible follower picks up the targeted loot item.
 
@@ -170,29 +172,34 @@ Have followers carry your loot: look at an item and press the interaction prompt
 
 ## Upcoming
 
+The following are planned features in reaching a release version (1.0.0)
+
 **Planned commands:**
 
 - **Get Back** - increases following distance as well as the distance at which bots auto-regroup near the boss during combat. Command resets on **Regroup**.
 - **On Your Own** - followers will no longer care about boss position and will fight the enemy on their own. When out of combat, followers will patrol around you at a configurable distance using Patrol Radius. Resets on **Cover Me**.
 - **Spread Out** - in combat, tells followers who are not actively engaged to find cover.
 - **Silence** - tells followers to stop talking. Maximum time will be controlled via settings.
+- Using **Come Here** and **There** gestures while in combat for short movement of the followers
 
 **Planned settings:**
 
-**Loadout Management:**
+- **Loadout Management:**
+    - **Simple** - edit or choose a follower loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned follower gear cannot be looted.
+    - **Immersive** - any gear used for a follower loadout will be taken from the player's stash. Gear is not lost on death. Makes spawned follower's gear lootable.
+    - **Hardcore** - same as Immersive, but followers equipement get damaged and if they die, their gear is lost.
 
-- **Simple** - edit or choose a follower loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death.
-- **Immersive** - any gear used for a follower loadout will be taken from the player's stash. Gear is not lost on death.
-- **Hardcore** - same as Immersive, but followers equipement get damaged and if they die, their gear is also lost.
+- **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping followers alive, and keeping picked-up raid allies alive. Points are lost if you kill followers or allies.
 
-**Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping followers alive, and keeping picked-up raid allies alive. Points are lost if you kill followers or allies.
+- **Patrol Radius** - to be used together with out of combat command **On Your Own** where it triggers patrol mode for followers
 
 **Planned features:**
 
+- Posibility to check teammate backpack during raid.
 - Adding a third follower tactic.
 - Porting over grenade launcher support from the old plugin.
-- Porting the Goons playthrough from the old plugin.
 - Being able to play with Scav followers.
+- Porting the Goons playthrough from the old plugin.
 
 ## Known Issues and Conflicts
 

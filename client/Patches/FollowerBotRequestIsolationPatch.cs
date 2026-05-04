@@ -105,7 +105,8 @@ namespace pitTeam.Patches
 
             return data.Gesture == EInteraction.ComeWithMeGesture ||
                    data.Gesture == EInteraction.HoldGesture ||
-                   data.Gesture == EInteraction.ThereGesture;
+                   data.Gesture == EInteraction.ThereGesture ||
+                   data.Gesture == (EInteraction)CustomGestures.OverThere;
         }
     }
 }
