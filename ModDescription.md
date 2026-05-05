@@ -118,6 +118,9 @@ Commands influence follower behavior but do not force exact actions. Followers w
 - **Go Forward** - orders followers with an enemy to push or pressure that enemy. Outside combat, it can send followers toward the pointed location. Can be applied to an individual follower by looking at him.
 - **Stop** - stops followers out of combat without forcing crouch. If the boss moves too far away, followers resume normal follow behavior. Can be applied to an individual follower by looking at him.
 - **Suppress** - orders non-Marksman followers to suppress the current enemy. The follower must have a suitable suppress-capable weapon: full-auto or a magazine capacity of at least 25 rounds. If ordered without a suitable weapon, he will say "negative" and continue normal combat decisions.
+- **On Your Own** - followers will no longer care about your position and will fight the enemy on their own. When out of combat, followers will patrol around you at a configurable distance using Patrol Radius. Resets on **Cover Me** in/out of combat and **Regroup** or **Follow Me** out of combat.
+
+    **IMPORTANT**: **Regroup** during combat pulls them back to your position, but they will still not take your position into consideration as they fight. You must use **Cover Me** to reset them during combat.
 
 **In HELP:**
 
@@ -177,7 +180,7 @@ The following are planned features in reaching a release version (1.0.0)
 **Planned commands:**
 
 - **Get Back** - increases following distance as well as the distance at which bots auto-regroup near the boss during combat. Command resets on **Regroup**.
-- **On Your Own** - followers will no longer care about boss position and will fight the enemy on their own. When out of combat, followers will patrol around you at a configurable distance using Patrol Radius. Resets on **Cover Me**.
+
 - **Spread Out** - in combat, tells followers who are not actively engaged to find cover.
 - **Silence** - tells followers to stop talking. Maximum time will be controlled via settings.
 - Using **Come Here** and **There** gestures while in combat for short movement of the followers
@@ -195,6 +198,7 @@ The following are planned features in reaching a release version (1.0.0)
 
 **Planned features:**
 
+- Posibility for your team to make it out the raid with the loot, despite you dying
 - Posibility to check teammate backpack during raid.
 - Adding a third follower tactic.
 - Porting over grenade launcher support from the old plugin.

@@ -1295,6 +1295,13 @@ namespace pitTeam.BigBrain
                 return EndCommittedHolder(reason);
             }
 
+            if (combatCommon.HasActiveCombatGestureOrder())
+            {
+                combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
+                return new AICoreActionEndStruct("combatGestureBreakHold", true);
+            }
+
             if (string.Equals(reason, ShootCoverHoldReason, StringComparison.Ordinal))
             {
                 return EndShootCoverHoldPosition();
@@ -1379,6 +1386,14 @@ namespace pitTeam.BigBrain
         private AICoreActionEndStruct EndCommittedHolder(string reason)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (combatCommon.HasActiveCombatGestureOrder())
+            {
+                combatCommon.ClearCommittedPosition();
+                combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
+                return new AICoreActionEndStruct("combatGestureBreakCommittedHold", true);
+            }
+
             if (HasActivePushOrder())
             {
                 combatCommon.ClearCommittedPosition();

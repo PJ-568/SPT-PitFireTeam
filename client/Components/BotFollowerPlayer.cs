@@ -27,7 +27,9 @@ namespace pitTeam.Components
         OpenDoor = 6,
         PushEnemy = 7,
         SuppressEnemy = 8,
-        NeedSniper = 9
+        NeedSniper = 9,
+        CombatComeToBossCover = 10,
+        CombatMoveToPointTactical = 11
     }
 
     public enum FollowerCombatTactic
@@ -1087,6 +1089,34 @@ namespace pitTeam.Components
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetNeedSniper));
+        }
+
+        public void SetCombatComeToBossCover(float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.CombatComeToBossCover)
+            {
+                ClearCommand($"SetCombatComeToBossCover:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.CombatComeToBossCover;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetCombatComeToBossCover));
+        }
+
+        public void SetCombatMoveToPointTactical(Vector3 target, float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.CombatMoveToPointTactical)
+            {
+                ClearCommand($"SetCombatMoveToPointTactical:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.CombatMoveToPointTactical;
+            _commandTarget = target;
+            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetCombatMoveToPointTactical));
         }
 
         public void SetTemporaryCombatAggressionOverride(float aggression)

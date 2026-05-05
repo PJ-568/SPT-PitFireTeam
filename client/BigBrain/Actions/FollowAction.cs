@@ -98,7 +98,7 @@ namespace pitTeam.BigBrain.Actions
 
             BotOwner.DoorOpener.UpdateDoorInteractionStatus();
             followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
-            //SetPatrolEnabled(followerData?.CanPatrol == true);
+            SetPatrolEnabled(followerData?.CanPatrol == true);
 
             if (!TryGetBossAndPlayer())
             {
@@ -108,7 +108,14 @@ namespace pitTeam.BigBrain.Actions
 
             try
             {
-                Follow();
+                if (patrolEnabled)
+                {
+                    Patrol();
+                }
+                else
+                {
+                    Follow();
+                }
             }
             catch (Exception ex)
             {

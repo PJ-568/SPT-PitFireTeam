@@ -1529,6 +1529,12 @@ namespace pitTeam.BigBrain
 
         private AICoreActionEndStruct EndHoldPosition(string? reason)
         {
+            if (CombatCommon.HasActiveCombatGestureOrder())
+            {
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("sniperCombatGestureBreakHold", true);
+            }
+
             if (string.Equals(reason, FireSupportHoldReason, StringComparison.Ordinal))
             {
                 return EndFireSupportHoldPosition();

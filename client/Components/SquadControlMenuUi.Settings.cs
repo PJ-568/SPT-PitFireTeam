@@ -183,6 +183,7 @@ namespace pitTeam.Components
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.followSettings ?? "Follow Settings",
+                pitFireTeam.patrolRadius,
                 pitFireTeam.goToDistance))
             {
                 yield return setting;
@@ -292,7 +293,7 @@ namespace pitTeam.Components
 
         private static bool IsBetaHiddenSetting(ConfigEntryBase entry)
         {
-            return entry == pitFireTeam.patrolRadius;
+            return false;
         }
 
         private void CreateSettingsSectionHeader(string title)
@@ -477,6 +478,7 @@ namespace pitTeam.Components
                 || entry == pitFireTeam.heatlhMultiplier
                 || entry == pitFireTeam.pitFireTeamFLAG
                 || entry == pitFireTeam.badGuy
+                || entry == pitFireTeam.pmcArmbands
                 || entry == pitFireTeam.botPrefetch
                 || entry == pitFireTeam.battleRecorderEnabled;
         }

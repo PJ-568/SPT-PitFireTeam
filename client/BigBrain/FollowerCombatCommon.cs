@@ -706,7 +706,9 @@ namespace pitTeam.BigBrain
                 followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
                 (command == FollowerCommandType.PushEnemy ||
                  command == FollowerCommandType.RegroupNearBoss ||
-                 command == FollowerCommandType.SuppressEnemy))
+                 command == FollowerCommandType.SuppressEnemy ||
+                 command == FollowerCommandType.CombatComeToBossCover ||
+                 command == FollowerCommandType.CombatMoveToPointTactical))
             {
                 return true;
             }
@@ -818,6 +820,15 @@ namespace pitTeam.BigBrain
             }
 
             return engaged;
+        }
+
+        public bool HasActiveCombatGestureOrder()
+        {
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(botOwner);
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
+                   (command == FollowerCommandType.CombatComeToBossCover ||
+                    command == FollowerCommandType.CombatMoveToPointTactical);
         }
 
         public AICoreActionResultStruct<BotLogicDecision, GClass26> CreateRegroupObjectiveDecision()
@@ -5313,6 +5324,57 @@ namespace pitTeam.BigBrain
             return true;
         }
 
+        public bool TryCreateBossCoverAttackMovingDecision(
+            EnemyInfo goalEnemy,
+            float searchRadius,
+            string reason,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!HasActiveCombatEnemy(goalEnemy))
+            {
+                return false;
+            }
+
+            ResetCommittedCover();
+            ClearCommittedMovement();
+
+            if (!TryFindBossCover(goalEnemy, GetBossPosition(), searchRadius, out CustomNavigationPoint? bossCover) ||
+                !IsCoverUsable(bossCover, true))
+            {
+                return false;
+            }
+
+            BotLogicDecision action = BotLogicDecision.attackMoving;
+            string movementReason = CreateMovementReason(reason, action);
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+            CommitCover(bossCover, action, movementReason);
+            AssignCover(bossCover);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(action, movementReason);
+            return true;
+        }
+
+        public bool TryCreateBossCommandTacticalPointDecision(
+            Vector3 target,
+            string reason,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!IsFinite(target))
+            {
+                return false;
+            }
+
+            ResetCommittedCover();
+            ClearCommittedMovement();
+            botOwner.GoToSomePointData.SetPoint(target);
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.goToPointTactical,
+                reason);
+            return true;
+        }
+
         public static string CreateMovementReason(string baseReason, BotLogicDecision moveAction)
         {
             return moveAction switch
@@ -7540,6 +7602,11 @@ namespace pitTeam.BigBrain
 
         public AICoreActionEndStruct EndBaseHoldPosition(string reason)
         {
+            if (HasActiveCombatGestureOrder())
+            {
+                return new AICoreActionEndStruct("combatGestureBreakHold", true);
+            }
+
             if (holdActive && holdEndTime < Time.time)
             {
                 holdActive = false;

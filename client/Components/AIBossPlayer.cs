@@ -61,6 +61,7 @@ namespace pitTeam.Components
         private const float CommandLookOverrideMaxSeconds = 3.5f;
         private const float ComeWithMeMaxDistance = 25f;
         private const float DefaultGoToDistance = 50f;
+        private const float CombatThereMaxDistance = 30f;
         private const float LookAtFollowerDistance = 27f;
         private const float RegroupCloseNavDistance = 8f;
         private const float RegroupSameLevelTolerance = 1.75f;
@@ -200,6 +201,16 @@ namespace pitTeam.Components
                 else if (info.phrase == EPhraseTrigger.Regroup)
                 {
                     ApplyRegroupCommand(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.OnYourOwn)
+                {
+                    ApplyOnYourOwnCommand(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.CoverMe)
+                {
+                    ApplyCoverMeCommandDrop(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.OpenDoor)
@@ -1268,6 +1279,7 @@ namespace pitTeam.Components
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
+                followerData.SetCanPatrol(false);
 
                 if (useSainRegroupRoute)
                 {
@@ -1300,6 +1312,51 @@ namespace pitTeam.Components
                 }
 
                 followerData.SetRegroup(20f);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ApplyOnYourOwnCommand(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                if (HasActiveCombatEnemy(follower) || follower.Memory?.HaveEnemy == true)
+                {
+                    follower.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
+                    follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                    continue;
+                }
+
+                followerData.ClearCommand("OnYourOwn:Patrol");
+                followerData.ClearTemporaryCombatAggressionOverride();
+                followerData.SetCanPatrol(true);
+                follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ApplyCoverMeCommandDrop(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return;
+            }
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                followerData.SetCanPatrol(false);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }
@@ -1470,7 +1527,10 @@ namespace pitTeam.Components
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                followerData?.ClearCommand("ClearFollowerCommands");
+                if (followerData == null) continue;
+
+                followerData.SetCanPatrol(false);
+                followerData.ClearCommand("ClearFollowerCommands");
             }
         }
 
@@ -1686,6 +1746,13 @@ namespace pitTeam.Components
                 return;
             }
 
+            if (HasActiveCombatEnemy(lookedFollower))
+            {
+                followerData.SetCombatComeToBossCover(8f);
+                lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                return;
+            }
+
             // Come-with-me is a targeted short command; after arrival the follower returns to normal patrol.
             followerData.SetComeCloser(10f);
             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
@@ -1718,18 +1785,38 @@ namespace pitTeam.Components
                 return;
             }
 
-            if (!TryGetGoToCommandTarget(requester, out Vector3 commandTarget))
-            {
-                return;
-            }
-
             BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(closestFollower);
             if (followerData == null)
             {
                 return;
             }
 
+            bool combatCommand = HasActiveCombatEnemy(closestFollower);
+            Vector3 commandTarget;
+            bool hasTarget = combatCommand
+                ? TryGetGoToCommandTarget(requester, CombatThereMaxDistance, out commandTarget)
+                : TryGetGoToCommandTarget(requester, out commandTarget);
+            if (!hasTarget)
+            {
+                return;
+            }
+
+            if (combatCommand &&
+                (commandTarget - requester.Position).sqrMagnitude > CombatThereMaxDistance * CombatThereMaxDistance)
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                closestFollower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                return;
+            }
+
             ApplyFollowerLookOverride(closestFollower, commandTarget);
+
+            if (combatCommand)
+            {
+                followerData.SetCombatMoveToPointTactical(commandTarget, 8f);
+                closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                return;
+            }
 
             if (CanAcceptThereCommand(closestFollower))
             {
@@ -2239,6 +2326,12 @@ namespace pitTeam.Components
 
         private static bool TryGetGoToCommandTarget(IPlayer requester, out Vector3 commandTarget)
         {
+            float maxGoToDistance = pitFireTeam.goToDistance?.Value ?? DefaultGoToDistance;
+            return TryGetGoToCommandTarget(requester, maxGoToDistance, out commandTarget);
+        }
+
+        private static bool TryGetGoToCommandTarget(IPlayer requester, float maxDistance, out Vector3 commandTarget)
+        {
             commandTarget = Vector3.zero;
             if (requester == null)
             {
@@ -2264,9 +2357,9 @@ namespace pitTeam.Components
             }
             planarDirection.Normalize();
 
-            float maxGoToDistance = pitFireTeam.goToDistance?.Value ?? DefaultGoToDistance;
-            Vector3 rawTarget = requesterPos + planarDirection * maxGoToDistance;
-            bool hasSurfaceHit = TryGetCommandSurfaceHit(interactionRay, rayDirection, maxGoToDistance, out RaycastHit lookHit);
+            maxDistance = Mathf.Max(1f, maxDistance);
+            Vector3 rawTarget = requesterPos + planarDirection * maxDistance;
+            bool hasSurfaceHit = TryGetCommandSurfaceHit(interactionRay, rayDirection, maxDistance, out RaycastHit lookHit);
             if (hasSurfaceHit)
             {
                 rawTarget = lookHit.point;
@@ -2335,6 +2428,13 @@ namespace pitTeam.Components
                    action != BotLogicDecision.attackMovingWithSuppress &&
                    action != (BotLogicDecision)CustomBotDecisions.attackRetreat &&
                    action != BotLogicDecision.attackMovingFlank;
+        }
+
+        private static bool HasActiveCombatEnemy(BotOwner follower)
+        {
+            EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
+            return follower?.Memory?.HaveEnemy == true &&
+                   goalEnemy?.Person?.HealthController?.IsAlive == true;
         }
 
         private BotOwner FindLookedAtFollower(Player requester, float distance)

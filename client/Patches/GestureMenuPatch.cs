@@ -93,7 +93,7 @@ namespace pitTeam.Patches
                         EPhraseTrigger.CoverMe,
                         EPhraseTrigger.Stop,
                         //EPhraseTrigger.Silence,
-                        //EPhraseTrigger.OnYourOwn
+                        EPhraseTrigger.OnYourOwn
                     ];
                 }
                 else if (localizationKey == "HELP")
