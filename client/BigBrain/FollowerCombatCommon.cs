@@ -977,6 +977,59 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        public bool TryForceGoalEnemy(string enemyProfileId, string reason, out EnemyInfo? forcedEnemy)
+        {
+            forcedEnemy = null;
+            if (string.IsNullOrEmpty(enemyProfileId) || botOwner?.Memory == null)
+            {
+                return false;
+            }
+
+            Player? enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
+            if (enemyPlayer?.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+
+            EnemyInfo? enemyInfo = Enemy.MakeEnemy(botOwner, enemyPlayer, EBotEnemyCause.checkAddTODO);
+            if (enemyInfo == null)
+            {
+                return false;
+            }
+
+            bool alreadyGoal = string.Equals(botOwner.Memory.GoalEnemy?.ProfileId, enemyProfileId, StringComparison.Ordinal);
+            if (!alreadyGoal)
+            {
+                // Explicit retarget orders need a stronger hand-off than priority scoring. Clear
+                // the current goal and retention once, then install the requested enemy as the new
+                // goal so vanilla/group sorting cannot immediately bounce us back to the old target.
+                FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(botOwner);
+                botOwner.Memory.GoalEnemy = null;
+                botOwner.Memory.LastEnemy = null;
+            }
+
+            enemyInfo.PriorityIndex = 0;
+            enemyInfo.IgnoreUntilAggression = false;
+            enemyInfo.SetVisible(enemyInfo.IsVisible);
+            Enemy.RepairPersonalMemory(enemyInfo, enemyPlayer.Position, enemyInfo.IsVisible || enemyInfo.CanShoot || enemyInfo.HaveSeen);
+            botOwner.Memory.IsPeace = false;
+            botOwner.Memory.GoalEnemy = enemyInfo;
+            FollowerContactEnemyRetention.Register(botOwner, enemyPlayer, enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
+            forcedEnemy = enemyInfo;
+            return HasActiveCombatEnemy(enemyInfo);
+        }
+
+        public bool TryForceGoalEnemy(BotOwner enemyBot, string reason, out EnemyInfo? forcedEnemy)
+        {
+            forcedEnemy = null;
+            if (enemyBot?.GetPlayer?.HealthController?.IsAlive != true || string.IsNullOrEmpty(enemyBot.ProfileId))
+            {
+                return false;
+            }
+
+            return TryForceGoalEnemy(enemyBot.ProfileId, reason, out forcedEnemy);
+        }
+
         /// <summary>
         /// Applies the default follower aggression-to-threat mapping used by the core combat path.
         /// </summary>
@@ -1291,6 +1344,16 @@ namespace pitTeam.BigBrain
             return boss.CombatEvents.TryGetActivePushFor(botOwner, out pushEvent);
         }
 
+        public bool TryGetActivePushEventForCurrentEnemy(out CombatEvents.PushEvent pushEvent)
+        {
+            if (!TryGetActivePushEvent(out pushEvent))
+            {
+                return false;
+            }
+
+            return IsCurrentGoalEnemy(pushEvent.EnemyProfileId);
+        }
+
         // Helper eligibility for Rifleman-style push support. We require both straight-line and
         // nav-distance proximity so a follower across a wall/building does not "join" a push that
         // is tactically nearby but unreachable without a long detour.
@@ -1317,6 +1380,27 @@ namespace pitTeam.BigBrain
 
             float navDistance = Utils.Utils.GetNavDistance(botOwner.Position, pushEvent.Owner.Position);
             return !IsFinite(navDistance) || navDistance <= maxNavDistance;
+        }
+
+        public bool TryGetNearbyActivePushEventForCurrentEnemy(
+            float maxStraightDistance,
+            float maxNavDistance,
+            out CombatEvents.PushEvent pushEvent)
+        {
+            if (!TryGetNearbyActivePushEvent(maxStraightDistance, maxNavDistance, out pushEvent))
+            {
+                return false;
+            }
+
+            return IsCurrentGoalEnemy(pushEvent.EnemyProfileId);
+        }
+
+        private bool IsCurrentGoalEnemy(string enemyProfileId)
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
+            return !string.IsNullOrEmpty(enemyProfileId) &&
+                   HasActiveCombatEnemy(goalEnemy) &&
+                   string.Equals(goalEnemy.ProfileId, enemyProfileId, StringComparison.Ordinal);
         }
 
         public bool HasActivePushFromOther()
@@ -3633,7 +3717,8 @@ namespace pitTeam.BigBrain
             string requestedEnemyProfileId,
             Vector3 requestedEnemyPosition,
             out EnemyInfo? selectedEnemy,
-            bool preferBackline = false)
+            bool preferBackline = false,
+            bool promoteSelected = true)
         {
             selectedEnemy = null;
 
@@ -3671,7 +3756,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!string.IsNullOrEmpty(selectedEnemy.ProfileId))
+            if (promoteSelected && !string.IsNullOrEmpty(selectedEnemy.ProfileId))
             {
                 TryPromoteTrackedEnemyAsGoal(selectedEnemy.ProfileId);
             }

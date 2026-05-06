@@ -415,7 +415,7 @@ namespace pitTeam.BigBrain
             // Rifleman helper path: consume another follower's active autonomous push event and
             // convert it into support. This branch never emits a new push event and never chooses
             // direct go-to-enemy/run-to-enemy as its support objective.
-            if (!combatCommon.TryGetNearbyActivePushEvent(
+            if (!combatCommon.TryGetNearbyActivePushEventForCurrentEnemy(
                     AllyPushSupportMaxStraightDistance,
                     AllyPushSupportMaxNavDistance,
                     out CombatEvents.PushEvent pushEvent))
@@ -424,16 +424,9 @@ namespace pitTeam.BigBrain
             }
 
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
-            if (goalEnemy == null ||
-                !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+            if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
             {
-                combatCommon.TryPromoteTrackedEnemyAsGoal(pushEvent.EnemyProfileId);
-                goalEnemy = botOwner.Memory.GoalEnemy;
-                if (!combatCommon.HasActiveCombatEnemy(goalEnemy) ||
-                    !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
-                {
-                    return false;
-                }
+                return false;
             }
 
             if (combatCommon.CanShootFromCurrentCover(out _))
@@ -1142,9 +1135,8 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            boss.PrioritizeEnemy(botOwner, bossEnemy);
-            EnemyInfo? prioritizedEnemy = botOwner.Memory.GoalEnemy;
-            if (!combatCommon.HasActiveCombatEnemy(prioritizedEnemy))
+            if (!combatCommon.TryForceGoalEnemy(bossEnemy, "bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
+                !combatCommon.HasActiveCombatEnemy(prioritizedEnemy))
             {
                 return false;
             }
@@ -1721,9 +1713,8 @@ namespace pitTeam.BigBrain
                         return false;
                     }
 
-                    boss.PrioritizeEnemy(botOwner, bossEnemy);
-                    EnemyInfo? prioritizedEnemy = botOwner.Memory.GoalEnemy;
-                    if (!combatCommon.HasActiveCombatEnemy(prioritizedEnemy) ||
+                    if (!combatCommon.TryForceGoalEnemy(bossEnemy, "protectBossCover.refresh", out EnemyInfo? prioritizedEnemy) ||
+                        !combatCommon.HasActiveCombatEnemy(prioritizedEnemy) ||
                         !combatCommon.TryFindBossCover(prioritizedEnemy, combatCommon.GetBossPosition(), CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(), out CustomNavigationPoint? protectCover) ||
                         !combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, protectCover, "protectBossCover.refresh") ||
                         combatCommon.CommittedCoverId == previousCoverId)

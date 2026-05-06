@@ -35,6 +35,12 @@ namespace pitTeam.Modules
         private const float DefaultClosePushDistance = 25f;
         private const float DefaultRegroupNeededDistanceMarksman = 35f;
         private const float DefaultBossSupportShootCoverRadius = 30f;
+        private const float DefaultSoundHeard = 35f;
+        private const float DefaultTooClose = 8f;
+        private const float DefaultCloseThreatAutoAcquireDistance = 6f;
+        private const float DefaultBulletHearDistanceSqr = 50f * 50f;
+        private const float DefaultBulletImpactDispersionSqr = 5f * 5f;
+
 
         // Factory map settings (compressed for close-quarters gameplay)
         private const float FactoryBossCoverSearchRadius = 15f;
@@ -49,6 +55,11 @@ namespace pitTeam.Modules
         private const float FactoryClosePushDistance = 12f;
         private const float FactoryRegroupNeededDistanceMarksman = 20f;
         private const float FactoryBossSupportShootCoverRadius = 18f;
+        private const float FactorySoundHeard = 15f;
+        private const float FactoryTooClose = 5f;
+        private const float FactoryCloseThreatAutoAcquireDistance = 5f;
+        private const float FactoryBulletHearDistanceSqr = 25f * 25f;
+
 
         public void SetFactoryMode(bool isFactory)
         {
@@ -89,6 +100,31 @@ namespace pitTeam.Modules
         public float GetClosePushDistance()
         {
             return isFactoryMode ? FactoryClosePushDistance : DefaultClosePushDistance;
+        }
+
+        public float GetSoundHeardDistance()
+        {
+            return isFactoryMode ? FactorySoundHeard : DefaultSoundHeard;
+        }
+
+        public float GetTooCloseDistance()
+        {
+            return isFactoryMode ? FactoryTooClose : DefaultTooClose;
+        }
+
+        public float GetCloseThreatAutoAcquireDistance()
+        {
+            return isFactoryMode ? FactoryCloseThreatAutoAcquireDistance : DefaultCloseThreatAutoAcquireDistance;
+        }
+
+        public float GetBulletHearDistanceSqr()
+        {
+            return isFactoryMode ? FactoryBulletHearDistanceSqr : DefaultBulletHearDistanceSqr;
+        }
+
+        public float GetBulletImpactDispersionSqr()
+        {
+            return DefaultBulletImpactDispersionSqr;
         }
 
         // Push distances
@@ -140,6 +176,8 @@ namespace pitTeam.Modules
         {
             return isFactoryMode ? FactoryBossSupportShootCoverRadius : DefaultBossSupportShootCoverRadius;
         }
+
+
 
         public bool IsFactoryMode => isFactoryMode;
     }

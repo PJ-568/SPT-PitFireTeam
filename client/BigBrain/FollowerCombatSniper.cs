@@ -1009,15 +1009,9 @@ namespace pitTeam.BigBrain
 
             // Marksman consumes the same push event as Rifleman helpers, but its support policy is
             // stricter: prefer current shot/cover, then support cover/firing position, not assault.
-            if (!string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+            if (!CombatCommon.HasActiveCombatEnemy(goalEnemy))
             {
-                CombatCommon.TryPromoteTrackedEnemyAsGoal(pushEvent.EnemyProfileId);
-                goalEnemy = BotOwner.Memory.GoalEnemy;
-                if (!CombatCommon.HasActiveCombatEnemy(goalEnemy) ||
-                    !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
-                {
-                    return false;
-                }
+                return false;
             }
 
             if (CombatCommon.CanShootFromCurrentCover(out _))
@@ -1995,12 +1989,12 @@ namespace pitTeam.BigBrain
 
         private bool ShouldBreakForPushSupportOpportunity()
         {
-            return CombatCommon.TryGetActivePushEvent(out _);
+            return CombatCommon.TryGetActivePushEventForCurrentEnemy(out _);
         }
 
         private bool TryGetActivePushEvent(out CombatEvents.PushEvent pushEvent)
         {
-            return CombatCommon.TryGetActivePushEvent(out pushEvent);
+            return CombatCommon.TryGetActivePushEventForCurrentEnemy(out pushEvent);
         }
 
         private bool ShouldRescanShootingPosition(EnemyInfo goalEnemy)
@@ -2383,9 +2377,8 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            boss.PrioritizeEnemy(BotOwner, bossEnemy);
-            EnemyInfo? prioritizedEnemy = BotOwner.Memory.GoalEnemy;
-            if (!CombatCommon.HasActiveCombatEnemy(prioritizedEnemy))
+            if (!CombatCommon.TryForceGoalEnemy(bossEnemy, "sniper.bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
+                !CombatCommon.HasActiveCombatEnemy(prioritizedEnemy))
             {
                 return false;
             }

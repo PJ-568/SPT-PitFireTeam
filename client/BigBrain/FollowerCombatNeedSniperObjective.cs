@@ -19,6 +19,8 @@ namespace pitTeam.BigBrain
         private float settleUntil;
         private float searchRetryUntil;
         private float retryScanUntil;
+        private string? lockedSupportEnemyProfileId;
+        private Vector3 lockedSupportPosition;
 
         public FollowerCombatNeedSniperObjective(BotOwner botOwner, FollowerCombatCommon combatCommon)
             : base(botOwner, combatCommon)
@@ -33,6 +35,8 @@ namespace pitTeam.BigBrain
             settleUntil = 0f;
             searchRetryUntil = 0f;
             retryScanUntil = 0f;
+            lockedSupportEnemyProfileId = null;
+            lockedSupportPosition = Vector3.zero;
         }
 
         public override void Activate()
@@ -130,7 +134,7 @@ namespace pitTeam.BigBrain
                 return CombatCommon.CreateCommittedCoverMoveDecision();
             }
 
-            if (!TryResolveSupportEnemy(goalEnemy, out EnemyInfo? supportEnemy, out Vector3 supportPosition) ||
+            if (!TryResolveLockedOrNewSupportEnemy(goalEnemy, out EnemyInfo? supportEnemy, out Vector3 supportPosition) ||
                 !CombatCommon.HasActiveCombatEnemy(supportEnemy))
             {
                 return RetryOrRejectObjective("noSupportEnemy");
@@ -138,7 +142,15 @@ namespace pitTeam.BigBrain
 
             if (!string.IsNullOrEmpty(supportEnemy.ProfileId))
             {
-                CombatCommon.TryPromoteTrackedEnemyAsGoal(supportEnemy.ProfileId);
+                lockedSupportEnemyProfileId ??= supportEnemy.ProfileId;
+                lockedSupportPosition = supportPosition;
+                if (!CombatCommon.TryForceGoalEnemy(lockedSupportEnemyProfileId, "NeedSniper", out EnemyInfo? forcedEnemy) ||
+                    !CombatCommon.HasActiveCombatEnemy(forcedEnemy))
+                {
+                    return RetryOrRejectObjective("forceEnemyFailed");
+                }
+
+                supportEnemy = forcedEnemy;
             }
 
             if (CombatCommon.TryCommitSupportFiringCover(
@@ -302,6 +314,19 @@ namespace pitTeam.BigBrain
                 ArrivalSettleSeconds);
         }
 
+        private bool TryResolveLockedOrNewSupportEnemy(EnemyInfo goalEnemy, out EnemyInfo? supportEnemy, out Vector3 supportPosition)
+        {
+            if (!string.IsNullOrEmpty(lockedSupportEnemyProfileId))
+            {
+                supportPosition = FollowerCombatCommon.IsFinite(lockedSupportPosition)
+                    ? lockedSupportPosition
+                    : FollowerCombatCommon.GetEnemyCurrentPosition(goalEnemy);
+                return CombatCommon.TryForceGoalEnemy(lockedSupportEnemyProfileId, "NeedSniper.locked", out supportEnemy);
+            }
+
+            return TryResolveSupportEnemy(goalEnemy, out supportEnemy, out supportPosition);
+        }
+
         private bool TryResolveSupportEnemy(EnemyInfo goalEnemy, out EnemyInfo? supportEnemy, out Vector3 supportPosition)
         {
             supportEnemy = goalEnemy;
@@ -316,7 +341,8 @@ namespace pitTeam.BigBrain
                         pushEvent.EnemyProfileId,
                         supportPosition,
                         out supportEnemy,
-                        preferBackline: false);
+                        preferBackline: false,
+                        promoteSelected: false);
                 }
 
                 return true;
@@ -329,7 +355,8 @@ namespace pitTeam.BigBrain
                     supportEnemyProfileId,
                     allyEnemyPosition,
                     out supportEnemy,
-                    preferBackline: false);
+                    preferBackline: false,
+                    promoteSelected: false);
             }
 
             return supportEnemy != null;
@@ -337,13 +364,9 @@ namespace pitTeam.BigBrain
 
         private bool TryGetActivePushEvent(out CombatEvents.PushEvent pushEvent)
         {
-            pushEvent = default;
-            if (BotOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
-            {
-                return false;
-            }
-
-            return boss.CombatEvents.TryGetActivePushFor(BotOwner, out pushEvent);
+            // NeedSniper is an explicit boss order. Unlike autonomous push support, it is allowed
+            // to use the active squad push context even when the sniper has to retarget first.
+            return CombatCommon.TryGetActivePushEvent(out pushEvent);
         }
 
         private void ClearObjectiveCommitments()

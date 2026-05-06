@@ -16,6 +16,12 @@ namespace pitTeam.BigBrain.Actions
     /// </summary>
     internal sealed class CombatRunToEnemyAction : FollowerCombatActionBase
     {
+        private enum MovementMode
+        {
+            Run,
+            Walk
+        }
+
         private enum RunLookMode
         {
             None,
@@ -39,9 +45,13 @@ namespace pitTeam.BigBrain.Actions
         private const float CloseKnownThreatBadLookAngle = 65f;
         private const float CloseKnownThreatBadPathAngle = 75f;
         private const float WalkingThreatLookDistance = 90f;
+        private const float RunRestoreStableSeconds = 0.45f;
         private static readonly float[] RunPointDistances = { 8f, 10f, 6.5f, 5f };
         private static readonly float[] RunPointAngles = { 0f, -25f, 25f, -50f, 50f, -90f, 90f, 180f };
 
+        private readonly CombatGoToEnemyAction walkFallback;
+        private MovementMode movementMode;
+        private float canRunStableSince;
         private float nextMoveRefreshTime;
         private Vector3 committedRunPoint;
         private bool hasCommittedRunPoint;
@@ -53,11 +63,51 @@ namespace pitTeam.BigBrain.Actions
 
         public CombatRunToEnemyAction(BotOwner botOwner) : base(botOwner)
         {
+            walkFallback = new CombatGoToEnemyAction(botOwner);
         }
 
         public override void Start()
         {
             base.Start();
+            movementMode = MovementMode.Run;
+            canRunStableSince = 0f;
+            StartRunMode();
+        }
+
+        public override void Update(CustomLayer.ActionData data)
+        {
+            bool canRun = CanActuallyRun();
+            if (movementMode == MovementMode.Walk)
+            {
+                UpdateWalkFallback(data, canRun);
+                return;
+            }
+
+            if (!canRun)
+            {
+                SwitchToWalkFallback(data);
+                return;
+            }
+
+            UpdateRun(data, canRun);
+        }
+
+        public override void Stop()
+        {
+            if (movementMode == MovementMode.Walk)
+            {
+                walkFallback.Stop();
+            }
+            else
+            {
+                StopRunMode();
+            }
+
+            base.Stop();
+        }
+
+        private void StartRunMode()
+        {
             nextMoveRefreshTime = 0f;
             committedRunPoint = Vector3.zero;
             hasCommittedRunPoint = false;
@@ -75,7 +125,52 @@ namespace pitTeam.BigBrain.Actions
             SetCombatSprint(true);
         }
 
-        public override void Update(CustomLayer.ActionData data)
+        private void StopRunMode()
+        {
+            ClearCommittedRunPoint();
+            SetCombatSprint(false);
+            committedLookMode = RunLookMode.None;
+            committedLookModeUntil = 0f;
+        }
+
+        private void SwitchToWalkFallback(CustomLayer.ActionData data)
+        {
+            StopRunMode();
+            movementMode = MovementMode.Walk;
+            canRunStableSince = 0f;
+            walkFallback.Start();
+            walkFallback.Update(data);
+        }
+
+        private void UpdateWalkFallback(CustomLayer.ActionData data, bool canRun)
+        {
+            walkFallback.Update(data);
+
+            if (!canRun)
+            {
+                canRunStableSince = 0f;
+                return;
+            }
+
+            if (canRunStableSince <= 0f)
+            {
+                canRunStableSince = Time.time;
+                return;
+            }
+
+            if (Time.time - canRunStableSince < RunRestoreStableSeconds)
+            {
+                return;
+            }
+
+            walkFallback.Stop();
+            movementMode = MovementMode.Run;
+            canRunStableSince = 0f;
+            StartRunMode();
+            UpdateRun(data, true);
+        }
+
+        private void UpdateRun(CustomLayer.ActionData data, bool canRun)
         {
             EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
@@ -95,7 +190,6 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            bool canRun = BotOwner.DoorOpener.UpdateDoorInteractionStatus() == DoorInteractionStatus.CanRun;
             BotOwner.SetTargetMoveSpeed(1f);
             RefreshProgressState();
             NotMovingCheck(goalEnemy);
@@ -118,10 +212,24 @@ namespace pitTeam.BigBrain.Actions
             }
         }
 
-        public override void Stop()
+        private bool CanActuallyRun()
         {
-            ClearCommittedRunPoint();
-            base.Stop();
+            if (!BotOwner.CanSprintPlayer || BotOwner.Mover?.NoSprint == true)
+            {
+                return false;
+            }
+
+            Player? player = BotOwner.GetPlayer ?? BotOwner.AIData?.Player;
+            if (player?.HealthController != null &&
+                (player.HealthController.IsBodyPartBroken(EBodyPart.RightLeg) ||
+                 player.HealthController.IsBodyPartDestroyed(EBodyPart.RightLeg) ||
+                 player.HealthController.IsBodyPartBroken(EBodyPart.LeftLeg) ||
+                 player.HealthController.IsBodyPartDestroyed(EBodyPart.LeftLeg)))
+            {
+                return false;
+            }
+
+            return BotOwner.DoorOpener.UpdateDoorInteractionStatus() == DoorInteractionStatus.CanRun;
         }
 
         private void NotMovingCheck(EnemyInfo goalEnemy)
