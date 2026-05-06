@@ -12,11 +12,10 @@ namespace pitTeam.BigBrain
         // Internal trigger reason used by the default objective to request an immediate switch into
         // regroup. This should never survive long enough to become a real layer action.
         internal const string ActivateRegroupReason = "objective.regroup";
-        private const float CombatRegroupCompleteDistance = 8f;
-        private const float CombatRegroupCompleteDistanceMarksman = 12f;
+        private const float CombatRegroupOrderedDistance = 18f;
+        private const float CombatRegroupOrderedDistanceMarksman = 24f;
+        private const float CombatRegroupOrderedDistanceFactory = 10f;
         private const float CombatRegroupSameLevelTolerance = 1.75f;
-        private const float CombatRegroupCoverRadius = 18f;
-        private const float CombatRegroupCoverRadiusMarksman = 24f;
         private const float BossSectorRadius = 20f;
         private const float RegroupHotContactSeconds = 2.5f;
         private const float RegroupFallbackSpreadMinRadius = 1f;
@@ -651,16 +650,24 @@ namespace pitTeam.BigBrain
 
         private float GetRegroupCompleteDistance()
         {
-            return CombatCommon.GetFollowerTactic() == FollowerCombatTactic.Marksman
-                ? CombatRegroupCompleteDistanceMarksman
-                : CombatRegroupCompleteDistance;
+            return GetOrderedRegroupDistance();
         }
 
         private float GetRegroupCoverRadius()
         {
+            return GetOrderedRegroupDistance();
+        }
+
+        private float GetOrderedRegroupDistance()
+        {
+            if (CombatDistanceConfiguration.Instance.IsFactoryMode)
+            {
+                return CombatRegroupOrderedDistanceFactory;
+            }
+
             return CombatCommon.GetFollowerTactic() == FollowerCombatTactic.Marksman
-                ? CombatRegroupCoverRadiusMarksman
-                : CombatRegroupCoverRadius;
+                ? CombatRegroupOrderedDistanceMarksman
+                : CombatRegroupOrderedDistance;
         }
 
         private bool HasReachedCurrentTarget()

@@ -39,6 +39,12 @@ namespace pitTeam.Localization
                 patrolRadius = Entry(
                     "Patrol Radius",
                     "Maximum distance from the player the followers will patrol around"),
+                followDistance = Entry(
+                    "Follow Distance",
+                    "Distance followers keep from the player while following."),
+                regroupRadius = Entry(
+                    "Regroup Radius",
+                    "Distance from the player at which followers automatically regroup during combat. Marksman followers use about 1.5x this radius."),
                 goToDistance = Entry(
                     "Maximum 'Go To' Distance",
                     "Maximum distance followers will move when 'There' or 'GoForward' is issued."),

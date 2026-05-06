@@ -1612,15 +1612,20 @@ namespace pitTeam.BigBrain
             if (CanScanRepositionHold() && ShouldRescanShootingPosition(goalEnemy))
             {
                 MarkRepositionHoldScanned();
-                ClearCommittedCoverAndRepositionState();
-                return new AICoreActionEndStruct("sniperCoverHoldRescan", true);
             }
 
             // Break when a better shooting spot appears than the current committed hold point.
             if (CanScanRepositionHold() && HasNewShootingSpotOpportunity())
             {
                 MarkRepositionHoldScanned();
-                ClearCommittedCoverAndRepositionState();
+                if (!TryGetRepositionHoldOpportunityDecision(
+                        goalEnemy,
+                        out AICoreActionResultStruct<BotLogicDecision, GClass26> repositionDecision))
+                {
+                    return CombatCommon.EndBaseHoldPosition(reason ?? string.Empty);
+                }
+
+                TryPrepareBreakDecision(repositionDecision, false, true);
                 return new AICoreActionEndStruct("sniperCoverHoldNewShootSpot", true);
             }
 
@@ -2166,7 +2171,7 @@ namespace pitTeam.BigBrain
             float navDistance = CombatCommon.GetBossNavDistance(bossPosition);
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
-            if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman())
+            if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman(BotOwner))
             {
                 return false;
             }
@@ -2256,7 +2261,7 @@ namespace pitTeam.BigBrain
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
             return followerBossDistance >=
-                   CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman() * RegroupExtremeDistanceMultiplier;
+                   CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman(BotOwner) * RegroupExtremeDistanceMultiplier;
         }
 
         private AICoreActionResultStruct<BotLogicDecision, GClass26> CreateNoActionFallback()

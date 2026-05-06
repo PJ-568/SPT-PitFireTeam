@@ -108,6 +108,8 @@ namespace pitTeam
         public Dictionary<string, string> socialUi { get; set; }
 
         public Dictionary<string, string> patrolRadius { get; set; }
+        public Dictionary<string, string> followDistance { get; set; }
+        public Dictionary<string, string> regroupRadius { get; set; }
 
         public Dictionary<string, string> goToDistance { get; set; }
 
@@ -172,6 +174,8 @@ namespace pitTeam
         public static ConfigEntry<int> botTalk;
 
         public static ConfigEntry<int> patrolRadius;
+        public static ConfigEntry<int> followDistance;
+        public static ConfigEntry<int> regroupRadius;
 
         public static ConfigEntry<int> goToDistance;
 
@@ -581,6 +585,8 @@ namespace pitTeam
 
             patrolRadius = Config.Bind("", "02 PatrolRadius", 50, new ConfigDescription(optionsLang.patrolRadius["Description"], new AcceptableValueRange<int>(30, 100), CreateConfigAttributes(-200, false, optionsLang.patrolRadius)));
 
+            followDistance = Config.Bind("", "02 FollowDistance", 12, new ConfigDescription(optionsLang.followDistance["Description"], new AcceptableValueRange<int>(8, 30), CreateConfigAttributes(-201, false, optionsLang.followDistance)));
+
             enemyRemember = Config.Bind("", "03 EnemyRemember", 20, new ConfigDescription(optionsLang.enemyRemember["Description"], new AcceptableValueRange<int>(5, 60), CreateConfigAttributes(-300, false, optionsLang.enemyRemember)));
 
             heatlhMultiplier = Config.Bind("", "04 HealthMultiplier", 1, new ConfigDescription(optionsLang.healthMultiplier["Description"], new AcceptableValueRange<int>(1, 10), CreateConfigAttributes(-400, false, optionsLang.healthMultiplier)));
@@ -609,6 +615,8 @@ namespace pitTeam
             pmcArmbands.SettingChanged += (_, _) => SyncServerSettings();
 
             botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
+
+            regroupRadius = Config.Bind("", "15 RegroupRadius", 18, new ConfigDescription(optionsLang.regroupRadius["Description"], new AcceptableValueRange<int>(10, 38), CreateConfigAttributes(-1005, false, optionsLang.regroupRadius)));
 
             pingKey = Config.Bind("", "16 PingSquad", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, CreateConfigAttributes(-1006, false, optionsLang.pingSquad)));
 

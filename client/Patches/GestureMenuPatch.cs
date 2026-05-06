@@ -88,7 +88,6 @@ namespace pitTeam.Patches
                         EPhraseTrigger.Look,
                         EPhraseTrigger.Gogogo,
                         EPhraseTrigger.GoForward,
-                        //EPhraseTrigger.GetBack,
                         EPhraseTrigger.FollowMe,
                         EPhraseTrigger.CoverMe,
                         EPhraseTrigger.Stop,

@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using EFT;
 
 namespace pitTeam.Modules
 {
@@ -33,13 +34,13 @@ namespace pitTeam.Modules
         private const float DefaultHealCoverRetreatDistance = 14f;
         private const float DefaultCloseQuarterDistance = 25f;
         private const float DefaultClosePushDistance = 25f;
-        private const float DefaultRegroupNeededDistanceMarksman = 35f;
         private const float DefaultBossSupportShootCoverRadius = 30f;
         private const float DefaultSoundHeard = 35f;
         private const float DefaultTooClose = 8f;
         private const float DefaultCloseThreatAutoAcquireDistance = 6f;
         private const float DefaultBulletHearDistanceSqr = 50f * 50f;
         private const float DefaultBulletImpactDispersionSqr = 5f * 5f;
+        private const float DefaultMarksmanRegroupMultiplier = 1.5f;
 
 
         // Factory map settings (compressed for close-quarters gameplay)
@@ -53,12 +54,12 @@ namespace pitTeam.Modules
         private const float FactoryHealCoverRetreatDistance = 8f;
         private const float FactoryCloseQuarterDistance = 12f;
         private const float FactoryClosePushDistance = 12f;
-        private const float FactoryRegroupNeededDistanceMarksman = 20f;
         private const float FactoryBossSupportShootCoverRadius = 18f;
         private const float FactorySoundHeard = 15f;
         private const float FactoryTooClose = 5f;
         private const float FactoryCloseThreatAutoAcquireDistance = 5f;
         private const float FactoryBulletHearDistanceSqr = 25f * 25f;
+        private const float FactoryMarksmanRegroupMultiplier = 2f;
 
 
         public void SetFactoryMode(bool isFactory)
@@ -81,9 +82,10 @@ namespace pitTeam.Modules
             return isFactoryMode ? FactoryBossCoverSearchRadius : DefaultBossCoverSearchRadius;
         }
 
-        public float GetBossRegroupTriggerDistance()
+        public float GetBossRegroupTriggerDistance(BotOwner? botOwner = null)
         {
-            return GetBossCoverSearchRadius() * 0.6f;
+            float baseDistance = pitFireTeam.regroupRadius?.Value ?? 18f;
+            return Mathf.Clamp(baseDistance, 10f, 38f);
         }
 
         // Close-quarter and starting distances
@@ -167,9 +169,12 @@ namespace pitTeam.Modules
         }
 
         // Marksman-specific distances
-        public float GetRegroupNeededDistanceMarksman()
+        public float GetRegroupNeededDistanceMarksman(BotOwner? botOwner = null)
         {
-            return isFactoryMode ? FactoryRegroupNeededDistanceMarksman : DefaultRegroupNeededDistanceMarksman;
+            float multiplier = isFactoryMode
+                ? FactoryMarksmanRegroupMultiplier
+                : DefaultMarksmanRegroupMultiplier;
+            return GetBossRegroupTriggerDistance(botOwner) * multiplier;
         }
 
         public float GetBossSupportShootCoverRadius()

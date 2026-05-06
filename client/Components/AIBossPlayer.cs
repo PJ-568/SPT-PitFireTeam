@@ -129,6 +129,13 @@ namespace pitTeam.Components
             _group.CheckAndAddEnemy(enemy);
         }
 
+        // Boss command map:
+        // TeamStatus: status ping UI + nearby friendly gesture.
+        // NeedSniper/NeedHelp/Contact/DirectionalLook/Look: attention and target-acquisition cues.
+        // Stop/Hold/GoGoGo/GoForward/Suppress/Regroup: request or combat-objective commands.
+        // OnYourOwn/CoverMe: broadcast stance mode toggles, not movement requests.
+        // OpenDoor/Loot: situational request-layer work.
+        // FollowMe/Cooperation: recruit or clear follower commands back to normal follow.
         public void PhraseSaid(EventInfo info)
         {
             if (info.PlayerRequester != null && info.PlayerRequester.ProfileId == realPlayer.ProfileId)
@@ -138,6 +145,7 @@ namespace pitTeam.Components
                 // FollowerRequestLayer later consumes that state and starts the matching BigBrain action.
                 if (info.phrase == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
+                    // Status Report: show follower status and have nearby idle followers answer visually.
                     float now = Time.time;
                     if (now - _lastTeamStatusCommandAt < TeamStatusDebounceSeconds)
                     {
@@ -150,16 +158,19 @@ namespace pitTeam.Components
                 }
                 else if (info.phrase == EPhraseTrigger.NeedSniper)
                 {
+                    // Need Sniper: ask marksman followers for a firing-position support action.
                     ApplyNeedSniperPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.NeedHelp)
                 {
+                    // Need Help: mark the boss-local threat for follower support.
                     ApplyNeedHelpPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.OnRepeatedContact)
                 {
+                    // Contact: point followers toward a seen or aimed-at threat and seed enemy memory.
                     ProcessContactCommand(info.PlayerRequester);
                 }
                 else if (info.phrase == EPhraseTrigger.InTheFront ||
@@ -167,64 +178,77 @@ namespace pitTeam.Components
                          info.phrase == EPhraseTrigger.RightFlank ||
                          info.phrase == EPhraseTrigger.OnSix)
                 {
+                    // Directional calls: look-only callouts relative to the boss view direction.
                     ApplyDirectionalLookPhrase(info.PlayerRequester, info.phrase);
                 }
                 else if (info.phrase == EPhraseTrigger.Look)
                 {
+                    // Attention: clear look pressure and refocus followers on the boss/direction.
                     HandleAttentionCommand();
                 }
                 else if (info.phrase == EPhraseTrigger.Stop)
                 {
+                    // Stop: out-of-combat hold without crouch.
                     ApplyStopPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.HoldPosition)
                 {
+                    // Hold Position: combat 0% temporary aggression override.
                     ApplyHoldPositionCombatAggression(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.Gogogo)
                 {
+                    // Go Go Go: clear the temporary combat aggression override.
                     ApplyGoGoGoCombatAggression(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.GoForward)
                 {
+                    // Go Forward: push current enemy in combat, point movement out of combat.
                     ApplyGoForwardPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.Suppress)
                 {
+                    // Suppress: non-marksman suppress-capable followers suppress current contact.
                     ApplySuppressPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.Regroup)
                 {
+                    // Regroup: reset spacing/patrol mode and converge near the boss.
                     ApplyRegroupCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.OnYourOwn)
                 {
+                    // On Your Own: out-of-combat broadcast patrol-radius mode.
                     ApplyOnYourOwnCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.CoverMe)
                 {
+                    // Cover Me: broadcast drop of patrol mode.
                     ApplyCoverMeCommandDrop(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.OpenDoor)
                 {
+                    // Open Door: closest eligible follower opens the target door.
                     ApplyOpenDoorCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.LootGeneric || info.phrase == EPhraseTrigger.LootWeapon)
                 {
+                    // Loot: closest eligible follower takes the target item.
                     ApplyTakeLootCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
                 {
+                    // Follow Me / Cooperation: normal follow mode and command cleanup.
                     ClearFollowerCommands();
                 }
             }
@@ -244,6 +268,7 @@ namespace pitTeam.Components
                 // Commands handled here are consumed before the gesture is forwarded to vanilla receivers.
                 if (info.Gesture == (EInteraction)CustomGestures.OverThere)
                 {
+                    // Over There: gesture-based Contact plus vanilla receiver feedback.
                     _ignoreNextThereGestureUntil = Time.time + 0.75f;
                     ProcessContactCommand(info.Player, true);
 
@@ -263,18 +288,21 @@ namespace pitTeam.Components
 
                 if (info.Gesture == EInteraction.HoldGesture)
                 {
+                    // Hold gesture: visible nearby followers hold position and crouch.
                     ApplyHoldGesture(info.Player);
                     return;
                 }
 
                 if (info.Gesture == EInteraction.ComeWithMeGesture)
                 {
+                    // Come With Me: close movement out of combat, boss-cover movement in combat.
                     ApplyComeWithMeGesture(info.Player);
                     return;
                 }
 
                 if (info.Gesture == EInteraction.ThereGesture)
                 {
+                    // There: point movement out of combat, tactical point movement in combat.
                     if (Time.time < _ignoreNextThereGestureUntil)
                     {
                         return;

@@ -12,6 +12,8 @@
 	"enemyMarker": { "Name": "Enemy Marker", "Description": "Show enemy position when reporting status. If disabled, the enemy marker sound will also be disabled" },
 	"scanDistance": { "Name": "Maximum scan distance", "Description": "Maximum distance to pick up any visible enemy that the player is signaling when issuing 'Contact' phrase" },
 	"patrolRadius": { "Name": "Patrol Radius", "Description": "Maximum distance from the player the followers will patrol around" },
+	"followDistance": { "Name": "Follow Distance", "Description": "Distance followers keep from the player while following." },
+	"regroupRadius": { "Name": "Regroup Radius", "Description": "Distance from the player at which followers automatically regroup during combat. Marksman followers use about 1.5x this radius." },
 	"goToDistance": { "Name": "Maximum 'Go To' Distance", "Description": "Maximum distance followers will move when 'There' or 'GoForward' is issued." },
 	"enemyRemember": { "Name": "Time to forget about the enemy (in sec.)", "Description": "Maximum time a follower will remember an enemy. This is applied only at the beginning of a raid" },
 	"healthMultiplier": { "Name": "Squad Health Multiplier", "Description": "Health multiplier for the followers you spawn with. This is applied per each body part." },

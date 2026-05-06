@@ -19,15 +19,22 @@ namespace pitTeam.Components
     public enum FollowerCommandType
     {
         None = 0,
+        // Persistent hold consumed by FollowerRequestLayer/GestureCommandAction.
         HoldPosition = 1,
+        // Out-of-combat point movement from There/GoForward.
         MoveToPoint = 2,
+        // Short boss-close movement from Come With Me.
         ComeCloser = 3,
+        // Ordered regroup near boss; combat may route this through combat objectives.
         RegroupNearBoss = 4,
+        // Situational request-layer commands.
         TakeLootItem = 5,
         OpenDoor = 6,
+        // Combat objective commands.
         PushEnemy = 7,
         SuppressEnemy = 8,
         NeedSniper = 9,
+        // Combat gesture movement commands.
         CombatComeToBossCover = 10,
         CombatMoveToPointTactical = 11
     }

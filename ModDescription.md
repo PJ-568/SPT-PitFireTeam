@@ -112,7 +112,7 @@ Commands influence follower behavior but do not force exact actions. Followers w
 
 - **Follow Me / Cooperative** - recruit an eligible same-side bot or tell existing followers to resume following.
 - **Attention / Look** - clears command pressure and makes followers focus on the boss or indicated direction.
-- **Regroup** - tells followers to converge near the boss. In combat, this becomes a combat regroup objective.
+- **Regroup** - tells followers to converge near the boss. In combat, this becomes a combat regroup objective (within 18 meters radius of the boss, Marksman within 24m).
 - **Hold Position** - in combat, temporarily behaves like setting follower aggression to 0%. The override resets after combat ends or when replaced by another command. Can be applied to an individual follower by looking at him.
 - **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns followers to their saved aggression. Can be applied to an individual follower by looking at him.
 - **Go Forward** - orders followers with an enemy to push or pressure that enemy. Outside combat, it can send followers toward the pointed location. Can be applied to an individual follower by looking at him.
@@ -178,8 +178,6 @@ Have followers carry your loot: look at an item and press the interaction prompt
 The following are planned features in reaching a release version (1.0.0)
 
 **Planned commands:**
-
-- **Get Back** - increases following distance as well as the distance at which bots auto-regroup near the boss during combat. Command resets on **Regroup**.
 
 - **Spread Out** - in combat, tells followers who are not actively engaged to find cover.
 - **Silence** - tells followers to stop talking. Maximum time will be controlled via settings.

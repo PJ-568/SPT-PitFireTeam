@@ -184,6 +184,7 @@ namespace pitTeam.Components
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.followSettings ?? "Follow Settings",
                 pitFireTeam.patrolRadius,
+                pitFireTeam.followDistance,
                 pitFireTeam.goToDistance))
             {
                 yield return setting;
@@ -192,6 +193,7 @@ namespace pitTeam.Components
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.combatSettings ?? "Combat Settings",
                 pitFireTeam.botGrenades,
+                pitFireTeam.regroupRadius,
                 pitFireTeam.enemyMarker,
                 pitFireTeam.statusSound,
                 pitFireTeam.enemyRemember,
@@ -1454,6 +1456,8 @@ namespace pitTeam.Components
 
             if (entry == pitFireTeam.scanDistance) return language.scanDistance;
             if (entry == pitFireTeam.patrolRadius) return language.patrolRadius;
+            if (entry == pitFireTeam.followDistance) return language.followDistance;
+            if (entry == pitFireTeam.regroupRadius) return language.regroupRadius;
             if (entry == pitFireTeam.enemyRemember) return language.enemyRemember;
             if (entry == pitFireTeam.heatlhMultiplier) return language.healthMultiplier;
             if (entry == pitFireTeam.statusSound) return language.statusSound;
