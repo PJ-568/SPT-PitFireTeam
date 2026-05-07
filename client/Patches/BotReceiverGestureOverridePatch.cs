@@ -38,6 +38,7 @@ namespace pitTeam.Patches
                 case EInteraction.ComeWithMeGesture:
                 case EInteraction.HoldGesture:
                 case EInteraction.ThereGesture:
+                case (EInteraction)CustomGestures.OverThere:
                     return false;
                 default:
                     return true;

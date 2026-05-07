@@ -1,6 +1,6 @@
 # Combat Tactics Notes
 
-Last updated: 2026-04-30
+Last updated: 2026-05-03
 
 ## Scope
 
@@ -32,6 +32,7 @@ Combat command state lives on `BotFollowerPlayer` and is intentionally separate 
 - `EPhraseTrigger.GoForward` becomes `PushEnemy` when the follower has an active combat enemy.
 - `EPhraseTrigger.Suppress` becomes `SuppressEnemy` for Rifleman/default combat.
 - `EPhraseTrigger.NeedSniper` becomes `NeedSniper` for Marksman combat.
+- `EPhraseTrigger.NeedHelp` fakes a boss-under-attack event against the closest valid enemy.
 - Core combat reads `EffectiveCombatAggression` through `FollowerCombatCommon.GetAggression01()`.
 - Tactic changes reset saved aggression to that tactic's default: Rifleman uses `50%`, Marksman uses `30%`.
 - The override is cleared when the follower is safely out of combat and patrol can resume.
@@ -114,6 +115,26 @@ Objective behavior:
 - On arrival, it arms a short committed `sniper.NeedSniper.positionHold` settle window before reassessing.
 - It completes when it reaches a valid shot, settles without a lane, the enemy disappears, or a stronger interruption takes over.
 
+### Need Help Order
+
+`NeedHelp` is not a normal follower command and does not activate its own combat objective. It is a boss-side emergency support signal handled in `AIBossPlayer`.
+
+Runtime behavior:
+
+- The boss selects the closest valid enemy relative to the boss/player.
+- Candidate enemies are gathered from boss-tracked enemies, boss-group enemies, visible contact enemies, and SAIN contact fallback enemies when SAIN is installed.
+- Invalid candidates are ignored: dead/inactive bots, the player, followers, and friendly bot roles.
+- The boss logic is marked as manually under attack by that enemy.
+- Each active follower is told to prioritize that enemy through `PrioritizeEnemy(...)`, which either promotes an existing `EnemyInfo` or adds the enemy to follower memory.
+- The normal combat router then reacts through existing boss-under-attack support/protection logic.
+
+Expected behavior:
+
+- Rifleman/default followers can break passive hold into boss protection/support if a valid protection decision can be prepared.
+- Marksman followers can react through their boss-under-attack/support scan, unless self-preservation, healing, or a stronger current fight wins.
+- Because this is a fake boss-under-attack signal, it intentionally reuses existing protection/support decision rules instead of creating a separate "NeedHelp" movement mode.
+- If no valid enemy can be found, the phrase does nothing and does not disturb current follower decisions.
+
 ## Shared Commitment Model
 
 The new stabilization model is based on commitments. A commitment means "keep doing this unless a real interrupt happens", not "ignore combat".
@@ -164,6 +185,7 @@ Explicit command objectives sit above this tactic router in `FollowerCombatLogic
 - explicit Rifleman suppression can switch to suppression objective
 - explicit Need Sniper can switch to NeedSniper objective for Marksman
 - explicit push returns from regroup/suppression/NeedSniper to the primary tactic objective
+- NeedHelp does not switch objectives directly; it marks boss-under-attack and lets each active tactic's protection/support branch respond.
 
 Important policy:
 

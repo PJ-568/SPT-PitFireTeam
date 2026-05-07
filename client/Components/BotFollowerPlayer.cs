@@ -19,15 +19,24 @@ namespace pitTeam.Components
     public enum FollowerCommandType
     {
         None = 0,
+        // Persistent hold consumed by FollowerRequestLayer/GestureCommandAction.
         HoldPosition = 1,
+        // Out-of-combat point movement from There/GoForward.
         MoveToPoint = 2,
+        // Short boss-close movement from Come With Me.
         ComeCloser = 3,
+        // Ordered regroup near boss; combat may route this through combat objectives.
         RegroupNearBoss = 4,
+        // Situational request-layer commands.
         TakeLootItem = 5,
         OpenDoor = 6,
+        // Combat objective commands.
         PushEnemy = 7,
         SuppressEnemy = 8,
-        NeedSniper = 9
+        NeedSniper = 9,
+        // Combat gesture movement commands.
+        CombatComeToBossCover = 10,
+        CombatMoveToPointTactical = 11
     }
 
     public enum FollowerCombatTactic
@@ -62,6 +71,9 @@ namespace pitTeam.Components
 
         protected WildSpawnType _botRole;
         protected bool _canPatrol = false;
+        private bool _combatIndependent;
+        private bool _combatIndependentRequested;
+        private bool _combatRegroupUsesBossAnchor;
         private bool _peaceChangeHooked = false;
         private bool _manualUpdateHooked = false;
         private Vector3 _teleportGraceTarget;
@@ -94,6 +106,22 @@ namespace pitTeam.Components
             get
             {
                 return _canPatrol;
+            }
+        }
+
+        public bool CombatIndependent
+        {
+            get
+            {
+                return _combatIndependent;
+            }
+        }
+
+        public bool CombatRegroupUsesBossAnchor
+        {
+            get
+            {
+                return _combatRegroupUsesBossAnchor;
             }
         }
 
@@ -963,7 +991,85 @@ namespace pitTeam.Components
 
         public void SetCanPatrol(bool value)
         {
+            // Persistent out-of-combat On Your Own mode. Combat derives a separate
+            // independence flag from this at combat start, then combat commands can
+            // change only the combat flag without dropping patrol intent.
             _canPatrol = value;
+            if (!value)
+            {
+                ReleasePatrolMovementState("SetCanPatrol:false");
+            }
+        }
+
+        private void ReleasePatrolMovementState(string reason)
+        {
+            try
+            {
+                if (_bot == null || _bot.IsDead || _bot.BotState != EBotState.Active)
+                {
+                    return;
+                }
+
+                _bot.GetPlayer?.MovementContext?.SetPatrol(false);
+                _bot.Tilt?.Stop();
+                if (_bot.Mover != null)
+                {
+                    _bot.Mover.Pause = false;
+                    if (_bot.Mover.Sprinting)
+                    {
+                        _bot.Mover.Sprint(false, false);
+                    }
+                    _bot.Mover.SetTargetMoveSpeed(1f);
+                }
+
+                if (_bot.BotRequestController?.CurRequest != null)
+                {
+                    _bot.BotRequestController.CurRequest.Complete();
+                    _bot.BotRequestController.CurRequest = null;
+                }
+
+                _bot.PatrollingData?.Pause();
+                _bot.GoToSomePointData?.SetPoint(_bot.Position);
+                _bot.GoToSomePointData?.UpdateToGo(false);
+                _bot.StopMove();
+                ForceEndCurrentDecision(_bot);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"[Patrol] Failed to release patrol movement state for {_bot?.Profile?.Nickname} reason={reason}");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        public void BeginCombatIndependenceFromPatrol()
+        {
+            _combatIndependent = _canPatrol || _combatIndependentRequested;
+            _combatRegroupUsesBossAnchor = false;
+        }
+
+        public void SetCombatIndependent(bool value)
+        {
+            _combatIndependentRequested = value;
+            _combatIndependent = value;
+            _combatRegroupUsesBossAnchor = false;
+        }
+
+        public void ClearActiveCombatIndependent()
+        {
+            _combatIndependent = false;
+            _combatRegroupUsesBossAnchor = false;
+        }
+
+        public void ClearCombatIndependent()
+        {
+            _combatIndependent = false;
+            _combatIndependentRequested = false;
+            _combatRegroupUsesBossAnchor = false;
+        }
+
+        public void SetCombatRegroupBossAnchor(bool value)
+        {
+            _combatRegroupUsesBossAnchor = value;
         }
 
         public void SetHoldPosition(float duration, bool crouch = true)
@@ -1087,6 +1193,34 @@ namespace pitTeam.Components
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetNeedSniper));
+        }
+
+        public void SetCombatComeToBossCover(float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.CombatComeToBossCover)
+            {
+                ClearCommand($"SetCombatComeToBossCover:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.CombatComeToBossCover;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetCombatComeToBossCover));
+        }
+
+        public void SetCombatMoveToPointTactical(Vector3 target, float duration)
+        {
+            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.CombatMoveToPointTactical)
+            {
+                ClearCommand($"SetCombatMoveToPointTactical:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.CombatMoveToPointTactical;
+            _commandTarget = target;
+            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetCombatMoveToPointTactical));
         }
 
         public void SetTemporaryCombatAggressionOverride(float aggression)

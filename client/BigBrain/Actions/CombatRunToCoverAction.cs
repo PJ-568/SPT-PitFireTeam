@@ -11,26 +11,130 @@ namespace pitTeam.BigBrain.Actions
     /// </summary>
     internal sealed class CombatRunToCoverAction : FollowerCombatActionBase
     {
+        private enum MovementMode
+        {
+            Run,
+            Walk
+        }
+
         private const float PathRefreshInterval = 1.5f;
         private const float ArrivalDistance = 0.75f;
+        private const float RunRestoreStableSeconds = 0.45f;
 
+        private readonly CombatAttackMovingAction walkFallback;
+        private MovementMode movementMode;
         private CustomNavigationPoint? targetCover;
         private float nextPathRefreshTime;
         private bool targetPointAssigned;
+        private float canRunStableSince;
 
         public CombatRunToCoverAction(BotOwner botOwner) : base(botOwner)
         {
+            walkFallback = new CombatAttackMovingAction(botOwner);
         }
 
         public override void Start()
         {
             base.Start();
+            movementMode = MovementMode.Run;
+            canRunStableSince = 0f;
+            StartRunMode();
+        }
+
+        public override void Update(CustomLayer.ActionData data)
+        {
+            bool canRun = CanActuallyRun();
+            if (movementMode == MovementMode.Walk)
+            {
+                UpdateWalkFallback(data, canRun);
+                return;
+            }
+
+            if (!canRun)
+            {
+                SwitchToWalkFallback(data);
+                return;
+            }
+
+            UpdateRun(data);
+        }
+
+        public override void Stop()
+        {
+            if (movementMode == MovementMode.Walk)
+            {
+                walkFallback.Stop();
+            }
+            else
+            {
+                StopRunMode();
+            }
+
+            base.Stop();
+        }
+
+        private void StartRunMode()
+        {
             targetCover = null;
             nextPathRefreshTime = 0f;
             targetPointAssigned = false;
         }
 
-        public override void Update(CustomLayer.ActionData data)
+        private void StopRunMode()
+        {
+            targetCover = null;
+            targetPointAssigned = false;
+            SetCombatSprint(false);
+        }
+
+        private void SwitchToWalkFallback(CustomLayer.ActionData data)
+        {
+            if (EnsureTargetCover())
+            {
+                BotOwner.Memory.SetCoverPoints(targetCover);
+            }
+
+            StopRunMode();
+            movementMode = MovementMode.Walk;
+            canRunStableSince = 0f;
+            walkFallback.Start();
+            walkFallback.Update(data);
+        }
+
+        private void UpdateWalkFallback(CustomLayer.ActionData data, bool canRun)
+        {
+            if (EnsureTargetCover())
+            {
+                BotOwner.Memory.SetCoverPoints(targetCover);
+            }
+
+            walkFallback.Update(data);
+
+            if (!canRun)
+            {
+                canRunStableSince = 0f;
+                return;
+            }
+
+            if (canRunStableSince <= 0f)
+            {
+                canRunStableSince = Time.time;
+                return;
+            }
+
+            if (Time.time - canRunStableSince < RunRestoreStableSeconds)
+            {
+                return;
+            }
+
+            walkFallback.Stop();
+            movementMode = MovementMode.Run;
+            canRunStableSince = 0f;
+            StartRunMode();
+            UpdateRun(data);
+        }
+
+        private void UpdateRun(CustomLayer.ActionData data)
         {
             if (!EnsureTargetCover())
             {
@@ -72,11 +176,24 @@ namespace pitTeam.BigBrain.Actions
             SetCombatSprint(true);
         }
 
-        public override void Stop()
+        private bool CanActuallyRun()
         {
-            targetCover = null;
-            targetPointAssigned = false;
-            base.Stop();
+            if (!BotOwner.CanSprintPlayer || BotOwner.Mover?.NoSprint == true)
+            {
+                return false;
+            }
+
+            Player? player = BotOwner.GetPlayer ?? BotOwner.AIData?.Player;
+            if (player?.HealthController != null &&
+                (player.HealthController.IsBodyPartBroken(EBodyPart.RightLeg) ||
+                 player.HealthController.IsBodyPartDestroyed(EBodyPart.RightLeg) ||
+                 player.HealthController.IsBodyPartBroken(EBodyPart.LeftLeg) ||
+                 player.HealthController.IsBodyPartDestroyed(EBodyPart.LeftLeg)))
+            {
+                return false;
+            }
+
+            return BotOwner.DoorOpener.UpdateDoorInteractionStatus() == DoorInteractionStatus.CanRun;
         }
 
         private bool EnsureTargetCover()

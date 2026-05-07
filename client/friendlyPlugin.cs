@@ -51,7 +51,6 @@ namespace pitTeam
     public enum CustomPhrases
     {
         TeamStatus = 10001,
-        OverThere = 10002,
     }
 
     public enum CustomGestures
@@ -102,12 +101,15 @@ namespace pitTeam
         public Dictionary<string, string> pingTime { get; set; }
         public Dictionary<string, string> enemyContact { get; set; }
         public Dictionary<string, string> overThere { get; set; }
+        public Dictionary<string, string> hideUnsupportedCommands { get; set; }
         public Dictionary<string, string> gestures { get; set; }
 
         public Dictionary<string, string> botStatus { get; set; }
         public Dictionary<string, string> socialUi { get; set; }
 
         public Dictionary<string, string> patrolRadius { get; set; }
+        public Dictionary<string, string> followDistance { get; set; }
+        public Dictionary<string, string> regroupRadius { get; set; }
 
         public Dictionary<string, string> goToDistance { get; set; }
 
@@ -132,7 +134,7 @@ namespace pitTeam
         public string[] friendlyEscaped { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.5.2")]
+    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.6.0")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -172,10 +174,15 @@ namespace pitTeam
         public static ConfigEntry<int> botTalk;
 
         public static ConfigEntry<int> patrolRadius;
+        public static ConfigEntry<int> followDistance;
+        public static ConfigEntry<int> regroupRadius;
 
         public static ConfigEntry<int> goToDistance;
 
         public static ConfigEntry<bool> spawnPoint;
+
+        public static ConfigEntry<bool> hideUnsupportedCommands;
+
         public static ConfigEntry<bool> battleRecorderEnabled;
         public static ConfigEntry<int> battleRecorderSnapshotIntervalMs;
         public static bool IsDebugBuild
@@ -299,6 +306,7 @@ namespace pitTeam
             new FollowerGrenadeAvailabilityPatch().Enable();
             new FollowerGrenadeCooldownPatch().Enable();
             new FollowerGrenadeThrowFinishPatch().Enable();
+            new FollowerGrenadeReleasePatch().Enable();
             new BulletImpactPatch().Enable();
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();
@@ -320,6 +328,11 @@ namespace pitTeam
             // command/request patches
             new QuickPanelPatch().Enable();
             new GestureMenuPatch().Enable();
+            new CreatePhraseGroupPatch().Enable();
+            new CreateGesturesPatch().Enable();
+            new CustomPlayerGestureIntPatch().Enable();
+            new CustomPlayerGestureInteractionPatch().Enable();
+            new GestureCommandNamePatch().Enable();
             new GestureMenuAvailablePhrasesPatch().Enable();
             new EPhraseTriggerPatch().Enable();
             new PlayPhraseOrGesturePatch().Enable();
@@ -573,6 +586,8 @@ namespace pitTeam
 
             patrolRadius = Config.Bind("", "02 PatrolRadius", 50, new ConfigDescription(optionsLang.patrolRadius["Description"], new AcceptableValueRange<int>(30, 100), CreateConfigAttributes(-200, false, optionsLang.patrolRadius)));
 
+            followDistance = Config.Bind("", "02 FollowDistance", 12, new ConfigDescription(optionsLang.followDistance["Description"], new AcceptableValueRange<int>(8, 30), CreateConfigAttributes(-201, false, optionsLang.followDistance)));
+
             enemyRemember = Config.Bind("", "03 EnemyRemember", 20, new ConfigDescription(optionsLang.enemyRemember["Description"], new AcceptableValueRange<int>(5, 60), CreateConfigAttributes(-300, false, optionsLang.enemyRemember)));
 
             heatlhMultiplier = Config.Bind("", "04 HealthMultiplier", 1, new ConfigDescription(optionsLang.healthMultiplier["Description"], new AcceptableValueRange<int>(1, 10), CreateConfigAttributes(-400, false, optionsLang.healthMultiplier)));
@@ -602,6 +617,8 @@ namespace pitTeam
 
             botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
 
+            regroupRadius = Config.Bind("", "15 RegroupRadius", 18, new ConfigDescription(optionsLang.regroupRadius["Description"], new AcceptableValueRange<int>(10, 38), CreateConfigAttributes(-1005, false, optionsLang.regroupRadius)));
+
             pingKey = Config.Bind("", "16 PingSquad", new KeyboardShortcut(KeyCode.None), new ConfigDescription(optionsLang.pingSquad["Description"], null, CreateConfigAttributes(-1006, false, optionsLang.pingSquad)));
 
             pingRadioVolume = Config.Bind("", "17 PingRadioVolume", 50, new ConfigDescription(optionsLang.pingRadioVolume["Description"], new AcceptableValueRange<int>(0, 100), CreateConfigAttributes(-1007, false, optionsLang.pingRadioVolume)));
@@ -623,10 +640,14 @@ namespace pitTeam
 
             goToDistance = Config.Bind("", "26 GoToDistance", 50, new ConfigDescription(optionsLang.goToDistance["Description"], new AcceptableValueRange<int>(10, 150), CreateConfigAttributes(-1016, false, optionsLang.goToDistance)));
 
+            hideUnsupportedCommands = Config.Bind("", "HideUnSupportedCommands", false, new ConfigDescription(optionsLang.hideUnsupportedCommands["Description"], null, CreateConfigAttributes(-1017, false, optionsLang.hideUnsupportedCommands)));
+
             bool showBattleRecorderSettings = IsDebugBuild;
             battleRecorderEnabled = Config.Bind("Miscellaneous", "27 BattleRecorder", false, new ConfigDescription(optionsLang.battleRecorder["Description"], null, CreateConfigAttributes(-9998, showBattleRecorderSettings, optionsLang.battleRecorder)));
 
             battleRecorderSnapshotIntervalMs = Config.Bind("Miscellaneous", "28 BattleRecorderSnapshotIntervalMs", 200, new ConfigDescription(optionsLang.battleRecorderSnapshotIntervalMs["Description"], new AcceptableValueRange<int>(50, 1000), CreateConfigAttributes(-9999, showBattleRecorderSettings, optionsLang.battleRecorderSnapshotIntervalMs)));
+
+
 
             Config.SaveOnConfigSet = true;
             Config.Save();
@@ -990,7 +1011,7 @@ namespace pitTeam
                                 PlayerRequester = boss.realPlayer
                             });
                         else if (overThereKey.Value.IsUp())
-                            boss.realPlayer.Say((EPhraseTrigger)CustomPhrases.OverThere, true);
+                            BossGestureCommandRouter.TryPlayOverThereGesture(boss.realPlayer);
                         else
                             boss.realPlayer.Say(EPhraseTrigger.OnRepeatedContact, true);
                     }

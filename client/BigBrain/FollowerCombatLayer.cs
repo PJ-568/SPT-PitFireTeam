@@ -120,6 +120,7 @@ namespace pitTeam.BigBrain
             ClearLinger();
             ClearMedicalKeepActive();
             MarkActive(true);
+            BossPlayers.Instance?.GetFollower(BotOwner)?.BeginCombatIndependenceFromPatrol();
             BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
@@ -133,7 +134,9 @@ namespace pitTeam.BigBrain
         {
             BattleRecorder.RecordCombatLayerState(BotOwner, false, "layerStop");
             MarkActive(false);
-            BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            followerData?.ClearTemporaryCombatAggressionOverride();
+            followerData?.ClearActiveCombatIndependent();
             ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
             lastDecision = null;
@@ -523,9 +526,7 @@ namespace pitTeam.BigBrain
 
             if (BotOwner?.BotFollower?.BossToFollow != null)
             {
-                Vector3 bossPosition = BotOwner.BotFollower.BossToFollow is pitAIBossPlayer boss && boss.realPlayer != null
-                    ? boss.realPlayer.Transform.position
-                    : BotOwner.BotFollower.BossToFollow.Position;
+                Vector3 bossPosition = FollowerCombatAnchor.GetAnchorPosition(BotOwner);
                 float bossNavDistance = Utils.Utils.GetNavDistance(BotOwner.Position, bossPosition);
                 stringBuilder.Append(" bossNav=");
                 stringBuilder.Append(bossNavDistance.ToString("F1"));

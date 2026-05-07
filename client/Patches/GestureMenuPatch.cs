@@ -3,7 +3,11 @@ using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Reflection;
+using UI.BattleUI.Gestures;
+using UnityEngine;
 using GestureAction = EFT.UI.Gestures.GestureBaseItem.GStruct449;
 using GestureMenuItem = EFT.UI.Gestures.GesturesMenu.Class3396;
 
@@ -22,14 +26,13 @@ namespace pitTeam.Patches
             var list_0 = (List<GesturesAudioItem>)AccessTools.Field(typeof(GesturesMenu), "list_1").GetValue(__instance);
             var list_1 = (List<GestureBaseItem>)AccessTools.Field(typeof(GesturesMenu), "list_2").GetValue(__instance);
 
-            list_0.ForEach(item =>
+            if (!pitFireTeam.hideUnsupportedCommands.Value) list_0.ForEach(item =>
             {
                 if (item.gameObject.name == "ENEMY")
                 {
                     List<EPhraseTrigger> enemyPhrases = new List<EPhraseTrigger>
                     {
-                        EPhraseTrigger.OnRepeatedContact,
-                        (EPhraseTrigger)CustomPhrases.OverThere
+                        EPhraseTrigger.OnRepeatedContact
                     };
 
                     enemyPhrases.ForEach(phrase =>
@@ -62,6 +65,161 @@ namespace pitTeam.Patches
             });
         }
     }
+    // Hide Unsupported Gesture Commands
+    internal class CreatePhraseGroupPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GesturesMenu), "CreatePhraseGroup");
+        }
+        [PatchPrefix]
+        private static bool PatchPrefix(GesturesMenu __instance, string localizationKey, GesturesAudioItem groupTemplate, ref EPhraseTrigger[] phrases)
+        {
+            if (pitFireTeam.hideUnsupportedCommands.Value)
+            {
+                // modify phrases here
+                if (localizationKey == "COMMAND")
+                {
+                    phrases =
+                    [
+                        EPhraseTrigger.Suppress,
+                        EPhraseTrigger.Regroup,
+                        EPhraseTrigger.HoldPosition,
+                        EPhraseTrigger.Look,
+                        EPhraseTrigger.Gogogo,
+                        EPhraseTrigger.GoForward,
+                        EPhraseTrigger.FollowMe,
+                        EPhraseTrigger.CoverMe,
+                        EPhraseTrigger.Stop,
+                        //EPhraseTrigger.Silence,
+                        EPhraseTrigger.OnYourOwn
+                    ];
+                }
+                else if (localizationKey == "HELP")
+                {
+                    phrases =
+                    [
+                        EPhraseTrigger.NeedHelp,
+                        EPhraseTrigger.NeedSniper
+                    ];
+                }
+                else if (localizationKey == "CONTACT")
+                {
+                    phrases = [
+                        EPhraseTrigger.RightFlank,
+                        EPhraseTrigger.InTheFront,
+                        EPhraseTrigger.OnSix,
+                        EPhraseTrigger.LeftFlank
+                    ];
+                }
+                else if (localizationKey == "ENEMY")
+                {
+                    phrases = [
+                        EPhraseTrigger.OnRepeatedContact
+                    ];
+                }
+                else if (localizationKey == "TEAM STATUS")
+                {
+                    phrases = [
+                        (EPhraseTrigger)CustomPhrases.TeamStatus
+                    ];
+                }
+                else if (localizationKey == "SITUATIONAL")
+                {
+                    phrases = [
+                        EPhraseTrigger.LootKey,
+                        EPhraseTrigger.LootMoney,
+                        EPhraseTrigger.LootWeapon,
+                        EPhraseTrigger.LootGeneric,
+                        EPhraseTrigger.OpenDoor
+                    ];
+                }
+                else if (localizationKey == "HEALTH STATUS" || localizationKey == "REACTION")
+                {
+                    return false;
+                }
+
+            }
+
+            return true;
+        }
+    }
+
+    internal class CreateGesturesPatch : ModulePatch
+    {
+        private const string OverThereSpriteFileName = "gesture_over_there.png";
+        private static Sprite overThereSprite;
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GesturesMenu), "method_5");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(GesturesMenu __instance)
+        {
+            EInteraction gesture = (EInteraction)CustomGestures.OverThere;
+            GesturesMenuItem gestureItemTemplate = (GesturesMenuItem)AccessTools.Field(typeof(GesturesMenu), "_gestureItemTemplate").GetValue(__instance);
+            BaseTransformSolver gestureContainer = (BaseTransformSolver)AccessTools.Field(typeof(GesturesMenu), "_gestureContainer").GetValue(__instance);
+            List<GesturesMenuItem> gestureItems = (List<GesturesMenuItem>)AccessTools.Field(typeof(GesturesMenu), "_gestureItems").GetValue(__instance);
+            List<GestureBaseItem> list_2 = (List<GestureBaseItem>)AccessTools.Field(typeof(GesturesMenu), "list_2").GetValue(__instance);
+
+            GesturesMenuItem gesturesMenuItem = global::UnityEngine.Object.Instantiate<GesturesMenuItem>(gestureItemTemplate, gestureContainer.transform);
+            gestureContainer.SetChild(gesturesMenuItem.transform);
+            gesturesMenuItem.gameObject.name = gesture.ToString();
+            gesturesMenuItem.Gesture = gesture;
+
+            Sprite sprite = LoadOverThereSprite();
+            if (sprite != null)
+            {
+                gesturesMenuItem.Icon = sprite;
+            }
+
+            gesturesMenuItem.gameObject.SetActive(true);
+            gestureItems.Add(gesturesMenuItem);
+            list_2.Add(gesturesMenuItem);
+            gesturesMenuItem.OnPointerClicked.Subscribe(new Action<GestureBaseItem.GStruct449>(__instance.method_7));
+        }
+
+        private static Sprite LoadOverThereSprite()
+        {
+            if (overThereSprite != null)
+            {
+                return overThereSprite;
+            }
+
+            string pluginDirectory = Path.GetDirectoryName(typeof(pitFireTeam).Assembly.Location) ?? string.Empty;
+            string[] candidates =
+            {
+                Path.Combine(pluginDirectory, OverThereSpriteFileName),
+                Path.Combine(pluginDirectory, "resources", OverThereSpriteFileName),
+                Path.Combine(Directory.GetParent(pluginDirectory)?.FullName ?? pluginDirectory, "resources", OverThereSpriteFileName),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "pitFireTeam", OverThereSpriteFileName),
+                Path.Combine(Environment.CurrentDirectory, "BepInEx", "plugins", "pitFireTeam", "resources", OverThereSpriteFileName)
+            };
+
+            string iconPath = candidates.FirstOrDefault(File.Exists);
+            if (string.IsNullOrEmpty(iconPath))
+            {
+                pitFireTeam.Log?.LogWarning($"[UI] Over There gesture icon could not be found: {OverThereSpriteFileName}");
+                return null;
+            }
+
+            byte[] fileData = File.ReadAllBytes(iconPath);
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, false);
+            if (!texture.LoadImage(fileData))
+            {
+                UnityEngine.Object.Destroy(texture);
+                pitFireTeam.Log?.LogWarning($"[UI] Failed to decode Over There gesture icon '{iconPath}'.");
+                return null;
+            }
+
+            texture.name = "pitFireTeam_OverThereGestureIcon";
+            overThereSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 200f);
+            overThereSprite.name = "pitFireTeam_OverThereGestureIcon";
+            return overThereSprite;
+        }
+    }
 
     internal class GestureMenuAvailablePhrasesPatch : ModulePatch
     {
@@ -74,7 +232,90 @@ namespace pitTeam.Patches
         {
             var hashSet_1 = (HashSet<EPhraseTrigger>)AccessTools.Field(typeof(GesturesMenu), "hashSet_1").GetValue(__instance);
             hashSet_1.Add((EPhraseTrigger)CustomPhrases.TeamStatus);
-            hashSet_1.Add((EPhraseTrigger)CustomPhrases.OverThere);
+        }
+    }
+
+    internal class CustomPlayerGestureIntPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass3937), nameof(GClass3937.IsPlayerGesture), new[] { typeof(int) });
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(int index, ref bool __result)
+        {
+            if (index != (int)(EInteraction)CustomGestures.OverThere)
+            {
+                return true;
+            }
+
+            __result = true;
+            return false;
+        }
+    }
+
+    internal class CustomPlayerGestureInteractionPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass3937), nameof(GClass3937.IsPlayerGesture), new[] { typeof(EInteraction) });
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(EInteraction gesture, ref bool __result)
+        {
+            if (gesture != (EInteraction)CustomGestures.OverThere)
+            {
+                return true;
+            }
+
+            __result = true;
+            return false;
+        }
+    }
+
+    internal class GestureCommandNamePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass3937), nameof(GClass3937.GetCommandName), new[] { typeof(int) });
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(int index, ref string __result)
+        {
+            if (index == (int)EPhraseTrigger.OnRepeatedContact)
+            {
+                __result = GetGestureText("OnRepeatedContact", EPhraseTrigger.OnRepeatedContact.ToString());
+                return false;
+            }
+
+            if (index == (int)(EPhraseTrigger)CustomPhrases.TeamStatus)
+            {
+                __result = GetGestureText("TeamStatus", CustomPhrases.TeamStatus.ToString());
+                return false;
+            }
+
+            if (index == (int)(EInteraction)CustomGestures.OverThere)
+            {
+                __result = GetGestureText("OverThere", CustomGestures.OverThere.ToString());
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string GetGestureText(string key, string fallback)
+        {
+            if (pitFireTeam.optionsLang?.gestures != null &&
+                pitFireTeam.optionsLang.gestures.TryGetValue(key, out string value) &&
+                !string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            return fallback;
         }
     }
 
@@ -100,7 +341,10 @@ namespace pitTeam.Patches
                     __result = pitFireTeam.optionsLang.gestures["TeamStatus"];
                     return false;
                 }
-                else if (trigger == (EPhraseTrigger)CustomPhrases.OverThere)
+            }
+            else if (__instance is EInteraction trigger2)
+            {
+                if (trigger2 == (EInteraction)CustomGestures.OverThere)
                 {
                     __result = pitFireTeam.optionsLang.gestures["OverThere"];
                     return false;

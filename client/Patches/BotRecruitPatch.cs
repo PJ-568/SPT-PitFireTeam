@@ -35,7 +35,6 @@ namespace pitTeam.Patches
                     !BossPlayers.IsFollower(botOwner) &&
                     (
                         phrase == (EPhraseTrigger)CustomPhrases.TeamStatus ||
-                        phrase == (EPhraseTrigger)CustomPhrases.OverThere ||
                         phrase == EPhraseTrigger.OnRepeatedContact
                     )
                 )

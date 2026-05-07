@@ -101,6 +101,8 @@ namespace pitTeam.BigBrain
         private string? committedPushEnemyProfileId;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedMovementDecision;
         private string? committedMovementEnemyProfileId;
+        private Vector3 committedMovementTarget;
+        private int? committedMovementCoverId;
 
         private CustomNavigationPoint? committedCoverPoint;
 
@@ -440,12 +442,27 @@ namespace pitTeam.BigBrain
         {
             committedMovementDecision = decision;
             committedMovementEnemyProfileId = botOwner.Memory?.GoalEnemy?.ProfileId;
+            committedMovementTarget = Vector3.zero;
+            committedMovementCoverId = null;
+
+            if (committedCoverPoint != null)
+            {
+                committedMovementTarget = committedCoverPoint.Position;
+                committedMovementCoverId = committedCoverPoint.Id;
+            }
+            else if (botOwner.GoToSomePointData?.HaveTarget() == true &&
+                     IsFinite(botOwner.GoToSomePointData.Point))
+            {
+                committedMovementTarget = botOwner.GoToSomePointData.Point;
+            }
         }
 
         public void ClearCommittedMovement()
         {
             committedMovementDecision = null;
             committedMovementEnemyProfileId = null;
+            committedMovementTarget = Vector3.zero;
+            committedMovementCoverId = null;
         }
 
         public bool HasCommittedMovement()
@@ -544,16 +561,40 @@ namespace pitTeam.BigBrain
         {
             return decision.Action switch
             {
-                BotLogicDecision.runToCover => botOwner.Memory.IsInCover ||
-                                               IsBotInCommittedCover() ||
+                BotLogicDecision.runToCover => IsAtCommittedMovementDestination() ||
                                                botOwner.GoToSomePointData?.IsCome() == true,
                 BotLogicDecision.goToPoint or BotLogicDecision.goToPointTactical => botOwner.GoToSomePointData?.IsCome() == true,
-                BotLogicDecision.attackMoving or BotLogicDecision.attackMovingWithSuppress => botOwner.Memory.IsInCover,
-                var action when action == (BotLogicDecision)CustomBotDecisions.attackRetreat => botOwner.Memory.IsInCover,
+                BotLogicDecision.attackMoving or BotLogicDecision.attackMovingWithSuppress => IsAtCommittedMovementDestination(),
+                var action when action == (BotLogicDecision)CustomBotDecisions.attackRetreat => IsAtCommittedMovementDestination(),
                 BotLogicDecision.runToEnemy or BotLogicDecision.goToEnemy => botOwner.Memory.GoalEnemy?.IsVisible == true &&
                                                                              botOwner.Memory.GoalEnemy.CanShoot,
                 _ => false,
             };
+        }
+
+        private bool IsAtCommittedMovementDestination()
+        {
+            if (committedMovementCoverId.HasValue &&
+                IsBotInCommittedCover())
+            {
+                return true;
+            }
+
+            if (committedMovementCoverId.HasValue &&
+                botOwner.Memory?.CurCustomCoverPoint != null &&
+                botOwner.Memory.CurCustomCoverPoint.Id == committedMovementCoverId.Value)
+            {
+                return true;
+            }
+
+            if (IsFinite(committedMovementTarget) &&
+                committedMovementTarget.sqrMagnitude > 0.01f &&
+                (botOwner.Position - committedMovementTarget).sqrMagnitude <= 2f * 2f)
+            {
+                return true;
+            }
+
+            return botOwner.GoToSomePointData?.IsCome() == true;
         }
 
 
@@ -706,7 +747,9 @@ namespace pitTeam.BigBrain
                 followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
                 (command == FollowerCommandType.PushEnemy ||
                  command == FollowerCommandType.RegroupNearBoss ||
-                 command == FollowerCommandType.SuppressEnemy))
+                 command == FollowerCommandType.SuppressEnemy ||
+                 command == FollowerCommandType.CombatComeToBossCover ||
+                 command == FollowerCommandType.CombatMoveToPointTactical))
             {
                 return true;
             }
@@ -818,6 +861,15 @@ namespace pitTeam.BigBrain
             }
 
             return engaged;
+        }
+
+        public bool HasActiveCombatGestureOrder()
+        {
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(botOwner);
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
+                   (command == FollowerCommandType.CombatComeToBossCover ||
+                    command == FollowerCommandType.CombatMoveToPointTactical);
         }
 
         public AICoreActionResultStruct<BotLogicDecision, GClass26> CreateRegroupObjectiveDecision()
@@ -964,6 +1016,59 @@ namespace pitTeam.BigBrain
             }
 
             return false;
+        }
+
+        public bool TryForceGoalEnemy(string enemyProfileId, string reason, out EnemyInfo? forcedEnemy)
+        {
+            forcedEnemy = null;
+            if (string.IsNullOrEmpty(enemyProfileId) || botOwner?.Memory == null)
+            {
+                return false;
+            }
+
+            Player? enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
+            if (enemyPlayer?.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+
+            EnemyInfo? enemyInfo = Enemy.MakeEnemy(botOwner, enemyPlayer, EBotEnemyCause.checkAddTODO);
+            if (enemyInfo == null)
+            {
+                return false;
+            }
+
+            bool alreadyGoal = string.Equals(botOwner.Memory.GoalEnemy?.ProfileId, enemyProfileId, StringComparison.Ordinal);
+            if (!alreadyGoal)
+            {
+                // Explicit retarget orders need a stronger hand-off than priority scoring. Clear
+                // the current goal and retention once, then install the requested enemy as the new
+                // goal so vanilla/group sorting cannot immediately bounce us back to the old target.
+                FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(botOwner);
+                botOwner.Memory.GoalEnemy = null;
+                botOwner.Memory.LastEnemy = null;
+            }
+
+            enemyInfo.PriorityIndex = 0;
+            enemyInfo.IgnoreUntilAggression = false;
+            enemyInfo.SetVisible(enemyInfo.IsVisible);
+            Enemy.RepairPersonalMemory(enemyInfo, enemyPlayer.Position, enemyInfo.IsVisible || enemyInfo.CanShoot || enemyInfo.HaveSeen);
+            botOwner.Memory.IsPeace = false;
+            botOwner.Memory.GoalEnemy = enemyInfo;
+            FollowerContactEnemyRetention.Register(botOwner, enemyPlayer, enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
+            forcedEnemy = enemyInfo;
+            return HasActiveCombatEnemy(enemyInfo);
+        }
+
+        public bool TryForceGoalEnemy(BotOwner enemyBot, string reason, out EnemyInfo? forcedEnemy)
+        {
+            forcedEnemy = null;
+            if (enemyBot?.GetPlayer?.HealthController?.IsAlive != true || string.IsNullOrEmpty(enemyBot.ProfileId))
+            {
+                return false;
+            }
+
+            return TryForceGoalEnemy(enemyBot.ProfileId, reason, out forcedEnemy);
         }
 
         /// <summary>
@@ -1280,6 +1385,16 @@ namespace pitTeam.BigBrain
             return boss.CombatEvents.TryGetActivePushFor(botOwner, out pushEvent);
         }
 
+        public bool TryGetActivePushEventForCurrentEnemy(out CombatEvents.PushEvent pushEvent)
+        {
+            if (!TryGetActivePushEvent(out pushEvent))
+            {
+                return false;
+            }
+
+            return IsCurrentGoalEnemy(pushEvent.EnemyProfileId);
+        }
+
         // Helper eligibility for Rifleman-style push support. We require both straight-line and
         // nav-distance proximity so a follower across a wall/building does not "join" a push that
         // is tactically nearby but unreachable without a long detour.
@@ -1308,6 +1423,27 @@ namespace pitTeam.BigBrain
             return !IsFinite(navDistance) || navDistance <= maxNavDistance;
         }
 
+        public bool TryGetNearbyActivePushEventForCurrentEnemy(
+            float maxStraightDistance,
+            float maxNavDistance,
+            out CombatEvents.PushEvent pushEvent)
+        {
+            if (!TryGetNearbyActivePushEvent(maxStraightDistance, maxNavDistance, out pushEvent))
+            {
+                return false;
+            }
+
+            return IsCurrentGoalEnemy(pushEvent.EnemyProfileId);
+        }
+
+        private bool IsCurrentGoalEnemy(string enemyProfileId)
+        {
+            EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
+            return !string.IsNullOrEmpty(enemyProfileId) &&
+                   HasActiveCombatEnemy(goalEnemy) &&
+                   string.Equals(goalEnemy.ProfileId, enemyProfileId, StringComparison.Ordinal);
+        }
+
         public bool HasActivePushFromOther()
         {
             if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
@@ -1323,7 +1459,8 @@ namespace pitTeam.BigBrain
             string reason,
             out string committedReason,
             bool preferBackline,
-            bool enforceMarksmanPositionPolicy = false)
+            bool enforceMarksmanPositionPolicy = false,
+            float maxSearchRadius = 35f)
         {
             committedReason = reason;
             if (!CanAcquireCommittedCover())
@@ -1331,7 +1468,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!TryGetSupportCoverForEnemy(supportEnemy, out CustomNavigationPoint? supportCover, out _))
+            if (!TryGetSupportCoverForEnemy(supportEnemy, out CustomNavigationPoint? supportCover, out _, maxSearchRadius))
             {
                 return false;
             }
@@ -1527,6 +1664,11 @@ namespace pitTeam.BigBrain
             bool hasActivePushOrder = false,
             float stalePersonalEnemySeconds = 2.5f)
         {
+            if (FollowerCombatAnchor.IsCombatIndependent(botOwner))
+            {
+                return false;
+            }
+
             if (hasActivePushOrder)
             {
                 return false;
@@ -1732,6 +1874,53 @@ namespace pitTeam.BigBrain
             }
 
             if (allowObstructedSuppression &&
+                IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, botOwner.LookSensor.Mask) &&
+                !FollowerShotSafety.IsFriendlyInShotLane(botOwner, fireOrigin, suppressTarget) &&
+                botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
+            {
+                botOwner.Steering.LookToPoint(suppressTarget);
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    $"{reasonPrefix}.softObstructedPlace");
+                return true;
+            }
+
+            return false;
+        }
+
+        public bool TryCreateSuppressFromPlaceDecision(
+            EnemyInfo goalEnemy,
+            string reasonPrefix,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision,
+            bool allowSoftObstructedSuppression = false)
+        {
+            decision = default;
+            if (string.IsNullOrEmpty(reasonPrefix) ||
+                !HasActiveCombatEnemy(goalEnemy) ||
+                botOwner.SuppressShoot == null ||
+                !CanCurrentWeaponSuppress() ||
+                !TryGetSuppressTarget(goalEnemy, out Vector3 suppressTarget))
+            {
+                return false;
+            }
+
+            ShootPointClass shootPoint = new ShootPointClass(suppressTarget, 1f);
+            Vector3 fireOrigin = botOwner.WeaponRoot != null
+                ? botOwner.WeaponRoot.position
+                : botOwner.Position + Vector3.up * 1.2f;
+
+            if (Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, botOwner.LookSensor.Mask, false) &&
+                !FollowerShotSafety.IsFriendlyInShotLane(botOwner, fireOrigin, suppressTarget) &&
+                botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
+            {
+                botOwner.Steering.LookToPoint(suppressTarget);
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    $"{reasonPrefix}.place");
+                return true;
+            }
+
+            if (allowSoftObstructedSuppression &&
                 IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, botOwner.LookSensor.Mask) &&
                 !FollowerShotSafety.IsFriendlyInShotLane(botOwner, fireOrigin, suppressTarget) &&
                 botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
@@ -2660,20 +2849,12 @@ namespace pitTeam.BigBrain
 
         public Vector3 GetBossPosition()
         {
-            if (botOwner.BotFollower.BossToFollow is pitAIBossPlayer boss &&
-                boss.realPlayer != null &&
-                IsFinite(boss.realPlayer.Transform.position))
-            {
-                return boss.realPlayer.Transform.position;
-            }
+            return FollowerCombatAnchor.GetAnchorPosition(botOwner);
+        }
 
-            Vector3? liveBossPos = botOwner.BotFollower.BossToFollow?.Position;
-            if (liveBossPos.HasValue && IsFinite(liveBossPos.Value))
-            {
-                return liveBossPos.Value;
-            }
-
-            return botOwner.Position;
+        public Vector3 GetRealBossPosition()
+        {
+            return FollowerCombatAnchor.GetRealBossPosition(botOwner);
         }
 
         /// <summary>
@@ -3622,7 +3803,8 @@ namespace pitTeam.BigBrain
             string requestedEnemyProfileId,
             Vector3 requestedEnemyPosition,
             out EnemyInfo? selectedEnemy,
-            bool preferBackline = false)
+            bool preferBackline = false,
+            bool promoteSelected = true)
         {
             selectedEnemy = null;
 
@@ -3660,7 +3842,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!string.IsNullOrEmpty(selectedEnemy.ProfileId))
+            if (promoteSelected && !string.IsNullOrEmpty(selectedEnemy.ProfileId))
             {
                 TryPromoteTrackedEnemyAsGoal(selectedEnemy.ProfileId);
             }
@@ -5071,6 +5253,16 @@ namespace pitTeam.BigBrain
 
         private bool TryGetSupportCover(Vector3 enemyPosition, out CustomNavigationPoint? cover, out float navDistance, out bool hasShootLane)
         {
+            return TryGetSupportCover(enemyPosition, 35f, out cover, out navDistance, out hasShootLane);
+        }
+
+        private bool TryGetSupportCover(
+            Vector3 enemyPosition,
+            float searchRadius,
+            out CustomNavigationPoint? cover,
+            out float navDistance,
+            out bool hasShootLane)
+        {
             cover = null;
             navDistance = float.MaxValue;
             hasShootLane = false;
@@ -5090,7 +5282,7 @@ namespace pitTeam.BigBrain
             cover = Covers.GetClosestCoverPoint(
                 botOwner,
                 botOwner.Position,
-                35f,
+                searchRadius,
                 point => point != null &&
                          !point.IsSpotted &&
                          point.IsFreeById(botOwner.Id) &&
@@ -5313,6 +5505,57 @@ namespace pitTeam.BigBrain
             return true;
         }
 
+        public bool TryCreateBossCoverAttackMovingDecision(
+            EnemyInfo goalEnemy,
+            float searchRadius,
+            string reason,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!HasActiveCombatEnemy(goalEnemy))
+            {
+                return false;
+            }
+
+            ResetCommittedCover();
+            ClearCommittedMovement();
+
+            if (!TryFindBossCover(goalEnemy, GetBossPosition(), searchRadius, out CustomNavigationPoint? bossCover) ||
+                !IsCoverUsable(bossCover, true))
+            {
+                return false;
+            }
+
+            BotLogicDecision action = BotLogicDecision.attackMoving;
+            string movementReason = CreateMovementReason(reason, action);
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+            CommitCover(bossCover, action, movementReason);
+            AssignCover(bossCover);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(action, movementReason);
+            return true;
+        }
+
+        public bool TryCreateBossCommandTacticalPointDecision(
+            Vector3 target,
+            string reason,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!IsFinite(target))
+            {
+                return false;
+            }
+
+            ResetCommittedCover();
+            ClearCommittedMovement();
+            botOwner.GoToSomePointData.SetPoint(target);
+            SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.goToPointTactical,
+                reason);
+            return true;
+        }
+
         public static string CreateMovementReason(string baseReason, BotLogicDecision moveAction)
         {
             return moveAction switch
@@ -5501,7 +5744,8 @@ namespace pitTeam.BigBrain
         private bool TryGetSupportCoverForEnemy(
             EnemyInfo supportEnemy,
             out CustomNavigationPoint? supportCover,
-            out float supportCoverNavDistance)
+            out float supportCoverNavDistance,
+            float maxSearchRadius = 35f)
         {
             supportCover = null;
             supportCoverNavDistance = float.MaxValue;
@@ -5511,7 +5755,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!TryGetSupportCover(enemyPosition, out supportCover, out supportCoverNavDistance))
+            if (!TryGetSupportCover(enemyPosition, maxSearchRadius, out supportCover, out supportCoverNavDistance, out _))
             {
                 return false;
             }
@@ -7540,6 +7784,11 @@ namespace pitTeam.BigBrain
 
         public AICoreActionEndStruct EndBaseHoldPosition(string reason)
         {
+            if (HasActiveCombatGestureOrder())
+            {
+                return new AICoreActionEndStruct("combatGestureBreakHold", true);
+            }
+
             if (holdActive && holdEndTime < Time.time)
             {
                 holdActive = false;

@@ -2,6 +2,7 @@ using EFT;
 using pitTeam.Components;
 using pitTeam.Modules;
 using System;
+using Vector3 = UnityEngine.Vector3;
 
 namespace pitTeam.BigBrain
 {
@@ -13,7 +14,8 @@ namespace pitTeam.BigBrain
             Default,
             Regroup,
             Suppression,
-            NeedSniper
+            NeedSniper,
+
         }
 
         protected readonly BotOwner BotOwner;
@@ -57,6 +59,7 @@ namespace pitTeam.BigBrain
 
         public virtual void Reset()
         {
+            BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
             combatCommon.Reset();
             defaultObjective.Reset();
             sniperObjective.Reset();
@@ -83,6 +86,12 @@ namespace pitTeam.BigBrain
 
             try
             {
+                BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+                if (TryConsumeCombatGestureCommand(followerData, goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> commandDecision))
+                {
+                    return commandDecision;
+                }
+
                 RefreshObjective(goalEnemy);
                 AICoreActionResultStruct<BotLogicDecision, GClass26> decision = GetCurrentObjective().GetDecision(goalEnemy);
                 // Default combat can request an objective switch without leaking a fake action to the layer.
@@ -114,6 +123,13 @@ namespace pitTeam.BigBrain
         {
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (goalEnemy != null &&
+                HasActiveCombatGestureOrder(followerData) &&
+                FollowerCombatCommon.IsMovementDecision(currentDecision))
+            {
+                followerData?.ClearCommand("CombatCommand:IgnoreWhileMoving");
+            }
+
             if (currentObjective != CombatObjectiveKind.Suppression &&
                 goalEnemy != null &&
                 ShouldConsumeSuppressCommand(followerData, goalEnemy))
@@ -247,6 +263,7 @@ namespace pitTeam.BigBrain
             // Regroup is temporary combat intent: finish it when it completes, combat ends, or
             // an explicit combat order arrives and should hand control back to the tactic's primary stack.
             return HasActivePushOrder(followerData) ||
+                   HasActiveCombatGestureOrder(followerData) ||
                    HasActiveSuppressOrder(followerData) ||
                    HasActiveNeedSniperOrder(followerData) ||
                    regroupObjective.IsComplete ||
@@ -256,6 +273,7 @@ namespace pitTeam.BigBrain
         protected virtual bool ShouldReturnFromSuppressionObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
         {
             return HasActivePushOrder(followerData) ||
+                   HasActiveCombatGestureOrder(followerData) ||
                    HasActiveNeedSniperOrder(followerData) ||
                    suppressionObjective.IsComplete ||
                    !combatCommon.HasActiveCombatEnemy(goalEnemy);
@@ -264,9 +282,89 @@ namespace pitTeam.BigBrain
         protected virtual bool ShouldReturnFromNeedSniperObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
         {
             return HasActivePushOrder(followerData) ||
+                   HasActiveCombatGestureOrder(followerData) ||
                    HasActiveSuppressOrder(followerData) ||
                    needSniperObjective.IsComplete ||
                    !combatCommon.HasActiveCombatEnemy(goalEnemy);
+        }
+
+        private bool TryConsumeCombatGestureCommand(
+            BotFollowerPlayer? followerData,
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (followerData == null ||
+                !followerData.TryGetActiveCommand(out FollowerCommandType command, out Vector3 target))
+            {
+                return false;
+            }
+
+            if (command == FollowerCommandType.CombatComeToBossCover)
+            {
+                if (ShouldDropCombatGestureCommandBecauseMoving(followerData))
+                {
+                    return false;
+                }
+
+                if (!combatCommon.TryCreateBossCoverAttackMovingDecision(
+                        goalEnemy,
+                        CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(),
+                        "command.comeWithMeBossCover",
+                        out decision))
+                {
+                    followerData.ClearCommand("CombatCommand:NoBossCover");
+                    BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
+                    BotOwner.Gesture?.TryGestus(EInteraction.NoGesture, false);
+                    return false;
+                }
+
+                followerData.ClearCommand("CombatCommand:ConsumeComeWithMeCover");
+                ActivatePrimaryObjective();
+                return true;
+            }
+
+            if (command == FollowerCommandType.CombatMoveToPointTactical)
+            {
+                if (ShouldDropCombatGestureCommandBecauseMoving(followerData))
+                {
+                    return false;
+                }
+
+                if (!combatCommon.TryCreateBossCommandTacticalPointDecision(
+                        target,
+                        "command.thereTactical",
+                        out decision))
+                {
+                    followerData.ClearCommand("CombatCommand:InvalidTacticalPoint");
+                    BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
+                    BotOwner.Gesture?.TryGestus(EInteraction.NoGesture, false);
+                    return false;
+                }
+
+                followerData.ClearCommand("CombatCommand:ConsumeThereTactical");
+                ActivatePrimaryObjective();
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool ShouldDropCombatGestureCommandBecauseMoving(BotFollowerPlayer followerData)
+        {
+            if (BotOwner.Brain?.Agent == null)
+            {
+                return false;
+            }
+
+            AICoreActionResultStruct<BotLogicDecision, GClass26> lastDecision = BotOwner.Brain.Agent.LastResult();
+            if (!FollowerCombatCommon.IsMovementDecision(lastDecision))
+            {
+                return false;
+            }
+
+            followerData.ClearCommand("CombatCommand:DropAfterMovement");
+            return true;
         }
 
         private void RefreshObjective(EnemyInfo goalEnemy)
@@ -310,6 +408,7 @@ namespace pitTeam.BigBrain
         {
             followerData.ClearCommand("CombatObjective:ConsumeRegroup");
             ActivateRegroupObjective();
+            followerData.SetCombatRegroupBossAnchor(true);
         }
 
         private void ActivateRegroupObjective()
@@ -396,6 +495,7 @@ namespace pitTeam.BigBrain
             regroupObjective.Deactivate();
             suppressionObjective.Deactivate();
             needSniperObjective.Deactivate();
+            BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
             // Re-enter tactic combat with clean local primary-objective state, but do not call
             // StartDecision() here or the bot would incorrectly get a fresh combat opener.
             GetObjective().Activate();
@@ -435,6 +535,14 @@ namespace pitTeam.BigBrain
             return followerData != null &&
                    followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
                    command == FollowerCommandType.NeedSniper;
+        }
+
+        private static bool HasActiveCombatGestureOrder(BotFollowerPlayer? followerData)
+        {
+            return followerData != null &&
+                   followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
+                   (command == FollowerCommandType.CombatComeToBossCover ||
+                    command == FollowerCommandType.CombatMoveToPointTactical);
         }
     }
 }

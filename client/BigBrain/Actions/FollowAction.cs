@@ -17,7 +17,7 @@ namespace pitTeam.BigBrain.Actions
     /// </summary>
     internal class FollowAction : CustomLogic
     {
-        private const int DefaultFollowDistance = 12;
+        private const float FallbackFollowDistance = 12f;
         private const bool EnableFollowDebug = false;
         private const float MaxBossSpeedForSettle = 0.35f;
         private const float SettleSpacing = 2.5f;
@@ -98,7 +98,7 @@ namespace pitTeam.BigBrain.Actions
 
             BotOwner.DoorOpener.UpdateDoorInteractionStatus();
             followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
-            //SetPatrolEnabled(followerData?.CanPatrol == true);
+            SetPatrolEnabled(followerData?.CanPatrol == true);
 
             if (!TryGetBossAndPlayer())
             {
@@ -108,7 +108,14 @@ namespace pitTeam.BigBrain.Actions
 
             try
             {
-                Follow();
+                if (patrolEnabled)
+                {
+                    Patrol();
+                }
+                else
+                {
+                    Follow();
+                }
             }
             catch (Exception ex)
             {
@@ -133,6 +140,12 @@ namespace pitTeam.BigBrain.Actions
         {
             if (bossPlayer == null) return BotOwner.Position;
             return bossPlayer.Transform.position;
+        }
+
+        private float GetEffectiveFollowDistance()
+        {
+            float distance = pitFireTeam.followDistance?.Value ?? FallbackFollowDistance;
+            return Mathf.Clamp(distance, 8f, 30f);
         }
 
         private void Follow(bool forceFollow = false, float forcedDistance = 0f)
@@ -160,7 +173,8 @@ namespace pitTeam.BigBrain.Actions
                 ? forcedDistance
                 : Mathf.Abs((leaderPosition - BotOwner.Position).magnitude);
 
-            bool inRange = distance < DefaultFollowDistance;
+            float followDistance = GetEffectiveFollowDistance();
+            bool inRange = distance < followDistance;
 
             if (inRange)
             {
@@ -219,7 +233,7 @@ namespace pitTeam.BigBrain.Actions
                     }
 
                     // No cover found: follow boss at medium range (boss-proximity mode)
-                    if (TryGetRandomSettlePoint(leaderPosition, DefaultFollowDistance, out Vector3 settlePosition))
+                    if (TryGetRandomSettlePoint(leaderPosition, followDistance, out Vector3 settlePosition))
                     {
                         BotOwner.GoToSomePointData.SetPoint(settlePosition);
                         BotOwner.GoToSomePointData.UpdateToGo(false);
@@ -258,7 +272,7 @@ namespace pitTeam.BigBrain.Actions
 
             // Normal follow is allowed to sprint when the boss has opened distance. Once close enough,
             // the settle logic above takes over and moves the follower into a stable local position.
-            bool shouldSprint = distance > Mathf.Min(DefaultFollowDistance + 3f, 16f);
+            bool shouldSprint = distance > Mathf.Min(followDistance + 3f, 16f);
             if (BotOwner.Mover.TargetPose != 1f)
             {
                 BotOwner.Mover.SetPose(1f);
@@ -266,7 +280,7 @@ namespace pitTeam.BigBrain.Actions
             BotOwner.Mover.Sprint(shouldSprint, false);
         }
 
-        private CustomNavigationPoint? TryGetSettleCoverPoint(Vector3 leaderPosition, int settleDistance)
+        private CustomNavigationPoint? TryGetSettleCoverPoint(Vector3 leaderPosition, float settleDistance)
         {
             if (lastCoverPoint != null || noCoverFound)
             {
@@ -342,7 +356,7 @@ namespace pitTeam.BigBrain.Actions
             return validCandidates[0];
         }
 
-        private bool TryGetRandomSettlePoint(Vector3 leaderPosition, int settleDistance, out Vector3 settlePosition)
+        private bool TryGetRandomSettlePoint(Vector3 leaderPosition, float settleDistance, out Vector3 settlePosition)
         {
             float minOffset = Mathf.Min(1f, settleDistance * 0.19f);
             float maxOffset = Mathf.Min(5f, settleDistance * 0.65f);
@@ -394,13 +408,14 @@ namespace pitTeam.BigBrain.Actions
             if (resumeFollowUntil > Time.time)
             {
                 Follow();
+                return;
             }
 
             movingToSettlePoint = false;
 
             Vector3 leaderPosition = bossPlayer.Transform.position;
             Vector3 botPosition = BotOwner.GetPlayer.Transform.position;
-            int followDistance = DefaultFollowDistance;
+            float followDistance = GetEffectiveFollowDistance();
 
             if (!isPatrolCampInitialized)
             {

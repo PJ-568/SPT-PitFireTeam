@@ -1,6 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using pitTeam.Components;
+using pitTeam.Modules;
 using SAIN.Layers;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using UnityEngine;
@@ -154,7 +155,7 @@ namespace pitTeam.SAINAddon
                 return true;
             }
 
-            position = boss.realPlayer.Transform.position;
+            position = FollowerCombatAnchor.GetAnchorPosition(BotOwner);
             return true;
         }
     }

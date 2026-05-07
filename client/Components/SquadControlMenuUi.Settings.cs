@@ -183,6 +183,8 @@ namespace pitTeam.Components
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.followSettings ?? "Follow Settings",
+                pitFireTeam.patrolRadius,
+                pitFireTeam.followDistance,
                 pitFireTeam.goToDistance))
             {
                 yield return setting;
@@ -191,6 +193,7 @@ namespace pitTeam.Components
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.combatSettings ?? "Combat Settings",
                 pitFireTeam.botGrenades,
+                pitFireTeam.regroupRadius,
                 pitFireTeam.enemyMarker,
                 pitFireTeam.statusSound,
                 pitFireTeam.enemyRemember,
@@ -202,6 +205,7 @@ namespace pitTeam.Components
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.inputSettings ?? "Input Settings",
+                pitFireTeam.hideUnsupportedCommands,
                 pitFireTeam.pingKey,
                 pitFireTeam.contactKey,
                 pitFireTeam.overThereKey))
@@ -291,7 +295,7 @@ namespace pitTeam.Components
 
         private static bool IsBetaHiddenSetting(ConfigEntryBase entry)
         {
-            return entry == pitFireTeam.patrolRadius;
+            return false;
         }
 
         private void CreateSettingsSectionHeader(string title)
@@ -476,6 +480,7 @@ namespace pitTeam.Components
                 || entry == pitFireTeam.heatlhMultiplier
                 || entry == pitFireTeam.pitFireTeamFLAG
                 || entry == pitFireTeam.badGuy
+                || entry == pitFireTeam.pmcArmbands
                 || entry == pitFireTeam.botPrefetch
                 || entry == pitFireTeam.battleRecorderEnabled;
         }
@@ -1451,6 +1456,8 @@ namespace pitTeam.Components
 
             if (entry == pitFireTeam.scanDistance) return language.scanDistance;
             if (entry == pitFireTeam.patrolRadius) return language.patrolRadius;
+            if (entry == pitFireTeam.followDistance) return language.followDistance;
+            if (entry == pitFireTeam.regroupRadius) return language.regroupRadius;
             if (entry == pitFireTeam.enemyRemember) return language.enemyRemember;
             if (entry == pitFireTeam.heatlhMultiplier) return language.healthMultiplier;
             if (entry == pitFireTeam.statusSound) return language.statusSound;
@@ -1470,6 +1477,7 @@ namespace pitTeam.Components
             if (entry == pitFireTeam.pingTime) return language.pingTime;
             if (entry == pitFireTeam.contactKey) return language.enemyContact;
             if (entry == pitFireTeam.overThereKey) return language.overThere;
+            if (entry == pitFireTeam.hideUnsupportedCommands) return language.hideUnsupportedCommands;
             if (entry == pitFireTeam.teleportKey) return language.botTeleport;
             if (entry == pitFireTeam.healKey) return language.botHeal;
             if (entry == pitFireTeam.botPrefetch) return language.botPrefetch;

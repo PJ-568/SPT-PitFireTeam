@@ -61,6 +61,7 @@ namespace pitTeam.Components
         private const float CommandLookOverrideMaxSeconds = 3.5f;
         private const float ComeWithMeMaxDistance = 25f;
         private const float DefaultGoToDistance = 50f;
+        private const float CombatThereMaxDistance = 30f;
         private const float LookAtFollowerDistance = 27f;
         private const float RegroupCloseNavDistance = 8f;
         private const float RegroupSameLevelTolerance = 1.75f;
@@ -128,6 +129,13 @@ namespace pitTeam.Components
             _group.CheckAndAddEnemy(enemy);
         }
 
+        // Boss command map:
+        // TeamStatus: status ping UI + nearby friendly gesture.
+        // NeedSniper/NeedHelp/Contact/DirectionalLook/Look: attention and target-acquisition cues.
+        // Stop/Hold/GoGoGo/GoForward/Suppress/Regroup: request or combat-objective commands.
+        // OnYourOwn/CoverMe: broadcast patrol or combat-independent mode toggles, not movement requests.
+        // OpenDoor/Loot: situational request-layer work.
+        // FollowMe/Cooperation: recruit or clear follower commands back to normal follow.
         public void PhraseSaid(EventInfo info)
         {
             if (info.PlayerRequester != null && info.PlayerRequester.ProfileId == realPlayer.ProfileId)
@@ -137,6 +145,7 @@ namespace pitTeam.Components
                 // FollowerRequestLayer later consumes that state and starts the matching BigBrain action.
                 if (info.phrase == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
+                    // Status Report: show follower status and have nearby idle followers answer visually.
                     float now = Time.time;
                     if (now - _lastTeamStatusCommandAt < TeamStatusDebounceSeconds)
                     {
@@ -147,22 +156,21 @@ namespace pitTeam.Components
                     PingTeamates.Instance.Ping(this);
                     SignalTeamStatusFollowers();
                 }
-                else if (info.phrase == (EPhraseTrigger)CustomPhrases.OverThere)
-                {
-                    ProcessContactCommand(info.PlayerRequester, true);
-                }
                 else if (info.phrase == EPhraseTrigger.NeedSniper)
                 {
+                    // Need Sniper: ask marksman followers for a firing-position support action.
                     ApplyNeedSniperPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.NeedHelp)
                 {
+                    // Need Help: mark the boss-local threat for follower support.
                     ApplyNeedHelpPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.OnRepeatedContact)
                 {
+                    // Contact: point followers toward a seen or aimed-at threat and seed enemy memory.
                     ProcessContactCommand(info.PlayerRequester);
                 }
                 else if (info.phrase == EPhraseTrigger.InTheFront ||
@@ -170,54 +178,77 @@ namespace pitTeam.Components
                          info.phrase == EPhraseTrigger.RightFlank ||
                          info.phrase == EPhraseTrigger.OnSix)
                 {
+                    // Directional calls: look-only callouts relative to the boss view direction.
                     ApplyDirectionalLookPhrase(info.PlayerRequester, info.phrase);
                 }
                 else if (info.phrase == EPhraseTrigger.Look)
                 {
+                    // Attention: clear look pressure and refocus followers on the boss/direction.
                     HandleAttentionCommand();
                 }
                 else if (info.phrase == EPhraseTrigger.Stop)
                 {
+                    // Stop: out-of-combat hold without crouch.
                     ApplyStopPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.HoldPosition)
                 {
+                    // Hold Position: combat 0% temporary aggression override.
                     ApplyHoldPositionCombatAggression(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.Gogogo)
                 {
+                    // Go Go Go: clear the temporary combat aggression override.
                     ApplyGoGoGoCombatAggression(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.GoForward)
                 {
+                    // Go Forward: push current enemy in combat, point movement out of combat.
                     ApplyGoForwardPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.Suppress)
                 {
+                    // Suppress: non-marksman suppress-capable followers suppress current contact.
                     ApplySuppressPhrase(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.Regroup)
                 {
+                    // Regroup: out of combat exits patrol; in combat orders a literal boss-position regroup.
                     ApplyRegroupCommand(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.OnYourOwn)
+                {
+                    // On Your Own: out-of-combat patrol-radius mode; in combat independent anchor mode.
+                    ApplyOnYourOwnCommand(info.PlayerRequester);
+                    return;
+                }
+                else if (info.phrase == EPhraseTrigger.CoverMe)
+                {
+                    // Cover Me: out-of-combat drops patrol; in combat drops independent anchor mode only.
+                    ApplyCoverMeCommandDrop(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.OpenDoor)
                 {
+                    // Open Door: closest eligible follower opens the target door.
                     ApplyOpenDoorCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.LootGeneric || info.phrase == EPhraseTrigger.LootWeapon)
                 {
+                    // Loot: closest eligible follower takes the target item.
                     ApplyTakeLootCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
                 {
+                    // Follow Me / Cooperation: normal follow mode and command cleanup.
                     ClearFollowerCommands();
                 }
             }
@@ -237,6 +268,7 @@ namespace pitTeam.Components
                 // Commands handled here are consumed before the gesture is forwarded to vanilla receivers.
                 if (info.Gesture == (EInteraction)CustomGestures.OverThere)
                 {
+                    // Over There: gesture-based Contact plus vanilla receiver feedback.
                     _ignoreNextThereGestureUntil = Time.time + 0.75f;
                     ProcessContactCommand(info.Player, true);
 
@@ -256,18 +288,21 @@ namespace pitTeam.Components
 
                 if (info.Gesture == EInteraction.HoldGesture)
                 {
+                    // Hold gesture: visible nearby followers hold position and crouch.
                     ApplyHoldGesture(info.Player);
                     return;
                 }
 
                 if (info.Gesture == EInteraction.ComeWithMeGesture)
                 {
+                    // Come With Me: close movement out of combat, boss-cover movement in combat.
                     ApplyComeWithMeGesture(info.Player);
                     return;
                 }
 
                 if (info.Gesture == EInteraction.ThereGesture)
                 {
+                    // There: point movement out of combat, tactical point movement in combat.
                     if (Time.time < _ignoreNextThereGestureUntil)
                     {
                         return;
@@ -1052,6 +1087,10 @@ namespace pitTeam.Components
                 if (!BossPlayers.IsFollower(follower)) continue;
 
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (!IsCombatRegroupContext())
+                {
+                    followerData?.SetCanPatrol(false);
+                }
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ClearTemporaryCombatAggressionOverride();
 
@@ -1264,14 +1303,22 @@ namespace pitTeam.Components
         {
             if (requester == null) return;
 
-            Vector3 bossPos = requester.Position;
             bool combatRegroupContext = IsCombatRegroupContext();
+            Vector3 bossPos = requester.Position;
             bool useSainRegroupRoute = pitFireTeam.ShouldUseSainRegroupRoute(combatRegroupContext);
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
+                if (!combatRegroupContext)
+                {
+                    followerData.SetCanPatrol(false);
+                }
+                else
+                {
+                    followerData.SetCombatRegroupBossAnchor(true);
+                }
 
                 if (useSainRegroupRoute)
                 {
@@ -1304,6 +1351,60 @@ namespace pitTeam.Components
                 }
 
                 followerData.SetRegroup(20f);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ApplyOnYourOwnCommand(IPlayer requester)
+        {
+            if (requester == null) return;
+
+            bool combatContext = IsCombatRegroupContext();
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                if (combatContext)
+                {
+                    followerData.SetCombatIndependent(true);
+                }
+                else
+                {
+                    followerData.ClearCommand("OnYourOwn:Patrol");
+                    followerData.ClearTemporaryCombatAggressionOverride();
+                    followerData.SetCanPatrol(true);
+                }
+                follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            }
+        }
+
+        private void ApplyCoverMeCommandDrop(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return;
+            }
+
+            bool combatContext = IsCombatRegroupContext();
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null) continue;
+
+                if (combatContext)
+                {
+                    followerData.SetCombatIndependent(false);
+                }
+                else
+                {
+                    followerData.SetCanPatrol(false);
+                }
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }
@@ -1474,7 +1575,10 @@ namespace pitTeam.Components
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                followerData?.ClearCommand("ClearFollowerCommands");
+                if (followerData == null) continue;
+
+                followerData.SetCanPatrol(false);
+                followerData.ClearCommand("ClearFollowerCommands");
             }
         }
 
@@ -1690,6 +1794,13 @@ namespace pitTeam.Components
                 return;
             }
 
+            if (HasActiveCombatEnemy(lookedFollower))
+            {
+                followerData.SetCombatComeToBossCover(8f);
+                lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                return;
+            }
+
             // Come-with-me is a targeted short command; after arrival the follower returns to normal patrol.
             followerData.SetComeCloser(10f);
             lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
@@ -1722,18 +1833,38 @@ namespace pitTeam.Components
                 return;
             }
 
-            if (!TryGetGoToCommandTarget(requester, out Vector3 commandTarget))
-            {
-                return;
-            }
-
             BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(closestFollower);
             if (followerData == null)
             {
                 return;
             }
 
+            bool combatCommand = HasActiveCombatEnemy(closestFollower);
+            Vector3 commandTarget;
+            bool hasTarget = combatCommand
+                ? TryGetGoToCommandTarget(requester, CombatThereMaxDistance, out commandTarget)
+                : TryGetGoToCommandTarget(requester, out commandTarget);
+            if (!hasTarget)
+            {
+                return;
+            }
+
+            if (combatCommand &&
+                (commandTarget - requester.Position).sqrMagnitude > CombatThereMaxDistance * CombatThereMaxDistance)
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                closestFollower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                return;
+            }
+
             ApplyFollowerLookOverride(closestFollower, commandTarget);
+
+            if (combatCommand)
+            {
+                followerData.SetCombatMoveToPointTactical(commandTarget, 8f);
+                closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                return;
+            }
 
             if (CanAcceptThereCommand(closestFollower))
             {
@@ -2243,6 +2374,12 @@ namespace pitTeam.Components
 
         private static bool TryGetGoToCommandTarget(IPlayer requester, out Vector3 commandTarget)
         {
+            float maxGoToDistance = pitFireTeam.goToDistance?.Value ?? DefaultGoToDistance;
+            return TryGetGoToCommandTarget(requester, maxGoToDistance, out commandTarget);
+        }
+
+        private static bool TryGetGoToCommandTarget(IPlayer requester, float maxDistance, out Vector3 commandTarget)
+        {
             commandTarget = Vector3.zero;
             if (requester == null)
             {
@@ -2268,9 +2405,9 @@ namespace pitTeam.Components
             }
             planarDirection.Normalize();
 
-            float maxGoToDistance = pitFireTeam.goToDistance?.Value ?? DefaultGoToDistance;
-            Vector3 rawTarget = requesterPos + planarDirection * maxGoToDistance;
-            bool hasSurfaceHit = TryGetCommandSurfaceHit(interactionRay, rayDirection, maxGoToDistance, out RaycastHit lookHit);
+            maxDistance = Mathf.Max(1f, maxDistance);
+            Vector3 rawTarget = requesterPos + planarDirection * maxDistance;
+            bool hasSurfaceHit = TryGetCommandSurfaceHit(interactionRay, rayDirection, maxDistance, out RaycastHit lookHit);
             if (hasSurfaceHit)
             {
                 rawTarget = lookHit.point;
@@ -2339,6 +2476,13 @@ namespace pitTeam.Components
                    action != BotLogicDecision.attackMovingWithSuppress &&
                    action != (BotLogicDecision)CustomBotDecisions.attackRetreat &&
                    action != BotLogicDecision.attackMovingFlank;
+        }
+
+        private static bool HasActiveCombatEnemy(BotOwner follower)
+        {
+            EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
+            return follower?.Memory?.HaveEnemy == true &&
+                   goalEnemy?.Person?.HealthController?.IsAlive == true;
         }
 
         private BotOwner FindLookedAtFollower(Player requester, float distance)

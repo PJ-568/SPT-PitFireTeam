@@ -1009,15 +1009,9 @@ namespace pitTeam.BigBrain
 
             // Marksman consumes the same push event as Rifleman helpers, but its support policy is
             // stricter: prefer current shot/cover, then support cover/firing position, not assault.
-            if (!string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+            if (!CombatCommon.HasActiveCombatEnemy(goalEnemy))
             {
-                CombatCommon.TryPromoteTrackedEnemyAsGoal(pushEvent.EnemyProfileId);
-                goalEnemy = BotOwner.Memory.GoalEnemy;
-                if (!CombatCommon.HasActiveCombatEnemy(goalEnemy) ||
-                    !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
-                {
-                    return false;
-                }
+                return false;
             }
 
             if (CombatCommon.CanShootFromCurrentCover(out _))
@@ -1529,6 +1523,12 @@ namespace pitTeam.BigBrain
 
         private AICoreActionEndStruct EndHoldPosition(string? reason)
         {
+            if (CombatCommon.HasActiveCombatGestureOrder())
+            {
+                ClearCommittedCoverAndRepositionState();
+                return new AICoreActionEndStruct("sniperCombatGestureBreakHold", true);
+            }
+
             if (string.Equals(reason, FireSupportHoldReason, StringComparison.Ordinal))
             {
                 return EndFireSupportHoldPosition();
@@ -1612,15 +1612,20 @@ namespace pitTeam.BigBrain
             if (CanScanRepositionHold() && ShouldRescanShootingPosition(goalEnemy))
             {
                 MarkRepositionHoldScanned();
-                ClearCommittedCoverAndRepositionState();
-                return new AICoreActionEndStruct("sniperCoverHoldRescan", true);
             }
 
             // Break when a better shooting spot appears than the current committed hold point.
             if (CanScanRepositionHold() && HasNewShootingSpotOpportunity())
             {
                 MarkRepositionHoldScanned();
-                ClearCommittedCoverAndRepositionState();
+                if (!TryGetRepositionHoldOpportunityDecision(
+                        goalEnemy,
+                        out AICoreActionResultStruct<BotLogicDecision, GClass26> repositionDecision))
+                {
+                    return CombatCommon.EndBaseHoldPosition(reason ?? string.Empty);
+                }
+
+                TryPrepareBreakDecision(repositionDecision, false, true);
                 return new AICoreActionEndStruct("sniperCoverHoldNewShootSpot", true);
             }
 
@@ -1989,12 +1994,12 @@ namespace pitTeam.BigBrain
 
         private bool ShouldBreakForPushSupportOpportunity()
         {
-            return CombatCommon.TryGetActivePushEvent(out _);
+            return CombatCommon.TryGetActivePushEventForCurrentEnemy(out _);
         }
 
         private bool TryGetActivePushEvent(out CombatEvents.PushEvent pushEvent)
         {
-            return CombatCommon.TryGetActivePushEvent(out pushEvent);
+            return CombatCommon.TryGetActivePushEventForCurrentEnemy(out pushEvent);
         }
 
         private bool ShouldRescanShootingPosition(EnemyInfo goalEnemy)
@@ -2166,7 +2171,7 @@ namespace pitTeam.BigBrain
             float navDistance = CombatCommon.GetBossNavDistance(bossPosition);
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
-            if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman())
+            if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman(BotOwner))
             {
                 return false;
             }
@@ -2256,7 +2261,7 @@ namespace pitTeam.BigBrain
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
             return followerBossDistance >=
-                   CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman() * RegroupExtremeDistanceMultiplier;
+                   CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman(BotOwner) * RegroupExtremeDistanceMultiplier;
         }
 
         private AICoreActionResultStruct<BotLogicDecision, GClass26> CreateNoActionFallback()
@@ -2353,6 +2358,10 @@ namespace pitTeam.BigBrain
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             decision = default;
+            if (FollowerCombatAnchor.IsCombatIndependent(BotOwner))
+            {
+                return false;
+            }
 
             // If the marksman already has a clean personal shot, taking it is the fastest support.
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
@@ -2377,9 +2386,8 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            boss.PrioritizeEnemy(BotOwner, bossEnemy);
-            EnemyInfo? prioritizedEnemy = BotOwner.Memory.GoalEnemy;
-            if (!CombatCommon.HasActiveCombatEnemy(prioritizedEnemy))
+            if (!CombatCommon.TryForceGoalEnemy(bossEnemy, "sniper.bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
+                !CombatCommon.HasActiveCombatEnemy(prioritizedEnemy))
             {
                 return false;
             }

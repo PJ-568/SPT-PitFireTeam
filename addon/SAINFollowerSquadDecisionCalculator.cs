@@ -18,8 +18,6 @@ namespace pitTeam.SAINAddon
         private const float EndHelpFriendDist = 45f;
         private const float EndHelpFriendsEnemySeenRecentTime = 8f;
         private const float SearchEnemySeenRecentTime = 20f;
-        private const float RegroupEnemyStartDist = 50f;
-        private const float RegroupEnemyEndDistance = 15f;
         private const float RegroupEnemySeenRecentTime = 60f;
         private const float PushSuppressedEnemyMaxPathDistance = 75f;
         private const float PushSuppressedEnemyMaxPathDistanceSprint = 100f;
@@ -260,9 +258,8 @@ namespace pitTeam.SAINAddon
                 return false;
             }
 
-            Vector3 bossPos = boss.realPlayer.Transform.position;
-            float maxDist = RegroupEnemyStartDist;
-            float minDist = RegroupEnemyEndDistance;
+            Vector3 bossPos = FollowerCombatAnchor.GetAnchorPosition(owner);
+            float regroupDistance = GetAutoRegroupDistance(owner);
 
             if (enemy.IsVisible || (enemy.Seen && enemy.TimeSinceSeen < RegroupEnemySeenRecentTime))
             {
@@ -279,12 +276,13 @@ namespace pitTeam.SAINAddon
                 return false;
             }
 
-            if (bot.Decision.CurrentSquadDecision == SAIN.ESquadDecision.Regroup)
-            {
-                return bossDistance > minDist;
-            }
+            return bossDistance > regroupDistance;
+        }
 
-            return bossDistance > maxDist;
+        private static float GetAutoRegroupDistance(BotOwner owner)
+        {
+            float baseDistance = pitFireTeam.regroupRadius?.Value ?? 18f;
+            return Mathf.Clamp(baseDistance, 10f, 38f);
         }
 
         private static System.Collections.Generic.IEnumerable<BotComponent> EnumerateFollowerMembers(BotOwner owner, pitAIBossPlayer boss)

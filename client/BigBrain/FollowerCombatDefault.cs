@@ -47,6 +47,7 @@ namespace pitTeam.BigBrain
         private float protectIntentRetryUntil;
         private float autoSuppressRetryUntil;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedAllySupportDecision;
+        private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedAdvanceDecision;
 
         public FollowerCombatDefault(BotOwner botOwner, FollowerCombatCommon combatCommon)
         {
@@ -68,6 +69,7 @@ namespace pitTeam.BigBrain
             ClearCoverIntent();
             autoSuppressRetryUntil = 0f;
             preparedAllySupportDecision = null;
+            preparedAdvanceDecision = null;
         }
 
         /// <summary>
@@ -97,6 +99,10 @@ namespace pitTeam.BigBrain
                 ClearCoverIntent();
             }
 
+            if (!IsDecisionCompatibleWithPreparedAdvance(nextDecision))
+            {
+                preparedAdvanceDecision = null;
+            }
         }
 
         /// <summary>
@@ -150,6 +156,11 @@ namespace pitTeam.BigBrain
             if (TryGetBossDistanceRegroupDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> bossDistanceDecision))
             {
                 return bossDistanceDecision;
+            }
+
+            if (TryGetPreparedAdvanceDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> preparedAdvance))
+            {
+                return preparedAdvance;
             }
 
             // Arrival holders block re-planning after the bot reaches a cover/position. Their end
@@ -415,7 +426,7 @@ namespace pitTeam.BigBrain
             // Rifleman helper path: consume another follower's active autonomous push event and
             // convert it into support. This branch never emits a new push event and never chooses
             // direct go-to-enemy/run-to-enemy as its support objective.
-            if (!combatCommon.TryGetNearbyActivePushEvent(
+            if (!combatCommon.TryGetNearbyActivePushEventForCurrentEnemy(
                     AllyPushSupportMaxStraightDistance,
                     AllyPushSupportMaxNavDistance,
                     out CombatEvents.PushEvent pushEvent))
@@ -424,16 +435,9 @@ namespace pitTeam.BigBrain
             }
 
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
-            if (goalEnemy == null ||
-                !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
+            if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
             {
-                combatCommon.TryPromoteTrackedEnemyAsGoal(pushEvent.EnemyProfileId);
-                goalEnemy = botOwner.Memory.GoalEnemy;
-                if (!combatCommon.HasActiveCombatEnemy(goalEnemy) ||
-                    !string.Equals(goalEnemy.ProfileId, pushEvent.EnemyProfileId, StringComparison.Ordinal))
-                {
-                    return false;
-                }
+                return false;
             }
 
             if (combatCommon.CanShootFromCurrentCover(out _))
@@ -512,6 +516,35 @@ namespace pitTeam.BigBrain
             }
 
             preparedAllySupportDecision = supportDecision;
+            end = new AICoreActionEndStruct(reason, true);
+            return true;
+        }
+
+        private bool TryGetPreparedAdvanceDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!preparedAdvanceDecision.HasValue)
+            {
+                return false;
+            }
+
+            decision = preparedAdvanceDecision.Value;
+            preparedAdvanceDecision = null;
+            return true;
+        }
+
+        private bool TryPrepareAdvanceBreak(
+            EnemyInfo goalEnemy,
+            string reason,
+            out AICoreActionEndStruct end)
+        {
+            end = FollowerCombatCommon.Continue();
+            if (!TryGetAdvanceDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> advanceDecision))
+            {
+                return false;
+            }
+
+            preparedAdvanceDecision = advanceDecision;
             end = new AICoreActionEndStruct(reason, true);
             return true;
         }
@@ -1100,14 +1133,20 @@ namespace pitTeam.BigBrain
         }
 
         /// <summary>
-        /// Old-plugin boss protection behavior: if the boss was just hit, adopt the boss's closest
-        /// attacker and either move to boss-local cover or pressure that attacker.
+        /// Boss-under-attack is support escalation, not a push order. After survival gates have
+        /// already passed, the follower first tries to contribute from its current position, then
+        /// moves only if the current position is tactically useless.
         /// </summary>
         private bool TryGetBossUnderAttackDecision(
             EnemyInfo goalEnemy,
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             decision = default;
+            if (FollowerCombatAnchor.IsCombatIndependent(botOwner))
+            {
+                return false;
+            }
+
             if (IsCoverIntentRetryActive(CoverIntentKind.ProtectBoss))
             {
                 return false;
@@ -1142,51 +1181,70 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            boss.PrioritizeEnemy(botOwner, bossEnemy);
-            EnemyInfo? prioritizedEnemy = botOwner.Memory.GoalEnemy;
-            if (!combatCommon.HasActiveCombatEnemy(prioritizedEnemy))
+            if (!combatCommon.TryForceGoalEnemy(bossEnemy, "bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
+                !combatCommon.HasActiveCombatEnemy(prioritizedEnemy))
             {
                 return false;
             }
 
             Vector3 bossPosition = combatCommon.GetBossPosition();
             FollowerCombatTactic tactic = combatCommon.GetFollowerTactic();
-
-            if (tactic == FollowerCombatTactic.Protector)
-            {
-                float bossDistance = combatCommon.GetBossNavDistance(bossPosition);
-                float bossCoverSearchRadius = CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius();
-                if (bossDistance > bossCoverSearchRadius &&
-                    combatCommon.TryFindBossCover(prioritizedEnemy, bossPosition, bossCoverSearchRadius, out CustomNavigationPoint? bossCover) &&
-                    combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, bossCover, "protectBossCover"))
-                {
-                    CommitCoverIntent(CoverIntentKind.ProtectBoss);
-                    decision = combatCommon.CreateCommittedCoverMoveDecision();
-                    return true;
-                }
-
-                bool enemyLowThreat = combatCommon.IsEnemyLowThreat(prioritizedEnemy, combatCommon.GetAggression01());
-                decision = combatPush.EngageEnemy(false, enemyLowThreat);
-                return true;
-            }
-
-            if (combatCommon.TryFindBossCover(prioritizedEnemy, bossPosition, CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(), out CustomNavigationPoint? supportCover) &&
-                combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, supportCover, "protectBossCover"))
-            {
-                CommitCoverIntent(CoverIntentKind.ProtectBoss);
-                decision = combatCommon.CreateCommittedCoverMoveDecision();
-                return true;
-            }
+            float nearbySupportRadius = CombatDistanceConfiguration.Instance.GetBossSupportShootCoverRadius();
+            float widerSupportRadius = Mathf.Min(
+                CombatDistanceConfiguration.Instance.GetCombatCoverMaxDistance(),
+                60f);
 
             if (prioritizedEnemy.CanShoot)
             {
-                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "protectBossFire");
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.shootFromPlace,
+                    "protectBossFire");
                 return true;
             }
 
-            bool lowThreat = combatCommon.IsEnemyLowThreat(prioritizedEnemy, combatCommon.GetAggression01());
-            decision = combatPush.EngageEnemy(false, lowThreat);
-            return true;
+            if (combatCommon.TryCreateSuppressFromPlaceDecision(
+                    prioritizedEnemy,
+                    "protectBossSuppress",
+                    out decision,
+                    allowSoftObstructedSuppression: true))
+            {
+                return true;
+            }
+
+            // Fast nearby support cover keeps the follower useful without destabilizing a valid formation.
+            if (combatCommon.TryCommitSupportFiringCover(
+                    prioritizedEnemy,
+                    "protectBossSupportCover.near",
+                    out string nearbyCoverReason,
+                    preferBackline: tactic == FollowerCombatTactic.Protector,
+                    maxSearchRadius: nearbySupportRadius))
+            {
+                CommitCoverIntent(CoverIntentKind.ProtectBoss);
+                decision = combatCommon.CreateMoveToCommittedCoverDecision(nearbyCoverReason);
+                return true;
+            }
+
+            if (ShouldRegroupForBossDistance())
+            {
+                decision = combatCommon.CreateRegroupObjectiveDecision();
+                return true;
+            }
+
+            // Wider support cover is still bot-centered; it improves firing position without collapsing
+            // every follower into the same boss-local cover pocket.
+            if (combatCommon.TryCommitSupportFiringCover(
+                    prioritizedEnemy,
+                    "protectBossSupportCover.wide",
+                    out string wideCoverReason,
+                    preferBackline: tactic == FollowerCombatTactic.Protector,
+                    maxSearchRadius: widerSupportRadius))
+            {
+                CommitCoverIntent(CoverIntentKind.ProtectBoss);
+                decision = combatCommon.CreateMoveToCommittedCoverDecision(wideCoverReason);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -1295,6 +1353,13 @@ namespace pitTeam.BigBrain
                 return EndCommittedHolder(reason);
             }
 
+            if (combatCommon.HasActiveCombatGestureOrder())
+            {
+                combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
+                return new AICoreActionEndStruct("combatGestureBreakHold", true);
+            }
+
             if (string.Equals(reason, ShootCoverHoldReason, StringComparison.Ordinal))
             {
                 return EndShootCoverHoldPosition();
@@ -1362,9 +1427,12 @@ namespace pitTeam.BigBrain
                 if (!string.Equals(reason, RecoveryCoverHoldReason, StringComparison.Ordinal) &&
                     goalEnemy != null &&
                     !goalEnemy.IsVisible &&
-                    combatCommon.ShouldAdvance(goalEnemy))
+                    TryPrepareAdvanceBreak(
+                        goalEnemy,
+                        "advanceFromCover",
+                        out AICoreActionEndStruct advanceBreak))
                 {
-                    return new AICoreActionEndStruct("advanceFromCover", true);
+                    return advanceBreak;
                 }
 
                 if (goalEnemy != null && goalEnemy.IsVisible)
@@ -1379,6 +1447,14 @@ namespace pitTeam.BigBrain
         private AICoreActionEndStruct EndCommittedHolder(string reason)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (combatCommon.HasActiveCombatGestureOrder())
+            {
+                combatCommon.ClearCommittedPosition();
+                combatCommon.ClearCommittedCover();
+                ClearCoverIntent();
+                return new AICoreActionEndStruct("combatGestureBreakCommittedHold", true);
+            }
+
             if (HasActivePushOrder())
             {
                 combatCommon.ClearCommittedPosition();
@@ -1706,9 +1782,8 @@ namespace pitTeam.BigBrain
                         return false;
                     }
 
-                    boss.PrioritizeEnemy(botOwner, bossEnemy);
-                    EnemyInfo? prioritizedEnemy = botOwner.Memory.GoalEnemy;
-                    if (!combatCommon.HasActiveCombatEnemy(prioritizedEnemy) ||
+                    if (!combatCommon.TryForceGoalEnemy(bossEnemy, "protectBossCover.refresh", out EnemyInfo? prioritizedEnemy) ||
+                        !combatCommon.HasActiveCombatEnemy(prioritizedEnemy) ||
                         !combatCommon.TryFindBossCover(prioritizedEnemy, combatCommon.GetBossPosition(), CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(), out CustomNavigationPoint? protectCover) ||
                         !combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, protectCover, "protectBossCover.refresh") ||
                         combatCommon.CommittedCoverId == previousCoverId)
@@ -1736,6 +1811,13 @@ namespace pitTeam.BigBrain
                    nextDecision.Action == BotLogicDecision.attackMovingWithSuppress ||
                    nextDecision.Action == BotLogicDecision.holdPosition ||
                    nextDecision.Action == BotLogicDecision.shootFromCover;
+        }
+
+        private bool IsDecisionCompatibleWithPreparedAdvance(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
+        {
+            return !preparedAdvanceDecision.HasValue ||
+                   (preparedAdvanceDecision.Value.Action == nextDecision.Action &&
+                    string.Equals(preparedAdvanceDecision.Value.Reason, nextDecision.Reason, StringComparison.Ordinal));
         }
 
         /// <summary>
@@ -1819,7 +1901,7 @@ namespace pitTeam.BigBrain
             float navDistance = combatCommon.GetBossNavDistance(bossPosition);
             float directDistance = Vector3.Distance(botOwner.Position, bossPosition);
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
-            if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetBossRegroupTriggerDistance())
+            if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetBossRegroupTriggerDistance(botOwner))
             {
                 return false;
             }

@@ -43,6 +43,8 @@ namespace pitTeam.Patches
                 case EPhraseTrigger.Suppress:
                 case EPhraseTrigger.NeedSniper:
                 case EPhraseTrigger.NeedHelp:
+                case EPhraseTrigger.OnYourOwn:
+                case EPhraseTrigger.CoverMe:
                     return false;
                 default:
                     return true;

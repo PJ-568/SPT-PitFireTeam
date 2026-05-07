@@ -12,11 +12,10 @@ namespace pitTeam.BigBrain
         // Internal trigger reason used by the default objective to request an immediate switch into
         // regroup. This should never survive long enough to become a real layer action.
         internal const string ActivateRegroupReason = "objective.regroup";
-        private const float CombatRegroupCompleteDistance = 8f;
-        private const float CombatRegroupCompleteDistanceMarksman = 12f;
+        private const float CombatRegroupOrderedDistance = 18f;
+        private const float CombatRegroupOrderedDistanceMarksman = 24f;
+        private const float CombatRegroupOrderedDistanceFactory = 10f;
         private const float CombatRegroupSameLevelTolerance = 1.75f;
-        private const float CombatRegroupCoverRadius = 18f;
-        private const float CombatRegroupCoverRadiusMarksman = 24f;
         private const float BossSectorRadius = 20f;
         private const float RegroupHotContactSeconds = 2.5f;
         private const float RegroupFallbackSpreadMinRadius = 1f;
@@ -24,6 +23,9 @@ namespace pitTeam.BigBrain
         private const float RegroupFallbackSpacing = 2f;
         private const float RegroupClaimTtlSeconds = 2f;
         private const float RegroupArrivalSettleSeconds = 1.5f;
+        private const float RegroupWithdrawProgressCheckInterval = 0.5f;
+        private const float RegroupWithdrawMinProgressDistance = 0.35f;
+        private const float RegroupWithdrawStalledSeconds = 2f;
         internal const string RegroupReasonPrefix = "regroup.";
         private const string RegroupWithdrawBackwardReason = "regroup.withdraw.backward";
         private const string RegroupWithdrawForwardReason = "regroup.withdraw.forward";
@@ -39,6 +41,10 @@ namespace pitTeam.BigBrain
         private string? committedRegroupReason;
         private float arrivedSettleUntil;
         private float regroupActivatedAt;
+        private Vector3 lastWithdrawProgressPosition;
+        private float lastWithdrawProgressTargetDistance;
+        private float withdrawStallStartedAt;
+        private float nextWithdrawProgressCheckAt;
 
         private enum RegroupBossDirection
         {
@@ -66,6 +72,7 @@ namespace pitTeam.BigBrain
             committedRegroupReason = null;
             arrivedSettleUntil = 0f;
             regroupActivatedAt = 0f;
+            ResetWithdrawProgressTracking();
         }
 
         public override void Activate()
@@ -79,6 +86,7 @@ namespace pitTeam.BigBrain
         public override void Deactivate()
         {
             ReleaseDestinationClaim();
+            ClearCommittedRegroupMove();
             complete = false;
         }
 
@@ -129,7 +137,7 @@ namespace pitTeam.BigBrain
                 return GetArrivedSettleDecision();
             }
 
-            if (TryGetCommittedRegroupMove(bossPosition, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedMove))
+            if (TryGetCommittedRegroupMove(goalEnemy, bossPosition, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedMove))
             {
                 return committedMove;
             }
@@ -228,6 +236,18 @@ namespace pitTeam.BigBrain
                     return new AICoreActionEndStruct("regroupReachedWithdrawTarget", true);
                 }
 
+                if (ShouldSettleStalledWithdraw(CombatCommon.GetBossPosition()))
+                {
+                    ClearCurrentTarget();
+                    ClearCommittedRegroupMove();
+                    if (arrivedSettleUntil <= 0f)
+                    {
+                        arrivedSettleUntil = Time.time + RegroupArrivalSettleSeconds;
+                    }
+
+                    return new AICoreActionEndStruct("regroupWithdrawStalledNearBoss", true);
+                }
+
                 if (HasBossSectorChanged(CombatCommon.GetBossPosition()))
                 {
                     ClearCommittedRegroupMove();
@@ -298,6 +318,7 @@ namespace pitTeam.BigBrain
         }
 
         private bool TryGetCommittedRegroupMove(
+            EnemyInfo goalEnemy,
             Vector3 bossPosition,
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
@@ -308,6 +329,13 @@ namespace pitTeam.BigBrain
             }
 
             if (HasBossSectorChanged(bossPosition))
+            {
+                ClearCurrentTarget();
+                ClearCommittedRegroupMove();
+                return false;
+            }
+
+            if (IsWithdrawReason(committedRegroupReason) && !IsHotEnemyContact(goalEnemy))
             {
                 ClearCurrentTarget();
                 ClearCommittedRegroupMove();
@@ -340,12 +368,73 @@ namespace pitTeam.BigBrain
             committedRegroupAction = decision.Action;
             committedRegroupReason = decision.Reason;
             arrivedSettleUntil = 0f;
+            if (IsWithdrawReason(decision.Reason))
+            {
+                StartWithdrawProgressTracking();
+            }
+            else
+            {
+                ResetWithdrawProgressTracking();
+            }
         }
 
         private void ClearCommittedRegroupMove()
         {
             committedRegroupAction = default;
             committedRegroupReason = null;
+            ResetWithdrawProgressTracking();
+        }
+
+        private void StartWithdrawProgressTracking()
+        {
+            lastWithdrawProgressPosition = BotOwner.Position;
+            lastWithdrawProgressTargetDistance = hasTarget
+                ? (BotOwner.Position - currentTarget).magnitude
+                : 0f;
+            withdrawStallStartedAt = 0f;
+            nextWithdrawProgressCheckAt = Time.time + RegroupWithdrawProgressCheckInterval;
+        }
+
+        private void ResetWithdrawProgressTracking()
+        {
+            lastWithdrawProgressPosition = Vector3.zero;
+            lastWithdrawProgressTargetDistance = 0f;
+            withdrawStallStartedAt = 0f;
+            nextWithdrawProgressCheckAt = 0f;
+        }
+
+        private bool ShouldSettleStalledWithdraw(Vector3 bossPosition)
+        {
+            if (!IsWithinHotRegroupSettleEnvelope(bossPosition) ||
+                Time.time < nextWithdrawProgressCheckAt)
+            {
+                return false;
+            }
+
+            nextWithdrawProgressCheckAt = Time.time + RegroupWithdrawProgressCheckInterval;
+            float movedDistance = (BotOwner.Position - lastWithdrawProgressPosition).magnitude;
+            float targetDistance = hasTarget
+                ? (BotOwner.Position - currentTarget).magnitude
+                : 0f;
+            bool progressed =
+                movedDistance >= RegroupWithdrawMinProgressDistance ||
+                (hasTarget && targetDistance <= lastWithdrawProgressTargetDistance - RegroupWithdrawMinProgressDistance);
+
+            if (progressed)
+            {
+                lastWithdrawProgressPosition = BotOwner.Position;
+                lastWithdrawProgressTargetDistance = targetDistance;
+                withdrawStallStartedAt = 0f;
+                return false;
+            }
+
+            if (withdrawStallStartedAt <= 0f)
+            {
+                withdrawStallStartedAt = Time.time;
+                return false;
+            }
+
+            return Time.time - withdrawStallStartedAt >= RegroupWithdrawStalledSeconds;
         }
 
         private bool TryGetMedicalInterrupt(
@@ -451,7 +540,7 @@ namespace pitTeam.BigBrain
                     requireShootLane: true,
                     requireHideFromEnemy: false,
                     out CustomNavigationPoint? supportCover) &&
-                    TryAcceptRegroupCover(supportCover, bossPosition, out targetPosition))
+                    TryAcceptRegroupCover(supportCover, bossPosition, bossDirection, out targetPosition))
                 {
                     CombatCommon.AssignCover(supportCover);
                     return true;
@@ -459,7 +548,7 @@ namespace pitTeam.BigBrain
             }
 
             if (CombatCommon.TryFindBossCover(goalEnemy, bossPosition, regroupCoverRadius, out CustomNavigationPoint? bossCover) &&
-                TryAcceptRegroupCover(bossCover, bossPosition, out targetPosition))
+                TryAcceptRegroupCover(bossCover, bossPosition, bossDirection, out targetPosition))
             {
                 CombatCommon.AssignCover(bossCover);
                 return true;
@@ -540,18 +629,45 @@ namespace pitTeam.BigBrain
             return navDistanceToBoss <= GetRegroupCompleteDistance();
         }
 
+        private bool IsWithinHotRegroupSettleEnvelope(Vector3 bossPosition)
+        {
+            float verticalDiff = Mathf.Abs(BotOwner.Position.y - bossPosition.y);
+            if (verticalDiff > CombatRegroupSameLevelTolerance)
+            {
+                return false;
+            }
+
+            float acceptableDistance = Mathf.Max(GetRegroupCompleteDistance(), GetRegroupCoverRadius());
+            float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
+            if (directDistance <= acceptableDistance)
+            {
+                return true;
+            }
+
+            float navDistanceToBoss = Utils.Utils.GetNavDistance(BotOwner.Position, bossPosition);
+            return navDistanceToBoss > 0f && navDistanceToBoss <= acceptableDistance;
+        }
+
         private float GetRegroupCompleteDistance()
         {
-            return CombatCommon.GetFollowerTactic() == FollowerCombatTactic.Marksman
-                ? CombatRegroupCompleteDistanceMarksman
-                : CombatRegroupCompleteDistance;
+            return GetOrderedRegroupDistance();
         }
 
         private float GetRegroupCoverRadius()
         {
+            return GetOrderedRegroupDistance();
+        }
+
+        private float GetOrderedRegroupDistance()
+        {
+            if (CombatDistanceConfiguration.Instance.IsFactoryMode)
+            {
+                return CombatRegroupOrderedDistanceFactory;
+            }
+
             return CombatCommon.GetFollowerTactic() == FollowerCombatTactic.Marksman
-                ? CombatRegroupCoverRadiusMarksman
-                : CombatRegroupCoverRadius;
+                ? CombatRegroupOrderedDistanceMarksman
+                : CombatRegroupOrderedDistance;
         }
 
         private bool HasReachedCurrentTarget()
@@ -570,6 +686,15 @@ namespace pitTeam.BigBrain
         }
 
         private bool TryAcceptRegroupCover(CustomNavigationPoint? cover, Vector3 bossPosition, out Vector3 targetPosition)
+        {
+            return TryAcceptRegroupCover(cover, bossPosition, RegroupBossDirection.Side, out targetPosition);
+        }
+
+        private bool TryAcceptRegroupCover(
+            CustomNavigationPoint? cover,
+            Vector3 bossPosition,
+            RegroupBossDirection bossDirection,
+            out Vector3 targetPosition)
         {
             targetPosition = Vector3.zero;
             if (cover == null)
@@ -590,8 +715,27 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (bossDirection == RegroupBossDirection.Front && IsBehindBotRelativeToBoss(cover.Position, bossPosition))
+            {
+                return false;
+            }
+
             targetPosition = cover.Position;
             return true;
+        }
+
+        private bool IsBehindBotRelativeToBoss(Vector3 position, Vector3 bossPosition)
+        {
+            Vector3 toBoss = bossPosition - BotOwner.Position;
+            Vector3 toPosition = position - BotOwner.Position;
+            toBoss.y = 0f;
+            toPosition.y = 0f;
+            if (toBoss.sqrMagnitude <= 0.01f || toPosition.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            return Vector3.Dot(toPosition.normalized, toBoss.normalized) < -0.1f;
         }
 
         private bool HasReachedPosition(Vector3 position)
@@ -664,7 +808,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            return (bossPosition - bossSectorAnchor).sqrMagnitude > BossSectorRadius * BossSectorRadius;
+            float sectorRadius = CombatDistanceConfiguration.Instance.IsFactoryMode
+                ? Mathf.Min(BossSectorRadius, CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius() * 0.55f)
+                : BossSectorRadius;
+
+            return (bossPosition - bossSectorAnchor).sqrMagnitude > sectorRadius * sectorRadius;
         }
 
         private static bool IsHealingDecision(BotLogicDecision decision)
@@ -705,8 +853,7 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
-            if (BotOwner.BotFollower?.BossToFollow is pitAIBossPlayer boss &&
-                boss.CombatEvents.TryGetActivePushFor(BotOwner, out _))
+            if (CombatCommon.TryGetActivePushEventForCurrentEnemy(out _))
             {
                 return true;
             }
@@ -724,6 +871,13 @@ namespace pitTeam.BigBrain
         public static bool IsRunReason(string? reason)
         {
             return string.Equals(reason, "regroup.run", System.StringComparison.Ordinal);
+        }
+
+        public static bool IsWithdrawReason(string? reason)
+        {
+            return string.Equals(reason, RegroupWithdrawBackwardReason, System.StringComparison.Ordinal) ||
+                   string.Equals(reason, RegroupWithdrawForwardReason, System.StringComparison.Ordinal) ||
+                   string.Equals(reason, RegroupWithdrawSideReason, System.StringComparison.Ordinal);
         }
 
         public static bool IsRegroupActivationReason(string? reason)

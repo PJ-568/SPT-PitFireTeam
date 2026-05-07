@@ -97,9 +97,16 @@ namespace pitTeam.SAINAddon
             return nextAction;
         }
 
+        public override void Start()
+        {
+            base.Start();
+            BossPlayers.Instance?.GetFollower(BotOwner)?.BeginCombatIndependenceFromPatrol();
+        }
+
         public override void Stop()
         {
             ReleaseGroupSearchLock();
+            BossPlayers.Instance?.GetFollower(BotOwner)?.ClearActiveCombatIndependent();
             base.Stop();
         }
 
@@ -236,7 +243,7 @@ namespace pitTeam.SAINAddon
                 }
                 else if (decision == ESquadDecision.Regroup)
                 {
-                    _currentUsesDefaultBossAction = true;
+                    _currentUsesDefaultBossAction = !FollowerCombatAnchor.IsCombatIndependent(BotOwner);
                 }
                 return true;
             }
@@ -251,7 +258,8 @@ namespace pitTeam.SAINAddon
                 }
 
                 decision = decisions.CurrentSquadDecision;
-                _currentUsesDefaultBossAction = decision == ESquadDecision.Regroup;
+                _currentUsesDefaultBossAction = decision == ESquadDecision.Regroup &&
+                                                !FollowerCombatAnchor.IsCombatIndependent(BotOwner);
 
                 return true;
             }

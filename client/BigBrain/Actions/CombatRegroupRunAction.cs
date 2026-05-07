@@ -1,6 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using pitTeam.Components;
+using pitTeam.Modules;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -88,20 +89,7 @@ namespace pitTeam.BigBrain.Actions
 
         private Vector3 GetBossPosition()
         {
-            if (BotOwner.BotFollower?.BossToFollow is pitAIBossPlayer boss &&
-                boss.realPlayer != null &&
-                IsFinite(boss.realPlayer.Transform.position))
-            {
-                return boss.realPlayer.Transform.position;
-            }
-
-            Vector3? liveBossPosition = BotOwner.BotFollower?.BossToFollow?.Position;
-            if (liveBossPosition.HasValue && IsFinite(liveBossPosition.Value))
-            {
-                return liveBossPosition.Value;
-            }
-
-            return BotOwner.Position;
+            return FollowerCombatAnchor.GetAnchorPosition(BotOwner);
         }
 
         private Vector3 GetBossRunTarget(Vector3 bossPosition)
