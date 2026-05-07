@@ -133,7 +133,7 @@ namespace pitTeam.Components
         // TeamStatus: status ping UI + nearby friendly gesture.
         // NeedSniper/NeedHelp/Contact/DirectionalLook/Look: attention and target-acquisition cues.
         // Stop/Hold/GoGoGo/GoForward/Suppress/Regroup: request or combat-objective commands.
-        // OnYourOwn/CoverMe: broadcast stance mode toggles, not movement requests.
+        // OnYourOwn/CoverMe: broadcast patrol or combat-independent mode toggles, not movement requests.
         // OpenDoor/Loot: situational request-layer work.
         // FollowMe/Cooperation: recruit or clear follower commands back to normal follow.
         public void PhraseSaid(EventInfo info)
@@ -218,19 +218,19 @@ namespace pitTeam.Components
                 }
                 else if (info.phrase == EPhraseTrigger.Regroup)
                 {
-                    // Regroup: reset spacing/patrol mode and converge near the boss.
+                    // Regroup: out of combat exits patrol; in combat orders a literal boss-position regroup.
                     ApplyRegroupCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.OnYourOwn)
                 {
-                    // On Your Own: out-of-combat broadcast patrol-radius mode.
+                    // On Your Own: out-of-combat patrol-radius mode; in combat independent anchor mode.
                     ApplyOnYourOwnCommand(info.PlayerRequester);
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.CoverMe)
                 {
-                    // Cover Me: broadcast drop of patrol mode.
+                    // Cover Me: out-of-combat drops patrol; in combat drops independent anchor mode only.
                     ApplyCoverMeCommandDrop(info.PlayerRequester);
                     return;
                 }
@@ -1087,6 +1087,7 @@ namespace pitTeam.Components
                 if (!BossPlayers.IsFollower(follower)) continue;
 
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
+                followerData?.SetCanPatrol(false);
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ClearTemporaryCombatAggressionOverride();
 
@@ -1299,15 +1300,22 @@ namespace pitTeam.Components
         {
             if (requester == null) return;
 
-            Vector3 bossPos = requester.Position;
             bool combatRegroupContext = IsCombatRegroupContext();
+            Vector3 bossPos = requester.Position;
             bool useSainRegroupRoute = pitFireTeam.ShouldUseSainRegroupRoute(combatRegroupContext);
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
-                followerData.SetCanPatrol(false);
+                if (!combatRegroupContext)
+                {
+                    followerData.SetCanPatrol(false);
+                }
+                else
+                {
+                    followerData.SetCombatRegroupBossAnchor(true);
+                }
 
                 if (useSainRegroupRoute)
                 {
@@ -1348,6 +1356,7 @@ namespace pitTeam.Components
         {
             if (requester == null) return;
 
+            bool combatContext = IsCombatRegroupContext();
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -1355,16 +1364,16 @@ namespace pitTeam.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                if (HasActiveCombatEnemy(follower) || follower.Memory?.HaveEnemy == true)
+                if (combatContext)
                 {
-                    follower.BotTalk.TrySay(EPhraseTrigger.DontKnow, false);
-                    follower.Gesture.TryGestus(EInteraction.NoGesture, false);
-                    continue;
+                    followerData.SetCombatIndependent(true);
                 }
-
-                followerData.ClearCommand("OnYourOwn:Patrol");
-                followerData.ClearTemporaryCombatAggressionOverride();
-                followerData.SetCanPatrol(true);
+                else
+                {
+                    followerData.ClearCommand("OnYourOwn:Patrol");
+                    followerData.ClearTemporaryCombatAggressionOverride();
+                    followerData.SetCanPatrol(true);
+                }
                 follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
@@ -1377,6 +1386,7 @@ namespace pitTeam.Components
                 return;
             }
 
+            bool combatContext = IsCombatRegroupContext();
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -1384,7 +1394,14 @@ namespace pitTeam.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                followerData.SetCanPatrol(false);
+                if (combatContext)
+                {
+                    followerData.SetCombatIndependent(false);
+                }
+                else
+                {
+                    followerData.SetCanPatrol(false);
+                }
                 follower.Gesture.TryGestus(EInteraction.OkGesture, false);
             }
         }

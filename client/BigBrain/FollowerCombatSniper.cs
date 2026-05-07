@@ -2358,6 +2358,10 @@ namespace pitTeam.BigBrain
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             decision = default;
+            if (FollowerCombatAnchor.IsCombatIndependent(BotOwner))
+            {
+                return false;
+            }
 
             // If the marksman already has a clean personal shot, taking it is the fastest support.
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)

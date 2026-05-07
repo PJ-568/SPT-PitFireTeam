@@ -195,6 +195,7 @@ namespace pitTeam.BigBrain
             isHealing = false;
             stoppedForHealDecision = false;
             ResetReloadState();
+            BossPlayers.Instance?.GetFollower(BotOwner)?.ClearCombatIndependent();
             BotOwner.Mover.Pause = false;
             ResetTiltForPatrol();
             if (BotOwner.Mover.TargetPose < 0.85f)

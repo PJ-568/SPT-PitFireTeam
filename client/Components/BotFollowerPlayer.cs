@@ -71,6 +71,8 @@ namespace pitTeam.Components
 
         protected WildSpawnType _botRole;
         protected bool _canPatrol = false;
+        private bool _combatIndependent;
+        private bool _combatRegroupUsesBossAnchor;
         private bool _peaceChangeHooked = false;
         private bool _manualUpdateHooked = false;
         private Vector3 _teleportGraceTarget;
@@ -103,6 +105,22 @@ namespace pitTeam.Components
             get
             {
                 return _canPatrol;
+            }
+        }
+
+        public bool CombatIndependent
+        {
+            get
+            {
+                return _combatIndependent;
+            }
+        }
+
+        public bool CombatRegroupUsesBossAnchor
+        {
+            get
+            {
+                return _combatRegroupUsesBossAnchor;
             }
         }
 
@@ -972,7 +990,78 @@ namespace pitTeam.Components
 
         public void SetCanPatrol(bool value)
         {
+            // Persistent out-of-combat On Your Own mode. Combat derives a separate
+            // independence flag from this at combat start, then combat commands can
+            // change only the combat flag without dropping patrol intent.
             _canPatrol = value;
+            if (!value)
+            {
+                _combatIndependent = false;
+                _combatRegroupUsesBossAnchor = false;
+                ReleasePatrolMovementState("SetCanPatrol:false");
+            }
+        }
+
+        private void ReleasePatrolMovementState(string reason)
+        {
+            try
+            {
+                if (_bot == null || _bot.IsDead || _bot.BotState != EBotState.Active)
+                {
+                    return;
+                }
+
+                _bot.GetPlayer?.MovementContext?.SetPatrol(false);
+                _bot.Tilt?.Stop();
+                if (_bot.Mover != null)
+                {
+                    _bot.Mover.Pause = false;
+                    if (_bot.Mover.Sprinting)
+                    {
+                        _bot.Mover.Sprint(false, false);
+                    }
+                    _bot.Mover.SetTargetMoveSpeed(1f);
+                }
+
+                if (_bot.BotRequestController?.CurRequest != null)
+                {
+                    _bot.BotRequestController.CurRequest.Complete();
+                    _bot.BotRequestController.CurRequest = null;
+                }
+
+                _bot.PatrollingData?.Pause();
+                _bot.GoToSomePointData?.SetPoint(_bot.Position);
+                _bot.GoToSomePointData?.UpdateToGo(false);
+                _bot.StopMove();
+                ForceEndCurrentDecision(_bot);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"[Patrol] Failed to release patrol movement state for {_bot?.Profile?.Nickname} reason={reason}");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        public void BeginCombatIndependenceFromPatrol()
+        {
+            _combatIndependent = _canPatrol;
+            _combatRegroupUsesBossAnchor = false;
+        }
+
+        public void SetCombatIndependent(bool value)
+        {
+            _combatIndependent = value;
+        }
+
+        public void ClearCombatIndependent()
+        {
+            _combatIndependent = false;
+            _combatRegroupUsesBossAnchor = false;
+        }
+
+        public void SetCombatRegroupBossAnchor(bool value)
+        {
+            _combatRegroupUsesBossAnchor = value;
         }
 
         public void SetHoldPosition(float duration, bool crouch = true)

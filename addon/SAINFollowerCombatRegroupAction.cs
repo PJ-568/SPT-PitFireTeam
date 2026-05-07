@@ -1,6 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using pitTeam.Components;
+using pitTeam.Modules;
 using SAIN.Layers;
 using SAIN.SAINComponent.Classes.EnemyClasses;
 using System;
@@ -69,6 +70,7 @@ namespace pitTeam.SAINAddon
 
         public override void Stop()
         {
+            BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
             if (!string.IsNullOrEmpty(_claimBossId))
             {
                 RemoveDestinationClaim(_claimBossId, BotOwner?.ProfileId);
@@ -266,7 +268,7 @@ namespace pitTeam.SAINAddon
             }
 
             boss = playerBoss;
-            position = playerBoss.realPlayer.Transform.position;
+            position = FollowerCombatAnchor.GetAnchorPosition(BotOwner);
             return true;
         }
 
@@ -513,7 +515,8 @@ namespace pitTeam.SAINAddon
 
         private bool IsCrowded(pitAIBossPlayer boss, Vector3 candidate)
         {
-            if (boss?.realPlayer != null && (candidate - boss.realPlayer.Transform.position).magnitude < MinBossBuffer)
+            Vector3 anchorPosition = FollowerCombatAnchor.GetAnchorPosition(BotOwner);
+            if ((candidate - anchorPosition).magnitude < MinBossBuffer)
             {
                 return true;
             }

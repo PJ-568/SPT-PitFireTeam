@@ -1664,6 +1664,11 @@ namespace pitTeam.BigBrain
             bool hasActivePushOrder = false,
             float stalePersonalEnemySeconds = 2.5f)
         {
+            if (FollowerCombatAnchor.IsCombatIndependent(botOwner))
+            {
+                return false;
+            }
+
             if (hasActivePushOrder)
             {
                 return false;
@@ -2844,20 +2849,12 @@ namespace pitTeam.BigBrain
 
         public Vector3 GetBossPosition()
         {
-            if (botOwner.BotFollower.BossToFollow is pitAIBossPlayer boss &&
-                boss.realPlayer != null &&
-                IsFinite(boss.realPlayer.Transform.position))
-            {
-                return boss.realPlayer.Transform.position;
-            }
+            return FollowerCombatAnchor.GetAnchorPosition(botOwner);
+        }
 
-            Vector3? liveBossPos = botOwner.BotFollower.BossToFollow?.Position;
-            if (liveBossPos.HasValue && IsFinite(liveBossPos.Value))
-            {
-                return liveBossPos.Value;
-            }
-
-            return botOwner.Position;
+        public Vector3 GetRealBossPosition()
+        {
+            return FollowerCombatAnchor.GetRealBossPosition(botOwner);
         }
 
         /// <summary>

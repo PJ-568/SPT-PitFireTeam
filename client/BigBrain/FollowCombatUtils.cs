@@ -34,8 +34,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-
-            position = boss.realPlayer.Transform.position;
+            position = FollowerCombatAnchor.GetAnchorPosition(botOwner);
             return true;
         }
 

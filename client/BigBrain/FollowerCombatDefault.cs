@@ -1142,6 +1142,11 @@ namespace pitTeam.BigBrain
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             decision = default;
+            if (FollowerCombatAnchor.IsCombatIndependent(botOwner))
+            {
+                return false;
+            }
+
             if (IsCoverIntentRetryActive(CoverIntentKind.ProtectBoss))
             {
                 return false;

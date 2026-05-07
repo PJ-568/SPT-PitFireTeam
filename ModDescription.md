@@ -118,9 +118,8 @@ Commands influence follower behavior but do not force exact actions. Followers w
 - **Go Forward** - orders followers with an enemy to push or pressure that enemy. Outside combat, it can send followers toward the pointed location. Can be applied to an individual follower by looking at him.
 - **Stop** - stops followers out of combat without forcing crouch. If the boss moves too far away, followers resume normal follow behavior. Can be applied to an individual follower by looking at him.
 - **Suppress** - orders non-Marksman followers to suppress the current enemy. The follower must have a suitable suppress-capable weapon: full-auto or a magazine capacity of at least 25 rounds. If ordered without a suitable weapon, he will say "negative" and continue normal combat decisions.
-- **On Your Own** - followers will no longer care about your position and will fight the enemy on their own. When out of combat, followers will patrol around you at a configurable distance using Patrol Radius. Resets on **Cover Me** in/out of combat and **Regroup** or **Follow Me** out of combat.
-
-    **IMPORTANT**: **Regroup** during combat pulls them back to your position, but they will still not take your position into consideration as they fight. You must use **Cover Me** to reset them during combat.
+- **On Your Own** - lets followers spread out and act more independently instead of staying tied to your position. Outside combat, they patrol around you using Patrol Radius. In combat, they fight from their own area or stay near another squadmate instead of constantly trying to return to you.
+    - **Regroup** during combat still calls them back to you for that order, but it does not cancel On Your Own. Use **Cover Me** during combat if you want them to start watching your position again. Outside combat, **Cover Me**, **Regroup**, or **Follow Me** returns them to normal follow behavior.
 
 **In HELP:**
 
@@ -161,17 +160,205 @@ Followers still use Tarkov bot movement and navigation. They can choose cover or
 - Use **Auto Join** if you want that teammate to be preloaded into future PMC raid setup automatically.
 - If you remove a teammate from the current group, they will not auto-join again until manually re-added or toggled.
 
-**Loot Carrying**
+Followers are not scripted companions with exact RTS-style control. Commands influence their priorities and intent, but followers still react to danger, visibility, healing, cover, and survival. A follower under pressure may delay or ignore a command if executing it would be dangerous.
 
-Have followers carry your loot: look at an item and press the interaction prompt shown in the lower-left of the screen. The follower will pick it up if he has space and is not in combat. You must successfully extract with him for the loot to be returned after the raid via a SquadDelivery message. If he dies or you do not extract, the loot is lost.
+Think of commands as:
 
-**Basic combat advice:**
+- tactical guidance
+- combat priorities
+- movement intent
 
-- Use **Regroup** when followers are too far away or need to return to the boss.
-- Use **Hold Position** when you want them to stop pushing and stay more defensive for the current fight.
-- Use **Go Go Go** when you want them to return to their saved aggression.
-- Use **Go Forward** when you want active combat pressure on the current enemy.
-- Use **Contact**, **Over There**, or directional calls to point followers toward a threat or suspected threat direction.
+—not direct movement control.
+
+### Squad Roles
+
+#### Rifleman
+
+Rifleman is the default all-purpose combat role.
+
+Riflemen:
+
+- stay useful near the boss
+- support nearby teammates
+- suppress enemies
+- push when aggression and combat conditions allow it
+- regroup more aggressively around the player
+
+Best used for:
+
+- close and medium-range combat
+- indoor fights
+- aggressive pushes
+- general squad support
+
+#### Marksman
+
+Marksman is focused on ranged support and firing positions.
+
+Marksmen:
+
+- prefer distance and sightlines
+- avoid generic assault pushes
+- reposition for firing opportunities
+- can switch to automatic secondary weapons in close fights
+
+Best used for:
+
+- overwatch
+- outdoor maps
+- long sightlines
+- supporting Rifleman pushes
+
+Do not expect Marksman followers to rush enemies like Riflemen.
+
+### Recommended Beginner Setup
+
+For a stable beginner squad:
+
+- 1 Rifleman
+- 1 Marksman
+- Rifleman aggression around `50%`
+- Marksman aggression around `30%`
+
+### Basic Combat Usage
+
+#### Regroup
+
+One of the most important commands.
+
+Followers move back toward the boss and nearby cover.
+
+Use it:
+
+- after long chases
+- when followers spread too far
+- before crossing dangerous areas
+- before entering a new fight
+
+#### Hold Position
+
+Hold Position does **not** mean:
+
+> "stand perfectly still."
+
+In combat, it temporarily makes followers behave much more defensively by reducing aggressive push behavior.
+
+Followers can still:
+
+- shoot
+- reposition for survival
+- defend themselves
+- react to danger
+
+Good for:
+
+- holding buildings
+- healing
+- defensive fights
+- stopping overextension
+
+#### Go Go Go
+
+Clears the temporary Hold Position combat behavior and returns followers to their saved aggression settings.
+
+Use it after:
+
+- defensive holds
+- regrouping
+- recovering from dangerous fights
+
+#### Go Forward
+
+Orders followers to pressure or push their current enemy.
+
+Best used when:
+
+- enemies are pinned
+- enemies are already engaged
+- the squad is ready to advance
+
+This is not a suicide rush command. Followers still evaluate danger and cover before pushing.
+
+#### Suppress
+
+Orders Riflemen to provide suppressive fire.
+
+Useful for:
+
+- pinning enemies behind cover
+- helping another teammate reposition
+- supporting a push
+
+Marksmen generally ignore suppression because their role is precision support, not volume fire.
+
+#### Need Sniper
+
+Urges Marksman followers to actively search for a firing position against the closest threat.
+
+Useful because Marksmen naturally prefer sitting on good positions and waiting for opportunities instead of constantly searching for new ones.
+
+Use it when:
+
+- enemies are far away
+- enemies are holding angles
+- you need overwatch support
+- the sniper has become too passive during a fight
+
+Marksmen may reject the order if:
+
+- no useful firing position exists
+- the fight is too close-range
+- survival or healing takes priority
+
+#### Contact / Directional Commands
+
+Commands like:
+
+- **Contact**
+- **Front**
+- **Left**
+- **Right**
+- **On Six**
+- **Over There**
+
+help followers orient toward threats or suspected enemy locations.
+
+These are especially useful before enemies become fully visible.
+
+### Important Combat Advice
+
+Do not constantly pull followers back toward you while they are actively fighting another enemy.
+
+In fights with multiple enemies, you can accidentally disrupt their current engagement and create unstable combat behavior as enemy priorities constantly change.
+
+Followers generally perform better when:
+
+- they are allowed to finish their current engagement
+- they lead the push
+- you support them instead of constantly repositioning them
+
+Over-commanding followers can:
+
+- interrupt movement
+- reset positioning
+- confuse enemy prioritization
+- create unstable combat behavior
+
+Use commands deliberately instead of continuously micromanaging.
+
+### Loot Carrying
+
+Look at an item and use the lower-left interaction prompt to order a follower to pick it up.
+
+The follower:
+
+- must not be in combat
+- must have inventory space
+- must be able to reach the item
+
+You must successfully extract with that teammate for the loot to be returned after the raid. Note that only followers you spawned with, will return the loot.
+
+If the follower dies, the loot is lost.
 
 ## Upcoming
 
@@ -188,7 +375,7 @@ The following are planned features in reaching a release version (1.0.0)
 - **Loadout Management:**
     - **Simple** - edit or choose a follower loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned follower gear cannot be looted.
     - **Immersive** - any gear used for a follower loadout will be taken from the player's stash. Gear is not lost on death. Makes spawned follower's gear lootable.
-    - **Hardcore** - same as Immersive, but followers equipement get damaged and if they die, their gear is lost.
+    - **Hardcore** - same as Immersive, but followers equipment gets damaged and if they die, their gear is lost.
 
 - **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping followers alive, and keeping picked-up raid allies alive. Points are lost if you kill followers or allies.
 

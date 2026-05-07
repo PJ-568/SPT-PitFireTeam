@@ -258,7 +258,7 @@ namespace pitTeam.SAINAddon
                 return false;
             }
 
-            Vector3 bossPos = boss.realPlayer.Transform.position;
+            Vector3 bossPos = FollowerCombatAnchor.GetAnchorPosition(owner);
             float regroupDistance = GetAutoRegroupDistance(owner);
 
             if (enemy.IsVisible || (enemy.Seen && enemy.TimeSinceSeen < RegroupEnemySeenRecentTime))

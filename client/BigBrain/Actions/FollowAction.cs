@@ -408,6 +408,7 @@ namespace pitTeam.BigBrain.Actions
             if (resumeFollowUntil > Time.time)
             {
                 Follow();
+                return;
             }
 
             movingToSettlePoint = false;

@@ -134,7 +134,7 @@ namespace pitTeam
         public string[] friendlyEscaped { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.5.2")]
+    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.6.0")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {

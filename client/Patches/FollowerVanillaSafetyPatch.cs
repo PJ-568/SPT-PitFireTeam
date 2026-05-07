@@ -165,6 +165,32 @@ namespace pitTeam.Patches
             return true;
         }
 
+        [PatchFinalizer]
+        private static Exception PatchFinalizer(GClass48 __instance, Exception __exception, ref bool __result)
+        {
+            if (__exception == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                _botOwnerGetter ??= LootPatrolActiveLayerListPatch.BuildBotOwnerGetter(__instance?.GetType());
+                BotOwner botOwner = _botOwnerGetter?.Invoke(__instance);
+                if (IsConfirmedFollower(botOwner))
+                {
+                    __result = false;
+                    return null;
+                }
+            }
+            catch
+            {
+                // If the guard itself cannot identify the bot, let the original exception surface.
+            }
+
+            return __exception;
+        }
+
         private static bool IsConfirmedFollower(BotOwner botOwner)
         {
             if (botOwner == null) return false;

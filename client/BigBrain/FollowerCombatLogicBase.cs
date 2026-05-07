@@ -59,6 +59,7 @@ namespace pitTeam.BigBrain
 
         public virtual void Reset()
         {
+            BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
             combatCommon.Reset();
             defaultObjective.Reset();
             sniperObjective.Reset();
@@ -407,6 +408,7 @@ namespace pitTeam.BigBrain
         {
             followerData.ClearCommand("CombatObjective:ConsumeRegroup");
             ActivateRegroupObjective();
+            followerData.SetCombatRegroupBossAnchor(true);
         }
 
         private void ActivateRegroupObjective()
@@ -493,6 +495,7 @@ namespace pitTeam.BigBrain
             regroupObjective.Deactivate();
             suppressionObjective.Deactivate();
             needSniperObjective.Deactivate();
+            BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
             // Re-enter tactic combat with clean local primary-objective state, but do not call
             // StartDecision() here or the bot would incorrectly get a fresh combat opener.
             GetObjective().Activate();
