@@ -1087,7 +1087,10 @@ namespace pitTeam.Components
                 if (!BossPlayers.IsFollower(follower)) continue;
 
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
-                followerData?.SetCanPatrol(false);
+                if (!IsCombatRegroupContext())
+                {
+                    followerData?.SetCanPatrol(false);
+                }
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ClearTemporaryCombatAggressionOverride();
 

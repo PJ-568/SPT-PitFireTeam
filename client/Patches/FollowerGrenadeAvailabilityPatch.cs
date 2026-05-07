@@ -14,7 +14,7 @@ namespace pitTeam.Patches
         }
 
         [PatchPostfix]
-        [HarmonyPriority(Priority.First)]
+        [HarmonyPriority(Priority.Last)]
         private static void PatchPostfix(BotGrenadeController __instance, ref bool __result)
         {
             BotOwner bot = __instance?.BotOwner_0;
@@ -23,7 +23,13 @@ namespace pitTeam.Patches
                 return;
             }
 
-            if (!FollowerGrenadeRuntimeGate.IsThrowAllowed(bot))
+            if (FollowerGrenadeRuntimeGate.IsThrowAllowed(bot))
+            {
+                __result = __instance.Grenade != null;
+                return;
+            }
+
+            if (__result)
             {
                 __result = false;
             }

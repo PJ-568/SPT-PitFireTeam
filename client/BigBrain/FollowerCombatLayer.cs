@@ -136,7 +136,7 @@ namespace pitTeam.BigBrain
             MarkActive(false);
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             followerData?.ClearTemporaryCombatAggressionOverride();
-            followerData?.ClearCombatIndependent();
+            followerData?.ClearActiveCombatIndependent();
             ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
             lastDecision = null;

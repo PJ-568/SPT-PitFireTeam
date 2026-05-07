@@ -306,6 +306,7 @@ namespace pitTeam
             new FollowerGrenadeAvailabilityPatch().Enable();
             new FollowerGrenadeCooldownPatch().Enable();
             new FollowerGrenadeThrowFinishPatch().Enable();
+            new FollowerGrenadeReleasePatch().Enable();
             new BulletImpactPatch().Enable();
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();

@@ -72,6 +72,7 @@ namespace pitTeam.Components
         protected WildSpawnType _botRole;
         protected bool _canPatrol = false;
         private bool _combatIndependent;
+        private bool _combatIndependentRequested;
         private bool _combatRegroupUsesBossAnchor;
         private bool _peaceChangeHooked = false;
         private bool _manualUpdateHooked = false;
@@ -996,8 +997,6 @@ namespace pitTeam.Components
             _canPatrol = value;
             if (!value)
             {
-                _combatIndependent = false;
-                _combatRegroupUsesBossAnchor = false;
                 ReleasePatrolMovementState("SetCanPatrol:false");
             }
         }
@@ -1044,18 +1043,27 @@ namespace pitTeam.Components
 
         public void BeginCombatIndependenceFromPatrol()
         {
-            _combatIndependent = _canPatrol;
+            _combatIndependent = _canPatrol || _combatIndependentRequested;
             _combatRegroupUsesBossAnchor = false;
         }
 
         public void SetCombatIndependent(bool value)
         {
+            _combatIndependentRequested = value;
             _combatIndependent = value;
+            _combatRegroupUsesBossAnchor = false;
+        }
+
+        public void ClearActiveCombatIndependent()
+        {
+            _combatIndependent = false;
+            _combatRegroupUsesBossAnchor = false;
         }
 
         public void ClearCombatIndependent()
         {
             _combatIndependent = false;
+            _combatIndependentRequested = false;
             _combatRegroupUsesBossAnchor = false;
         }
 
