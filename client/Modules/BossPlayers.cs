@@ -145,6 +145,13 @@ namespace pitTeam.Modules
                 });
                 if (followersToRemove.Count > 0)
                 {
+                    if (died)
+                    {
+                        // Player death tears down the boss/follower relationship before normal raid cleanup.
+                        // Resolve simulated follower escapes while live bot state is still available.
+                        FollowerDeathEscapeResolver.ResolveAndSend(boss, followersToRemove);
+                    }
+
                     SaveFollowersProgress(died ? followersToRemove.FindAll(fl => fl.IsSquadMate) : followersToRemove);
                 }
 

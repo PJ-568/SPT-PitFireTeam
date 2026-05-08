@@ -246,6 +246,177 @@ namespace pitTeam.Modules
             }
         }
 
+        public static void SendEscapedFollowerStoredItems(IEnumerable<BotOwner> escapedBots)
+        {
+            if (Instance == null || escapedBots == null || Instance._toSendItems == null)
+            {
+                return;
+            }
+
+            try
+            {
+                // Player-death cleanup removes followers from BossPlayers before Destroy() can gather
+                // loot normally. Reuse the tracked item ids, but restrict the scan to escaped bots.
+                Instance._toSendItems.Clear();
+                List<string> gathered = new List<string>();
+
+                foreach (BotOwner bot in escapedBots)
+                {
+                    if (bot == null || bot.BotState != EBotState.Active || bot.HealthController?.IsAlive != true)
+                    {
+                        continue;
+                    }
+
+                    Instance.GatherStoredItemsFromBot(bot, gathered);
+                }
+
+                if (Instance._toSendItems.Count == 0)
+                {
+                    return;
+                }
+
+                Instance.SendCurrentStoredItems();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Failed to send escaped follower stored loot");
+                Logger.LogError(ex);
+            }
+        }
+
+        private void GatherStoredItemsFromBot(BotOwner bot, List<string> gathered)
+        {
+            if (_toSendItems == null || bot?.GetPlayer?.InventoryController == null)
+            {
+                return;
+            }
+
+            // Stored loot ids can be in any regular follower container or weapon slot. This mirrors
+            // the normal cleanup gatherer without depending on the boss/follower registry.
+            InventoryController botInventoryController = bot.GetPlayer.InventoryController;
+
+            SearchableItemItemClass tacVest = botInventoryController.Inventory.Equipment
+                .GetSlot(EquipmentSlot.TacticalVest)
+                .ContainedItem as SearchableItemItemClass;
+
+            SearchableItemItemClass backpack = botInventoryController.Inventory.Equipment
+                .GetSlot(EquipmentSlot.Backpack)
+                .ContainedItem as SearchableItemItemClass;
+
+            SearchableItemItemClass pockets = botInventoryController.Inventory.Equipment
+                .GetSlot(EquipmentSlot.Pockets)
+                .ContainedItem as SearchableItemItemClass;
+
+            var storedItems = GetStoredItems(bot.ProfileId);
+            if (storedItems == null)
+            {
+                return;
+            }
+
+            foreach (var stored in storedItems)
+            {
+                if (gathered.Contains(stored)) continue;
+
+                if (TryGatherFromContainer(tacVest, stored, gathered) ||
+                    TryGatherFromContainer(backpack, stored, gathered) ||
+                    TryGatherFromContainer(pockets, stored, gathered))
+                {
+                    continue;
+                }
+
+                var primaryWeapon = botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.FirstPrimaryWeapon).ContainedItem;
+                if (primaryWeapon != null && primaryWeapon.Id == stored)
+                {
+                    _toSendItems.Add(primaryWeapon.CloneItem());
+                    gathered.Add(stored);
+                    continue;
+                }
+
+                var secondaryWeapon = botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.SecondPrimaryWeapon).ContainedItem;
+                if (secondaryWeapon != null && secondaryWeapon.Id == stored)
+                {
+                    _toSendItems.Add(secondaryWeapon.CloneItem());
+                    gathered.Add(stored);
+                    continue;
+                }
+
+                var holster = botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.Holster).ContainedItem;
+                if (holster != null && holster.Id == stored)
+                {
+                    _toSendItems.Add(holster.CloneItem());
+                    gathered.Add(stored);
+                }
+            }
+        }
+
+        private bool TryGatherFromContainer(SearchableItemItemClass container, string storedItemId, List<string> gathered)
+        {
+            if (_toSendItems == null || container == null || container.Grids.Length <= 0)
+            {
+                return false;
+            }
+
+            foreach (var item in container.GetAllItems())
+            {
+                if (item.Id != storedItemId)
+                {
+                    continue;
+                }
+
+                _toSendItems.Add(item.CloneItem());
+                gathered.Add(storedItemId);
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool SendCurrentStoredItems()
+        {
+            if (!EnableBackendItemReturn || _toSendItems == null)
+            {
+                return false;
+            }
+
+            var flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(_toSendItems);
+            if (flatItems == null || !flatItems.Any())
+            {
+                return false;
+            }
+
+            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
+                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+
+            var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+
+            Dictionary<string, object>? member = null;
+            if (_followersWithLoot != null && _followersWithLoot.Count > 0)
+            {
+                member = _followersWithLoot.Values.FirstOrDefault();
+            }
+
+            string returnItemsJson = new
+            {
+                items = flatItems,
+                member,
+            }.ToJson(defaultJsonConverters);
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    RequestHandler.PostJson("/singleplayer/returnitems", returnItemsJson);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError("Failed to send post-raid returned follower items");
+                    Logger.LogError(ex);
+                }
+            });
+
+            return true;
+        }
+
         public void Destroy()
         {
             if (IsDisposed) return;

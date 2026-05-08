@@ -508,6 +508,52 @@ public class FriendlyTeammateService(
         }
     }
 
+    public FriendlyTeammateDeathEscapeSummary PersistDeathEscapeOutcomes(
+        MongoId sessionId,
+        IEnumerable<FriendlyTeammateDeathEscapeEntry>? entries)
+    {
+        var summary = new FriendlyTeammateDeathEscapeSummary();
+        if (entries == null)
+        {
+            return summary;
+        }
+
+        foreach (var entry in entries)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.Aid))
+            {
+                continue;
+            }
+
+            string displayName = string.IsNullOrWhiteSpace(entry.Nickname) ? "Squadmate" : entry.Nickname;
+            if (entry.Escaped)
+            {
+                summary.EscapedNames.Add(displayName);
+            }
+            else
+            {
+                summary.LostNames.Add(displayName);
+            }
+
+            if (string.IsNullOrWhiteSpace(summary.ExtractName) && !string.IsNullOrWhiteSpace(entry.ExtractName))
+            {
+                summary.ExtractName = entry.ExtractName;
+            }
+
+            if (!TryFindByAccountId(sessionId, entry.Aid, out var teammate) || teammate == null)
+            {
+                continue;
+            }
+
+            // Client has already rolled the result using live raid state. Server only persists the
+            // teammate profile state and builds a message summary for the player.
+            ApplyDeathEscapeOutcome(teammate, entry);
+            SaveTeammate(sessionId, teammate);
+        }
+
+        return summary;
+    }
+
     private void EnsureFollowerHasSecureContainerSupplies(BotBase profile)
     {
         if (profile?.Inventory?.Items == null)
@@ -801,6 +847,24 @@ public class FriendlyTeammateService(
         return DeleteTeammate(sessionId, teammate);
     }
 
+    public bool IsTeammateIdentity(MongoId sessionId, MongoId? profileId, string? accountId)
+    {
+        int? aid = null;
+        if (!string.IsNullOrWhiteSpace(accountId) && int.TryParse(accountId, out var parsedAid))
+        {
+            aid = parsedAid;
+        }
+
+        if (profileId is null && aid is null)
+        {
+            return false;
+        }
+
+        return LoadTeammates(sessionId).Any(profile =>
+            (profileId is not null && profile.Id == profileId)
+            || (aid is not null && profile.Aid == aid.Value));
+    }
+
     private bool DeleteTeammate(MongoId sessionId, BotBase teammate)
     {
         var filePath = GetTeammateFilePath(sessionId, teammate);
@@ -1046,6 +1110,54 @@ public class FriendlyTeammateService(
         }
 
         teammate.Skills.Common = commonSkills;
+    }
+
+    private static void ApplyDeathEscapeOutcome(BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)
+    {
+        var bodyParts = teammate.Health?.BodyParts;
+        if (bodyParts == null || bodyParts.Count == 0)
+        {
+            return;
+        }
+
+        double healthRatio = Math.Clamp(entry.HealthRatio, 0.05d, 1d);
+        foreach (var (partName, bodyPart) in bodyParts)
+        {
+            var health = bodyPart?.Health;
+            if (health == null)
+            {
+                continue;
+            }
+
+            double maximum = Math.Max(1d, health.Maximum ?? health.Current ?? 1d);
+            health.Maximum = maximum;
+
+            if (!entry.Escaped)
+            {
+                // Failed escape means the teammate remains dead for later roster/spawn logic.
+                health.Current = 0d;
+                continue;
+            }
+
+            // Successful escape preserves the raid-end health ratio while forcing vital parts above
+            // zero so the teammate is considered alive by subsequent profile fetch/spawn paths.
+            double minimumAlive = IsVitalBodyPart(partName) ? 1d : 0d;
+            health.Current = Math.Clamp(maximum * healthRatio, minimumAlive, maximum);
+        }
+
+        if (entry.Escaped)
+        {
+            teammate.Health!.Hydration ??= new CurrentMinMax { Current = 100d, Maximum = 100d, Minimum = 0d };
+            teammate.Health.Energy ??= new CurrentMinMax { Current = 100d, Maximum = 100d, Minimum = 0d };
+            teammate.Health.Hydration.Current = Math.Max(teammate.Health.Hydration.Current ?? 0d, 1d);
+            teammate.Health.Energy.Current = Math.Max(teammate.Health.Energy.Current ?? 0d, 1d);
+        }
+    }
+
+    private static bool IsVitalBodyPart(string partName)
+    {
+        return string.Equals(partName, "Head", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(partName, "Chest", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ApplyPmcFollowerSkillBaseline(BotBase teammate)

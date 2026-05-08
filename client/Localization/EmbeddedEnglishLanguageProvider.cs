@@ -231,7 +231,33 @@ namespace pitTeam.Localization
                 returnItemsDeath = new[] { "Your teammate recovered these items." },
                 teamEscaped = new[] { "Nice!\nWe managed to get out." },
                 teamSomeEscaped = new[] { "Well it's a shame about {0}, but at least the rest of us made it." },
-                friendlyEscaped = new[] { "Glad we made it.\nThanks for letting me tag along." }
+                friendlyEscaped = new[] { "Glad we made it.\nThanks for letting me tag along." },
+                deathEscapeMessages = new[]
+                {
+                    "Squad extraction report:\n{0}",
+                    "Post-raid squad report:\n{0}",
+                    "Your squad's final status:\n{0}",
+                },
+                deathEscape = new Dictionary<string, string>
+                {
+                    ["MadeItOut"] = "Made it out: {0}",
+                    ["Lost"] = "Lost: {0}",
+                    ["ExtractRoute"] = "Extract route: {0}",
+                },
+                traitorKillMessages = new[]
+                {
+                    "I trusted you. Guess that was my mistake.",
+                    "So that's how you treat someone who joined your side?",
+                    "You picked me up just to put me down? Real classy.",
+                    "I had your back. You shot me in it.",
+                },
+                jerkKillMessages = new[]
+                {
+                    "Same side, genius. Try checking your targets next time.",
+                    "Friendly PMC. Friendly. The word means something.",
+                    "You shoot everyone wearing your colors, or was I special?",
+                    "Nice work. You killed one of your own.",
+                }
             };
         }
     }

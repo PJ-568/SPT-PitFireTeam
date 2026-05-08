@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Collections.Concurrent;
 using SPTarkov.DI.Annotations;
+using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Utils;
 
 namespace pitTeam.Server.Services;
@@ -10,14 +12,16 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
 {
     private const string ModFolderName = "pitFireTeam-ServerMod";
     private const string LanguageFolderName = "lang";
+    private readonly ConcurrentDictionary<string, string> sessionLocales = new();
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = false
     };
 
-    public string GetLanguageJson(string? requestedLocale, string? embeddedEnglishJson)
+    public string GetLanguageJson(MongoId sessionId, string? requestedLocale, string? embeddedEnglishJson)
     {
         string locale = NormalizeLocale(requestedLocale);
+        sessionLocales[sessionId.ToString()] = locale;
         string languageDirectory = Path.Combine(
             AppContext.BaseDirectory,
             "user",
@@ -42,6 +46,71 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
         }
 
         return selected.ToJsonString(SerializerOptions);
+    }
+
+    public string[] GetStringArray(MongoId sessionId, string key)
+    {
+        JsonObject language = GetSessionLanguage(sessionId);
+        if (language.TryGetPropertyValue(key, out JsonNode? node) && node is JsonArray array)
+        {
+            string[] values = array
+                .Select(value => value?.GetValue<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToArray()!;
+            if (values.Length > 0)
+            {
+                return values;
+            }
+        }
+
+        return [];
+    }
+
+    public Dictionary<string, string> GetStringMap(MongoId sessionId, string key)
+    {
+        JsonObject language = GetSessionLanguage(sessionId);
+        if (!language.TryGetPropertyValue(key, out JsonNode? node) || node is not JsonObject obj)
+        {
+            return [];
+        }
+
+        Dictionary<string, string> values = [];
+        foreach (KeyValuePair<string, JsonNode?> entry in obj)
+        {
+            string? value = entry.Value?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                values[entry.Key] = value;
+            }
+        }
+
+        return values;
+    }
+
+    private JsonObject GetSessionLanguage(MongoId sessionId)
+    {
+        string locale = sessionLocales.TryGetValue(sessionId.ToString(), out string? savedLocale)
+            ? savedLocale
+            : "en";
+        string languageDirectory = Path.Combine(
+            AppContext.BaseDirectory,
+            "user",
+            "mods",
+            ModFolderName,
+            "Resources",
+            LanguageFolderName);
+
+        JsonObject fallback = LoadLanguageFile(languageDirectory, "en") ?? [];
+        JsonObject selected = string.Equals(locale, "en", StringComparison.OrdinalIgnoreCase)
+            ? fallback
+            : LoadLanguageFile(languageDirectory, locale) ?? [];
+
+        if (!ReferenceEquals(fallback, selected))
+        {
+            MergeMissingValues(selected, fallback);
+        }
+
+        return selected;
     }
 
     private void EnsureEnglishLanguageFile(string languageDirectory, JsonObject? embeddedEnglish)

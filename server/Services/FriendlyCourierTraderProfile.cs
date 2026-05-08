@@ -8,7 +8,7 @@ internal static class FriendlyCourierTraderProfile
 {
     public const string CourierTraderIdValue = "67d3a28a3d6f4f7dbd09ed13";
     public const int CourierAid = 1113680;
-    public const string CourierNickname = "SquadDelivery";
+    public const string CourierNickname = "-P|T- Comms";
     public const string CourierLocation = "Friendly Squad Logistics";
     public const string CourierDescription = "Handles item transfers from your squadmates.";
     public const string CourierAvatarFileName = "pitfireteam-courier.png";

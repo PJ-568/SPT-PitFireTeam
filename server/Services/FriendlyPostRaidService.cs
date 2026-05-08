@@ -2,12 +2,15 @@ using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Helpers;
 using SPTarkov.Server.Core.Models.Common;
+using SPTarkov.Server.Core.Models.Eft.Common.Tables;
+using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Dialog;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Utils;
+using System.Collections.Concurrent;
 
 namespace pitTeam.Server.Services;
 
@@ -16,9 +19,16 @@ public class FriendlyPostRaidService(
     MailSendService mailSendService,
     NotificationSendHelper notificationSendHelper,
     DialogueHelper dialogueHelper,
+    FriendlyLanguageService languageService,
+    FriendlyTeammateService teammateService,
+    TimeUtil timeUtil,
     ISptLogger<FriendlyPostRaidService> logger
 )
 {
+    private const string KillMessageKindTraitor = "traitor";
+    private const string KillMessageKindJerk = "jerk";
+    private static readonly ConcurrentDictionary<string, Dictionary<string, KillMessageRecord>> KillMessageRecords = new();
+
     private static readonly string[] ReturnItemsMessages =
     [
         "Items received from your teammate. Ready for you to claim.",
@@ -104,6 +114,246 @@ public class FriendlyPostRaidService(
 
         notificationSendHelper.SendMessageToPlayer(sessionId, sender, message, MessageType.UserMessage);
     }
+
+    public void RecordKillMessage(MongoId sessionId, FriendlyPostRaidKillMessageRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.VictimProfileId) || string.IsNullOrWhiteSpace(request.MessageKind))
+        {
+            return;
+        }
+
+        string kind = NormalizeKillMessageKind(request.MessageKind);
+        if (string.IsNullOrEmpty(kind))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.MessageText))
+        {
+            return;
+        }
+
+        Dictionary<string, KillMessageRecord> sessionRecords = KillMessageRecords.GetOrAdd(
+            sessionId.ToString(),
+            _ => new Dictionary<string, KillMessageRecord>(StringComparer.Ordinal));
+
+        lock (sessionRecords)
+        {
+            var record = new KillMessageRecord(kind, request.MessageText);
+            sessionRecords[request.VictimProfileId] = record;
+
+            if (!string.IsNullOrWhiteSpace(request.VictimAccountId))
+            {
+                sessionRecords[$"aid:{request.VictimAccountId}"] = record;
+            }
+        }
+    }
+
+    public void HandleEndLocalRaidKillMessages(MongoId sessionId, EndLocalRaidRequestData request)
+    {
+        List<Victim> pmcVictims = request.Results?.Profile?.Stats?.Eft?.Victims?
+            .Where(IsPmcVictim)
+            .Where(victim => victim?.ProfileId is not null)
+            .Cast<Victim>()
+            .ToList()
+            ?? [];
+
+        if (pmcVictims.Count == 0)
+        {
+            ClearKillMessageRecords(sessionId);
+            return;
+        }
+
+        long recentMessageThreshold = timeUtil.GetTimeStamp() - 60;
+        foreach (Victim victim in pmcVictims)
+        {
+            KillMessageRecord? record = GetPostRaidKillMessageRecord(sessionId, victim);
+            if (record == null)
+            {
+                continue;
+            }
+
+            RemoveRecentVanillaPmcResponse(sessionId, victim, recentMessageThreshold);
+
+            if (record.Kind == KillMessageKindTraitor || record.Kind == KillMessageKindJerk)
+            {
+                SendVictimMessage(sessionId, victim, record.MessageText);
+            }
+        }
+
+        ClearKillMessageRecords(sessionId);
+    }
+
+    public void HandleDeathEscapeSummary(MongoId sessionId, FriendlyTeammateDeathEscapeSummary summary)
+    {
+        if (summary.EscapedNames.Count == 0 && summary.LostNames.Count == 0)
+        {
+            return;
+        }
+
+        Dictionary<string, string> deathEscapeText = languageService.GetStringMap(sessionId, "deathEscape");
+        string madeItOutTemplate = GetLanguageValue(deathEscapeText, "MadeItOut");
+        string lostTemplate = GetLanguageValue(deathEscapeText, "Lost");
+        string extractRouteTemplate = GetLanguageValue(deathEscapeText, "ExtractRoute");
+
+        // Player-death escape reports are separate from the normal "team escaped with player"
+        // messages because the player did not extract with the squad. Put each result on its own
+        // line so mixed escaped/lost outcomes stay readable in post-raid mail.
+        var parts = new List<string>();
+        if (summary.EscapedNames.Count > 0)
+        {
+            parts.Add(string.Format(madeItOutTemplate, JoinNames(summary.EscapedNames)));
+        }
+
+        if (summary.LostNames.Count > 0)
+        {
+            parts.Add(string.Format(lostTemplate, JoinNames(summary.LostNames)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(summary.ExtractName))
+        {
+            parts.Add(string.Format(extractRouteTemplate, summary.ExtractName));
+        }
+
+        string[] deathEscapeMessages = languageService.GetStringArray(sessionId, "deathEscapeMessages");
+        string messageTemplate = deathEscapeMessages.Length > 0 ? PickRandom(deathEscapeMessages) : "{0}";
+        string message = string.Format(messageTemplate, string.Join("\n", parts));
+
+        UserDialogInfo sender = GetDeliverySender();
+        SendMessageDetails details = new()
+        {
+            RecipientId = sessionId,
+            Sender = MessageType.NpcTraderMessage,
+            DialogType = MessageType.NpcTraderMessage,
+            SenderDetails = sender,
+            Trader = FriendlyCourierTraderProfile.CourierTraderIdValue,
+            MessageText = message,
+        };
+
+        mailSendService.SendMessageToPlayer(details);
+        EnsureDialogHasSender(sessionId, sender);
+    }
+
+    private KillMessageRecord? GetPostRaidKillMessageRecord(MongoId sessionId, Victim victim)
+    {
+        if (teammateService.IsTeammateIdentity(sessionId, victim.ProfileId, victim.AccountId))
+        {
+            return new KillMessageRecord("teammate", string.Empty);
+        }
+
+        return GetRecordedKillMessageRecord(sessionId, victim);
+    }
+
+    private KillMessageRecord? GetRecordedKillMessageRecord(MongoId sessionId, Victim victim)
+    {
+        if (!KillMessageRecords.TryGetValue(sessionId.ToString(), out var records))
+        {
+            return null;
+        }
+
+        lock (records)
+        {
+            if (victim.ProfileId is not null && records.TryGetValue(victim.ProfileId.Value.ToString(), out KillMessageRecord? byProfileId))
+            {
+                return byProfileId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(victim.AccountId) && records.TryGetValue($"aid:{victim.AccountId}", out KillMessageRecord? byAid))
+            {
+                return byAid;
+            }
+        }
+
+        return null;
+    }
+
+    private void RemoveRecentVanillaPmcResponse(MongoId sessionId, Victim victim, long recentMessageThreshold)
+    {
+        if (victim.ProfileId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Dictionary<MongoId, SPTarkov.Server.Core.Models.Eft.Profile.Dialogue> dialogs = dialogueHelper.GetDialogsForProfile(sessionId);
+            if (!dialogs.TryGetValue(victim.ProfileId.Value, out var dialog) || dialog.Messages == null)
+            {
+                return;
+            }
+
+            int removeCount = dialog.Messages.RemoveAll(message =>
+                message.UserId == victim.ProfileId.Value
+                && message.MessageType == MessageType.UserMessage
+                && message.Items is null
+                && message.DateTime >= recentMessageThreshold);
+
+            if (removeCount > 0 && dialog.New is > 0)
+            {
+                dialog.New = Math.Max(0, dialog.New.Value - removeCount);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to remove vanilla PMC response for victim '{victim.ProfileId}': {ex.Message}");
+        }
+    }
+
+    private void SendVictimMessage(MongoId sessionId, Victim victim, string message)
+    {
+        if (victim.ProfileId is null || string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        notificationSendHelper.SendMessageToPlayer(sessionId, ToSenderInfo(victim), message, MessageType.UserMessage);
+    }
+
+    private static UserDialogInfo ToSenderInfo(Victim victim)
+    {
+        int aid = 0;
+        if (!string.IsNullOrWhiteSpace(victim.AccountId))
+        {
+            int.TryParse(victim.AccountId, out aid);
+        }
+
+        return new UserDialogInfo
+        {
+            Id = victim.ProfileId!.Value,
+            Aid = aid,
+            Info = new UserDialogDetails
+            {
+                Nickname = string.IsNullOrWhiteSpace(victim.Name) ? "PMC" : victim.Name,
+                Side = string.IsNullOrWhiteSpace(victim.Side) ? "Usec" : victim.Side,
+                Level = victim.Level ?? 1,
+                MemberCategory = MemberCategory.Unheard,
+                SelectedMemberCategory = MemberCategory.Unheard,
+            },
+        };
+    }
+
+    private static bool IsPmcVictim(Victim? victim)
+    {
+        return string.Equals(victim?.Role, "pmcBEAR", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(victim?.Role, "pmcUSEC", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeKillMessageKind(string? kind)
+    {
+        return kind?.Trim().ToLowerInvariant() switch
+        {
+            KillMessageKindTraitor => KillMessageKindTraitor,
+            KillMessageKindJerk => KillMessageKindJerk,
+            _ => string.Empty,
+        };
+    }
+
+    private static void ClearKillMessageRecords(MongoId sessionId)
+    {
+        KillMessageRecords.TryRemove(sessionId.ToString(), out _);
+    }
+
+    private sealed record KillMessageRecord(string Kind, string MessageText);
 
     private void EnsureDialogHasSender(MongoId sessionId, UserDialogInfo sender)
     {
@@ -221,5 +471,12 @@ public class FriendlyPostRaidService(
 
         int index = Random.Shared.Next(values.Length);
         return values[index];
+    }
+
+    private static string GetLanguageValue(Dictionary<string, string> values, string key)
+    {
+        return values.TryGetValue(key, out string? value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : "{0}";
     }
 }

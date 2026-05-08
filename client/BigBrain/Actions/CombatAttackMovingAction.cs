@@ -30,9 +30,18 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                StopCombatShooting();
+                BotOwner.LookData.SetLookPointByHearing(null);
+                BotOwner.Mover.Stop();
+                return;
+            }
+
             // Attack-moving can run for a while, so keep non-marksman followers on their primary at
             // range and pass the current decision reason into the wrapped node for suppress behavior.
-            TryPreferPrimaryAtRange(BotOwner.Memory?.GoalEnemy);
+            TryPreferPrimaryAtRange(goalEnemy);
             baseLogic.SetCurrentReason(GetReason(data));
             baseLogic.UpdateNodeByBrain(GetRawData(data));
         }

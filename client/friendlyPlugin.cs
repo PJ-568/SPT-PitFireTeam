@@ -132,6 +132,10 @@ namespace pitTeam
         public string[] teamEscaped { get; set; }
         public string[] teamSomeEscaped { get; set; }
         public string[] friendlyEscaped { get; set; }
+        public string[] deathEscapeMessages { get; set; }
+        public Dictionary<string, string> deathEscape { get; set; }
+        public string[] traitorKillMessages { get; set; }
+        public string[] jerkKillMessages { get; set; }
     }
 
     [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.6.0")]
@@ -258,6 +262,8 @@ namespace pitTeam
             new AdvAssaultTargetFollowerGuardPatch().Enable();
             new PatrolDataFollowerUpdateGuardPatch().Enable();
             new AvoidDangerFollowerGuardPatch().Enable();
+            new FollowerNightVisionActivatePatch().Enable();
+            new FollowerNightVisionOffPatch().Enable();
             new PmcBearCombatLayerSuppressionPatch().Enable();
             new PmcUsecCombatLayerSuppressionPatch().Enable();
             new PmcFlankCombatLayerSuppressionPatch().Enable();
