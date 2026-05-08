@@ -12,6 +12,10 @@ If you would like to show your appreciation, you can support me at [Ko-Fi](https
 
 ---
 
+It is highly recommended for new players to read **Gameplay Guide** and **Known Issues** before playing.
+
+---
+
 # Tabs {.tabset}
 
 ## Description
@@ -367,19 +371,15 @@ The following are planned features in reaching a release version (1.0.0)
 **Planned commands:**
 
 - **Spread Out** - in combat, tells followers who are not actively engaged to find cover.
-- **Silence** - tells followers to stop talking. Maximum time will be controlled via settings.
-- Using **Come Here** and **There** gestures while in combat for short movement of the followers
 
 **Planned settings:**
 
 - **Loadout Management:**
     - **Simple** - edit or choose a follower loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned follower gear cannot be looted.
-    - **Immersive** - any gear used for a follower loadout will be taken from the player's stash. Gear is not lost on death. Makes spawned follower's gear lootable.
-    - **Hardcore** - same as Immersive, but followers equipment gets damaged and if they die, their gear is lost.
+    - **Restricted** - any gear used for a follower loadout will be taken from the player's stash. Gear is not lost on death, spawned follower gear cannot be looted.
+    - **Immersive** - same as Restricted, but followers equipment gets damaged and if they die, their gear is lost. Gear can be looted from dead followers.
 
 - **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping followers alive, and keeping picked-up raid allies alive. Points are lost if you kill followers or allies.
-
-- **Patrol Radius** - to be used together with out of combat command **On Your Own** where it triggers patrol mode for followers
 
 **Planned features:**
 
