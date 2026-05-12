@@ -5,6 +5,7 @@ using EFT.HealthSystem;
 using EFT.InventoryLogic;
 using pitTeam.BigBrain;
 using pitTeam.Components;
+using pitTeam.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
@@ -149,10 +150,6 @@ namespace pitTeam.Modules
             }
 
             RecorderFollowerState state = GetOrCreateState(bot!);
-            if (!IsBotInRecordedCombat(bot!, state))
-            {
-                return;
-            }
 
             WriteEventInternal("commandSet", bot, new
             {
@@ -179,10 +176,6 @@ namespace pitTeam.Modules
             }
 
             RecorderFollowerState state = GetOrCreateState(bot!);
-            if (!IsBotInRecordedCombat(bot!, state))
-            {
-                return;
-            }
 
             WriteEventInternal("commandCleared", bot, new
             {
@@ -383,6 +376,42 @@ namespace pitTeam.Modules
             });
         }
 
+        public static void RecordCommitmentEvent(
+            BotOwner bot,
+            string commitment,
+            string action,
+            string? reason,
+            AICoreActionResultStruct<BotLogicDecision, GClass26>? decision = null,
+            Vector3? target = null,
+            int? coverId = null,
+            bool? preferCover = null,
+            float? untilTime = null)
+        {
+            if (!CanRecordBot(bot))
+            {
+                return;
+            }
+
+            RecorderFollowerState state = GetOrCreateState(bot);
+            if (!IsBotInRecordedCombat(bot, state))
+            {
+                return;
+            }
+
+            WriteEventInternal("commitmentEvent", bot, new
+            {
+                commitment,
+                action,
+                reason,
+                decision = decision.HasValue ? CreateDecisionPayload(decision.Value) : null,
+                target = target.HasValue && IsFinite(target.Value) ? CreateVector(target.Value) : null,
+                coverId,
+                preferCover,
+                untilTime = untilTime.HasValue ? SanitizeFloat(untilTime.Value) : null,
+                context = CreateTransitionContext(bot, state)
+            });
+        }
+
         private static void OnBotManualUpdate(BotOwner owner)
         {
             if (!CanRecordBot(owner))
@@ -477,11 +506,10 @@ namespace pitTeam.Modules
                     firstAidUsing = bot.Medecine?.FirstAid?.Using == true,
                     surgeryPending = bot.Medecine?.SurgicalKit?.HaveWork == true,
                     surgeryUsing = bot.Medecine?.SurgicalKit?.Using == true,
-                    healthStatus = bot.GetPlayer?.HealthStatus.ToString(),
-                    limbs = CreateLimbStatusSnapshot(bot)
+                    healthStatus = bot.GetPlayer?.HealthStatus.ToString()
                 },
                 dogFight = bot.DogFight?.DogFightState.ToString(),
-                weapon = CreateWeaponSnapshot(bot),
+                weapon = CreateLightWeaponSnapshot(bot),
                 enemy = enemySnapshot,
                 boss = bossSnapshot,
                 tactic = followerData?.CombatTactic.ToString()
@@ -513,6 +541,59 @@ namespace pitTeam.Modules
             };
         }
 
+        private static object CreateTransitionContext(BotOwner bot, RecorderFollowerState state)
+        {
+            EnemyInfo? goalEnemy = bot.Memory?.GoalEnemy;
+            return new
+            {
+                state = CreateRecorderStatePayload(state),
+                memory = new
+                {
+                    haveEnemy = bot.Memory?.HaveEnemy == true,
+                    underFire = bot.Memory?.IsUnderFire == true,
+                    inCover = bot.Memory?.IsInCover == true,
+                    hitRecently = FollowerCombatCommon.WasHitRecently(bot, 0.5f) ||
+                                  FollowerAwareness.WasRecentlyHit(bot)
+                },
+                enemy = CreateTransitionEnemyContext(goalEnemy),
+                boss = CreateTransitionBossContext(bot)
+            };
+        }
+
+        private static object? CreateTransitionEnemyContext(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null)
+            {
+                return null;
+            }
+
+            return new
+            {
+                profileId = goalEnemy.ProfileId,
+                distance = SanitizeFloat(goalEnemy.Distance),
+                isVisible = goalEnemy.IsVisible,
+                canShoot = goalEnemy.CanShoot,
+                personalSeenTime = SanitizeFloat(goalEnemy.PersonalSeenTime),
+                personalLastSeenTime = SanitizeFloat(goalEnemy.PersonalLastSeenTime)
+            };
+        }
+
+        private static object? CreateTransitionBossContext(BotOwner bot)
+        {
+            if (bot.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
+            {
+                return null;
+            }
+
+            Vector3 bossPosition = boss.realPlayer != null
+                ? boss.realPlayer.Transform.position
+                : boss.Position;
+            return new
+            {
+                distance = SanitizeFloat(Vector3.Distance(bot.Position, bossPosition))
+            };
+        }
+
         private static object? CreateWeaponSnapshot(BotOwner bot)
         {
             BotWeaponSelector? selector = bot.WeaponManager?.Selector;
@@ -526,6 +607,24 @@ namespace pitTeam.Modules
                 active = CreateWeaponSlotSnapshot(activeWeapon),
                 firstPrimary = CreateWeaponSlotSnapshot(firstPrimary),
                 secondPrimary = CreateWeaponSlotSnapshot(secondPrimary)
+            };
+        }
+
+        private static object? CreateLightWeaponSnapshot(BotOwner bot)
+        {
+            BotWeaponSelector? selector = bot.WeaponManager?.Selector;
+            Weapon? activeWeapon = bot.WeaponManager?.ShootController?.Item;
+
+            return new
+            {
+                currentSlot = selector?.LastEquipmentSlot.ToString(),
+                active = activeWeapon != null
+                    ? new
+                    {
+                        type = activeWeapon.GetType().Name,
+                        magazineCount = activeWeapon.GetCurrentMagazine()?.Cartridges?.Count
+                    }
+                    : null
             };
         }
 
@@ -734,6 +833,16 @@ namespace pitTeam.Modules
             }
 
             return value.normalized;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) &&
+                   !float.IsNaN(value.y) &&
+                   !float.IsNaN(value.z) &&
+                   !float.IsInfinity(value.x) &&
+                   !float.IsInfinity(value.y) &&
+                   !float.IsInfinity(value.z);
         }
 
         private static void WriteEventInternal(string eventType, BotOwner? bot, object payload)

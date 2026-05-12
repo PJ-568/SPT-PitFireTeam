@@ -36,7 +36,7 @@
   "spawnPoint": { "Name": "Использовать co-op spawn", "Description": "Использовать co-op точки спавна для follower-ов." },
   "battleRecorder": { "Name": "Battle Recorder", "Description": "Записывать детальную боевую timeline в JSONL файл." },
   "battleRecorderSnapshotIntervalMs": { "Name": "Интервал Battle Recorder (ms)", "Description": "Частота позиционных snapshot-ов battle recorder." },
-  "gestures": { "OverThere": "Туда", "TeamStatus": "Отчет статуса", "OnRepeatedContact": "Контакт" },
+  "gestures": { "OverThere": "Туда", "TeamStatus": "Отчет статуса", "ViewBackpack": "Рюкзак", "OnRepeatedContact": "Контакт" },
   "botStatus": { "Dead": "Мертв", "Engaged": "В бою", "Alerted": "Враг обнаружен", "Heal": "Лечится", "WantToHeal": "Хочет лечиться" },
   "socialUi": {
     "AddTeammate": "+ Добавить бойца",

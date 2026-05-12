@@ -1,6 +1,6 @@
 This is the official successor of the Friendly PMC mod that was available for SPT 3.x.
 
-Pit Fire Team makes it possible to have bots follow you around and fight alongside you against enemies. You can create a customizable PMC squad, bring selected teammates into raids, recruit eligible same-side bots during a raid, and use Tarkov's existing phrase and gesture system to command your followers.
+Pit Fire Team makes it possible to have bots follow you around and fight alongside you against enemies. You can create a customizable PMC squad, bring selected teammates into raids, recruit eligible same-side bots during a raid, and use Tarkov's existing phrase and gesture system to command your teammates.
 
 ---
 
@@ -27,11 +27,12 @@ You can manage your teammates from the in-game **My Squad** screen. From there, 
 - **Dedicated squad screen** - manage your roster, customize teammates, and settings from a separate My Squad interface.
 - **Teammate customization** - change teammate name, appearance, voice, tactic, aggression, and loadout.
 - **Raid group support** - invite teammates into your group manually or use Auto Join to preload selected teammates into your next PMC raid.
-- **Follower commands** - issue combat, movement, attention, loot, and door commands through existing Tarkov phrases and gestures.
+- **teammate commands** - issue combat, movement, attention, loot, and door commands through existing Tarkov phrases and gestures.
 - **Map transitions** - teammates who you spawned with can follow you through map transitions.
-- **Progression system** - followers gain raid experience and common-skill progress that persists between raids.
-- **Quest assist** - follower kills can count toward player kill quests when the kill meets the quest criteria.
-- **Loot return** - teammates who you spawned with can return items after the raid.
+- **Progression system** - teammates gain raid experience and common-skill progress that persists between raids.
+- **Quest assist** - teammate kills can count toward player kill quests when the kill meets the quest criteria.
+- **Loot management** - teammates who you spawned with can return items after the raid and you can also manage their backpacks while in raid. (See Gameplay Guide > Loot Management)
+- **Post-raid reports** - receive report about if your team made it out with the loot after you died. (See Gameplay Guide > Raid Survival Post Player)
 
 **Compatibility tested with:**
 
@@ -40,7 +41,7 @@ You can manage your teammates from the in-game **My Squad** screen. From there, 
 - Acid's Bot Placement System
 - Acid's Progressive Bot System
 
-The mod is still sensitive to other mods that heavily change bot AI, grouping, perception, hostility, or spawning. If followers become hostile, ignore enemies, or behave strangely, test with fewer bot-related mods first.
+The mod is still sensitive to other mods that heavily change bot AI, grouping, perception, hostility, or spawning. If teammates become hostile, ignore enemies, or behave strangely, test with fewer bot-related mods first.
 
 ## Installation
 
@@ -50,7 +51,7 @@ The mod is still sensitive to other mods that heavily change bot AI, grouping, p
 
 **Recommended:**
 
-- [WAYPOINTS - EXPANDED NAVMESH](https://forge.sp-tarkov.com/mod/827/waypoints-expanded-navmesh), because followers can have a harder time navigating without expanded navmesh data.
+- [WAYPOINTS - EXPANDED NAVMESH](https://forge.sp-tarkov.com/mod/827/waypoints-expanded-navmesh), because teammates can have a harder time navigating without expanded navmesh data.
 
 Extract the downloaded archive into your SPT install directory. It should add files under both **BepInEx** and **user** / **SPT/user**, depending on your SPT layout.
 
@@ -85,16 +86,16 @@ Teammates can be customized from their profile screen.
 - Edit a cloned teammate loadout with the current loadout editor.
 - Select a combat tactic.
 - Adjust aggression for Rifleman and Marksman tactics.
-- View follower-relevant skills.
+- View teammate-relevant skills.
 
 **Tactics available:**
 
 - **`Rifleman`** - the default balanced combat style. Riflemen stay useful near the boss when there is no good attack opportunity, but can push, search, and pressure when the enemy state and aggression allow it.
-- **`Marksman`** - ranged-focused behavior for sniper-style followers. Marksmen prefer firing positions and distance, avoid generic assault pushes, and can switch to an automatic secondary for close fights when appropriate.
+- **`Marksman`** - ranged-focused behavior for sniper-style teammates. Marksmen prefer firing positions and distance, avoid generic assault pushes, and can switch to an automatic secondary for close fights when appropriate.
 
 **Aggression slider:**
 
-Aggression controls how willing a follower is to leave boss-local safety for proactive pressure. Lower aggression keeps followers more defensive and boss-local. Higher aggression allows more search, push, and pressure when combat conditions justify it. At 0%, followers avoid proactive pressure and prefer to stay around the boss. The combat **Hold Position** command temporarily behaves like 0% aggression until combat ends or **Go Go Go** clears it.
+Aggression controls how willing a teammate is to leave boss-local safety for proactive pressure. Lower aggression keeps teammates more defensive and boss-local. Higher aggression allows more search, push, and pressure when combat conditions justify it. At 0%, teammates avoid proactive pressure and prefer to stay around the boss. The combat **Hold Position** command temporarily behaves like 0% aggression until combat ends or **Go Go Go** clears it.
 
 **Rifleman aggression:** Rifleman uses 50% as its default balanced baseline. Lower values bias toward cover, support, and regroup. Higher values make Riflemen more willing to push or search farther from the boss when threat checks allow it.
 
@@ -102,48 +103,48 @@ Aggression controls how willing a follower is to leave boss-local safety for pro
 
 **Loadout editing note:**
 
-The current loadout editor uses cloned/local items. Editing a teammate loadout does not consume items from the player's real stash and gear is not lost on follower death in this beta.
+The current loadout editor uses cloned/local items. Editing a teammate loadout does not consume items from the player's real stash and gear is not lost on teammate death in this beta.
 
 ## Squad Commands
 
 ![Gestures Menu](https://iili.io/BQdlFv1.png)
 
 Commands use Tarkov's existing phrase and gesture system. Depending on voice and side, some phrases may appear in different places or may not be available for every voice.
-Some of the commands can be applied to individual followers by looking directly at them when issuing the command.
-Commands influence follower behavior but do not force exact actions. Followers will adapt based on combat conditions and may not always respond immediately if engaged or under threat.
+Some of the commands can be applied to individual teammates by looking directly at them when issuing the command.
+Commands influence teammate behavior but do not force exact actions. teammates will adapt based on combat conditions and may not always respond immediately if engaged or under threat.
 
 **In COMMAND:**
 
-- **Follow Me / Cooperative** - recruit an eligible same-side bot or tell existing followers to resume following.
-- **Attention / Look** - clears command pressure and makes followers focus on the boss or indicated direction.
-- **Regroup** - tells followers to converge near the boss. In combat, this becomes a combat regroup objective (within 18 meters radius of the boss, Marksman within 24m).
-- **Hold Position** - in combat, temporarily behaves like setting follower aggression to 0%. The override resets after combat ends or when replaced by another command. Can be applied to an individual follower by looking at him.
-- **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns followers to their saved aggression. Can be applied to an individual follower by looking at him.
-- **Go Forward** - orders followers with an enemy to push or pressure that enemy. Outside combat, it can send followers toward the pointed location. Can be applied to an individual follower by looking at him.
-- **Stop** - stops followers out of combat without forcing crouch. If the boss moves too far away, followers resume normal follow behavior. Can be applied to an individual follower by looking at him.
-- **Suppress** - orders non-Marksman followers to suppress the current enemy. The follower must have a suitable suppress-capable weapon: full-auto or a magazine capacity of at least 25 rounds. If ordered without a suitable weapon, he will say "negative" and continue normal combat decisions.
-- **On Your Own** - lets followers spread out and act more independently instead of staying tied to your position. Outside combat, they patrol around you using Patrol Radius. In combat, they fight from their own area or stay near another squadmate instead of constantly trying to return to you.
+- **Follow Me / Cooperative** - recruit an eligible same-side bot or tell existing teammates to resume following.
+- **Attention / Look** - clears command pressure and makes teammates focus on the boss or indicated direction.
+- **Regroup** - tells teammates to converge near the boss. In combat, this becomes a combat regroup objective (within 18 meters radius of the boss, Marksman within 24m).
+- **Hold Position** - in combat, temporarily behaves like setting teammate aggression to 0%. The override resets after combat ends or when replaced by another command. Can be applied to an individual teammate by looking at him.
+- **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns teammates to their saved aggression. Can be applied to an individual teammate by looking at him.
+- **Go Forward** - orders teammates with an enemy to push or pressure that enemy. Outside combat, it can send teammates toward the pointed location. Can be applied to an individual teammate by looking at him.
+- **Stop** - stops teammates out of combat without forcing crouch. If the boss moves too far away, teammates resume normal follow behavior. Can be applied to an individual teammate by looking at him.
+- **Suppress** - orders non-Marksman teammates to suppress the current enemy. The teammate must have a suitable suppress-capable weapon: full-auto or a magazine capacity of at least 25 rounds. If ordered without a suitable weapon, he will say "negative" and continue normal combat decisions.
+- **On Your Own** - lets teammates spread out and act more independently instead of staying tied to your position. Outside combat, they patrol around you using Patrol Radius. In combat, they fight from their own area or stay near another squadmate instead of constantly trying to return to you.
     - **Regroup** during combat still calls them back to you for that order, but it does not cancel On Your Own. Use **Cover Me** during combat if you want them to start watching your position again. Outside combat, **Cover Me**, **Regroup**, or **Follow Me** returns them to normal follow behavior.
 
 **In HELP:**
 
 - **Need Sniper** - urge Marksman to provide sniper support against the closest enemy to you. He will say "negative" if no suitable spot is found.
-- **Need Help** - urge your followers to provide combat support against the closest enemy to you.
+- **Need Help** - urge your teammates to provide combat support against the closest enemy to you.
 
 **In CONTACT:**
 
-- **Contact** - makes followers look toward the boss aim direction and can help them acquire a visible enemy.
+- **Contact** - makes teammates look toward the boss aim direction and can help them acquire a visible enemy.
 - **Front / Left / Right / On Six** - directional look commands relative to the boss look direction.
-- **Status Report** - shows follower status, distance, health summary, and tactic information.
+- **Status Report** - shows teammate status, distance, health summary, and tactic information.
 
 **Implemented gesture/interaction commands:**
 
-- **Come To Me Gesture** - the looked-at follower moves close to the boss.
-- **There Direction Gesture** - sends a selected or nearby follower toward the pointed location.
-- **Stop Gesture** - tells nearby followers to hold position, including crouch behavior.
+- **Come To Me Gesture** - the looked-at teammate moves close to the boss.
+- **There Direction Gesture** - sends a selected or nearby teammate toward the pointed location.
+- **Stop Gesture** - tells nearby teammates to hold position, including crouch behavior.
 - **Over There Gesture** - gesture-based contact/attention toward the pointed direction.
-- **Open Door** - the closest eligible follower opens the targeted door.
-- **Loot This** - the closest eligible follower picks up the targeted loot item.
+- **Open Door** - the closest eligible teammate opens the targeted door.
+- **Loot This** - the closest eligible teammate picks up the targeted loot item.
 
 Recruited allies are temporary and limited in behavior. Saved teammates are fully supported squad members with customization, progression, and reliable command response.
 
@@ -151,8 +152,8 @@ Recruited allies are temporary and limited in behavior. Saved teammates are full
 
 ---
 
-Saved teammates automatically have ammo and medical supplies available and do not require these items in their loadout. Recruited allies found during a raid do not receive this behavior and rely on their existing equipment.
-Followers still use Tarkov bot movement and navigation. They can choose cover or movement paths that are not exactly where you expected, especially in complex interiors.
+Saved teammates automatically have ammo (primary weapon only and works best with vanilla ammo) and medical supplies available, in their secure container, and do not require these items in their loadout. Recruited allies found during a raid do not receive this behavior and rely on their existing equipment.
+teammates still use Tarkov bot movement and navigation. They can choose cover or movement paths that are not exactly where you expected, especially in complex interiors.
 
 ---
 
@@ -164,7 +165,7 @@ Followers still use Tarkov bot movement and navigation. They can choose cover or
 - Use **Auto Join** if you want that teammate to be preloaded into future PMC raid setup automatically.
 - If you remove a teammate from the current group, they will not auto-join again until manually re-added or toggled.
 
-Followers are not scripted companions with exact RTS-style control. Commands influence their priorities and intent, but followers still react to danger, visibility, healing, cover, and survival. A follower under pressure may delay or ignore a command if executing it would be dangerous.
+Teammates are not scripted companions with exact RTS-style control. Commands influence their priorities and intent, but teammates still react to danger, visibility, healing, cover, and survival. A teammate under pressure may delay or ignore a command if executing it would be dangerous.
 
 Think of commands as:
 
@@ -213,7 +214,7 @@ Best used for:
 - long sightlines
 - supporting Rifleman pushes
 
-Do not expect Marksman followers to rush enemies like Riflemen.
+Do not expect Marksman teammates to rush enemies like Riflemen.
 
 ### Recommended Beginner Setup
 
@@ -230,12 +231,12 @@ For a stable beginner squad:
 
 One of the most important commands.
 
-Followers move back toward the boss and nearby cover.
+Teammates move back toward the boss and nearby cover.
 
 Use it:
 
 - after long chases
-- when followers spread too far
+- when teammates spread too far
 - before crossing dangerous areas
 - before entering a new fight
 
@@ -245,9 +246,9 @@ Hold Position does **not** mean:
 
 > "stand perfectly still."
 
-In combat, it temporarily makes followers behave much more defensively by reducing aggressive push behavior.
+In combat, it temporarily makes teammates behave much more defensively by reducing aggressive push behavior.
 
-Followers can still:
+Teammates can still:
 
 - shoot
 - reposition for survival
@@ -263,7 +264,7 @@ Good for:
 
 #### Go Go Go
 
-Clears the temporary Hold Position combat behavior and returns followers to their saved aggression settings.
+Clears the temporary Hold Position combat behavior and returns teammates to their saved aggression settings.
 
 Use it after:
 
@@ -273,7 +274,7 @@ Use it after:
 
 #### Go Forward
 
-Orders followers to pressure or push their current enemy.
+Orders teammates to pressure or push their current enemy.
 
 Best used when:
 
@@ -281,7 +282,7 @@ Best used when:
 - enemies are already engaged
 - the squad is ready to advance
 
-This is not a suicide rush command. Followers still evaluate danger and cover before pushing.
+This is not a suicide rush command. teammates still evaluate danger and cover before pushing.
 
 #### Suppress
 
@@ -297,7 +298,7 @@ Marksmen generally ignore suppression because their role is precision support, n
 
 #### Need Sniper
 
-Urges Marksman followers to actively search for a firing position against the closest threat.
+Urges Marksman teammates to actively search for a firing position against the closest threat.
 
 Useful because Marksmen naturally prefer sitting on good positions and waiting for opportunities instead of constantly searching for new ones.
 
@@ -325,23 +326,23 @@ Commands like:
 - **On Six**
 - **Over There**
 
-help followers orient toward threats or suspected enemy locations.
+help teammates orient toward threats or suspected enemy locations.
 
 These are especially useful before enemies become fully visible.
 
 ### Important Combat Advice
 
-Do not constantly pull followers back toward you while they are actively fighting another enemy.
+Do not constantly pull teammates back toward you while they are actively fighting another enemy.
 
 In fights with multiple enemies, you can accidentally disrupt their current engagement and create unstable combat behavior as enemy priorities constantly change.
 
-Followers generally perform better when:
+Teammates generally perform better when:
 
 - they are allowed to finish their current engagement
 - they lead the push
 - you support them instead of constantly repositioning them
 
-Over-commanding followers can:
+Over-commanding teammates can:
 
 - interrupt movement
 - reset positioning
@@ -350,19 +351,25 @@ Over-commanding followers can:
 
 Use commands deliberately instead of continuously micromanaging.
 
-### Loot Carrying
+### Raid Survival Post Player
 
-Look at an item and use the lower-left interaction prompt to order a follower to pick it up.
+Your spawned teammates can still make it our a raid if you die and return the loot you got them to carry. The probability is calculated based on how far the extraction point is, how many of the teammates are left, their equipment score, the average score of the enemy between the teammates and the exist, and their health and meds stats.
 
-The follower:
+### Loot Management
+
+You can give teammates loot by looking at an item and use the lower-left interaction prompt to order a teammate to pick it up.
+
+The teammate:
 
 - must not be in combat
 - must have inventory space
 - must be able to reach the item
 
-You must successfully extract with that teammate for the loot to be returned after the raid. Note that only followers you spawned with, will return the loot.
+You must successfully extract with that teammate for the loot to be returned after the raid. Note that only teammates you spawned with, will return the loot.
 
-If the follower dies, the loot is lost.
+If the teammate dies, the loot is lost.
+
+You can also view the contents of a teammate's backpack by approaching them and using the interaction prompt that appears in the lower-left corner of the screen. Can be done only out of combat.
 
 ## Upcoming
 
@@ -370,40 +377,41 @@ The following are planned features in reaching a release version (1.0.0)
 
 **Planned commands:**
 
-- **Spread Out** - in combat, tells followers who are not actively engaged to find cover.
+- **Spread Out** - in combat, tells teammates who are not actively engaged to find cover.
 
 **Planned settings:**
 
 - **Loadout Management:**
-    - **Simple** - edit or choose a follower loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned follower gear cannot be looted.
-    - **Restricted** - any gear used for a follower loadout will be taken from the player's stash. Gear is not lost on death, spawned follower gear cannot be looted.
-    - **Immersive** - same as Restricted, but followers equipment gets damaged and if they die, their gear is lost. Gear can be looted from dead followers.
+    - **Simple** - edit or choose a teammate loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned teammate gear cannot be looted.
+    - **Restricted** - any gear used for a teammate loadout will be taken from the player's stash. Gear is not lost on death, spawned teammate gear cannot be looted.
+    - **Immersive** - same as Restricted, but teammates equipment gets damaged and if they die, their gear is lost. Gear can be looted from dead teammates.
 
-- **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping followers alive, and keeping picked-up raid allies alive. Points are lost if you kill followers or allies.
+- **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping teammates alive, and keeping picked-up raid allies alive. Points are lost if you kill teammates or allies.
 
 **Planned features:**
 
-- Posibility for your team to make it out the raid with the loot, despite you dying
+- When loadout management is set to immersive, post player raid survival will take into consideration player's equipment as well as nearby fallen teammates in regards to what will be returned should the rest make it out alive.
 - Posibility to check teammate backpack during raid.
-- Adding a third follower tactic.
+- Adding a third teammate tactic.
 - Porting over grenade launcher support from the old plugin.
-- Being able to play with Scav followers.
+- Being able to play with Scav teammates.
 - Porting the Goons playthrough from the old plugin.
 
 ## Known Issues and Conflicts
 
-The mod changes bot grouping, follower ownership, commands, and combat routing. Mods that heavily change bot AI, spawning, hostility, senses, or group behavior can conflict with it.
+The mod changes bot grouping, teammate ownership, commands, and combat routing. Mods that heavily change bot AI, spawning, hostility, senses, or group behavior can conflict with it.
 
-- Followers can linger after combat. Use **Attention** to reset them.
-- Followers might not heal their health all the way. It is a game issue, use the Heal key to force heal.
-- Teleporting followers while they are interacting with doors or other objects can leave them in a bad state.
-- The game has navigation problems that even SAIN is not able to fully resolve. If your bots get stuck, use teleportation. In other situations, their movement is in teleportation-like bursts.
+- Teammates can linger after combat. Use **Attention** to reset them.
+- Teammates might not heal their health all the way. It is a game issue, use the Heal key to force heal.
+- Teleporting teammates while they are interacting with doors or other objects can leave them in a bad state.
+- **The game has navigation problems that even SAIN is not able to fully resolve. If your bots get stuck, use teleportation. In other situations, their movement is in teleportation-like bursts. Be mindful of this and stay aware of their position or you will find yourself in a fight all alone or without all your squad as they got stuck somewhere.**
+- Ever since BSG introduced the agression system, opposing factions may not always be hostile to each other. However, this is never the case with you, you are always an enemy to the opposing side. Keep that in mind and be prepared for even your teammates to sometimes ignore a member of an opposing faction until he starts shooting or you give the "Contact" order.
 - SAIN can interfere with teleportation, teleporting the bot back to previous location. You may need to trigger teleportation multiple times for it to stick.
-- Followers can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix completely.
-- Followers may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
-- Bushes are cursed with SAIN. You followers can stand in a bush and not shoot while having visibility of the enemy.
+- Teammates can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix.
+- Teammates may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
+- Bushes are cursed with SAIN. You teammates can stand in a bush and not shoot while having visibility of the enemy.
 - If you have problems with My Squad screen and are not on English lanuage, switch to it, to see if that works. If so, post the issue along with the language that you originally tried.
 
-If a follower appears stuck, try Attention or teleportation before assuming the raid is unrecoverable.
+If a teammate appears stuck, try Attention or teleportation before assuming the raid is unrecoverable.
 
 {.endtabset}

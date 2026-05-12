@@ -149,6 +149,7 @@ namespace pitTeam.Localization
                 {
                     ["OverThere"] = "Over There",
                     ["TeamStatus"] = "Status Report",
+                    ["ViewBackpack"] = "View Backpack",
                     ["OnRepeatedContact"] = "Contact"
                 },
                 botStatus = new Dictionary<string, string>

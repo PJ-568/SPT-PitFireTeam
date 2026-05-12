@@ -98,6 +98,12 @@ namespace pitTeam.BigBrain.Actions
 
             BotOwner.DoorOpener.UpdateDoorInteractionStatus();
             followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData?.IsBackpackInspectionActive == true)
+            {
+                HoldForBackpackInspection();
+                return;
+            }
+
             SetPatrolEnabled(followerData?.CanPatrol == true);
 
             if (!TryGetBossAndPlayer())
@@ -121,6 +127,48 @@ namespace pitTeam.BigBrain.Actions
             {
                 Modules.Logger.LogError(ex);
                 BotOwner.StopMove();
+            }
+        }
+
+        public override void Stop()
+        {
+            followerData?.SetBackpackInspectionActive(false);
+            base.Stop();
+        }
+
+        private void HoldForBackpackInspection()
+        {
+            movingToPatrolPoint = false;
+            movingToSettlePoint = false;
+            patrolEnabled = false;
+            holdPositionUntil = 0f;
+            resumeFollowUntil = 0f;
+            isPatrolCampInitialized = false;
+            nextPatrolUpdateAt = 0f;
+            nextFollowUpdateAt = 0f;
+            coverCommitment.ClearCommitment();
+
+            BotOwner.StopMove();
+
+            if (BotOwner.Mover != null)
+            {
+                BotOwner.Mover.Pause = true;
+                if (BotOwner.Mover.Sprinting)
+                {
+                    BotOwner.Mover.Sprint(false, false);
+                }
+
+                if (BotOwner.Mover.TargetPose > 0.15f || BotOwner.Mover.TargetPose < 0.05f)
+                {
+                    BotOwner.Mover.SetPose(0.1f);
+                }
+            }
+
+            if (!BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner) &&
+                BotOwner.BotFollower.BossToFollow is pitAIBossPlayer boss &&
+                boss.realPlayer != null)
+            {
+                BotOwner.Steering.LookToPoint(boss.realPlayer.Position + Vector3.up * 1.2f);
             }
         }
 

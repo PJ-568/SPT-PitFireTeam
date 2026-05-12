@@ -101,6 +101,7 @@ namespace pitTeam.Components
         private bool _temporaryCombatAggressionOverrideActive;
         private float _temporaryCombatAggressionOverride;
         private FollowerCombatTactic _combatTactic = FollowerCombatTactic.Balanced;
+        private bool _backpackInspectionActive;
         public bool CanPatrol
         {
             get
@@ -160,6 +161,14 @@ namespace pitTeam.Components
             get
             {
                 return _temporaryCombatAggressionOverrideActive && _temporaryCombatAggressionOverride <= 0.01f;
+            }
+        }
+
+        public bool IsBackpackInspectionActive
+        {
+            get
+            {
+                return _backpackInspectionActive;
             }
         }
 
@@ -1070,6 +1079,11 @@ namespace pitTeam.Components
         public void SetCombatRegroupBossAnchor(bool value)
         {
             _combatRegroupUsesBossAnchor = value;
+        }
+
+        public void SetBackpackInspectionActive(bool active)
+        {
+            _backpackInspectionActive = active;
         }
 
         public void SetHoldPosition(float duration, bool crouch = true)

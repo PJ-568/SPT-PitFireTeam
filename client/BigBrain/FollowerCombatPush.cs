@@ -1,4 +1,5 @@
 using EFT;
+using EFT.InventoryLogic;
 using pitTeam.Components;
 using pitTeam.Modules;
 using pitTeam.Utils;
@@ -17,6 +18,9 @@ namespace pitTeam.BigBrain
         private const string PushReasonPrefix = "push.";
         private const float RunToEnemyNonSprintGraceSeconds = 0.75f;
         private const float RunToEnemyNoSprintBlockSeconds = 3f;
+        private const int AutoPushMinMagazineAmmo = 10;
+        private const int ShotgunAutoPushMinMagazineAmmo = 6;
+        private const float ShotgunAutoPushMaxEnemyDistance = 20f;
 
         private readonly BotOwner botOwner;
         private readonly FollowerCombatCommon combatCommon;
@@ -145,7 +149,7 @@ namespace pitTeam.BigBrain
         public void ClearCommittedPush(string? reason = null)
         {
             ReleasePushEvent(reason ?? "clearPush");
-            combatCommon.ClearCommittedPushDecision();
+            combatCommon.ClearCommittedPushDecision(reason);
             runToEnemyNonSprintSince = 0f;
             committedPushActionableVisibleSince = 0f;
             stalledPushLastPosition = Vector3.zero;
@@ -205,6 +209,18 @@ namespace pitTeam.BigBrain
             float enemiesAtLocation = enemyLowThreat || string.IsNullOrEmpty(goalEnemy.ProfileId)
                 ? 1f
                 : Utils.Enemy.GetEnemiesAtLocation(botOwner, goalEnemy, goalEnemy.CurrPosition);
+
+            if (!pushOrdered &&
+                ShouldRestrictAutoPushForWeapon(out bool allowCloseShotgunPush) &&
+                !CanUseCloseShotgunAutoPush(goalEnemy, allowCloseShotgunPush))
+            {
+                if (TryCreateLowAmmoCoveredPush(goalEnemy, distanceToEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> lowAmmoDecision))
+                {
+                    return lowAmmoDecision;
+                }
+
+                return CreateLowAmmoNoPushDecision(goalEnemy);
+            }
 
             // Old pusher behavior: push aggressively if ordered or if attack-immediate conditions align.
             if (botOwner.Memory.AttackImmediately || pushOrdered)
@@ -367,6 +383,93 @@ namespace pitTeam.BigBrain
             combatCommon.AssignCover(cover);
             decision = CreatePushDecision(BotLogicDecision.runToCover);
             return true;
+        }
+
+        private bool ShouldRestrictAutoPushForWeapon(out bool allowCloseShotgunPush)
+        {
+            allowCloseShotgunPush = false;
+            Weapon? activeWeapon = botOwner.WeaponManager?.ShootController?.Item;
+            if (activeWeapon == null)
+            {
+                return false;
+            }
+
+            int? magazineCount = activeWeapon.GetCurrentMagazine()?.Cartridges?.Count;
+            if (!magazineCount.HasValue)
+            {
+                return false;
+            }
+
+            if (magazineCount.Value >= AutoPushMinMagazineAmmo)
+            {
+                return false;
+            }
+
+            allowCloseShotgunPush = IsShotgun(activeWeapon) &&
+                                    magazineCount.Value >= ShotgunAutoPushMinMagazineAmmo;
+            return true;
+        }
+
+        private static bool IsShotgun(Weapon weapon)
+        {
+            return weapon is ShotgunItemClass ||
+                   weapon.GetType().Name.IndexOf("Shotgun", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private bool CanUseCloseShotgunAutoPush(EnemyInfo goalEnemy, bool allowCloseShotgunPush)
+        {
+            if (!allowCloseShotgunPush)
+            {
+                return false;
+            }
+
+            Vector3 enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
+            if (!FollowerCombatCommon.IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            return (enemyAnchor - botOwner.Position).sqrMagnitude <=
+                   ShotgunAutoPushMaxEnemyDistance * ShotgunAutoPushMaxEnemyDistance;
+        }
+
+        private bool TryCreateLowAmmoCoveredPush(
+            EnemyInfo goalEnemy,
+            Utils.Enemy.EnemyDistance distanceToEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (distanceToEnemy < Utils.Enemy.EnemyDistance.Mid)
+            {
+                return false;
+            }
+
+            CustomNavigationPoint? cover = goalEnemy.IsVisible
+                ? combatCommon.GetApproachableCover(true)
+                : combatCommon.GetApproachableCover(distanceToEnemy > Utils.Enemy.EnemyDistance.Mid);
+
+            return TryCreateApproachCoverDecision(cover, out decision);
+        }
+
+        private AICoreActionResultStruct<BotLogicDecision, GClass26> CreateLowAmmoNoPushDecision(EnemyInfo goalEnemy)
+        {
+            if (botOwner.Memory.IsInCover && botOwner.Memory.CurCustomCoverPoint?.CanIShootToEnemy == true)
+            {
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.shootFromCover,
+                    "lowAmmoShootFromCover");
+            }
+
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.shootFromPlace,
+                    "lowAmmoShootFromPlace");
+            }
+
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.holdPosition,
+                "lowAmmoHold");
         }
 
         private bool TryCreateMarksmanFightDecision(

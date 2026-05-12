@@ -114,6 +114,12 @@ namespace pitTeam.Patches
         [PatchPrefix]
         private static bool PatchPrefix(GamePlayerOwner __instance, int actionId, bool aggressive)
         {
+            if ((EPhraseTrigger)actionId == (EPhraseTrigger)CustomPhrases.ViewBackpack)
+            {
+                TeammateBackpackInspection.TryOpenFromQuickInteraction(__instance);
+                return false;
+            }
+
             pitAIBossPlayer? boss = BossPlayers.GetBoss(__instance.Player.ProfileId);
 
             if (!GClass3937.IsPlayerGesture(actionId) &&
@@ -156,6 +162,31 @@ namespace pitTeam.Patches
             }
 
             return true;
+        }
+    }
+
+    internal class QuickMumbleStartViewBackpackPatch : ModulePatch
+    {
+        private static readonly FieldInfo BattleUiControllerField = AccessTools.Field(typeof(GamePlayerOwner), "BattleUIScreenController");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GamePlayerOwner), nameof(GamePlayerOwner.QuickMumbleStart));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(GamePlayerOwner __instance)
+        {
+            EPhraseTrigger viewBackpackPhrase = (EPhraseTrigger)CustomPhrases.ViewBackpack;
+            GInterface472 battleUi = BattleUiControllerField.GetValue(__instance) as GInterface472;
+            if (battleUi?.GesturesQuickPanel?.EPhraseTrigger_0 != viewBackpackPhrase)
+            {
+                return true;
+            }
+
+            battleUi.GesturesQuickPanel.ActivateCommand();
+            TeammateBackpackInspection.TryOpenFromQuickInteraction(__instance);
+            return false;
         }
     }
 

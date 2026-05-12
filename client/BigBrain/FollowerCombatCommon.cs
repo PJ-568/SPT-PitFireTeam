@@ -322,10 +322,26 @@ namespace pitTeam.BigBrain
         {
             committedPushDecision = decision;
             committedPushEnemyProfileId = botOwner.Memory?.GoalEnemy?.ProfileId;
+            BattleRecorder.RecordCommitmentEvent(
+                botOwner,
+                "push",
+                "commit",
+                decision.Reason,
+                decision);
         }
 
-        public void ClearCommittedPushDecision()
+        public void ClearCommittedPushDecision(string? reason = null)
         {
+            if (committedPushDecision.HasValue)
+            {
+                BattleRecorder.RecordCommitmentEvent(
+                    botOwner,
+                    "push",
+                    "clear",
+                    reason ?? "clear",
+                    committedPushDecision);
+            }
+
             committedPushDecision = null;
             committedPushEnemyProfileId = null;
         }
@@ -403,10 +419,26 @@ namespace pitTeam.BigBrain
         public void CommitGrenadeDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             committedGrenadeDecision = decision;
+            BattleRecorder.RecordCommitmentEvent(
+                botOwner,
+                "grenade",
+                "commit",
+                decision.Reason,
+                decision);
         }
 
-        public void ClearCommittedGrenade()
+        public void ClearCommittedGrenade(string? reason = null)
         {
+            if (committedGrenadeDecision.HasValue)
+            {
+                BattleRecorder.RecordCommitmentEvent(
+                    botOwner,
+                    "grenade",
+                    "clear",
+                    reason ?? "clear",
+                    committedGrenadeDecision);
+            }
+
             committedGrenadeDecision = null;
         }
 
@@ -430,7 +462,7 @@ namespace pitTeam.BigBrain
 
             if (!grenadeSequenceActive && !grenadeRequestActive && !suppressActive)
             {
-                ClearCommittedGrenade();
+                ClearCommittedGrenade("inactive");
                 return false;
             }
 
@@ -455,10 +487,31 @@ namespace pitTeam.BigBrain
             {
                 committedMovementTarget = botOwner.GoToSomePointData.Point;
             }
+
+            BattleRecorder.RecordCommitmentEvent(
+                botOwner,
+                "movement",
+                "commit",
+                decision.Reason,
+                decision,
+                IsFinite(committedMovementTarget) ? committedMovementTarget : null,
+                committedMovementCoverId);
         }
 
-        public void ClearCommittedMovement()
+        public void ClearCommittedMovement(string? reason = null)
         {
+            if (committedMovementDecision.HasValue)
+            {
+                BattleRecorder.RecordCommitmentEvent(
+                    botOwner,
+                    "movement",
+                    "clear",
+                    reason ?? "clear",
+                    committedMovementDecision,
+                    IsFinite(committedMovementTarget) ? committedMovementTarget : null,
+                    committedMovementCoverId);
+            }
+
             committedMovementDecision = null;
             committedMovementEnemyProfileId = null;
             committedMovementTarget = Vector3.zero;
@@ -502,14 +555,14 @@ namespace pitTeam.BigBrain
                 hasExplicitRegroupOrder ||
                 hasActivePushOrder)
             {
-                ClearCommittedMovement();
+                ClearCommittedMovement(!HasActiveCombatEnemy(goalEnemy) ? "enemyMissing" : hasExplicitRegroupOrder ? "explicitRegroup" : "activePushOrder");
                 return false;
             }
 
             if (!string.IsNullOrEmpty(committedMovementEnemyProfileId) &&
                 !string.Equals(goalEnemy.ProfileId, committedMovementEnemyProfileId, StringComparison.Ordinal))
             {
-                ClearCommittedMovement();
+                ClearCommittedMovement("enemyChanged");
                 return false;
             }
 
@@ -517,7 +570,7 @@ namespace pitTeam.BigBrain
             if (ShouldInterruptCommittedMovement(goalEnemy, committed, hasActivePushOrder) ||
                 HasCommittedMovementArrived(committed))
             {
-                ClearCommittedMovement();
+                ClearCommittedMovement(HasCommittedMovementArrived(committed) ? "arrived" : "interrupted");
                 return false;
             }
 
@@ -603,25 +656,25 @@ namespace pitTeam.BigBrain
             decision = default;
             if (committedPointTimer <= Time.time)
             {
-                ClearCommittedPosition();
+                ClearCommittedPosition("expired");
                 return false;
             }
 
             if (!committedPositionDecision.HasValue)
             {
-                ClearCommittedPosition();
+                ClearCommittedPosition("missingDecision");
                 return false;
             }
 
             if (!committedPosition.HasValue && committedHoldCoverPoint == null)
             {
-                ClearCommittedPosition();
+                ClearCommittedPosition("missingTarget");
                 return false;
             }
 
             if (ShouldBreakCommittedPositionHold())
             {
-                ClearCommittedPosition();
+                ClearCommittedPosition("break");
                 return false;
             }
 
@@ -629,7 +682,7 @@ namespace pitTeam.BigBrain
             {
                 if (!IsCommittedHoldCoverStillValid())
                 {
-                    ClearCommittedPosition();
+                    ClearCommittedPosition("coverInvalid");
                     return false;
                 }
             }
@@ -662,8 +715,20 @@ namespace pitTeam.BigBrain
                    committedPointTimer > Time.time;
         }
 
-        public void ClearCommittedPosition()
+        public void ClearCommittedPosition(string? reason = null)
         {
+            if (committedPositionDecision.HasValue)
+            {
+                BattleRecorder.RecordCommitmentEvent(
+                    botOwner,
+                    committedHoldCoverPoint != null ? "arrivalHold.cover" : "arrivalHold.position",
+                    "clear",
+                    reason ?? "clear",
+                    committedPositionDecision,
+                    committedHoldCoverPoint != null ? committedHoldCoverPoint.Position : committedPosition,
+                    committedHoldCoverPoint?.Id);
+            }
+
             committedPosition = null;
             committedPointTimer = 0f;
             committedPointSetAt = 0f;
@@ -674,22 +739,42 @@ namespace pitTeam.BigBrain
 
         public void SetCommittedCover(CustomNavigationPoint cover, AICoreActionResultStruct<BotLogicDecision, GClass26> decision, float coverDuration = 0f)
         {
-            ClearCommittedPosition();
+            ClearCommittedPosition("replace");
             committedHoldCoverPoint = cover;
             committedPositionDecision = decision;
             committedPointReason = decision.Reason;
             committedPointSetAt = Time.time;
             committedPointTimer = Time.time + (coverDuration > 0f ? coverDuration : GetCommittedCoverHoldDuration(decision.Reason));
+            BattleRecorder.RecordCommitmentEvent(
+                botOwner,
+                "arrivalHold.cover",
+                "commit",
+                decision.Reason,
+                decision,
+                cover.Position,
+                cover.Id,
+                true,
+                committedPointTimer);
         }
 
         public void SetCommittedPosition(Vector3 position, AICoreActionResultStruct<BotLogicDecision, GClass26> decision, float positionDuration = 0f)
         {
-            ClearCommittedPosition();
+            ClearCommittedPosition("replace");
             committedPosition = position;
             committedPositionDecision = decision;
             committedPointReason = decision.Reason;
             committedPointSetAt = Time.time;
             committedPointTimer = Time.time + (positionDuration > 0f ? positionDuration : GetCommittedPositionHoldDuration(decision.Reason));
+            BattleRecorder.RecordCommitmentEvent(
+                botOwner,
+                "arrivalHold.position",
+                "commit",
+                decision.Reason,
+                decision,
+                position,
+                null,
+                false,
+                committedPointTimer);
         }
 
         public bool HasCommittedHolderSettled(float seconds)
@@ -1507,7 +1592,7 @@ namespace pitTeam.BigBrain
 
             if (committedCoverUntil < Time.time && !IsBotInCommittedCover())
             {
-                ClearCommittedCover();
+                ClearCommittedCover("expired");
                 return false;
             }
 
@@ -1521,7 +1606,7 @@ namespace pitTeam.BigBrain
         {
             if (!HasCommittedCover())
             {
-                ClearCommittedCover();
+                ClearCommittedCover("invalid");
             }
         }
 
@@ -1561,10 +1646,20 @@ namespace pitTeam.BigBrain
         /// <summary>
         /// Drops the current combat-cover commitment so the next decision can select fresh cover.
         /// </summary>
-        public void ClearCommittedCover()
+        public void ClearCommittedCover(string? reason = null)
         {
             if (committedCoverPoint != null)
             {
+                BattleRecorder.RecordCommitmentEvent(
+                    botOwner,
+                    "cover",
+                    "clear",
+                    reason ?? "clear",
+                    committedCoverMoveAction != default
+                        ? new AICoreActionResultStruct<BotLogicDecision, GClass26>(committedCoverMoveAction, committedCoverMoveReason ?? "cover")
+                        : null,
+                    committedCoverPoint.Position,
+                    committedCoverPoint.Id);
                 coverCommitIntents.Remove(botOwner.Id);
             }
 
@@ -2300,6 +2395,16 @@ namespace pitTeam.BigBrain
             committedCoverSetAt = Time.time;
             committedCoverUntil = Time.time + CoverCommitLockSeconds;
             coverCommitIntents[botOwner.Id] = new CoverCommitIntent(cover.Id, IsCommittedShootingCoverReason(reason));
+            BattleRecorder.RecordCommitmentEvent(
+                botOwner,
+                "cover",
+                "commit",
+                reason,
+                new AICoreActionResultStruct<BotLogicDecision, GClass26>(moveAction, reason ?? "cover"),
+                cover.Position,
+                cover.Id,
+                null,
+                committedCoverUntil);
         }
 
         private bool IsCommittedCoverStillUsable(CustomNavigationPoint? cover)

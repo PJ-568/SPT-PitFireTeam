@@ -53,6 +53,7 @@ namespace pitTeam.Components
         private List<BotOwner> bossEnemies = new List<BotOwner>();
         private const float TeamStatusGestureDistance = 15f;
         private const float ContactLookDistance = 45f;
+        private const float ContactConeMinDot = 0.45f;
         private const float GestureCommandDistance = 15f;
         private const float HoldGestureDistance = 25f;
         private const float PhraseCommandDistance = 30f;
@@ -363,6 +364,7 @@ namespace pitTeam.Components
                     }
                 }
             }
+            seenEnemies = FilterContactEnemyCandidates(requester, seenEnemies);
             seenEnemies = PrioritizeContactEnemies(requester, seenEnemies);
             Vector3 lookTarget = GetLookTargetFromDirection(requester, requester.LookDirection);
             int followersProcessed = 0;
@@ -748,6 +750,50 @@ namespace pitTeam.Components
                 .ToList();
         }
 
+        private List<Player> FilterContactEnemyCandidates(IPlayer requester, List<Player> candidates)
+        {
+            if (requester == null || candidates == null || candidates.Count == 0)
+            {
+                return new List<Player>();
+            }
+
+            Vector3 requesterPosition = requester.Position;
+            Vector3 lookDirection = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+            float scanDistance = pitFireTeam.scanDistance?.Value ?? ContactLookDistance;
+            float scanDistanceSqr = scanDistance * scanDistance;
+
+            List<Player> filtered = new List<Player>();
+            foreach (Player candidate in candidates)
+            {
+                if (candidate == null ||
+                    !IsEligibleBossDirectedContactTarget(requester, candidate))
+                {
+                    continue;
+                }
+
+                Vector3 toCandidate = candidate.Position - requesterPosition;
+                float distanceSqr = toCandidate.sqrMagnitude;
+                if (distanceSqr < 0.01f || distanceSqr > scanDistanceSqr)
+                {
+                    continue;
+                }
+
+                if (Vector3.Dot(lookDirection, toCandidate.normalized) < ContactConeMinDot)
+                {
+                    continue;
+                }
+
+                if (!filtered.Any(enemy => enemy != null && enemy.ProfileId == candidate.ProfileId))
+                {
+                    filtered.Add(candidate);
+                }
+            }
+
+            return filtered;
+        }
+
         private static BotSettingsClass GetOrCreateContactEnemyGroupInfo(BotOwner follower, Player enemy, EnemyInfo trackedEnemy)
         {
             if (follower?.BotsGroup?.Enemies != null &&
@@ -903,7 +949,7 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                if (Vector3.Dot(lookDirection, toCandidate.normalized) < 0.45f)
+                if (Vector3.Dot(lookDirection, toCandidate.normalized) < ContactConeMinDot)
                 {
                     continue;
                 }

@@ -6,12 +6,17 @@ using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 
 namespace pitTeam.Patches
 {
     internal class QuickPanelPatch : ModulePatch
     {
+        private static readonly EPhraseTrigger ViewBackpackPhrase = (EPhraseTrigger)CustomPhrases.ViewBackpack;
+        private static readonly FieldInfo QuickPanelAvailablePhrasesField = AccessTools.Field(typeof(GesturesQuickPanel), "hashSet_0");
+        private static readonly FieldInfo QuickPanelPlayerField = AccessTools.Field(typeof(GesturesQuickPanel), "player_0");
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(GesturesQuickPanel), "method_1");
@@ -20,9 +25,11 @@ namespace pitTeam.Patches
         [PatchPrefix]
         private static bool PatchPrefix(GesturesQuickPanel __instance)
         {
-            Player player = (Player)AccessTools.Field(typeof(GesturesQuickPanel), "player_0").GetValue(__instance);
+            Player player = QuickPanelPlayerField.GetValue(__instance) as Player;
             if (player != null)
             {
+                RefreshViewBackpackQuickCommand(__instance, player);
+
                 try
                 {
                     // original
@@ -110,6 +117,57 @@ namespace pitTeam.Patches
             }
 
             return true;
+        }
+
+        private static void EnsureViewBackpackQuickCommand(GesturesQuickPanel panel)
+        {
+            if (!GesturesQuickPanel.PhrasePriorities.ContainsKey(ViewBackpackPhrase))
+            {
+                GesturesQuickPanel.PhrasePriorities.Add(ViewBackpackPhrase, 84);
+            }
+
+            HashSet<EPhraseTrigger> availablePhrases = QuickPanelAvailablePhrasesField.GetValue(panel) as HashSet<EPhraseTrigger>;
+            availablePhrases?.Add(ViewBackpackPhrase);
+        }
+
+        private static void RefreshViewBackpackQuickCommand(GesturesQuickPanel panel, Player player)
+        {
+            EnsureViewBackpackQuickCommand(panel);
+            panel.method_7(ViewBackpackPhrase, TeammateBackpackInspection.CanShowQuickInteraction(player));
+        }
+    }
+
+    internal class QuickPanelUpdateBackpackInteractionPatch : ModulePatch
+    {
+        private static readonly FieldInfo QuickPanelPlayerField = AccessTools.Field(typeof(GesturesQuickPanel), "player_0");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GesturesQuickPanel), nameof(GesturesQuickPanel.Update));
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(GesturesQuickPanel __instance)
+        {
+            // The stock quick panel refreshes situational phrases mostly from interaction-change events. Our
+            // "looked at follower" condition can change every frame without a stock event, so refresh it here
+            // to avoid stale VIEW BACKPACK prompts.
+            Player player = QuickPanelPlayerField.GetValue(__instance) as Player;
+            if (player == null)
+            {
+                return;
+            }
+
+            EPhraseTrigger viewBackpackPhrase = (EPhraseTrigger)CustomPhrases.ViewBackpack;
+            HashSet<EPhraseTrigger> availablePhrases = AccessTools.Field(typeof(GesturesQuickPanel), "hashSet_0").GetValue(__instance) as HashSet<EPhraseTrigger>;
+            availablePhrases?.Add(viewBackpackPhrase);
+
+            if (!GesturesQuickPanel.PhrasePriorities.ContainsKey(viewBackpackPhrase))
+            {
+                GesturesQuickPanel.PhrasePriorities.Add(viewBackpackPhrase, 84);
+            }
+
+            __instance.method_7(viewBackpackPhrase, TeammateBackpackInspection.CanShowQuickInteraction(player));
         }
     }
 }

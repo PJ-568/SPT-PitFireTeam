@@ -788,6 +788,11 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            if (TryFinishTransferredLoot("TakeLoot:detectedInInventory"))
+            {
+                return;
+            }
+
             // Keep the selected loot item pinned for this command so brief quick-panel target changes
             // don't drop execution ownership mid-pickup.
             if (InteractableObjects.GetCurLootItem() == null)
@@ -825,6 +830,11 @@ namespace pitTeam.BigBrain.Actions
 
             if (lootPickupInProgress)
             {
+                if (TryFinishTransferredLoot("TakeLoot:detectedInInventoryDuringPickup"))
+                {
+                    return;
+                }
+
                 if (lootPickupAttemptStartedAt > 0f && Time.time - lootPickupAttemptStartedAt > 3f)
                 {
                     StopLootPickupState(BotOwner?.GetPlayer);
@@ -1011,20 +1021,7 @@ namespace pitTeam.BigBrain.Actions
             {
                 if (result?.Succeed == true || IsLootNowInBotInventory(botPlayer, rootItem))
                 {
-                    botPlayer?.UpdateInteractionCast();
-
-                    if (followerData?.IsSquadMate == true)
-                    {
-                        InteractableObjects.StoreItem(BotOwner, rootItem);
-                    }
-
-                    if (rootItem is Weapon weapon && rootItem.GetItemComponent<KnifeComponent>() == null)
-                    {
-                        BotOwner.WeaponManager.UpdateWeaponsList();
-                    }
-
-                    BotOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
-                    ClearTakeLootState("TakeLoot:done");
+                    FinishLootPickupSuccess(botPlayer, rootItem, "TakeLoot:done");
                     return;
                 }
 
@@ -1041,6 +1038,37 @@ namespace pitTeam.BigBrain.Actions
             {
                 StopLootPickupState(botPlayer);
             }
+        }
+
+        private bool TryFinishTransferredLoot(string reason)
+        {
+            Item? rootItem = activeLootItem?.ItemOwner?.RootItem;
+            Player? botPlayer = BotOwner?.GetPlayer;
+            if (rootItem == null || !IsLootNowInBotInventory(botPlayer, rootItem))
+            {
+                return false;
+            }
+
+            FinishLootPickupSuccess(botPlayer, rootItem, reason);
+            return true;
+        }
+
+        private void FinishLootPickupSuccess(Player? botPlayer, Item rootItem, string reason)
+        {
+            botPlayer?.UpdateInteractionCast();
+
+            if (followerData?.IsSquadMate == true)
+            {
+                InteractableObjects.StoreItem(BotOwner, rootItem);
+            }
+
+            if (rootItem is Weapon && rootItem.GetItemComponent<KnifeComponent>() == null)
+            {
+                BotOwner.WeaponManager.UpdateWeaponsList();
+            }
+
+            BotOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+            ClearTakeLootState(reason);
         }
 
         private bool IsLootNowInBotInventory(Player? botPlayer, Item rootItem)

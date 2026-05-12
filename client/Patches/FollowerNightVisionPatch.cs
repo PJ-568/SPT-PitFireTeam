@@ -76,11 +76,7 @@ namespace pitTeam.Patches
                 TogglableComponent togglable = __instance.NightVisionItem?.Togglable;
                 if (togglable?.On == true)
                 {
-                    var toggleResult = togglable.Set(false, true, false);
-                    if (!toggleResult.Failed)
-                    {
-                        __instance.BotOwner_0.GetPlayer?.InventoryController?.TryRunNetworkTransaction(toggleResult, null);
-                    }
+                    togglable.Set(false, false, false);
                 }
 
                 __instance.UsingNow = false;
@@ -90,6 +86,43 @@ namespace pitTeam.Patches
             catch (Exception ex)
             {
                 Logger.LogError("[NVG] Failed to toggle follower night vision off.");
+                Logger.LogError(ex);
+            }
+
+            return false;
+        }
+    }
+
+    internal class FollowerNightVisionOnPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotNightVisionData), "method_5");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(BotNightVisionData __instance)
+        {
+            if (__instance?.BotOwner_0 == null || !BossPlayers.IsFollower(__instance.BotOwner_0))
+            {
+                return true;
+            }
+
+            try
+            {
+                TogglableComponent togglable = __instance.NightVisionItem?.Togglable;
+                if (togglable?.On == false)
+                {
+                    togglable.Set(true, false, false);
+                }
+
+                __instance.UsingNow = true;
+                __instance.NightVisionAtPocket = false;
+                __instance.StopTryingMove = false;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("[NVG] Failed to toggle follower night vision on.");
                 Logger.LogError(ex);
             }
 

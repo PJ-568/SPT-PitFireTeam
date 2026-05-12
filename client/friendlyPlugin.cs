@@ -51,6 +51,7 @@ namespace pitTeam
     public enum CustomPhrases
     {
         TeamStatus = 10001,
+        ViewBackpack = 10002,
     }
 
     public enum CustomGestures
@@ -138,7 +139,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.6.0")]
+    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.7.0")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -263,6 +264,7 @@ namespace pitTeam
             new PatrolDataFollowerUpdateGuardPatch().Enable();
             new AvoidDangerFollowerGuardPatch().Enable();
             new FollowerNightVisionActivatePatch().Enable();
+            new FollowerNightVisionOnPatch().Enable();
             new FollowerNightVisionOffPatch().Enable();
             new PmcBearCombatLayerSuppressionPatch().Enable();
             new PmcUsecCombatLayerSuppressionPatch().Enable();
@@ -281,6 +283,11 @@ namespace pitTeam
             new OpenDoorRequestPatch().Enable();
             new FollowerDoorAutoClosePatch().Enable();
             new FollowerBotRequestTakePatch().Enable();
+            new TeammateBackpackInspectionUpdatePatch().Enable();
+            new TeammateBackpackChangedContainerPatch().Enable();
+            new TeammateBackpackObserverStatePatch().Enable();
+            new TeammateBackpackExaminedPatch().Enable();
+            new TeammateBackpackSimpleStashLabelPatch().Enable();
             new FollowerBotReceiverHardAimIgnorePatch().Enable();
             new FollowerBotReceiverTiltIgnorePatch().Enable();
             new FollowerBotReceiverPhraseIgnorePatch().Enable();
@@ -333,6 +340,7 @@ namespace pitTeam
 
             // command/request patches
             new QuickPanelPatch().Enable();
+            new QuickPanelUpdateBackpackInteractionPatch().Enable();
             new GestureMenuPatch().Enable();
             new CreatePhraseGroupPatch().Enable();
             new CreateGesturesPatch().Enable();
@@ -340,8 +348,11 @@ namespace pitTeam
             new CustomPlayerGestureInteractionPatch().Enable();
             new GestureCommandNamePatch().Enable();
             new GestureMenuAvailablePhrasesPatch().Enable();
+            new ViewBackpackQuickPanelTextPatch().Enable();
+            new ViewBackpackQuickPanelItemTextPatch().Enable();
             new EPhraseTriggerPatch().Enable();
             new PlayPhraseOrGesturePatch().Enable();
+            new QuickMumbleStartViewBackpackPatch().Enable();
             new BotReceiverGestureOverridePatch().Enable();
             new RaidStartPatch().Enable();
             new MainMenuControllerPatch().Enable();

@@ -246,23 +246,29 @@ namespace pitTeam.Modules
             }
         }
 
-        public static void SendEscapedFollowerStoredItems(IEnumerable<BotOwner> escapedBots)
+        public static void SendDeathEscapeFollowerStoredItems(IEnumerable<BotOwner> squadBots, IEnumerable<BotOwner> escapedBots)
         {
-            if (Instance == null || escapedBots == null || Instance._toSendItems == null)
+            if (Instance == null || squadBots == null || escapedBots == null || Instance._toSendItems == null)
             {
                 return;
             }
 
             try
             {
-                // Player-death cleanup removes followers from BossPlayers before Destroy() can gather
-                // loot normally. Reuse the tracked item ids, but restrict the scan to escaped bots.
+                // Player-death cleanup is special: once at least one squadmate makes it out, the
+                // squad recovers all tracked follower loot, even if the original carrier died.
+                // Normal player-extract cleanup still only gathers from living followers.
+                if (!escapedBots.Any())
+                {
+                    return;
+                }
+
                 Instance._toSendItems.Clear();
                 List<string> gathered = new List<string>();
 
-                foreach (BotOwner bot in escapedBots)
+                foreach (BotOwner bot in squadBots)
                 {
-                    if (bot == null || bot.BotState != EBotState.Active || bot.HealthController?.IsAlive != true)
+                    if (bot == null)
                     {
                         continue;
                     }

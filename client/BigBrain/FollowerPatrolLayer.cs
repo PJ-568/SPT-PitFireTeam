@@ -146,6 +146,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (followerData.IsBackpackInspectionActive)
+            {
+                return true;
+            }
+
             if (!followerData.IsReadyForPatrolAfterCombat())
             {
                 return false;
@@ -196,9 +201,13 @@ namespace pitTeam.BigBrain
             stoppedForHealDecision = false;
             ResetReloadState();
             BossPlayers.Instance?.GetFollower(BotOwner)?.ClearCombatIndependent();
-            BotOwner.Mover.Pause = false;
+            if (BossPlayers.Instance?.GetFollower(BotOwner)?.IsBackpackInspectionActive != true)
+            {
+                BotOwner.Mover.Pause = false;
+            }
             ResetTiltForPatrol();
-            if (BotOwner.Mover.TargetPose < 0.85f)
+            if (BossPlayers.Instance?.GetFollower(BotOwner)?.IsBackpackInspectionActive != true &&
+                BotOwner.Mover.TargetPose < 0.85f)
             {
                 BotOwner.SetPose(1f);
             }
@@ -235,7 +244,8 @@ namespace pitTeam.BigBrain
 
         public override Action GetNextAction()
         {
-            if (BotOwner.Mover.Pause)
+            followerData ??= BossPlayers.Instance?.GetFollower(BotOwner);
+            if (BotOwner.Mover.Pause && followerData?.IsBackpackInspectionActive != true)
             {
                 BotOwner.Mover.Pause = false;
             }
@@ -529,7 +539,9 @@ namespace pitTeam.BigBrain
             if (reloadingInProgress && !BotOwner.WeaponManager.Reload.Reloading)
             {
                 reloadingInProgress = false;
+                BotOwner.WeaponManager.Reload.TryFillMagazines();
                 nextReloadCheckAt = Time.time + OutOfCombatReloadCheckInterval;
+                nextMagazineFillCheckAt = Time.time + OutOfCombatReloadFullCycleCooldown;
                 return;
             }
 

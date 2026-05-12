@@ -152,7 +152,9 @@ namespace pitTeam.Modules
                 if (escapedBots.Count > 0)
                 {
                     Logger.LogInfo($"[DeathEscape] Sending escaped follower loot for {escapedBots.Count} follower(s).");
-                    InteractableObjects.SendEscapedFollowerStoredItems(escapedBots);
+                    InteractableObjects.SendDeathEscapeFollowerStoredItems(
+                        aliveSquadmates.Select(follower => follower.GetBot()),
+                        escapedBots);
                 }
 
                 SendOutcomes(entries);
