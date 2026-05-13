@@ -371,6 +371,13 @@ If the teammate dies, the loot is lost.
 
 You can also view the contents of a teammate's backpack by approaching them and using the interaction prompt that appears in the lower-left corner of the screen. Can be done only out of combat.
 
+## Loadout Management
+
+- **Simple** - edit or choose a teammate loadout without requiring the gear to be in the player's inventory. Limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned teammate gear cannot be looted.
+- **Restricted** - any gear used for a teammate loadout will be taken from the player's stash. Gear is not lost on death, spawned teammate gear cannot be looted.
+- **Immersive** - same as Restricted, but teammates' equipment gets damaged and if they die, their gear is lost. Gear can be looted from dead teammates.
+- **Realistic** - same as Immersive but even the secure container slot is no longer auto-managed
+
 ## Upcoming
 
 The following are planned features in reaching a release version (1.0.0)

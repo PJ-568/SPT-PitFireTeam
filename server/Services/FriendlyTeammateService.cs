@@ -34,6 +34,7 @@ public class FriendlyTeammateService(
     ItemHelper itemHelper,
     ProfileHelper profileHelper,
     ProfileActivityService profileActivityService,
+    FriendlyServerSettingsService settingsService,
     SaveServer saveServer,
     ICloner cloner,
     ISptLogger<FriendlyTeammateService> logger
@@ -60,6 +61,9 @@ public class FriendlyTeammateService(
     private const string GrizzlyMedicalKitTemplateId = "590c657e86f77412b013051d";
     private const string Surv12SurgicalKitTemplateId = "5d02797c86f774203f38e30a";
     private const string CmsSurgicalKitTemplateId = "60d4399358ef941a33423dad";
+    private const string AlphaContainerTemplateId = "544a11ac4bdc2d470e8b456a";
+    private const string BossContainerTemplateId = "5c0a794586f77461c458f892";
+    private const string DefaultKnifeTemplateId = "54491bb74bdc2d09088b4567";
     private const string TeammateGenerationLocation = "factory4_day";
 
     private static readonly HashSet<string> SurgicalKitTemplateIds =
@@ -176,6 +180,68 @@ public class FriendlyTeammateService(
         return LoadTeammates(sessionId)
             .Select(teammate => ToTeammateSummary(teammate, GetTeammateSettings(sessionId, teammate)))
             .ToList();
+    }
+
+    public void LogLoadoutManagementModeChange(MongoId sessionId, string previousMode, string nextMode)
+    {
+        logger.Info($"Loadout management mode changed for session '{sessionId}' from '{previousMode}' to '{nextMode}'.");
+    }
+
+    public void ResetAllTeammatesToRegeneratedDefaultLoadouts(MongoId sessionId, string? loadoutManagementMode = null)
+    {
+        var playerPmc = GetPlayerProfile(sessionId);
+        var teammates = LoadTeammates(sessionId);
+        var mode = NormalizeLoadoutManagementMode(loadoutManagementMode);
+        foreach (var teammate in teammates)
+        {
+            try
+            {
+                var generated = GenerateTeammateBot(
+                    sessionId,
+                    new BotGenerationDetails
+                    {
+                        IsPmc = true,
+                        Side = playerPmc.Info!.Side!,
+                        Role = GetPmcRole(playerPmc.Info.Side),
+                        PlayerLevel = Math.Max(1, teammate.Info?.Level ?? playerPmc.Info.Level ?? 1),
+                        PlayerName = playerPmc.Info.Nickname,
+                        BotRelativeLevelDeltaMax = 0,
+                        BotRelativeLevelDeltaMin = 0,
+                        BotCountToGenerate = 1,
+                        BotDifficulty = "hard",
+                        Location = TeammateGenerationLocation,
+                        LocationSpecificPmcLevelOverride = new MinMax<int>
+                        {
+                            Min = Math.Max(1, teammate.Info?.Level ?? playerPmc.Info.Level ?? 1),
+                            Max = Math.Max(1, teammate.Info?.Level ?? playerPmc.Info.Level ?? 1),
+                        },
+                        IsPlayerScav = false,
+                        AllPmcsHaveSameNameAsPlayer = false,
+                    }
+                );
+
+                if (generated.Inventory?.Items == null || generated.Inventory.Items.Count == 0)
+                {
+                    logger.Warning($"Skipped default loadout reset for teammate '{teammate.Aid}' because generated equipment was empty");
+                    continue;
+                }
+
+                teammate.Inventory = cloner.Clone(generated.Inventory) ?? generated.Inventory;
+                PrepareDefaultLoadoutForMode(teammate, mode);
+                SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+
+                var settings = GetTeammateSettings(sessionId, teammate);
+                settings.SelectedLoadoutId = DefaultLoadoutId;
+
+                SaveTeammateSettings(sessionId, teammate, settings);
+                SaveTeammate(sessionId, teammate);
+                logger.Info($"Reset teammate '{teammate.Aid}' default loadout for loadout management mode '{mode}'.");
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Failed to reset teammate '{teammate.Aid}' default loadout after loadout management mode change: {ex.Message}");
+            }
+        }
     }
 
     public List<string> GetAutoJoinTeammateAccountIds(MongoId sessionId)
@@ -389,13 +455,21 @@ public class FriendlyTeammateService(
         SaveTeammate(sessionId, teammate);
     }
 
-    public void SaveTeammateDefaultEquipment(MongoId sessionId, FriendlyTeammateDefaultEquipmentRequest request)
+    public FriendlyTeammateDefaultEquipmentResponse SaveTeammateDefaultEquipment(MongoId sessionId, FriendlyTeammateDefaultEquipmentRequest request)
     {
         var teammate = FindByAccountId(sessionId, request.Aid);
         var items = request.Items?.Where(item => item != null).ToList();
         if (items == null || items.Count == 0)
         {
             throw new FriendlyTeammateException("Missing teammate default equipment items");
+        }
+
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (request.RealItemCommit && IsImmersiveLikeLoadoutManagementMode(mode))
+        {
+            // Immersive/Extreme Default edits are real ownership transfers. Keep the normal clone-save path
+            // for Simple/Restricted and for future non-default loadout modes until those rules are explicit.
+            return SaveTeammateDefaultEquipmentWithRealItemCommit(sessionId, teammate, request, items);
         }
 
         teammate.Inventory ??= new BotBaseInventory();
@@ -409,6 +483,95 @@ public class FriendlyTeammateService(
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
         SaveTeammateSettings(sessionId, teammate, settings);
         SaveTeammate(sessionId, teammate);
+
+        return new FriendlyTeammateDefaultEquipmentResponse();
+    }
+
+    private FriendlyTeammateDefaultEquipmentResponse SaveTeammateDefaultEquipmentWithRealItemCommit(
+        MongoId sessionId,
+        BotBase teammate,
+        FriendlyTeammateDefaultEquipmentRequest request,
+        List<Item> replacementEquipmentItems)
+    {
+        var replacementStashItems = request.PlayerStashItems?.Where(item => item != null).ToList();
+        if (replacementStashItems == null || replacementStashItems.Count == 0)
+        {
+            throw new FriendlyTeammateException("Missing player stash items for real teammate equipment save");
+        }
+
+        var playerPmc = GetPlayerProfile(sessionId);
+        playerPmc.Inventory ??= new BotBaseInventory { Items = [] };
+        playerPmc.Inventory.Items ??= [];
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+
+        string playerStashRootId = GetPlayerStashRootId(playerPmc);
+        string replacementStashRootId = replacementStashItems.First().Id.ToString();
+        if (!string.Equals(playerStashRootId, replacementStashRootId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new FriendlyTeammateException("Submitted player stash root does not match the active profile stash");
+        }
+
+        // Only two inventories may contribute real item ids: the player's current stash and the teammate's
+        // current saved inventory. Anything else would mean the client submitted equipped/player-external gear.
+        var currentPlayerStashIds = GetItemTreeIds(playerPmc.Inventory.Items, playerStashRootId);
+        var currentTeammateItemIds = teammate.Inventory.Items
+            .Select(item => item.Id.ToString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var allowedMovedItemIds = new HashSet<string>(currentPlayerStashIds, StringComparer.OrdinalIgnoreCase);
+        allowedMovedItemIds.UnionWith(currentTeammateItemIds);
+
+        // Validate the staged final state before mutating either profile. This prevents partial transfer
+        // corruption and lets the catch block restore both inventories if persistence fails later.
+        ValidateRealCommitItemSet(replacementEquipmentItems, allowedMovedItemIds, "teammate equipment");
+        ValidateRealCommitItemSet(replacementStashItems, allowedMovedItemIds, "player stash");
+        ValidateNoRealCommitOverlap(replacementEquipmentItems, replacementStashItems, playerStashRootId);
+        ValidateNoEquippedPlayerItemCommit(playerPmc, replacementEquipmentItems, currentPlayerStashIds);
+
+        var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
+        var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
+        var originalTeammateEquipment = teammate.Inventory.Equipment;
+
+        try
+        {
+            var replacementEquipment = cloner.Clone(replacementEquipmentItems) ?? replacementEquipmentItems;
+            var mergedEquipment = MergeEquipmentWithPreservedSpecialItems(teammate.Inventory.Items, replacementEquipment);
+
+            // Replace only the stash tree. Player equipment, quest inventory, sorting table, and other
+            // profile-owned item roots are left untouched by real teammate loadout commits.
+            playerPmc.Inventory.Items = playerPmc.Inventory.Items
+                .Where(item => !currentPlayerStashIds.Contains(item.Id.ToString()))
+                .ToList();
+            playerPmc.Inventory.Items.AddRange(cloner.Clone(replacementStashItems) ?? replacementStashItems);
+
+            // The teammate stores the committed equipment as its new Default snapshot. Spawn preparation may
+            // still inject mode-specific protected items such as knife/secure-container policy later.
+            teammate.Inventory.Items = mergedEquipment;
+            teammate.Inventory.Equipment = teammate.Inventory.Items.First().Id;
+
+            var settings = GetTeammateSettings(sessionId, teammate);
+            settings.SelectedLoadoutId = DefaultLoadoutId;
+
+            SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+            SaveTeammateSettings(sessionId, teammate, settings);
+            SaveTeammate(sessionId, teammate);
+            saveServer.SaveProfileAsync(sessionId).GetAwaiter().GetResult();
+
+            logger.Info($"Committed real default equipment movement for teammate '{teammate.Aid}' in loadout management mode '{NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode)}'.");
+
+            return new FriendlyTeammateDefaultEquipmentResponse
+            {
+                RealItemCommit = true,
+                PlayerStashItems = cloner.Clone(replacementStashItems) ?? replacementStashItems,
+            };
+        }
+        catch
+        {
+            playerPmc.Inventory.Items = originalPlayerItems;
+            teammate.Inventory.Items = originalTeammateItems;
+            teammate.Inventory.Equipment = originalTeammateEquipment;
+            throw;
+        }
     }
 
     public void SetTeammateAggression(MongoId sessionId, FriendlyTeammateAggressionRequest request)
@@ -485,7 +648,18 @@ public class FriendlyTeammateService(
         // Temporarily disabled: this floor baseline can over-inflate teammate skills.
         // ApplyPmcFollowerSkillBaseline(clone);
         ApplyTemporaryHealthMultiplier(clone, healthMultiplier);
-        EnsureFollowerHasSecureContainerSupplies(clone);
+        EnsureFollowerHasScabbardKnife(clone);
+
+        var mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (IsExtremeLoadoutManagementMode(mode))
+        {
+            EnsureNormalSecureContainer(clone);
+        }
+        else
+        {
+            EnsureFollowerHasSecureContainerSupplies(clone);
+        }
+
         return clone;
     }
 
@@ -548,10 +722,320 @@ public class FriendlyTeammateService(
             // Client has already rolled the result using live raid state. Server only persists the
             // teammate profile state and builds a message summary for the player.
             ApplyDeathEscapeOutcome(teammate, entry);
+
+            // Immersive/Extreme loss is applied after the health/death outcome so the teammate's
+            // saved Default equipment reflects the post-raid penalty instead of regenerating gear.
+            ApplyImmersiveDefaultGearLoss(sessionId, teammate, entry);
             SaveTeammate(sessionId, teammate);
         }
 
         return summary;
+    }
+
+    private void PrepareDefaultLoadoutForMode(BotBase teammate, string mode)
+    {
+        EnsureFollowerHasScabbardKnife(teammate);
+        if (IsExtremeLoadoutManagementMode(mode))
+        {
+            EnsureNormalSecureContainer(teammate);
+        }
+    }
+
+    private void ApplyImmersiveDefaultGearLoss(MongoId sessionId, BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)
+    {
+        // Escaped teammates keep their current Default gear. Only a death result can strip it.
+        if (entry.Escaped)
+        {
+            return;
+        }
+
+        // Simple/Restricted never lose teammate gear on death; Immersive and Extreme do.
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (!IsImmersiveLikeLoadoutManagementMode(mode))
+        {
+            return;
+        }
+
+        var settings = GetTeammateSettings(sessionId, teammate);
+        // This phase only applies death loss to the live Default loadout. Non-default preset loss
+        // needs separate ownership tracking before it can safely mutate saved preset data.
+        if (!string.Equals(settings.SelectedLoadoutId, DefaultLoadoutId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Persist the stripped equipment as the new Default snapshot so the next spawn/portrait
+        // sees the loss instead of silently restoring the pre-raid gear.
+        StripDefaultEquipmentAfterDeath(teammate, mode);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+        logger.Info($"Stripped teammate '{teammate.Aid}' default equipment after death in loadout management mode '{mode}'.");
+    }
+
+    private void StripDefaultEquipmentAfterDeath(BotBase teammate, string mode)
+    {
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+        if (teammate.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        // Keep or inject a scabbard knife before stripping. EFT already prevents knife looting, and
+        // this gives later spawn/preview validation a stable legal melee slot to work with.
+        EnsureFollowerHasScabbardKnife(teammate);
+
+        if (IsExtremeLoadoutManagementMode(mode))
+        {
+            // Extreme treats the follower closer to a player: the secure container survives death.
+            // Immersive ignores the secure container and allows it to be regenerated later.
+            EnsureNormalSecureContainer(teammate);
+        }
+
+        string rootId = GetEquipmentRootId(teammate);
+        var keepIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootId };
+        // Immersive keeps only equipment root, scabbard/knife, and armband. Extreme adds the secure
+        // container tree below. Every other equipped item is considered lost on death.
+        var preservedSlots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            nameof(EquipmentSlots.Scabbard),
+            "ArmBand",
+            "Armband"
+        };
+
+        if (IsExtremeLoadoutManagementMode(mode))
+        {
+            preservedSlots.Add(nameof(EquipmentSlots.SecuredContainer));
+        }
+
+        foreach (var preservedItem in teammate.Inventory.Items.Where(item =>
+                     !string.IsNullOrWhiteSpace(item?.SlotId) &&
+                     preservedSlots.Contains(item.SlotId)).ToList())
+        {
+            // Preserve descendants for kept containers/items so attached child items are not orphaned.
+            AddItemAndDescendantsToKeepSet(teammate.Inventory.Items, preservedItem.Id.ToString(), keepIds);
+        }
+
+        // The filter is the actual loss operation: anything outside the keep set is removed from
+        // the teammate profile before the Default snapshot is saved.
+        teammate.Inventory.Items = teammate.Inventory.Items
+            .Where(item => keepIds.Contains(item.Id.ToString()))
+            .ToList();
+        teammate.Inventory.Equipment = new MongoId(rootId);
+    }
+
+    private static void AddItemAndDescendantsToKeepSet(List<Item> inventoryItems, string itemId, HashSet<string> keepIds)
+    {
+        if (!keepIds.Add(itemId))
+        {
+            return;
+        }
+
+        foreach (var child in inventoryItems.Where(item =>
+                     string.Equals(item.ParentId, itemId, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            AddItemAndDescendantsToKeepSet(inventoryItems, child.Id.ToString(), keepIds);
+        }
+    }
+
+    private void EnsureFollowerHasScabbardKnife(BotBase profile)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (profile.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        if (profile.Inventory.Items.Any(item =>
+                string.Equals(item.SlotId, nameof(EquipmentSlots.Scabbard), StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        string rootId = GetEquipmentRootId(profile);
+        profile.Inventory.Items.Add(new Item
+        {
+            Id = new MongoId(),
+            Template = new MongoId(DefaultKnifeTemplateId),
+            ParentId = rootId,
+            SlotId = nameof(EquipmentSlots.Scabbard),
+            Location = null,
+            Upd = new Upd
+            {
+                StackObjectsCount = 1,
+                SpawnedInSession = false,
+            },
+        });
+
+        logger.Info($"Injected default scabbard knife for teammate '{profile.Aid}'.");
+    }
+
+    private void EnsureNormalSecureContainer(BotBase profile)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (profile.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        string rootId = GetEquipmentRootId(profile);
+        Item? secureContainer = profile.Inventory.Items.FirstOrDefault(item =>
+            string.Equals(item.SlotId, nameof(EquipmentSlots.SecuredContainer), StringComparison.OrdinalIgnoreCase));
+
+        if (secureContainer == null)
+        {
+            profile.Inventory.Items.Add(new Item
+            {
+                Id = new MongoId(),
+                Template = new MongoId(AlphaContainerTemplateId),
+                ParentId = rootId,
+                SlotId = nameof(EquipmentSlots.SecuredContainer),
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = 1,
+                    SpawnedInSession = false,
+                },
+            });
+            logger.Info($"Injected Alpha secure container for teammate '{profile.Aid}' in Extreme loadout management mode.");
+            return;
+        }
+
+        if (string.Equals(secureContainer.Template.ToString(), BossContainerTemplateId, StringComparison.OrdinalIgnoreCase))
+        {
+            secureContainer.Template = new MongoId(AlphaContainerTemplateId);
+            logger.Info($"Replaced boss secure container with Alpha secure container for teammate '{profile.Aid}'.");
+        }
+    }
+
+    private static string GetEquipmentRootId(BotBase profile)
+    {
+        string? rootId = profile.Inventory?.Equipment?.ToString();
+        if (!string.IsNullOrWhiteSpace(rootId))
+        {
+            return rootId;
+        }
+
+        Item rootItem = profile.Inventory?.Items?.FirstOrDefault()
+            ?? throw new FriendlyTeammateException("Teammate inventory is missing equipment root item");
+        profile.Inventory!.Equipment = rootItem.Id;
+        return rootItem.Id.ToString();
+    }
+
+    private static string GetPlayerStashRootId(PmcData profile)
+    {
+        string? rootId = profile.Inventory?.Stash?.ToString();
+        if (!string.IsNullOrWhiteSpace(rootId))
+        {
+            return rootId;
+        }
+
+        Item rootItem = profile.Inventory?.Items?.FirstOrDefault(item =>
+            string.Equals(item.SlotId, "hideout", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item.SlotId, "main", StringComparison.OrdinalIgnoreCase))
+            ?? throw new FriendlyTeammateException("Player inventory is missing stash root item");
+
+        profile.Inventory!.Stash = rootItem.Id;
+        return rootItem.Id.ToString();
+    }
+
+    private static HashSet<string> GetItemTreeIds(List<Item> items, string rootId)
+    {
+        var treeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddItemTreeIds(items, rootId, treeIds);
+        return treeIds;
+    }
+
+    private static void AddItemTreeIds(List<Item> items, string itemId, HashSet<string> treeIds)
+    {
+        if (!treeIds.Add(itemId))
+        {
+            return;
+        }
+
+        foreach (var child in items.Where(item =>
+                     string.Equals(item.ParentId, itemId, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            AddItemTreeIds(items, child.Id.ToString(), treeIds);
+        }
+    }
+
+    private static void ValidateRealCommitItemSet(List<Item> items, HashSet<string> allowedItemIds, string setName)
+    {
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            string id = item.Id.ToString();
+            if (!allowedItemIds.Contains(id))
+            {
+                throw new FriendlyTeammateException($"Submitted {setName} contains an item that was not available for movement");
+            }
+
+            if (!seenIds.Add(id))
+            {
+                throw new FriendlyTeammateException($"Submitted {setName} contains duplicate item ids");
+            }
+        }
+    }
+
+    private static void ValidateNoRealCommitOverlap(
+        List<Item> replacementEquipmentItems,
+        List<Item> replacementStashItems,
+        string playerStashRootId)
+    {
+        var equipmentIds = replacementEquipmentItems
+            .Select(item => item.Id.ToString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var stashItem in replacementStashItems)
+        {
+            string id = stashItem.Id.ToString();
+            if (string.Equals(id, playerStashRootId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (equipmentIds.Contains(id))
+            {
+                throw new FriendlyTeammateException("Submitted teammate equipment and player stash both contain the same moved item");
+            }
+        }
+    }
+
+    private static void ValidateNoEquippedPlayerItemCommit(
+        PmcData playerPmc,
+        List<Item> replacementEquipmentItems,
+        HashSet<string> currentPlayerStashIds)
+    {
+        var nonStashPlayerItemIds = (playerPmc.Inventory?.Items ?? [])
+            .Select(item => item.Id.ToString())
+            .Where(id => !currentPlayerStashIds.Contains(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in replacementEquipmentItems)
+        {
+            if (nonStashPlayerItemIds.Contains(item.Id.ToString()))
+            {
+                throw new FriendlyTeammateException("Submitted teammate equipment contains an item equipped on the player");
+            }
+        }
+    }
+
+    private static string NormalizeLoadoutManagementMode(string? mode)
+    {
+        return string.IsNullOrWhiteSpace(mode) ? "Simple" : mode.Trim();
+    }
+
+    private static bool IsExtremeLoadoutManagementMode(string mode)
+    {
+        return string.Equals(mode, "Extreme", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsImmersiveLikeLoadoutManagementMode(string mode)
+    {
+        return string.Equals(mode, "Immersive", StringComparison.OrdinalIgnoreCase)
+            || IsExtremeLoadoutManagementMode(mode);
     }
 
     private void EnsureFollowerHasSecureContainerSupplies(BotBase profile)

@@ -24,6 +24,7 @@ namespace pitTeam.Localization
                 miscSettings = "Miscellaneous",
                 testSettings = "Testing",
                 raidSettings = "Raid Settings",
+                loadoutManagementSettings = "Loadout Management",
                 equipOptions = new[] { "Default" },
                 tacticOptions = new[] { "Rifleman", "Support", "Marksman", "Pusher", "Holder", "Assist" },
 
@@ -87,6 +88,18 @@ namespace pitTeam.Localization
                 equipmentLock = Entry(
                     "Lock Squad Equipment",
                     "Locks the equipment of the squad members."),
+                loadoutManagementSimple = Entry(
+                    "Simple",
+                    "Edit or choose a teammate loadout without requiring the gear to be in the player's inventory. Limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned teammate gear cannot be looted."),
+                loadoutManagementRestricted = Entry(
+                    "Restricted",
+                    "Any gear used for a teammate loadout will be taken from the player's stash. Gear is not lost on death, spawned teammate gear cannot be looted."),
+                loadoutManagementImmersive = Entry(
+                    "Immersive",
+                    "Same as Restricted, but teammates' equipment gets damaged and if they die, their gear is lost. Gear can be looted from dead teammates."),
+                loadoutManagementExtreme = Entry(
+                    "Realistic",
+                    "Same as Immersive but even the secure container slot is no longer auto-managed."),
                 npcSendMessage = Entry(
                     "Raid End Messages",
                     "Followers will send message at the end of the raid based on conditions such as if all made it out or if you picked up a follower and kept him alive. Return items messages are excluded"),
@@ -226,7 +239,10 @@ namespace pitTeam.Localization
                     ["SquadControlEmptyRoster"] = "You have not created any team members yet, press the add button below to get started",
                     ["SettingsPressKey"] = "Press key...",
                     ["SettingsNotBound"] = "Not Bound",
-                    ["SettingsUnavailableDuringRaid"] = "Not available during raid"
+                    ["SettingsUnavailableDuringRaid"] = "Not available during raid",
+                    ["LoadoutManagementConfirmTitle"] = "SWITCH LOADOUT MANAGMENT",
+                    ["LoadoutManagementConfirmPrompt"] = "Switching loadout management will reset your teammates' gear.",
+                    ["LoadoutManagementConfirm"] = "Continue"
                 },
                 returnItems = new[] { "Items received from your teammate. Ready for you to claim." },
                 returnItemsDeath = new[] { "Your teammate recovered these items." },

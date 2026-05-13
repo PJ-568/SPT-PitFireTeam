@@ -6,6 +6,7 @@ using EFT.Communications;
 using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
+using EFT.UI.Ragfair;
 using EFT.UI.Settings;
 using pitTeam.Modules;
 using pitTeam.Patches;
@@ -63,6 +64,8 @@ namespace pitTeam.Components
         private static readonly FieldInfo GameSettingsToggleTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_enableBlockInvites");
         private static readonly FieldInfo GameSettingsSliderTemplateField = AccessTools.Field(typeof(GameSettingsTab), "_fov");
         private static readonly FieldInfo NumberSliderValueInputField = AccessTools.Field(typeof(NumberSlider), "_valueInput");
+        private static readonly FieldInfo RagfairAllOffersToggleField = AccessTools.Field(typeof(RagfairScreen), "_allOffersToggle");
+        private static readonly FieldInfo AnimatedToggleCanvasGroupField = AccessTools.Field(typeof(UIAnimatedToggleSpawner), "_canvasGroup");
         private static readonly ShortcutKeyCandidate[] ShortcutKeyCandidates =
         {
             new ShortcutKeyCandidate(KeyCode.Mouse0),
@@ -214,6 +217,7 @@ namespace pitTeam.Components
         private DefaultUIButton addTeammateButton;
         private TextMeshProUGUI emptyRosterLabel;
         private GameObject removeConfirmOverlay;
+        private GameObject loadoutManagementConfirmOverlay;
         private GameObject portraitContextMenuOverlay;
         private float currentRosterShellHeight;
         private Button activeShortcutCaptureButton;
@@ -233,6 +237,10 @@ namespace pitTeam.Components
         private bool raidSettingsOverlayActive;
         private MatchmakerPlayerControllerClass subscribedGroupBadgeLogController;
         private Action unsubscribeGroupBadgeLog;
+        private ToggleGroup loadoutManagementToggleGroup;
+        private Coroutine loadoutManagementRosterRefreshCoroutine;
+        private readonly Dictionary<LoadoutManagementMode, UIAnimatedToggleSpawner> loadoutManagementToggleSpawners = new Dictionary<LoadoutManagementMode, UIAnimatedToggleSpawner>();
+        private readonly Dictionary<LoadoutManagementMode, Toggle> loadoutManagementFallbackToggles = new Dictionary<LoadoutManagementMode, Toggle>();
 
         internal static void RequestRosterRefreshOnNextInject()
         {
@@ -268,6 +276,7 @@ namespace pitTeam.Components
         {
             public string SectionTitle { get; set; } = string.Empty;
             public ConfigEntryBase Entry { get; set; }
+            public LoadoutManagementMode? LoadoutMode { get; set; }
         }
 
         private sealed class BackendBodyResponse
@@ -392,6 +401,81 @@ namespace pitTeam.Components
             public void OnPointerUp(PointerEventData eventData)
             {
                 Apply(isHovered ? hoverScale : normalScale);
+            }
+
+            private void Apply(Vector3 scale)
+            {
+                if (rectTransform != null)
+                {
+                    rectTransform.localScale = scale;
+                }
+            }
+        }
+
+        internal sealed class LoadoutModeToggleHoverController : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler, IPointerClickHandler
+        {
+            private RectTransform rectTransform;
+            private Image hoverBackground;
+            private Vector3 normalScale = Vector3.one;
+            private Vector3 hoverScale = Vector3.one;
+            private Vector3 pressedScale = Vector3.one;
+            private bool isHovered;
+
+            public Action<PointerEventData> OnClick { get; set; }
+
+            public void Configure(RectTransform target, Image background)
+            {
+                rectTransform = target;
+                hoverBackground = background;
+                if (rectTransform != null)
+                {
+                    normalScale = rectTransform.localScale;
+                    hoverScale = new Vector3(normalScale.x * 1.012f, normalScale.y * 1.012f, normalScale.z);
+                    pressedScale = new Vector3(normalScale.x * 0.996f, normalScale.y * 0.996f, normalScale.z);
+                }
+
+                SetHoverBackground(false);
+                Apply(normalScale);
+            }
+
+            public void OnPointerEnter(PointerEventData eventData)
+            {
+                isHovered = true;
+                SetHoverBackground(true);
+                Apply(hoverScale);
+            }
+
+            public void OnPointerExit(PointerEventData eventData)
+            {
+                isHovered = false;
+                SetHoverBackground(false);
+                Apply(normalScale);
+            }
+
+            public void OnPointerDown(PointerEventData eventData)
+            {
+                Apply(pressedScale);
+            }
+
+            public void OnPointerUp(PointerEventData eventData)
+            {
+                Apply(isHovered ? hoverScale : normalScale);
+            }
+
+            public void OnPointerClick(PointerEventData eventData)
+            {
+                if (eventData.button == PointerEventData.InputButton.Left)
+                {
+                    OnClick?.Invoke(eventData);
+                }
+            }
+
+            private void SetHoverBackground(bool visible)
+            {
+                if (hoverBackground != null)
+                {
+                    hoverBackground.enabled = visible;
+                }
             }
 
             private void Apply(Vector3 scale)
@@ -1261,7 +1345,9 @@ namespace pitTeam.Components
             panelRect.anchoredPosition = Vector2.zero;
 
             Image panelImage = panel.GetComponent<Image>();
-            panelImage.color = new Color(0.09f, 0.11f, 0.12f, 0.94f);
+            panelImage.color = string.Equals(name, "pitFireTeam_SquadControlSettingsPanel", StringComparison.Ordinal)
+                ? new Color(0f, 0f, 0f, 0.702f)
+                : new Color(0.09f, 0.11f, 0.12f, 0.94f);
 
             GameObject labelObject = CreateText($"{name}_Label", label, 30, TextAlignmentOptions.Center);
             RectTransform labelRect = labelObject.GetComponent<RectTransform>();

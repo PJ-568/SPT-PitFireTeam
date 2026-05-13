@@ -430,6 +430,8 @@ namespace pitTeam.Modules
 
             try
             {
+                NpcMessage.SendLostTeammateOutcomes();
+
                 if (!SendStoreItems())
                 {
                     NpcMessage.NpcSendThankYou();
@@ -959,19 +961,22 @@ namespace pitTeam.Modules
 
                     if (contained != null)
                     {
-                        try
+                        if (!pitFireTeam.IsFollowerLoadoutLootableMode())
                         {
-                            FieldInfo? componentsField = AccessTools.Field(typeof(Item), "Components");
-                            List<IItemComponent>? components = componentsField?.GetValue(contained) as List<IItemComponent>;
-                            if (components != null)
+                            try
                             {
-                                components.Add(new UnlootableComponent(contained, contained.Template));
+                                FieldInfo? componentsField = AccessTools.Field(typeof(Item), "Components");
+                                List<IItemComponent>? components = componentsField?.GetValue(contained) as List<IItemComponent>;
+                                if (components != null)
+                                {
+                                    components.Add(new UnlootableComponent(contained, contained.Template));
+                                }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError("Could not make item unlootable");
-                            Logger.LogError(ex.ToString());
+                            catch (Exception ex)
+                            {
+                                Logger.LogError("Could not make item unlootable");
+                                Logger.LogError(ex.ToString());
+                            }
                         }
 
                         if (slotType == EquipmentSlot.Backpack) items.Add(contained.Id);

@@ -1,6 +1,6 @@
 # My Squad Current State Review
 
-Date: 2026-04-28
+Date: 2026-05-13
 
 ## Goal
 
@@ -13,6 +13,7 @@ Document the current verified implementation of the `My Squad` experience as it 
 This is a current-state review, not a target design doc. It should be read alongside:
 
 - `docs/team-management-ui-investigation-2026-03-19.md` for the earlier stock-UI investigation and target direction
+- `docs/Loadout-Management.md` for the dedicated loadout-management mode behavior and implementation status
 
 ## High-Level Shape
 
@@ -267,6 +268,7 @@ Verified sections built today:
 - `Base Settings`
 - `Follow Settings`
 - `Combat Settings`
+- `Loadout Management`
 - `Input Settings`
 - `Raid Settings`
 - `Miscellaneous`
@@ -287,6 +289,11 @@ Verified entry groups:
     - `enemyRemember`
     - `scanDistance`
     - `botTalk`
+- `Loadout Management`
+    - `Simple`
+    - `Restricted`
+    - `Immersive`
+    - `Extreme`
 - `Input Settings`
     - `hideUnsupportedCommands`
     - `pingKey`
@@ -313,8 +320,28 @@ Supported control types:
 
 - `bool` -> toggle
 - ranged `int` -> slider
+- `LoadoutManagementMode` -> mutually exclusive radio-style toggle rows
 - `KeyboardShortcut` -> press-to-capture button
 - everything else -> read-only text fallback
+
+### Loadout Management setting
+
+`Loadout Management` is its own settings group placed after `Combat Settings`.
+
+It is rendered as four mutually exclusive rows using cloned Ragfair `UIAnimatedToggleSpawner` controls under one `ToggleGroup`:
+
+- `Simple`
+- `Restricted`
+- `Immersive`
+- `Extreme`
+
+The rows are intentionally vertical: each row shows the mode description on the left and the selectable mode toggle on the right.
+
+Changing from the current mode opens a confirmation overlay before the setting is applied. The overlay warns that switching loadout management will reset teammates' gear. `Continue` applies the mode and closes the overlay; the `X` cancels and leaves the previous mode selected.
+
+On confirmation, the client saves the BepInEx setting, syncs the new mode to the server, and updates the visible radio state in place instead of rebuilding the full settings panel.
+
+Detailed gameplay behavior, current server-side reset behavior, and pending implementation gaps are documented in `docs/Loadout-Management.md`.
 
 Shortcut capture behavior:
 
@@ -506,4 +533,5 @@ Verified save behavior:
 ### Current limitations
 
 - the editor still uses cloned/local items and does not consume real player stash items
-- immersive/real-item loadout editing is not implemented
+- restricted/immersive/extreme real-item loadout editing is not implemented
+- mode-level default reset, spawn preparation, and death-stripping behavior are tracked separately in `docs/Loadout-Management.md`

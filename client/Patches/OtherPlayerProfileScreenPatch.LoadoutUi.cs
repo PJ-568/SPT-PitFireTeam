@@ -312,10 +312,17 @@ namespace pitTeam.Patches
                     return false;
                 }
 
+                // Simple/custom preset editing remains clone-based. Real default editing must preserve ids so
+                // Done can describe actual ownership movement between the player's stash and teammate gear.
+                bool preserveRealItemIds = IsRealDefaultLoadoutEditorCommit();
+                Item editorStash = preserveRealItemIds
+                    ? baseProfile.Inventory.Stash.CloneItemWithSameId()
+                    : baseProfile.Inventory.Stash.CloneItem(null);
+
                 EFTInventoryClass inventoryDescriptor = new EFTInventoryClass(baseProfile.Inventory, GClass2240.Instance)
                 {
                     Equipment = EFTItemSerializerClass.SerializeItem(editorEquipment, null),
-                    Stash = EFTItemSerializerClass.SerializeItem(baseProfile.Inventory.Stash.CloneItem(null), null)
+                    Stash = EFTItemSerializerClass.SerializeItem(editorStash, null)
                 };
 
                 baseProfile.Inventory = inventoryDescriptor.ToInventory();
@@ -336,7 +343,11 @@ namespace pitTeam.Patches
         private static InventoryEquipment ResolveLoadoutEditorSourceEquipment(ResultProfile profile)
         {
             InventoryEquipment sourceEquipment = TryGetCustomBuildById(LoadoutEditorSourceLoadoutId)?.Equipment ?? profile?.Equipment;
-            InventoryEquipment clonedEquipment = sourceEquipment?.CloneItem(null) as InventoryEquipment;
+            // Real default editing stages the teammate's existing item ids. Clone-only modes intentionally
+            // generate new ids so saved presets do not consume or alias live profile items.
+            InventoryEquipment clonedEquipment = IsRealDefaultLoadoutEditorCommit()
+                ? sourceEquipment?.CloneItemWithSameId() as InventoryEquipment
+                : sourceEquipment?.CloneItem(null) as InventoryEquipment;
             if (clonedEquipment == null)
             {
                 return null;
@@ -892,33 +903,436 @@ namespace pitTeam.Patches
 
         private static async Task SaveLoadoutEditorDefaultEquipmentAsync(ResultProfile profile)
         {
-            FlatItemsDataClass[] serializedEquipment = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(
-                new Item[] { CreateSanitizedLoadoutEditorSaveEquipment() });
-            if (serializedEquipment == null || serializedEquipment.Length == 0)
+            bool realItemCommit = IsRealDefaultLoadoutEditorCommit();
+            SetLoadoutEditorBusy(realItemCommit);
+
+            try
             {
-                throw new InvalidOperationException("Loadout editor default equipment was unavailable for save.");
+                FlatItemsDataClass[] serializedEquipment = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(
+                    new Item[] { CreateSanitizedLoadoutEditorSaveEquipment() });
+                if (serializedEquipment == null || serializedEquipment.Length == 0)
+                {
+                    throw new InvalidOperationException("Loadout editor default equipment was unavailable for save.");
+                }
+
+                FlatItemsDataClass[] serializedPlayerStash = null;
+                if (realItemCommit)
+                {
+                    // The editor is a staged inventory. Sending both sides lets the server commit the final
+                    // ownership state atomically instead of trusting client-side drag events one by one.
+                    serializedPlayerStash = CreateLoadoutEditorSaveStashItems();
+                    pitFireTeam.Log.LogInfo("[UI] Prepared server-authoritative real loadout commit.");
+                }
+
+                string responseJson = await Task.Run(() => RequestHandler.PostJson(
+                    DefaultEquipmentRoute,
+                    SerializeBody(new FriendlyTeammateDefaultEquipmentRequest
+                    {
+                        aid = profile.AccountId,
+                        items = serializedEquipment,
+                        playerStashItems = serializedPlayerStash,
+                        realItemCommit = realItemCommit
+                    })));
+
+                FriendlyTeammateBodyResponse<FriendlyTeammateDefaultEquipmentResponse> response =
+                    DeserializeBodySuccess<FriendlyTeammateDefaultEquipmentResponse>(responseJson);
+
+                bool liveStashRefreshApplied = false;
+                if (realItemCommit)
+                {
+                    try
+                    {
+                        // The server save is authoritative. This only reconciles the currently open client
+                        // profile with the server-saved stash snapshot so a restart is not needed.
+                        ApplyServerSavedPlayerStash(response?.data?.playerStashItems);
+                        liveStashRefreshApplied = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        pitFireTeam.Log.LogError("[UI] Failed to refresh live player stash after real loadout commit.");
+                        pitFireTeam.Log.LogError(ex);
+                    }
+                }
+
+                ActiveTeammateLoadoutId = DefaultLoadoutId;
+                ActiveTeammateLoadoutName = DefaultLoadoutName;
+
+                CloseLoadoutEditorOverlay();
+                RefreshCurrentTeammateLoadoutSelector(profile);
+                MarkSquadRosterDirty(profile.AccountId);
+
+                if (realItemCommit && !liveStashRefreshApplied)
+                {
+                    NotificationManagerClass.DisplayWarningNotification(
+                        GetSocialUiText("LoadoutEditorRealCommitRestartRequired", "Loadout saved. Restart the game to refresh the player stash view."),
+                        ENotificationDurationType.Default);
+                }
+            }
+            finally
+            {
+                SetLoadoutEditorBusy(false);
+            }
+        }
+
+        private static void SetLoadoutEditorBusy(bool busy)
+        {
+            try
+            {
+                if (LoadoutEditorOverlayRoot != null)
+                {
+                    CanvasGroup canvasGroup = LoadoutEditorOverlayRoot.GetComponent<CanvasGroup>();
+                    if (canvasGroup == null)
+                    {
+                        canvasGroup = LoadoutEditorOverlayRoot.AddComponent<CanvasGroup>();
+                    }
+
+                    canvasGroup.interactable = !busy;
+                    canvasGroup.blocksRaycasts = true;
+                }
+
+                if (MonoBehaviourSingleton<PreloaderUI>.Instantiated)
+                {
+                    MonoBehaviourSingleton<PreloaderUI>.Instance.SetLoaderStatus(busy);
+                }
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogWarning($"[UI] Failed to set loadout editor busy state: {ex.Message}");
+            }
+        }
+
+        private static void ApplyServerSavedPlayerStash(FlatItemsDataClass[] savedStashItems)
+        {
+            if (savedStashItems == null || savedStashItems.Length == 0)
+            {
+                throw new InvalidOperationException("Server did not return a saved player stash for live refresh.");
             }
 
-            string responseJson = await Task.Run(() => RequestHandler.PostJson(
-                DefaultEquipmentRoute,
-                SerializeBody(new FriendlyTeammateDefaultEquipmentRequest
+            if (ActiveProfileSession?.Profile?.Inventory?.Stash == null || ActiveProfileInventoryController == null)
+            {
+                throw new InvalidOperationException("Active player profile was unavailable for live stash refresh.");
+            }
+
+            if (!(ActiveProfileInventoryController is GClass3388 profileInventoryController))
+            {
+                throw new InvalidOperationException("Active inventory controller does not support backend profile updates.");
+            }
+
+            FlatItemsDataClass[] liveStashItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(
+                new Item[] { ActiveProfileSession.Profile.Inventory.Stash });
+            if (liveStashItems == null || liveStashItems.Length == 0)
+            {
+                throw new InvalidOperationException("Active player stash was unavailable for live refresh.");
+            }
+
+            GClass2337 delta = BuildPlayerStashRefreshDelta(liveStashItems, savedStashItems);
+            int newCount = delta.@new?.Length ?? 0;
+            int changeCount = delta.change?.Length ?? 0;
+            int delCount = delta.del?.Length ?? 0;
+            if (newCount == 0 && changeCount == 0 && delCount == 0)
+            {
+                pitFireTeam.Log.LogInfo("[UI] Live player stash already matched server-saved loadout commit.");
+                return;
+            }
+
+            var updater = new GClass2331(
+                ActiveProfileSession.Profile,
+                profileInventoryController,
+                null,
+                ActiveProfileSession.RagFair);
+            updater.UpdateProfile(new ProfileChangesPocoClass { Stash = delta });
+
+            pitFireTeam.Log.LogInfo($"[UI] Applied live player stash refresh for real loadout commit: new={newCount}, change={changeCount}, del={delCount}.");
+        }
+
+        // Builds the same shape of item delta the stock backend item-event route returns. Parent/slot/location
+        // changes are expressed as delete + add because EFT's "change" path only updates the upd block.
+        private static GClass2337 BuildPlayerStashRefreshDelta(FlatItemsDataClass[] currentItems, FlatItemsDataClass[] savedItems)
+        {
+            Dictionary<string, FlatItemsDataClass> currentById = ToFlatItemDictionary(currentItems);
+            Dictionary<string, FlatItemsDataClass> savedById = ToFlatItemDictionary(savedItems);
+            HashSet<string> stashRootIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (currentItems.Length > 0)
+            {
+                stashRootIds.Add(currentItems[0]._id.ToString());
+            }
+
+            if (savedItems.Length > 0)
+            {
+                stashRootIds.Add(savedItems[0]._id.ToString());
+            }
+
+            HashSet<string> deleteCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> addCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<FlatItemsDataClass> changedItems = new List<FlatItemsDataClass>();
+
+            // First pass: live items that disappeared, moved, or only changed upd data.
+            foreach (KeyValuePair<string, FlatItemsDataClass> entry in currentById)
+            {
+                if (stashRootIds.Contains(entry.Key))
                 {
-                    aid = profile.AccountId,
-                    items = serializedEquipment
-                })));
+                    continue;
+                }
 
-            EnsureBodySuccess(responseJson);
-            ActiveTeammateLoadoutId = DefaultLoadoutId;
-            ActiveTeammateLoadoutName = DefaultLoadoutName;
+                if (!savedById.TryGetValue(entry.Key, out FlatItemsDataClass savedItem))
+                {
+                    deleteCandidates.Add(entry.Key);
+                    continue;
+                }
 
-            CloseLoadoutEditorOverlay();
-            RefreshCurrentTeammateLoadoutSelector(profile);
-            MarkSquadRosterDirty(profile.AccountId);
+                if (PlacementChanged(entry.Value, savedItem))
+                {
+                    deleteCandidates.Add(entry.Key);
+                    addCandidates.Add(entry.Key);
+                    continue;
+                }
+
+                if (!JsonTokenEquals(entry.Value.upd, savedItem.upd))
+                {
+                    changedItems.Add(savedItem);
+                }
+            }
+
+            // Second pass: items present in the saved stash but absent from the live profile.
+            foreach (KeyValuePair<string, FlatItemsDataClass> entry in savedById)
+            {
+                if (stashRootIds.Contains(entry.Key))
+                {
+                    continue;
+                }
+
+                if (!currentById.ContainsKey(entry.Key))
+                {
+                    addCandidates.Add(entry.Key);
+                }
+            }
+
+            HashSet<string> expandedAddCandidates = ExpandAddCandidatesWithAddressableParents(
+                addCandidates,
+                currentById,
+                savedById,
+                deleteCandidates,
+                stashRootIds);
+
+            List<string> deleteRoots = ReduceToRootCandidates(deleteCandidates, currentById);
+            List<string> addRoots = ReduceToRootCandidates(expandedAddCandidates, savedById);
+            // If a whole container tree is being replaced, its children are covered by the new tree and must
+            // not also be sent as independent upd-only changes.
+            changedItems = changedItems
+                .Where(item => !HasAncestorInSet(item, deleteRoots, savedById))
+                .ToList();
+
+            List<FlatItemsDataClass> newItems = ExpandFlatItemRoots(addRoots, savedById);
+            FlatItemsDataClass[] deletedItems = deleteRoots
+                .Select(id => new FlatItemsDataClass { _id = currentById[id]._id })
+                .ToArray();
+
+            return new GClass2337
+            {
+                @new = newItems.ToArray(),
+                change = changedItems.ToArray(),
+                del = deletedItems
+            };
+        }
+
+        private static Dictionary<string, FlatItemsDataClass> ToFlatItemDictionary(IEnumerable<FlatItemsDataClass> items)
+        {
+            Dictionary<string, FlatItemsDataClass> result = new Dictionary<string, FlatItemsDataClass>(StringComparer.OrdinalIgnoreCase);
+            foreach (FlatItemsDataClass item in items)
+            {
+                if (item?._id == null)
+                {
+                    continue;
+                }
+
+                result[item._id.ToString()] = item;
+            }
+
+            return result;
+        }
+
+        private static HashSet<string> ExpandAddCandidatesWithAddressableParents(
+            HashSet<string> addCandidates,
+            Dictionary<string, FlatItemsDataClass> currentById,
+            Dictionary<string, FlatItemsDataClass> savedById,
+            HashSet<string> deleteCandidates,
+            HashSet<string> stashRootIds)
+        {
+            HashSet<string> expanded = new HashSet<string>(addCandidates, StringComparer.OrdinalIgnoreCase);
+            foreach (string candidate in addCandidates.ToArray())
+            {
+                if (!savedById.TryGetValue(candidate, out FlatItemsDataClass candidateItem))
+                {
+                    continue;
+                }
+
+                string parentId = GetParentId(candidateItem);
+                string topNestedParentId = null;
+                while (!string.IsNullOrWhiteSpace(parentId))
+                {
+                    if (stashRootIds.Contains(parentId))
+                    {
+                        break;
+                    }
+
+                    if (!savedById.TryGetValue(parentId, out FlatItemsDataClass parent))
+                    {
+                        break;
+                    }
+
+                    topNestedParentId = parentId;
+                    expanded.Add(parentId);
+                    parentId = GetParentId(parent);
+                }
+
+                // EFT's backend updater can add a top-level item tree into an existing container,
+                // but it cannot address a nested live container as the target for a standalone new item.
+                if (!string.IsNullOrWhiteSpace(topNestedParentId) && currentById.ContainsKey(topNestedParentId))
+                {
+                    deleteCandidates.Add(topNestedParentId);
+                    expanded.Add(topNestedParentId);
+                }
+            }
+
+            return expanded;
+        }
+
+        private static bool HasAncestorInSet(
+            FlatItemsDataClass item,
+            IEnumerable<string> ancestorIds,
+            Dictionary<string, FlatItemsDataClass> sourceById)
+        {
+            HashSet<string> ancestorSet = new HashSet<string>(ancestorIds, StringComparer.OrdinalIgnoreCase);
+            string parentId = GetParentId(item);
+            while (!string.IsNullOrWhiteSpace(parentId))
+            {
+                if (ancestorSet.Contains(parentId))
+                {
+                    return true;
+                }
+
+                if (!sourceById.TryGetValue(parentId, out FlatItemsDataClass parent))
+                {
+                    return false;
+                }
+
+                parentId = GetParentId(parent);
+            }
+
+            return false;
+        }
+
+        private static List<string> ReduceToRootCandidates(HashSet<string> candidates, Dictionary<string, FlatItemsDataClass> sourceById)
+        {
+            List<string> roots = new List<string>();
+            foreach (string candidate in candidates)
+            {
+                string parentId = GetParentId(sourceById[candidate]);
+                bool parentIsCandidate = false;
+                while (!string.IsNullOrWhiteSpace(parentId))
+                {
+                    if (candidates.Contains(parentId))
+                    {
+                        parentIsCandidate = true;
+                        break;
+                    }
+
+                    if (!sourceById.TryGetValue(parentId, out FlatItemsDataClass parent))
+                    {
+                        break;
+                    }
+
+                    parentId = GetParentId(parent);
+                }
+
+                if (!parentIsCandidate)
+                {
+                    roots.Add(candidate);
+                }
+            }
+
+            return roots;
+        }
+
+        private static List<FlatItemsDataClass> ExpandFlatItemRoots(IEnumerable<string> rootIds, Dictionary<string, FlatItemsDataClass> sourceById)
+        {
+            Dictionary<string, List<string>> childrenByParent = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, FlatItemsDataClass> entry in sourceById)
+            {
+                string parentId = GetParentId(entry.Value);
+                if (string.IsNullOrWhiteSpace(parentId))
+                {
+                    continue;
+                }
+
+                if (!childrenByParent.TryGetValue(parentId, out List<string> children))
+                {
+                    children = new List<string>();
+                    childrenByParent[parentId] = children;
+                }
+
+                children.Add(entry.Key);
+            }
+
+            List<FlatItemsDataClass> result = new List<FlatItemsDataClass>();
+            HashSet<string> added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string rootId in rootIds)
+            {
+                AddFlatItemTree(rootId, sourceById, childrenByParent, added, result);
+            }
+
+            return result;
+        }
+
+        private static void AddFlatItemTree(
+            string itemId,
+            Dictionary<string, FlatItemsDataClass> sourceById,
+            Dictionary<string, List<string>> childrenByParent,
+            HashSet<string> added,
+            List<FlatItemsDataClass> result)
+        {
+            if (!added.Add(itemId) || !sourceById.TryGetValue(itemId, out FlatItemsDataClass item))
+            {
+                return;
+            }
+
+            result.Add(item);
+            if (!childrenByParent.TryGetValue(itemId, out List<string> children))
+            {
+                return;
+            }
+
+            foreach (string childId in children)
+            {
+                AddFlatItemTree(childId, sourceById, childrenByParent, added, result);
+            }
+        }
+
+        private static bool PlacementChanged(FlatItemsDataClass current, FlatItemsDataClass saved)
+        {
+            return !string.Equals(current._tpl.ToString(), saved._tpl.ToString(), StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(GetParentId(current), GetParentId(saved), StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(current.slotId, saved.slotId, StringComparison.Ordinal)
+                || !JsonTokenEquals(current.location, saved.location);
+        }
+
+        private static string GetParentId(FlatItemsDataClass item)
+        {
+            return item?.parentId?.ToString();
+        }
+
+        private static bool JsonTokenEquals(GClass846 left, GClass846 right)
+        {
+            string leftJson = left?.JToken?.ToString(Newtonsoft.Json.Formatting.None);
+            string rightJson = right?.JToken?.ToString(Newtonsoft.Json.Formatting.None);
+            return string.Equals(leftJson, rightJson, StringComparison.Ordinal);
         }
 
         private static InventoryEquipment CreateSanitizedLoadoutEditorSaveEquipment()
         {
-            InventoryEquipment sanitizedEquipment = LoadoutEditorProfile?.Inventory?.Equipment?.CloneItem(null) as InventoryEquipment;
+            InventoryEquipment sanitizedEquipment = IsRealDefaultLoadoutEditorCommit()
+                ? LoadoutEditorProfile?.Inventory?.Equipment?.CloneItemWithSameId() as InventoryEquipment
+                : LoadoutEditorProfile?.Inventory?.Equipment?.CloneItem(null) as InventoryEquipment;
             if (sanitizedEquipment == null)
             {
                 throw new InvalidOperationException("Loadout editor equipment was unavailable for save.");
@@ -926,6 +1340,28 @@ namespace pitTeam.Patches
 
             SanitizeLoadoutEditorEquipment(sanitizedEquipment);
             return sanitizedEquipment;
+        }
+
+        private static bool IsRealDefaultLoadoutEditorCommit()
+        {
+            return pitFireTeam.IsFollowerLoadoutLootableMode() && IsDefaultLoadoutEditorSelection();
+        }
+
+        private static FlatItemsDataClass[] CreateLoadoutEditorSaveStashItems()
+        {
+            Item stash = LoadoutEditorProfile?.Inventory?.Stash;
+            if (stash == null)
+            {
+                throw new InvalidOperationException("Loadout editor player stash was unavailable for real item save.");
+            }
+
+            FlatItemsDataClass[] serializedStash = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(new Item[] { stash });
+            if (serializedStash == null || serializedStash.Length == 0)
+            {
+                throw new InvalidOperationException("Loadout editor player stash was unavailable for real item save.");
+            }
+
+            return serializedStash;
         }
 
         private static GClass3953 TryGetCustomBuildById(string buildId)
@@ -955,6 +1391,14 @@ namespace pitTeam.Patches
         {
             public string aid { get; set; }
             public FlatItemsDataClass[] items { get; set; }
+            public FlatItemsDataClass[] playerStashItems { get; set; }
+            public bool realItemCommit { get; set; }
+        }
+
+        private sealed class FriendlyTeammateDefaultEquipmentResponse
+        {
+            public bool realItemCommit { get; set; }
+            public FlatItemsDataClass[] playerStashItems { get; set; }
         }
 
         private static async Task<bool> ShowReplaceBuildPromptAsync()

@@ -48,7 +48,11 @@ public class FriendlyPostRaidCallbacks(
     public ValueTask<string> DeathEscape(string url, FriendlyTeammateDeathEscapeRequest request, MongoId sessionId)
     {
         FriendlyTeammateDeathEscapeSummary summary = teammateService.PersistDeathEscapeOutcomes(sessionId, request.Entries);
-        postRaidService.HandleDeathEscapeSummary(sessionId, summary);
+        if (request.Notify)
+        {
+            postRaidService.HandleDeathEscapeSummary(sessionId, summary);
+        }
+
         return new ValueTask<string>(httpResponse.NullResponse());
     }
 }

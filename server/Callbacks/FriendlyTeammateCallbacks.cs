@@ -40,7 +40,14 @@ public class FriendlyTeammateCallbacks(
 
     public ValueTask<string> SetServerSettings(string url, FriendlyServerSettingsRequest request, MongoId sessionId)
     {
+        string previousMode = settingsService.LoadSettings().LoadoutManagementMode ?? "Simple";
         settingsService.SaveAndApply(request);
+        string nextMode = request?.LoadoutManagementMode ?? "Simple";
+        if (!string.Equals(previousMode, nextMode, StringComparison.OrdinalIgnoreCase))
+        {
+            teammateService.ResetAllTeammatesToRegeneratedDefaultLoadouts(sessionId, nextMode);
+        }
+
         return new ValueTask<string>(httpResponse.NullResponse());
     }
 
@@ -111,8 +118,8 @@ public class FriendlyTeammateCallbacks(
     {
         try
         {
-            teammateService.SaveTeammateDefaultEquipment(sessionId, request);
-            return new ValueTask<string>(httpResponse.NullResponse());
+            var response = teammateService.SaveTeammateDefaultEquipment(sessionId, request);
+            return new ValueTask<string>(httpResponse.GetBody(response));
         }
         catch (FriendlyTeammateException ex)
         {

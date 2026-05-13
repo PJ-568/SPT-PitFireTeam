@@ -59,6 +59,14 @@ namespace pitTeam
         OverThere = 220,
     }
 
+    public enum LoadoutManagementMode
+    {
+        Simple,
+        Restricted,
+        Immersive,
+        Extreme
+    }
+
     public class LanguageOptions
     {
         public string baseSettings { get; set; }
@@ -68,6 +76,7 @@ namespace pitTeam
         public string miscSettings { get; set; }
         public string testSettings { get; set; }
         public string raidSettings { get; set; }
+        public string loadoutManagementSettings { get; set; }
         public string[] equipOptions { get; set; }
         public string[] tacticOptions { get; set; }
 
@@ -89,6 +98,10 @@ namespace pitTeam
         public Dictionary<string, string> memberUniformBottom { get; set; }
 
         public Dictionary<string, string> equipmentLock { get; set; }
+        public Dictionary<string, string> loadoutManagementSimple { get; set; }
+        public Dictionary<string, string> loadoutManagementRestricted { get; set; }
+        public Dictionary<string, string> loadoutManagementImmersive { get; set; }
+        public Dictionary<string, string> loadoutManagementExtreme { get; set; }
         public Dictionary<string, string> npcSendMessage { get; set; }
 
         [JsonProperty("friendlyPMC")]
@@ -171,6 +184,7 @@ namespace pitTeam
 
         public static ConfigEntry<bool> englishBear;
         public static ConfigEntry<bool> pmcArmbands;
+        public static ConfigEntry<LoadoutManagementMode> loadoutManagementMode;
 
         public static ConfigEntry<bool> botPrefetch;
 
@@ -632,6 +646,8 @@ namespace pitTeam
             pmcArmbands = Config.Bind("", "14 PmcArmbands", true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.pmcArmbands)));
             pmcArmbands.SettingChanged += (_, _) => SyncServerSettings();
 
+            loadoutManagementMode = Config.Bind("", "14 LoadoutManagement", LoadoutManagementMode.Simple, new ConfigDescription("Controls how teammate loadouts are selected, consumed, and preserved.", null, CreateConfigAttributes(-1005, false, optionsLang.loadoutManagementSimple)));
+
             botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
 
             regroupRadius = Config.Bind("", "15 RegroupRadius", 18, new ConfigDescription(optionsLang.regroupRadius["Description"], new AcceptableValueRange<int>(10, 38), CreateConfigAttributes(-1005, false, optionsLang.regroupRadius)));
@@ -671,15 +687,37 @@ namespace pitTeam
             SyncServerSettings();
         }
 
+        internal static void SyncServerSettingsNow()
+        {
+            SyncServerSettings();
+        }
+
+        internal static Task SyncServerSettingsNowAsync()
+        {
+            return SyncServerSettingsAsync();
+        }
+
+        internal static bool IsFollowerLoadoutLootableMode()
+        {
+            LoadoutManagementMode mode = loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple;
+            return mode == LoadoutManagementMode.Immersive || mode == LoadoutManagementMode.Extreme;
+        }
+
         private static void SyncServerSettings()
+        {
+            _ = SyncServerSettingsAsync();
+        }
+
+        private static Task SyncServerSettingsAsync()
         {
             try
             {
                 string requestBody = JsonConvert.SerializeObject(new
                 {
-                    pmcArmbands = pmcArmbands?.Value ?? true
+                    pmcArmbands = pmcArmbands?.Value ?? true,
+                    loadoutManagementMode = (loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple).ToString()
                 });
-                Task.Run(() =>
+                return Task.Run(() =>
                 {
                     try
                     {
@@ -694,6 +732,7 @@ namespace pitTeam
             catch (Exception ex)
             {
                 Modules.Logger.LogInfo($"Failed to sync pitFireTeam server settings: {ex.Message}");
+                return Task.CompletedTask;
             }
         }
 

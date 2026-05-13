@@ -5,6 +5,8 @@ namespace pitTeam.Server.Models;
 
 public record FriendlyTeammateDeathEscapeRequest : IRequestData
 {
+    public bool Notify { get; set; } = true;
+
     [JsonPropertyName("Entries")]
     public List<FriendlyTeammateDeathEscapeEntry> Entries { get; set; } = [];
 }

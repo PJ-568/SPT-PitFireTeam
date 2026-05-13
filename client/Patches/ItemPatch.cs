@@ -21,7 +21,7 @@ namespace pitTeam.Patches
         [PatchPrefix]
         public static bool PatchPrefix(UnlootableComponent __instance, ref bool __result, IContainer container)
         {
-            bool isBotEquiptment = false;
+            bool isBotEquipment = false;
 
             Modules.InteractableObjects.GetStoredEquipment().ExecuteForEach((id, items) =>
             {
@@ -29,15 +29,15 @@ namespace pitTeam.Patches
                 {
                     if (itemId == __instance.Item.Id)
                     {
-                        isBotEquiptment = true;
+                        isBotEquipment = true;
                         break;
                     }
                 }
             });
 
-            if (isBotEquiptment)
+            if (isBotEquipment)
             {
-                __result = true;
+                __result = !pitFireTeam.IsFollowerLoadoutLootableMode();
                 return false;
             }
 
@@ -55,7 +55,7 @@ namespace pitTeam.Patches
         [PatchPrefix]
         public static bool PatchPrefix(Mod __instance, ref bool __result)
         {
-            bool isBotEquiptment = false;
+            bool isBotEquipment = false;
 
             foreach (var stack in Modules.InteractableObjects.GetStoredEquipment())
             {
@@ -63,17 +63,17 @@ namespace pitTeam.Patches
                 {
                     if (itemId == __instance.Id)
                     {
-                        isBotEquiptment = true;
+                        isBotEquipment = true;
                         break;
                     }
                 }
 
-                if (isBotEquiptment) break;
+                if (isBotEquipment) break;
             }
 
-            if (isBotEquiptment)
+            if (isBotEquipment)
             {
-                __result = false;
+                __result = pitFireTeam.IsFollowerLoadoutLootableMode();
                 return false;
             }
             // let original run
@@ -96,7 +96,7 @@ namespace pitTeam.Patches
 
             if (slot.Locked)
             {
-                bool isBotEquiptment = false;
+                bool isBotEquipment = false;
 
                 foreach (var stack in Modules.InteractableObjects.GetStoredEquipment())
                 {
@@ -104,15 +104,15 @@ namespace pitTeam.Patches
                     {
                         if (itemId == id)
                         {
-                            isBotEquiptment = true;
+                            isBotEquipment = true;
                             break;
                         }
                     }
 
-                    if (isBotEquiptment) break;
+                    if (isBotEquipment) break;
                 }
 
-                if (!isBotEquiptment) return true;
+                if (!isBotEquipment || pitFireTeam.IsFollowerLoadoutLootableMode()) return true;
 
                 __result = new KeyValuePair<EModLockedState, ModSlotViewTP>(EModLockedState.RaidLock, new ModSlotViewTP
                 {

@@ -16,8 +16,16 @@ namespace pitTeam.Modules
 
         private Dictionary<string, object> _npcs = new Dictionary<string, object>();
         private List<string> _matesLost = new List<string>();
+        private List<LostMate> _matesLostMembers = new List<LostMate>();
 
         private bool _playerDied = false;
+
+        private sealed class LostMate
+        {
+            public string Aid { get; set; } = string.Empty;
+            public string ProfileId { get; set; } = string.Empty;
+            public string Nickname { get; set; } = string.Empty;
+        }
 
         public NpcMessage()
         {
@@ -26,6 +34,7 @@ namespace pitTeam.Modules
                 Instance = this;
                 _npcs = new Dictionary<string, object>();
                 _matesLost = new List<string>();
+                _matesLostMembers = new List<LostMate>();
             }
         }
 
@@ -60,7 +69,7 @@ namespace pitTeam.Modules
             }
         }
 
-        public static void RemoveNpc(string id)
+        public static void RemoveNpc(string id, bool lost = true)
         {
             if (Instance == null || Instance._playerDied) return;
 
@@ -68,11 +77,22 @@ namespace pitTeam.Modules
             {
                 if (((Dictionary<string, object>)Instance._npcs[id])["SquadInfo"] is Dictionary<string, object> squadInfo)
                 {
-                    if ((bool)squadInfo["Mate"])
+                    if (lost && (bool)squadInfo["Mate"])
                     {
                         if (((Dictionary<string, object>)Instance._npcs[id])["Info"] is Dictionary<string, object> memberInfo)
                         {
-                            Instance._matesLost.Add((string)memberInfo["Nickname"]);
+                            string nickname = (string)memberInfo["Nickname"];
+                            string aid = ((Dictionary<string, object>)Instance._npcs[id]).TryGetValue("aid", out object aidValue)
+                                ? aidValue?.ToString() ?? string.Empty
+                                : string.Empty;
+
+                            Instance._matesLost.Add(nickname);
+                            Instance._matesLostMembers.Add(new LostMate
+                            {
+                                Aid = aid,
+                                ProfileId = id,
+                                Nickname = nickname
+                            });
                         }
                     }
                 }
@@ -180,11 +200,74 @@ namespace pitTeam.Modules
             });
         }
 
+        public static void SendLostTeammateOutcomes()
+        {
+            if (Instance == null || Instance._playerDied || Instance._matesLostMembers.Count == 0)
+            {
+                return;
+            }
+
+            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
+                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+
+            var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+
+            var entries = Instance._matesLostMembers
+                .Where(member => !string.IsNullOrWhiteSpace(member.Aid))
+                .GroupBy(member => member.Aid, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .Select(member => new
+                {
+                    Aid = member.Aid,
+                    ProfileId = member.ProfileId,
+                    Nickname = member.Nickname,
+                    Escaped = false,
+                    Chance = 0d,
+                    ExtractName = string.Empty,
+                    Distance = 0d,
+                    HealthRatio = 0d,
+                    EquipmentPower = 0d,
+                    EnemyAveragePower = 0d,
+                    AliveSquadmates = 0,
+                    HasSecureMeds = false
+                })
+                .ToList();
+
+            if (entries.Count == 0)
+            {
+                return;
+            }
+
+            Components.SquadControlMenuUi.RequestRosterRefreshOnNextInject();
+
+            string json = new
+            {
+                Notify = false,
+                Entries = entries
+            }.ToJson(defaultJsonConverters);
+
+            Instance._matesLostMembers.Clear();
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/death-escape", json);
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("Failed to send dead teammate loadout outcomes");
+                    Modules.Logger.LogError(ex);
+                }
+            });
+        }
+
         public static void Flush()
         {
             if (Instance == null) return;
             Instance._npcs.Clear();
             Instance._matesLost.Clear();
+            Instance._matesLostMembers.Clear();
         }
 
         public static void PlayerDied()
@@ -197,6 +280,8 @@ namespace pitTeam.Modules
         {
             if (Instance == null) return;
             Instance._npcs.Clear();
+            Instance._matesLost.Clear();
+            Instance._matesLostMembers.Clear();
             Instance = null;
         }
     }

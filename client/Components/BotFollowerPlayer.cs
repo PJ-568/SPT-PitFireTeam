@@ -936,7 +936,7 @@ namespace pitTeam.Components
                 {
                     InteractableObjects.ClearStoredItems(_bot.ProfileId);
                     InteractableObjects.RemoveTaker(_bot);
-                    NpcMessage.RemoveNpc(_bot.ProfileId);
+                    NpcMessage.RemoveNpc(_bot.ProfileId, _bot.HealthController?.IsAlive == false);
                 }
 
                 ClearCommand("Dismiss:finally");

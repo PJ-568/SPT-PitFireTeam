@@ -209,6 +209,7 @@ namespace pitTeam.Patches
         {
             try
             {
+                TryRecordDeadSquadmate(__instance);
                 TryRecordPlayerKillMessage(__instance, aggressor);
 
                 if (aggressor?.Profile?.Info?.Settings == null || __instance?.GameWorld == null)
@@ -290,6 +291,32 @@ namespace pitTeam.Patches
             catch (Exception ex)
             {
                 Logger.LogError(ex);
+            }
+        }
+
+        private static void TryRecordDeadSquadmate(Player player)
+        {
+            try
+            {
+                if (player == null || string.IsNullOrWhiteSpace(player.ProfileId))
+                {
+                    return;
+                }
+
+                BotFollowerPlayer deadFollower = BossPlayers.GetFollowers()
+                    .Find(follower => follower?.GetBot()?.ProfileId == player.ProfileId);
+                if (deadFollower == null || !deadFollower.IsSquadMate)
+                {
+                    return;
+                }
+
+                NpcMessage.RemoveNpc(player.ProfileId, true);
+                Modules.Logger.LogInfo($"[DeathEscape] Recorded dead squadmate '{player.Profile?.Nickname ?? player.ProfileId}' for loadout loss.");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to record dead squadmate for loadout loss");
+                Modules.Logger.LogError(ex);
             }
         }
 

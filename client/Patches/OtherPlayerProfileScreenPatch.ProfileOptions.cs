@@ -36,25 +36,32 @@ namespace pitTeam.Patches
 
         private static void EnsureBodySuccess(string responseJson)
         {
+            DeserializeBodySuccess<object>(responseJson);
+        }
+
+        private static FriendlyTeammateBodyResponse<T> DeserializeBodySuccess<T>(string responseJson)
+        {
             if (string.IsNullOrWhiteSpace(responseJson))
             {
-                return;
+                return null;
             }
 
-            FriendlyTeammateBodyResponse<object> body = null;
+            FriendlyTeammateBodyResponse<T> body = null;
             try
             {
-                body = JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<object>>(responseJson);
+                body = JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<T>>(responseJson);
             }
             catch
             {
-                return;
+                return null;
             }
 
             if (body != null && body.err != 0)
             {
                 throw new InvalidOperationException(body.errmsg ?? "Unknown teammate backend error");
             }
+
+            return body;
         }
 
         private static FriendlyTeammateProfileOptions TryLoadProfileOptions(string accountId)

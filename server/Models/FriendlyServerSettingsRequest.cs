@@ -7,4 +7,7 @@ public record FriendlyServerSettingsRequest : IRequestData
 {
     [JsonPropertyName("pmcArmbands")]
     public bool PmcArmbands { get; set; } = true;
+
+    [JsonPropertyName("loadoutManagementMode")]
+    public string LoadoutManagementMode { get; set; } = "Simple";
 }
