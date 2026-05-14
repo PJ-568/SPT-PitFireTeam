@@ -188,7 +188,8 @@ namespace pitTeam.Components
                                 SocialMemberId = socialMemberId,
                                 Nickname = nickname,
                                 Level = level,
-                                AutoJoinEnabled = ParseBool(teammate?["AutoJoinEnabled"]?.ToString() ?? teammate?["autoJoinEnabled"]?.ToString())
+                                AutoJoinEnabled = ParseBool(teammate?["AutoJoinEnabled"]?.ToString() ?? teammate?["autoJoinEnabled"]?.ToString()),
+                                HasProperRaidKit = ParseBool(teammate?["HasProperRaidKit"]?.ToString() ?? teammate?["hasProperRaidKit"]?.ToString(), defaultValue: true)
                             });
                         }
                     }
@@ -210,9 +211,9 @@ namespace pitTeam.Components
             return int.TryParse(value, out int level) ? Mathf.Max(1, level) : 1;
         }
 
-        private static bool ParseBool(string value)
+        private static bool ParseBool(string value, bool defaultValue = false)
         {
-            return bool.TryParse(value, out bool parsed) && parsed;
+            return bool.TryParse(value, out bool parsed) ? parsed : defaultValue;
         }
 
         private void CreateAddTeammateButton(RectTransform rosterRect)

@@ -419,6 +419,8 @@ namespace pitTeam
             new OtherPlayerProfileScreenPatch().Enable();
             new OtherPlayerProfileScreenClosePatch().Enable();
             new LoadoutEditorUnloadAmmoPatch().Enable();
+            new LoadoutEditorRepairContextInteractionPatch().Enable();
+            new LoadoutEditorRepairByKitPatch().Enable();
 
             // SAIN/Donuts patches
             if (IsSAINInstalled)
@@ -701,6 +703,19 @@ namespace pitTeam
         {
             LoadoutManagementMode mode = loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple;
             return mode == LoadoutManagementMode.Immersive || mode == LoadoutManagementMode.Extreme;
+        }
+
+        internal static bool IsFollowerLoadoutRealTransferMode()
+        {
+            LoadoutManagementMode mode = loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple;
+            return mode == LoadoutManagementMode.Restricted
+                || mode == LoadoutManagementMode.Immersive
+                || mode == LoadoutManagementMode.Extreme;
+        }
+
+        internal static bool IsFollowerLoadoutRealisticMode()
+        {
+            return (loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple) == LoadoutManagementMode.Extreme;
         }
 
         private static void SyncServerSettings()

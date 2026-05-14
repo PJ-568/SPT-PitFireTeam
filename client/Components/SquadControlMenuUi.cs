@@ -270,6 +270,7 @@ namespace pitTeam.Components
             public string Nickname { get; set; } = string.Empty;
             public int Level { get; set; }
             public bool AutoJoinEnabled { get; set; }
+            public bool HasProperRaidKit { get; set; } = true;
         }
 
         private sealed class SquadSettingEntry

@@ -1,5 +1,6 @@
 using Comfort.Common;
 using EFT;
+using EFT.HealthSystem;
 using EFT.Interactive;
 using EFT.InventoryLogic;
 using pitTeam.Components;
@@ -430,6 +431,7 @@ namespace pitTeam.Modules
 
             try
             {
+                SendEscapedFollowerDefaultLoadoutOutcomes();
                 NpcMessage.SendLostTeammateOutcomes();
 
                 if (!SendStoreItems())
@@ -482,6 +484,120 @@ namespace pitTeam.Modules
 
             IsDisposed = true;
             Instance = null;
+        }
+
+        private void SendEscapedFollowerDefaultLoadoutOutcomes()
+        {
+            if (_isBossDead || BossPlayers.Instance == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var entries = new List<object>();
+                var seenAids = new HashSet<string>(StringComparer.Ordinal);
+
+                foreach (var boss in BossPlayers.Instance.GetBossPlayers())
+                {
+                    foreach (var bot in boss.Value.Followers)
+                    {
+                        if (bot == null ||
+                            bot.BotState != EBotState.Active ||
+                            bot.HealthController?.IsAlive != true ||
+                            bot.GetPlayer?.InventoryController?.Inventory?.Equipment == null ||
+                            string.IsNullOrWhiteSpace(bot.Profile?.AccountId) ||
+                            !seenAids.Add(bot.Profile.AccountId))
+                        {
+                            continue;
+                        }
+
+                        FlatItemsDataClass[] equipmentItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(
+                            new Item[] { bot.GetPlayer.InventoryController.Inventory.Equipment });
+                        if (equipmentItems == null || equipmentItems.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        entries.Add(new
+                        {
+                            Aid = bot.Profile.AccountId,
+                            ProfileId = bot.ProfileId ?? string.Empty,
+                            Nickname = bot.Profile?.Nickname ?? "Squadmate",
+                            Escaped = true,
+                            Chance = 1d,
+                            ExtractName = string.Empty,
+                            Distance = 0d,
+                            HealthRatio = CalculateHealthRatio(bot),
+                            EquipmentPower = 0d,
+                            EnemyAveragePower = 0d,
+                            AliveSquadmates = 0,
+                            HasSecureMeds = false,
+                            EquipmentItems = equipmentItems,
+                            TrackedItemIds = GetStoredItems(bot.ProfileId)?.ToArray() ?? Array.Empty<string>()
+                        });
+                    }
+                }
+
+                if (entries.Count == 0)
+                {
+                    return;
+                }
+
+                var converterClass = typeof(AbstractGame).Assembly.GetTypes()
+                    .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+                var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+
+                string json = new
+                {
+                    Notify = false,
+                    Entries = entries
+                }.ToJson(defaultJsonConverters);
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/death-escape", json);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Failed to send escaped teammate loadout outcomes");
+                        Logger.LogError(ex);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Failed to prepare escaped teammate loadout outcomes");
+                Logger.LogError(ex);
+            }
+        }
+
+        private static double CalculateHealthRatio(BotOwner bot)
+        {
+            if (bot?.GetPlayer?.ActiveHealthController == null)
+            {
+                return 1d;
+            }
+
+            float current = 0f;
+            float maximum = 0f;
+            foreach (EBodyPart part in GClass3058.RealBodyParts)
+            {
+                try
+                {
+                    ValueStruct health = bot.GetPlayer.ActiveHealthController.GetBodyPartHealth(part, false);
+                    current += Mathf.Max(0f, health.Current);
+                    maximum += Mathf.Max(0f, health.Maximum);
+                }
+                catch
+                {
+                    // Missing body-part data should not block raid-end persistence.
+                }
+            }
+
+            return maximum > 0f ? Mathf.Clamp01(current / maximum) : 1d;
         }
 
         public static void Dispose()

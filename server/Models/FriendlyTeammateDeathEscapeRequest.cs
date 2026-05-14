@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Utils;
 
 namespace pitTeam.Server.Models;
@@ -36,6 +37,10 @@ public record FriendlyTeammateDeathEscapeEntry
     public int AliveSquadmates { get; set; }
 
     public bool HasSecureMeds { get; set; }
+
+    public List<Item>? EquipmentItems { get; set; }
+
+    public List<string>? TrackedItemIds { get; set; }
 }
 
 public record FriendlyTeammateDeathEscapeSummary

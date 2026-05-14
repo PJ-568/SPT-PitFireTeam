@@ -207,11 +207,14 @@ namespace pitTeam.Components
                 yield return setting;
             }
 
-            string loadoutSection = pitFireTeam.optionsLang?.loadoutManagementSettings ?? "Loadout Management";
-            yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Simple };
-            yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Restricted };
-            yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Immersive };
-            yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Extreme };
+            if (!IsRaidRestrictedSettingsContext())
+            {
+                string loadoutSection = pitFireTeam.optionsLang?.loadoutManagementSettings ?? "Loadout Management";
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Simple };
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Restricted };
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Immersive };
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Extreme };
+            }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.inputSettings ?? "Input Settings",
@@ -960,7 +963,7 @@ namespace pitTeam.Components
                 yield break;
             }
 
-            pitFireTeam.Log.LogInfo("[UI] Refreshing roster portraits after loadout management reset.");
+            pitFireTeam.Log.LogInfo("[UI] Refreshing roster portraits after loadout management mode switch.");
             RebuildRosterTiles();
         }
 
@@ -1056,7 +1059,7 @@ namespace pitTeam.Components
 
             GameObject bodyObject = CreateText(
                 "pitFireTeam_LoadoutManagementConfirmBody",
-                GetSocialUiText("LoadoutManagementConfirmPrompt", "Switching loadout management will reset your teammates' gear."),
+                GetSocialUiText("LoadoutManagementConfirmPrompt", "Switching loadout management will switch all teammates to their Default loadout."),
                 24f,
                 TextAlignmentOptions.Center);
             RectTransform bodyRect = bodyObject.GetComponent<RectTransform>();

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
+using SPTarkov.Server.Core.Models.Eft.Repair;
 using SPTarkov.Server.Core.Models.Utils;
 
 namespace pitTeam.Server.Models;
@@ -25,6 +26,33 @@ public record FriendlyTeammateDefaultEquipmentResponse
 {
     [JsonPropertyName("realItemCommit")]
     public bool RealItemCommit { get; set; }
+
+    [JsonPropertyName("playerStashItems")]
+    public List<Item>? PlayerStashItems { get; set; }
+}
+
+public record FriendlyTeammateRepairEquipmentRequest : IRequestData
+{
+    [JsonPropertyName("aid")]
+    public string? Aid { get; set; }
+
+    [JsonPropertyName("target")]
+    public string? Target { get; set; }
+
+    [JsonPropertyName("repairKitsInfo")]
+    public List<RepairKitsInfo>? RepairKitsInfo { get; set; }
+}
+
+public record FriendlyTeammateRepairEquipmentResponse
+{
+    [JsonPropertyName("itemId")]
+    public string? ItemId { get; set; }
+
+    [JsonPropertyName("durability")]
+    public double? Durability { get; set; }
+
+    [JsonPropertyName("maxDurability")]
+    public double? MaxDurability { get; set; }
 
     [JsonPropertyName("playerStashItems")]
     public List<Item>? PlayerStashItems { get; set; }

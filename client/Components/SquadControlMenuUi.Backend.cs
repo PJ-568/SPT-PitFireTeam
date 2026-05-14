@@ -40,6 +40,14 @@ namespace pitTeam.Components
                 return;
             }
 
+            if (!entry.HasProperRaidKit)
+            {
+                string message = $"Cannot add {entry.Nickname} to the raid group without a proper kit.";
+                AddTeammateCreationFlow.ShowToast(message);
+                pitFireTeam.Log.LogInfo($"[UI] Blocked group invite for teammate '{entry.AccountId}': missing primary or pistol weapon.");
+                return;
+            }
+
             if (!TryGetMatchmakerController(out MatchmakerPlayerControllerClass controller) || controller == null)
             {
                 pitFireTeam.Log.LogWarning($"[UI] Could not invite teammate '{entry.AccountId}': matchmaker controller unavailable.");
@@ -152,6 +160,7 @@ namespace pitTeam.Components
             float deadline = Time.realtimeSinceStartup + timeoutSeconds;
             bool inviteObserved = false;
             bool joinedGroup = false;
+            bool inviteClearedWithoutJoin = false;
 
             while (Time.realtimeSinceStartup < deadline)
             {
@@ -170,6 +179,7 @@ namespace pitTeam.Components
                     }
                     else if (inviteObserved)
                     {
+                        inviteClearedWithoutJoin = true;
                         break;
                     }
                 }
@@ -185,6 +195,13 @@ namespace pitTeam.Components
             {
                 string successTemplate = GetSocialUiText("SquadControlInviteAcceptedToast", "{0} joined the group.");
                 AddTeammateCreationFlow.ShowToast(string.Format(successTemplate, nickname ?? string.Empty));
+                yield break;
+            }
+
+            // A cleared invite that did not join is EFT's normal decline path. Let the stock
+            // decline notification and any server-provided reason carry the user-facing message.
+            if (inviteClearedWithoutJoin)
+            {
                 yield break;
             }
 

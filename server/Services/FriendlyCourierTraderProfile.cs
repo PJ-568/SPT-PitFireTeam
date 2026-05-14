@@ -1,3 +1,4 @@
+using pitTeam.Server.Constants;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Enums;
@@ -90,7 +91,7 @@ internal static class FriendlyCourierTraderProfile
                 Repair = new TraderRepair
                 {
                     Availability = false,
-                    Currency = "5449016a4bdc2d6f028b456f",
+                    Currency = FriendlyItemTemplateIds.Currency.Roubles,
                     CurrencyCoefficient = 1,
                     ExcludedCategory = [],
                     ExcludedIdList = [],

@@ -35,6 +35,8 @@ namespace pitTeam.Modules
         public float EnemyAveragePower { get; set; }
         public int AliveSquadmates { get; set; }
         public bool HasSecureMeds { get; set; }
+        public FlatItemsDataClass[] EquipmentItems { get; set; }
+        public string[] TrackedItemIds { get; set; }
     }
 
     internal static class FollowerDeathEscapeResolver
@@ -132,7 +134,9 @@ namespace pitTeam.Modules
                         EquipmentPower = readiness.EquipmentPower,
                         EnemyAveragePower = routeThreat.AveragePower,
                         AliveSquadmates = aliveCount,
-                        HasSecureMeds = readiness.HasSecureMeds
+                        HasSecureMeds = readiness.HasSecureMeds,
+                        EquipmentItems = escaped ? SerializeFollowerEquipment(bot) : null,
+                        TrackedItemIds = escaped ? GetTrackedFollowerItemIds(bot) : Array.Empty<string>()
                     });
 
                     if (escaped)
@@ -483,6 +487,36 @@ namespace pitTeam.Modules
                     Logger.LogError(ex);
                 }
             });
+        }
+
+        private static FlatItemsDataClass[] SerializeFollowerEquipment(BotOwner bot)
+        {
+            try
+            {
+                Item equipment = bot?.GetPlayer?.InventoryController?.Inventory?.Equipment;
+                if (equipment == null)
+                {
+                    return null;
+                }
+
+                return Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(new Item[] { equipment });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"[DeathEscape] Failed to serialize escaped follower equipment for '{bot?.Profile?.Nickname ?? bot?.ProfileId ?? "unknown"}'.");
+                Logger.LogError(ex);
+                return null;
+            }
+        }
+
+        private static string[] GetTrackedFollowerItemIds(BotOwner bot)
+        {
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return Array.Empty<string>();
+            }
+
+            return InteractableObjects.GetStoredItems(bot.ProfileId)?.ToArray() ?? Array.Empty<string>();
         }
 
         private struct FollowerReadiness
