@@ -8,7 +8,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using UI.BattleUI.Gestures;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 using GestureAction = EFT.UI.Gestures.GestureBaseItem.GStruct449;
 using GestureMenuItem = EFT.UI.Gestures.GesturesMenu.Class3396;
 
@@ -25,6 +27,47 @@ namespace pitTeam.Patches
                 : "View Backpack";
 
             return text.ToUpperInvariant();
+        }
+
+        public static void FitViewBackpackQuickText(CustomTextMeshProUGUI textField, GameObject? quickCommandObject = null)
+        {
+            if (textField == null)
+            {
+                return;
+            }
+
+            textField.enableWordWrapping = false;
+            textField.overflowMode = TextOverflowModes.Overflow;
+
+            float textWidth = Mathf.Max(128f, textField.GetPreferredValues(textField.text, 260f, 40f).x + 8f);
+            EnsureMinWidth(textField.rectTransform, textWidth);
+
+            LayoutElement textLayout = textField.GetComponent<LayoutElement>() ?? textField.gameObject.AddComponent<LayoutElement>();
+            textLayout.minWidth = Mathf.Max(textLayout.minWidth, textWidth);
+            textLayout.preferredWidth = Mathf.Max(textLayout.preferredWidth, textWidth);
+
+            if (quickCommandObject?.transform is RectTransform quickRect)
+            {
+                EnsureMinWidth(quickRect, textWidth + 54f);
+            }
+
+            if (textField.transform.parent is RectTransform parentRect)
+            {
+                EnsureMinWidth(parentRect, textWidth);
+            }
+        }
+
+        private static void EnsureMinWidth(RectTransform rectTransform, float width)
+        {
+            if (rectTransform == null || width <= 0f)
+            {
+                return;
+            }
+
+            if (rectTransform.rect.width + 0.5f < width)
+            {
+                rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
+            }
         }
     }
 
@@ -254,6 +297,7 @@ namespace pitTeam.Patches
     internal class ViewBackpackQuickPanelTextPatch : ModulePatch
     {
         private static readonly FieldInfo TextField = AccessTools.Field(typeof(GesturesQuickPanel), "_textField");
+        private static readonly FieldInfo QuickCommandObjectField = AccessTools.Field(typeof(GesturesQuickPanel), "_quickCommandObject");
 
         protected override MethodBase GetTargetMethod()
         {
@@ -271,6 +315,7 @@ namespace pitTeam.Patches
             if (TextField.GetValue(__instance) is CustomTextMeshProUGUI textField)
             {
                 textField.text = CustomGestureText.ViewBackpackTextUpper();
+                CustomGestureText.FitViewBackpackQuickText(textField, QuickCommandObjectField.GetValue(__instance) as GameObject);
             }
         }
     }
@@ -295,6 +340,7 @@ namespace pitTeam.Patches
             if (LabelField.GetValue(__instance) is CustomTextMeshProUGUI label)
             {
                 label.text = CustomGestureText.ViewBackpackTextUpper();
+                CustomGestureText.FitViewBackpackQuickText(label, __instance.gameObject);
             }
         }
     }

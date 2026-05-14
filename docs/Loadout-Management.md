@@ -14,7 +14,9 @@ Current phase focus:
 - test default-loadout spawn preparation for the four modes
 - test Immersive-style death gear loss for teammates using `Default`
 
-This is not yet the full real-stash economy implementation. Default-loadout real item ownership transfer is implemented for `Restricted`, `Immersive`, and `Realistic` (internal mode value: `Extreme`). The non-`Simple` profile UI intentionally hides the saved-loadout dropdown and uses `Default` as the editable real-gear surface, with `BUY GEAR LOADOUT` reserved as the future way to acquire a full kit.
+This is not yet the full real-stash economy implementation. Default-loadout real item ownership transfer is implemented for `Restricted`, `Immersive`, and `Realistic` (internal mode value: `Extreme`). The non-`Simple` profile UI intentionally hides the saved-loadout dropdown and uses `Default` as the editable real-gear surface, with `KIT LOADOUTS` reserved as the way to acquire a full kit.
+
+See `docs/Buy Screen.md` for the current stock `EquipmentBuildsScreen` reuse, buy-mode UI changes, and kit price-display behavior.
 
 ## UI Behavior
 
@@ -74,7 +76,8 @@ Current phase behavior:
 
 - mode exists in UI and server settings
 - switching to this mode preserves each teammate's current `Default` gear and selects `Default`
-- the teammate profile hides the saved-loadout dropdown and shows the `BUY GEAR LOADOUT` placeholder button
+- the teammate profile hides the saved-loadout dropdown and shows the `KIT LOADOUTS` button
+- buying a kit sends the teammate's previous active `Default` kit back through the pitFireTeam courier before equipping the newly purchased kit
 - editing `Default` uses real player stash item ids instead of cloned ids
 - pressing `Done` commits real item movement between the player stash and teammate default equipment
 - items moved onto the teammate are removed from the player stash
@@ -94,7 +97,8 @@ Target behavior:
 Current phase behavior for `Default` only:
 
 - switching to this mode preserves each teammate's current `Default` gear and selects `Default`
-- the teammate profile hides the saved-loadout dropdown and shows the `BUY GEAR LOADOUT` placeholder button
+- the teammate profile hides the saved-loadout dropdown and shows the `KIT LOADOUTS` button
+- buying a kit sends the teammate's previous active `Default` kit back through the pitFireTeam courier before equipping the newly purchased kit
 - editing `Default` uses real player stash item ids instead of cloned ids
 - pressing `Done` commits real item movement between the player stash and teammate default equipment
 - items moved onto the teammate are removed from the player stash
@@ -119,7 +123,8 @@ Current phase behavior:
 
 - switching to this mode preserves each teammate's current `Default` gear and selects `Default`
 - switching into or out of this mode strips any existing secure-container tree from saved teammate `Default` loadouts to prevent carrying a hidden managed container into the editable Realistic slot
-- the teammate profile hides the saved-loadout dropdown and shows the `BUY GEAR LOADOUT` placeholder button
+- the teammate profile hides the saved-loadout dropdown and shows the `KIT LOADOUTS` button
+- buying a kit sends the teammate's previous active `Default` kit back through the pitFireTeam courier before equipping the newly purchased kit; the editable secure container is included in that delivery
 - newly created teammates receive an initial editable secure container based on level: Beta below 15, Epsilon below 30, Gamma at 30+
 - editing `Default` uses real player stash item ids instead of cloned ids
 - the edit-loadout panel shows the teammate secure container slot so it can be edited
@@ -171,6 +176,24 @@ The server is authoritative for the commit:
 8. save the player profile, teammate profile, teammate settings, and default snapshot
 
 After the save succeeds, the server returns the saved player stash snapshot to the client.
+
+## Kit Purchase
+
+`KIT LOADOUTS` is available in `Restricted`, `Immersive`, and `Realistic` / internal `Extreme`. `Simple` keeps the saved-loadout dropdown and does not use the buyout screen.
+
+The buy screen reuses EFT's stock `EquipmentBuildsScreen` in a custom teammate-buy mode. The selected build is priced with market-facing item prices, including nested weapon mods, armor plates, armor inserts, magazine contents, and container contents.
+
+When the user confirms a purchase:
+
+1. if `Use items in stash` is enabled, the server consumes the exact stash template/count summary shown in the overlay
+2. the server deducts the quoted rouble price
+3. the server sends the teammate's previous active `Default` kit by courier delivery
+4. because the previous kit is delivered by mail, stash space is not checked as part of the buy transaction
+5. the selected build is cloned with fresh ids and saved as the teammate's current equipment and new `Default`
+6. the player profile and teammate profile are saved together
+7. the saved player stash snapshot is returned to the client for live refresh
+
+The old-kit delivery intentionally does not include the teammate equipment root, dogtag, or special slots. Pocket contents are delivered as normal reward roots. Non-Realistic managed secure containers are skipped because they are generated support inventory, while Realistic secure containers and their contents are delivered because Realistic treats that slot as player-like gear.
 
 ## Repair
 
@@ -262,8 +285,4 @@ When an `Immersive` or `Realistic` / internal `Extreme` teammate survives/extrac
 
 ## Current Gaps
 
-Not implemented yet:
-
-- `BUY GEAR LOADOUT` implementation
-
-The next phase should keep using `Default` as the real-gear test surface. Non-`Simple` custom preset selection remains intentionally hidden so it does not conflict with real item ownership rules.
+Non-`Simple` custom preset selection remains intentionally hidden so it does not conflict with real item ownership rules. The remaining planned loadout work is the future `KIT LOADOUTS` purchase hardening where consumed stash items can preserve their exact live durability/resource state when they become teammate equipment instead of using the saved build's item state.

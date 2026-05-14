@@ -222,7 +222,7 @@ namespace pitTeam.Patches
             public int UpdateTime => _health.UpdateTime ?? 0;
             public HealthEffects BodyPartEffects => default;
             public float CarryingWeightAbsoluteModifier => 0f;
-            public float CarryingWeightRelativeModifier => 0f;
+            public float CarryingWeightRelativeModifier => 1f;
             public ValueStruct Hydration => _snapshot.Hydration;
             public ValueStruct Energy => _snapshot.Energy;
             public ValueStruct Temperature => _snapshot.Temperature;
@@ -370,6 +370,7 @@ namespace pitTeam.Patches
         public static ResultProfile ViewedProfile { get; set; }
         public static OtherPlayerProfileScreen ActiveProfileScreen { get; set; }
         public static InventoryController ActiveProfileInventoryController { get; set; }
+        public static GClass3388 ActiveProfileBackendInventoryController { get; set; }
         public static ISession ActiveProfileSession { get; set; }
         public static InventoryPlayerModelWithStatsWindow ActiveProfilePlayerModelWindow { get; set; }
         public static Transform LoadoutSelector { get; set; }
@@ -382,6 +383,8 @@ namespace pitTeam.Patches
         public static Profile LoadoutEditorProfile { get; set; }
         public static InventoryController LoadoutEditorInventoryController { get; set; }
         public static ItemContextAbstractClass LoadoutEditorEquipmentContext { get; set; }
+        public static FlatItemsDataClass[] LoadoutEditorInitialEquipmentItems { get; set; }
+        public static FlatItemsDataClass[] LoadoutEditorInitialStashItems { get; set; }
         public static string ActiveTeammateLoadoutId { get; set; }
         public static string ActiveTeammateLoadoutName { get; set; }
         public static string LoadoutEditorSourceLoadoutId { get; set; }
@@ -574,8 +577,10 @@ namespace pitTeam.Patches
 
             pitFireTeam.Log.LogInfo($"[UI] Applying teammate profile customization UI for '{profile.AccountId}'.");
             ViewedProfile = profile;
+            TeammateEquipmentBuildsScreenFlow.FinishReturnIfMatches(profile.AccountId);
             ActiveProfileScreen = __instance;
             ActiveProfileInventoryController = inventoryController;
+            RememberActiveBackendInventoryController(session, inventoryController);
             ActiveProfileSession = session;
             ActiveProfilePlayerModelWindow = playerModelWindow;
             playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
@@ -1137,7 +1142,7 @@ namespace pitTeam.Patches
             bool realTransferMode = pitFireTeam.IsFollowerLoadoutRealTransferMode();
             button.SetRawText(
                 realTransferMode
-                    ? GetSocialUiText("BuyGearLoadout", "BUY GEAR LOADOUT")
+                    ? GetSocialUiText("BuyGearLoadout", "KIT LOADOUTS")
                     : GetSocialUiText("EditLoadout", "EDIT LOADOUT"),
                 18);
             HideProfileButtonIconContainer(button);
@@ -1146,10 +1151,7 @@ namespace pitTeam.Patches
             {
                 if (realTransferMode)
                 {
-                    NotificationManagerClass.DisplayWarningNotification(
-                        GetSocialUiText("BuyGearLoadoutPlaceholder", "Buy Gear Loadout is not implemented yet."),
-                        ENotificationDurationType.Default);
-                    pitFireTeam.Log.LogInfo("[UI] Buy Gear Loadout placeholder clicked.");
+                    TeammateEquipmentBuildsScreenFlow.Open(profile, session: ActiveProfileSession, inventoryController: ActiveProfileInventoryController);
                     return;
                 }
 
@@ -1168,6 +1170,11 @@ namespace pitTeam.Patches
 
             EditLoadoutButtonRoot = rowClone;
             EditLoadoutButton = button;
+        }
+
+        internal static IHealthController CreateProfileHealthController(Profile.ProfileHealthClass health)
+        {
+            return new ProfileSkillsHealthController(health ?? new Profile.ProfileHealthClass());
         }
 
         private static Vector2 GetProfileControlRowOffset(RectTransform reference, int rowOffset)
@@ -1237,7 +1244,7 @@ namespace pitTeam.Patches
             DisableMenuTaskBarForReturnOverride();
         }
 
-        private static void DisableMenuTaskBarForReturnOverride()
+        internal static void DisableMenuTaskBarForReturnOverride()
         {
             if (TaskBarDisabledForReturnOverride)
             {
@@ -1458,7 +1465,12 @@ namespace pitTeam.Patches
             Action callback = OtherPlayerProfileScreenPatch.ActiveBackOverrideAction;
             OtherPlayerProfileScreenPatch.ActiveBackOverrideAction = null;
             OtherPlayerProfileScreenPatch.PendingBackOverrideAction = null;
-            OtherPlayerProfileScreenPatch.RestoreMenuTaskBarForReturnOverride();
+            bool transitioningToBuildsScreen = TeammateEquipmentBuildsScreenFlow.ConsumeProfileTransition(callback);
+            if (!transitioningToBuildsScreen)
+            {
+                TeammateEquipmentBuildsScreenFlow.ClearIfNotOpeningOrReturning();
+                OtherPlayerProfileScreenPatch.RestoreMenuTaskBarForReturnOverride();
+            }
 
             InventoryPlayerModelWithStatsWindow playerModelWindow =
                 AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow")?.GetValue(__instance)
@@ -1550,7 +1562,7 @@ namespace pitTeam.Patches
                 OtherPlayerProfileScreenPatch.SkillsPanelHost = null;
             }
 
-            if (callback == null)
+            if (transitioningToBuildsScreen || callback == null)
             {
                 return;
             }

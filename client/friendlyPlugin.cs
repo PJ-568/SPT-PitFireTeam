@@ -421,6 +421,18 @@ namespace pitTeam
             new LoadoutEditorUnloadAmmoPatch().Enable();
             new LoadoutEditorRepairContextInteractionPatch().Enable();
             new LoadoutEditorRepairByKitPatch().Enable();
+            new TeammateEquipmentBuildsScreenShowPatch().Enable();
+            new TeammateEquipmentBuildsScreenVisualPatch().Enable();
+            new TeammateEquipmentBuildsScreenSelectionPatch().Enable();
+            new TeammateEquipmentBuildsMissingItemsPatch().Enable();
+            new TeammateEquipmentBuildsScreenBackButtonPatch().Enable();
+            new TeammateEquipmentBuildsScreenAltBackButtonPatch().Enable();
+            new TeammateEquipmentBuildsScreenEscapePatch().Enable();
+            new TeammateEquipmentBuildsScreenClosePatch().Enable();
+            new TeammateEquipmentBuildsScreenBuyButtonPatch().Enable();
+            new TeammateEquipmentBuildsSearchContextPatch().Enable();
+            new TeammateEquipmentBuildsInspectButtonsPatch().Enable();
+            new TeammateEquipmentBuildsListViewPatch().Enable();
 
             // SAIN/Donuts patches
             if (IsSAINInstalled)

@@ -31,6 +31,39 @@ public record FriendlyTeammateDefaultEquipmentResponse
     public List<Item>? PlayerStashItems { get; set; }
 }
 
+public record FriendlyTeammateBuyKitRequest : IRequestData
+{
+    [JsonPropertyName("aid")]
+    public string? Aid { get; set; }
+
+    [JsonPropertyName("items")]
+    public List<Item>? Items { get; set; }
+
+    [JsonPropertyName("price")]
+    public int Price { get; set; }
+
+    [JsonPropertyName("useItemsInStash")]
+    public bool UseItemsInStash { get; set; }
+
+    [JsonPropertyName("usedItems")]
+    public List<FriendlyTeammateBuyKitUsedItem>? UsedItems { get; set; }
+}
+
+public record FriendlyTeammateBuyKitResponse
+{
+    [JsonPropertyName("playerStashItems")]
+    public List<Item>? PlayerStashItems { get; set; }
+}
+
+public record FriendlyTeammateBuyKitUsedItem
+{
+    [JsonPropertyName("templateId")]
+    public string? TemplateId { get; set; }
+
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
+}
+
 public record FriendlyTeammateRepairEquipmentRequest : IRequestData
 {
     [JsonPropertyName("aid")]

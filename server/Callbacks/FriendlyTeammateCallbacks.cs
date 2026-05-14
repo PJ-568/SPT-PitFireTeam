@@ -128,6 +128,19 @@ public class FriendlyTeammateCallbacks(
         }
     }
 
+    public ValueTask<string> BuyKit(string url, FriendlyTeammateBuyKitRequest request, MongoId sessionId)
+    {
+        try
+        {
+            var response = teammateService.BuyTeammateKit(sessionId, request);
+            return new ValueTask<string>(httpResponse.GetBody(response));
+        }
+        catch (FriendlyTeammateException ex)
+        {
+            return new ValueTask<string>(httpResponse.GetBody<object?>(null, err: BackendErrorCodes.UnknownTradingError, errmsg: ex.Message));
+        }
+    }
+
     public ValueTask<string> RepairDefaultEquipment(string url, FriendlyTeammateRepairEquipmentRequest request, MongoId sessionId)
     {
         try

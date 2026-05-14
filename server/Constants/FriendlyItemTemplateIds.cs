@@ -11,6 +11,11 @@ internal static class FriendlyItemTemplateIds
         public const string Roubles = "5449016a4bdc2d6f028b456f";
     }
 
+    internal static class EquipmentContainer
+    {
+        public const string Pockets = "627a4e6b255f7527fb05a0f6";
+    }
+
     internal static class SecureContainer
     {
         public const string Beta = "5857a8b324597729ab0a0e7d";

@@ -373,10 +373,10 @@ You can also view the contents of a teammate's backpack by approaching them and 
 
 ## Loadout Management
 
-- **Simple** - Edit teammate loadout while being limited to the gear currently in the player's stash, but without consuming it. Choose a teammate loadout without requiring the gear to be in the player's inventory. Gear is not lost on death, spawned teammate gear cannot be looted.
-- **Restricted** - Any gear used for a teammate loadout will be taken from the player's stash. Gear is not lost on death, spawned teammate gear cannot be looted.
-- **Immersive** - Same as Restricted, but teammates' equipment gets damaged and if they die, their gear is lost. Gear can be looted from dead teammates.
-- **Realistic** - Same as Immersive but even the secure container slot is no longer auto-managed
+- **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
+- **Restricted** — Teammate loadouts must use gear from your stash or be purchased through the kit buyout system. Gear is still protected: it is not lost on death and cannot be looted.
+- **Immersive** — Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted.
+- **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 
 ## Upcoming
 
@@ -385,13 +385,6 @@ The following are planned features in reaching a release version (1.0.0)
 **Planned commands:**
 
 - **Spread Out** - in combat, tells teammates who are not actively engaged to find cover.
-
-**Planned settings:**
-
-- **Loadout Management:**
-    - **Simple** - edit or choose a teammate loadout without requiring the gear to be in the player's inventory. Still limited to gear currently in the stash and not equipped on the player. Gear is not lost on death, spawned teammate gear cannot be looted.
-    - **Restricted** - any gear used for a teammate loadout will be taken from the player's stash. Gear is not lost on death, spawned teammate gear cannot be looted.
-    - **Immersive** - same as Restricted, but teammates equipment gets damaged and if they die, their gear is lost. Gear can be looted from dead teammates.
 
 - **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping teammates alive, and keeping picked-up raid allies alive. Points are lost if you kill teammates or allies.
 

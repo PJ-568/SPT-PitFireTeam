@@ -53,6 +53,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/pitfireteam/teammate/profile/default-equipment",
                 async (url, info, sessionId, output) => await callbacks.SaveDefaultEquipment(url, info, sessionId)
             ),
+            new RouteAction<FriendlyTeammateBuyKitRequest>(
+                "/singleplayer/pitfireteam/teammate/profile/buy-kit",
+                async (url, info, sessionId, output) => await callbacks.BuyKit(url, info, sessionId)
+            ),
             new RouteAction<FriendlyTeammateRepairEquipmentRequest>(
                 "/singleplayer/pitfireteam/teammate/profile/repair-equipment",
                 async (url, info, sessionId, output) => await callbacks.RepairDefaultEquipment(url, info, sessionId)

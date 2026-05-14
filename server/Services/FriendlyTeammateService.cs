@@ -14,6 +14,7 @@ using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Eft.Repair;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Enums.RaidSettings;
+using SPTarkov.Server.Core.Models.Spt.Dialog;
 using SPTarkov.Server.Core.Models.Spt.Bots;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Servers;
@@ -35,6 +36,7 @@ public class FriendlyTeammateService(
     HashUtil hashUtil,
     JsonUtil jsonUtil,
     ItemHelper itemHelper,
+    MailSendService mailSendService,
     ProfileHelper profileHelper,
     ProfileActivityService profileActivityService,
     RepairService repairService,
@@ -606,6 +608,75 @@ public class FriendlyTeammateService(
         return new FriendlyTeammateDefaultEquipmentResponse();
     }
 
+    public FriendlyTeammateBuyKitResponse BuyTeammateKit(MongoId sessionId, FriendlyTeammateBuyKitRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        var buildItems = request.Items?.Where(item => item != null).ToList();
+        if (buildItems == null || buildItems.Count == 0)
+        {
+            throw new FriendlyTeammateException("Missing teammate kit equipment items");
+        }
+
+        int price = Math.Max(0, request.Price);
+        var playerPmc = GetPlayerProfile(sessionId);
+        playerPmc.Inventory ??= new BotBaseInventory { Items = [] };
+        playerPmc.Inventory.Items ??= [];
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+
+        var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
+        var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
+        var originalTeammateEquipment = teammate.Inventory.Equipment;
+        var fullProfile = profileHelper.GetFullProfile(sessionId);
+        var originalDialogueRecords = cloner.Clone(fullProfile.DialogueRecords);
+
+        try
+        {
+            if (request.UseItemsInStash)
+            {
+                ConsumeStashItemsForKit(playerPmc, request.UsedItems);
+            }
+
+            DeductRoublesFromPlayerStash(playerPmc, price);
+
+            var clonedBuild = cloner.Clone(buildItems) ?? buildItems;
+            var normalizedBuild = itemHelper.ReplaceIDs(clonedBuild, playerPmc).ToList();
+            MongoId rootId = normalizedBuild.First().Id;
+
+            string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+            List<Item> previousKitDeliveryItems = BuildCurrentTeammateKitDeliveryItems(teammate, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            teammate.Inventory.Items = MergeEquipmentWithPreservedSpecialItems(
+                teammate.Inventory.Items,
+                normalizedBuild,
+                useReplacementSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            teammate.Inventory.Equipment = rootId;
+
+            var settings = GetTeammateSettings(sessionId, teammate);
+            settings.SelectedLoadoutId = DefaultLoadoutId;
+
+            SendPreviousTeammateKitDelivery(sessionId, teammate, previousKitDeliveryItems);
+            SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            SaveTeammateSettings(sessionId, teammate, settings);
+            SaveTeammate(sessionId, teammate);
+            saveServer.SaveProfileAsync(sessionId).GetAwaiter().GetResult();
+
+            logger.Info($"Bought teammate kit for '{teammate.Aid}' with price={price}, useItemsInStash={request.UseItemsInStash}; previous active kit sent by delivery when present.");
+
+            return new FriendlyTeammateBuyKitResponse
+            {
+                PlayerStashItems = GetPlayerStashItems(playerPmc),
+            };
+        }
+        catch
+        {
+            playerPmc.Inventory.Items = originalPlayerItems;
+            teammate.Inventory.Items = originalTeammateItems;
+            teammate.Inventory.Equipment = originalTeammateEquipment;
+            fullProfile.DialogueRecords = originalDialogueRecords;
+            throw;
+        }
+    }
+
     public FriendlyTeammateRepairEquipmentResponse RepairTeammateDefaultEquipment(MongoId sessionId, FriendlyTeammateRepairEquipmentRequest request)
     {
         var teammate = FindByAccountId(sessionId, request.Aid);
@@ -673,10 +744,9 @@ public class FriendlyTeammateService(
         Item repairedFakeItem = fakeRepairProfile.Inventory.Items
             .FirstOrDefault(item => string.Equals(item.Id.ToString(), targetItemId, StringComparison.OrdinalIgnoreCase))
             ?? throw new FriendlyTeammateException("Stock repair did not return the repaired teammate item");
-        if (repairedFakeItem.Upd?.Repairable == null)
-        {
-            throw new FriendlyTeammateException("Stock repair did not produce teammate repair durability data");
-        }
+        var repairedRepairable = repairedFakeItem.Upd?.Repairable
+            ?? throw new FriendlyTeammateException("Stock repair did not produce teammate repair durability data");
+        var repairedBuff = repairedFakeItem.Upd?.Buff;
 
         var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
         var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
@@ -707,8 +777,9 @@ public class FriendlyTeammateService(
             playerPmc.Bonuses = cloner.Clone(fakeRepairProfile.Bonuses) ?? playerPmc.Bonuses;
 
             teammateItem.Upd ??= new Upd();
-            teammateItem.Upd.Repairable = cloner.Clone(repairedFakeItem.Upd.Repairable);
-            teammateItem.Upd.Buff = cloner.Clone(repairedFakeItem.Upd.Buff);
+            var savedRepairable = cloner.Clone(repairedRepairable) ?? repairedRepairable;
+            teammateItem.Upd.Repairable = savedRepairable;
+            teammateItem.Upd.Buff = cloner.Clone(repairedBuff);
 
             string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
             SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
@@ -720,8 +791,8 @@ public class FriendlyTeammateService(
             return new FriendlyTeammateRepairEquipmentResponse
             {
                 ItemId = targetItemId,
-                Durability = teammateItem.Upd.Repairable.Durability,
-                MaxDurability = teammateItem.Upd.Repairable.MaxDurability,
+                Durability = savedRepairable.Durability,
+                MaxDurability = savedRepairable.MaxDurability,
                 PlayerStashItems = GetPlayerStashItems(playerPmc),
             };
         }
@@ -1239,10 +1310,292 @@ public class FriendlyTeammateService(
 
     private List<Item> GetPlayerStashItems(PmcData profile)
     {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
         string playerStashRootId = GetPlayerStashRootId(profile);
-        var stashIds = GetItemTreeIds(profile.Inventory!.Items, playerStashRootId);
+        var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
         return cloner.Clone(profile.Inventory.Items.Where(item => stashIds.Contains(item.Id.ToString())).ToList())
             ?? profile.Inventory.Items.Where(item => stashIds.Contains(item.Id.ToString())).ToList();
+    }
+
+    private List<Item> BuildCurrentTeammateKitDeliveryItems(BotBase teammate, bool includeSecureContainer)
+    {
+        var items = teammate.Inventory?.Items;
+        if (items == null || items.Count == 0)
+        {
+            return [];
+        }
+
+        string equipmentRootId = GetEquipmentRootId(teammate);
+        var deliveryItems = new List<Item>();
+        foreach (var slotItem in items.Where(item =>
+                     item?.ParentId != null
+                     && string.Equals(item.ParentId, equipmentRootId, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            if (slotItem?.Id == null || string.IsNullOrWhiteSpace(slotItem.SlotId))
+            {
+                continue;
+            }
+
+            if (IsIgnoredReturnedEquipmentSlot(slotItem.SlotId, includeSecureContainer))
+            {
+                continue;
+            }
+
+            if (IsPocketsSlotItem(slotItem))
+            {
+                foreach (var pocketChild in items.Where(item =>
+                             item?.ParentId != null
+                             && string.Equals(item.ParentId, slotItem.Id.ToString(), StringComparison.OrdinalIgnoreCase)).ToList())
+                {
+                    AddDeliveryItemTree(items, pocketChild, deliveryItems);
+                }
+
+                continue;
+            }
+
+            AddDeliveryItemTree(items, slotItem, deliveryItems);
+        }
+
+        return deliveryItems;
+    }
+
+    private void AddDeliveryItemTree(List<Item> sourceItems, Item rootItem, List<Item> deliveryItems)
+    {
+        if (rootItem?.Id == null || IsIgnoredKitRequirementItem(rootItem))
+        {
+            return;
+        }
+
+        var treeIds = GetItemTreeIds(sourceItems, rootItem.Id.ToString());
+        var tree = cloner.Clone(sourceItems.Where(item => treeIds.Contains(item.Id.ToString())).ToList())
+            ?? sourceItems.Where(item => treeIds.Contains(item.Id.ToString())).ToList();
+        if (tree.Count == 0)
+        {
+            return;
+        }
+
+        tree[0].ParentId = null;
+        tree[0].SlotId = null;
+        tree[0].Location = null;
+        deliveryItems.AddRange(tree);
+    }
+
+    private void SendPreviousTeammateKitDelivery(MongoId sessionId, BotBase teammate, List<Item> deliveryItems)
+    {
+        if (deliveryItems.Count == 0)
+        {
+            return;
+        }
+
+        mailSendService.SendMessageToPlayer(new SendMessageDetails
+        {
+            RecipientId = sessionId,
+            Sender = MessageType.NpcTraderMessage,
+            DialogType = MessageType.NpcTraderMessage,
+            Trader = FriendlyCourierTraderProfile.CourierTraderIdValue,
+            MessageText = "Teammate's previous kit is ready for pickup.",
+            Items = deliveryItems,
+            ItemsMaxStorageLifetimeSeconds = 86400,
+        });
+
+        logger.Info($"Sent {deliveryItems.Count} previous teammate kit items by delivery for '{teammate.Aid}'.");
+    }
+
+    private static bool IsIgnoredReturnedEquipmentSlot(string slotId, bool includeSecureContainer)
+    {
+        return slotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
+            || slotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
+            || (!includeSecureContainer && slotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsPocketsSlotItem(Item item)
+    {
+        return string.Equals(item.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.EquipmentContainer.Pockets, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ConsumeStashItemsForKit(PmcData profile, IEnumerable<FriendlyTeammateBuyKitUsedItem>? usedItems)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        Dictionary<string, int> requirements = BuildRequestedStashUseRequirements(usedItems);
+        if (requirements.Count == 0)
+        {
+            return;
+        }
+
+        string playerStashRootId = GetPlayerStashRootId(profile);
+        var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
+        var consumedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var countedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var requirement in requirements)
+        {
+            int remaining = requirement.Value;
+            if (remaining <= 0)
+            {
+                continue;
+            }
+
+            foreach (var candidate in profile.Inventory.Items.ToList())
+            {
+                if (remaining <= 0)
+                {
+                    break;
+                }
+
+                if (candidate?.Id == null
+                    || countedIds.Contains(candidate.Id.ToString())
+                    || !stashIds.Contains(candidate.Id.ToString())
+                    || IsIgnoredKitRequirementItem(candidate)
+                    || !string.Equals(candidate.Template.ToString(), requirement.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string candidateId = candidate.Id.ToString();
+                bool alreadyRemovedWithParent = consumedIds.Contains(candidateId);
+                int candidateCount = GetItemStackCount(candidate);
+                if (candidateCount > remaining)
+                {
+                    countedIds.Add(candidateId);
+                    if (alreadyRemovedWithParent)
+                    {
+                        remaining = 0;
+                        break;
+                    }
+
+                    candidate.Upd ??= new Upd();
+                    candidate.Upd.StackObjectsCount = candidateCount - remaining;
+                    remaining = 0;
+                    break;
+                }
+
+                countedIds.Add(candidateId);
+                if (!alreadyRemovedWithParent)
+                {
+                    foreach (string itemId in GetItemTreeIds(profile.Inventory.Items, candidateId))
+                    {
+                        consumedIds.Add(itemId);
+                    }
+                }
+
+                remaining -= candidateCount;
+            }
+
+            if (remaining > 0)
+            {
+                throw new FriendlyTeammateException($"Player stash item '{requirement.Key}' was unavailable for teammate kit purchase");
+            }
+        }
+
+        if (consumedIds.Count > 0)
+        {
+            RemoveItemTreesById(profile.Inventory.Items, consumedIds);
+        }
+    }
+
+    private static Dictionary<string, int> BuildRequestedStashUseRequirements(IEnumerable<FriendlyTeammateBuyKitUsedItem>? usedItems)
+    {
+        var requirements = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (usedItems == null)
+        {
+            return requirements;
+        }
+
+        foreach (var item in usedItems)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.TemplateId) || item.Count <= 0)
+            {
+                continue;
+            }
+
+            requirements[item.TemplateId] = requirements.TryGetValue(item.TemplateId, out int existing)
+                ? existing + item.Count
+                : item.Count;
+        }
+
+        return requirements;
+    }
+
+    private void DeductRoublesFromPlayerStash(PmcData profile, int amount)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        string playerStashRootId = GetPlayerStashRootId(profile);
+        var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
+        int available = profile.Inventory.Items
+            .Where(item => item?.Id != null
+                && stashIds.Contains(item.Id.ToString())
+                && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.Currency.Roubles, StringComparison.OrdinalIgnoreCase))
+            .Sum(GetItemStackCount);
+        if (available < amount)
+        {
+            throw new FriendlyTeammateException($"Not enough roubles to buy teammate kit. Required {amount}, available {available}");
+        }
+
+        int remaining = amount;
+        var removeIds = new List<string>();
+        foreach (var money in profile.Inventory.Items.ToList())
+        {
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            if (money?.Id == null
+                || !stashIds.Contains(money.Id.ToString())
+                || !string.Equals(money.Template.ToString(), FriendlyItemTemplateIds.Currency.Roubles, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            int stackCount = GetItemStackCount(money);
+            if (stackCount > remaining)
+            {
+                money.Upd ??= new Upd();
+                money.Upd.StackObjectsCount = stackCount - remaining;
+                remaining = 0;
+                break;
+            }
+
+            removeIds.Add(money.Id.ToString());
+            remaining -= stackCount;
+        }
+
+        RemoveItemTreesById(profile.Inventory.Items, removeIds);
+    }
+
+    private static bool IsIgnoredKitRequirementItem(Item? item)
+    {
+        if (item?.Id == null || string.IsNullOrWhiteSpace(item.Template.ToString()))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(item.ParentId))
+        {
+            return true;
+        }
+
+        if (string.Equals(item.SlotId, "Dogtag", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(item.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.EquipmentContainer.Pockets, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetItemStackCount(Item item)
+    {
+        return Math.Max(1, (int)Math.Ceiling(item.Upd?.StackObjectsCount ?? 1d));
     }
 
     private static ItemEventRouterResponse CreateEmptyRepairOutput(MongoId sessionId, PmcData profile)
@@ -1276,7 +1629,7 @@ public class FriendlyTeammateService(
                             Mastering = [],
                             Points = 0,
                         },
-                        Health = profile.Health,
+                        Health = profile.Health ?? new BotBaseHealth(),
                         TraderRelations = [],
                         QuestsStatus = [],
                     }

@@ -406,7 +406,7 @@ For teammate profiles the patch:
 - injects a cloned second clothing-style row for loadout + tactic in `Simple`
 - replaces the loadout dropdown side with `EDIT LOADOUT` in `Restricted`, `Immersive`, and `Realistic`, leaving the tactic dropdown intact
 - injects an aggression slider row below that
-- injects an `Edit Loadout` button row below that in `Simple`, or a placeholder `BUY GEAR LOADOUT` row in the real-transfer modes
+- injects an `Edit Loadout` button row below that in `Simple`, or a `KIT LOADOUTS` row in the real-transfer modes
 - clones and hosts a filtered `SkillsScreen`
 - moves the faction badge down to fit the custom rows
 - turns the stock hideout button into `EDIT NAME`
@@ -432,12 +432,19 @@ After successful profile-side persistence the code marks the squad roster dirty 
 
 The loadout/tactic row is still based on `InventoryClothingSelectionPanel`.
 
-Upper dropdown:
+Upper control in `Simple`:
 
 - current teammate equipment selection
 - populated from:
     - `Default`
     - player custom equipment builds returned by the backend
+
+Upper control in `Restricted`, `Immersive`, and `Realistic`:
+
+- saved-loadout selection is hidden
+- the row becomes `EDIT LOADOUT`
+- `Default` is the real editable gear surface
+- full kit acquisition is handled by the separate `KIT LOADOUTS` button, which sends the teammate's previous active kit back through the pitFireTeam courier before equipping the newly purchased kit
 
 Lower dropdown:
 

@@ -330,6 +330,7 @@ namespace pitTeam.Patches
                 baseProfile.Inventory = inventoryDescriptor.ToInventory();
                 editorProfile = baseProfile;
                 editorInventoryController = new InventoryController(editorProfile, false);
+                CaptureLoadoutEditorInitialState(editorProfile, preserveRealItemIds);
                 return editorProfile.Inventory?.Equipment != null && editorProfile.Inventory.Stash != null;
             }
             catch (Exception ex)
@@ -754,13 +755,18 @@ namespace pitTeam.Patches
             LoadoutEditorInventoryController = null;
             LoadoutEditorSourceLoadoutId = null;
             LoadoutEditorSourceLoadoutName = null;
+            LoadoutEditorInitialEquipmentItems = null;
+            LoadoutEditorInitialStashItems = null;
 
             RestoreProfileItemUiContext();
         }
 
         private static void RestoreProfileItemUiContext()
         {
-            if (ActiveProfileInventoryController == null || ActiveProfileSession == null || ItemUiContext.Instance == null)
+            InventoryController restoreController = ResolveActiveProfileInventoryControllerForBackendUpdate(
+                ActiveProfileSession?.Profile,
+                ActiveProfileInventoryController);
+            if (restoreController == null || ActiveProfileSession == null || ItemUiContext.Instance == null)
             {
                 return;
             }
@@ -779,7 +785,7 @@ namespace pitTeam.Patches
                 }
 
                 ItemUiContext.Instance.Configure(
-                    ActiveProfileInventoryController,
+                    restoreController,
                     profileClone,
                     ActiveProfileSession,
                     null,
@@ -929,6 +935,14 @@ namespace pitTeam.Patches
                     // The editor is a staged inventory. Sending both sides lets the server commit the final
                     // ownership state atomically instead of trusting client-side drag events one by one.
                     serializedPlayerStash = CreateLoadoutEditorSaveStashItems();
+                    if (!HasLoadoutEditorRealChanges(serializedEquipment, serializedPlayerStash))
+                    {
+                        pitFireTeam.Log.LogInfo("[UI] No real loadout editor changes detected; closing without teammate default commit.");
+                        CloseLoadoutEditorOverlay();
+                        RefreshCurrentTeammateLoadoutSelector(profile);
+                        return;
+                    }
+
                     pitFireTeam.Log.LogInfo("[UI] Prepared server-authoritative real loadout commit.");
                 }
 
@@ -1009,25 +1023,40 @@ namespace pitTeam.Patches
             }
         }
 
-        private static void ApplyServerSavedPlayerStash(FlatItemsDataClass[] savedStashItems)
+        internal static void ApplyServerSavedPlayerStash(FlatItemsDataClass[] savedStashItems)
+        {
+            ApplyServerSavedPlayerStash(
+                ActiveProfileSession?.Profile,
+                ResolveActiveProfileInventoryControllerForBackendUpdate(
+                    ActiveProfileSession?.Profile,
+                    ActiveProfileInventoryController),
+                ActiveProfileSession?.RagFair,
+                savedStashItems);
+        }
+
+        internal static void ApplyServerSavedPlayerStash(
+            Profile activeProfile,
+            InventoryController activeInventoryController,
+            RagFairClass ragFair,
+            FlatItemsDataClass[] savedStashItems)
         {
             if (savedStashItems == null || savedStashItems.Length == 0)
             {
                 throw new InvalidOperationException("Server did not return a saved player stash for live refresh.");
             }
 
-            if (ActiveProfileSession?.Profile?.Inventory?.Stash == null || ActiveProfileInventoryController == null)
+            if (activeProfile?.Inventory?.Stash == null || activeInventoryController == null)
             {
                 throw new InvalidOperationException("Active player profile was unavailable for live stash refresh.");
             }
 
-            if (!(ActiveProfileInventoryController is GClass3388 profileInventoryController))
+            if (!(activeInventoryController is GClass3388 profileInventoryController))
             {
                 throw new InvalidOperationException("Active inventory controller does not support backend profile updates.");
             }
 
             FlatItemsDataClass[] liveStashItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(
-                new Item[] { ActiveProfileSession.Profile.Inventory.Stash });
+                new Item[] { activeProfile.Inventory.Stash });
             if (liveStashItems == null || liveStashItems.Length == 0)
             {
                 throw new InvalidOperationException("Active player stash was unavailable for live refresh.");
@@ -1044,13 +1073,42 @@ namespace pitTeam.Patches
             }
 
             var updater = new GClass2331(
-                ActiveProfileSession.Profile,
+                activeProfile,
                 profileInventoryController,
                 null,
-                ActiveProfileSession.RagFair);
+                ragFair);
             updater.UpdateProfile(new ProfileChangesPocoClass { Stash = delta });
 
             pitFireTeam.Log.LogInfo($"[UI] Applied live player stash refresh for real loadout commit: new={newCount}, change={changeCount}, del={delCount}.");
+        }
+
+        private static void RememberActiveBackendInventoryController(ISession session, InventoryController inventoryController)
+        {
+            if (inventoryController is GClass3388 backendController
+                && session?.Profile != null
+                && ReferenceEquals(backendController.Profile, session.Profile))
+            {
+                ActiveProfileBackendInventoryController = backendController;
+            }
+        }
+
+        private static InventoryController ResolveActiveProfileInventoryControllerForBackendUpdate(
+            Profile activeProfile,
+            InventoryController preferredController)
+        {
+            if (preferredController is GClass3388)
+            {
+                return preferredController;
+            }
+
+            if (activeProfile != null
+                && ActiveProfileBackendInventoryController?.Profile != null
+                && ReferenceEquals(ActiveProfileBackendInventoryController.Profile, activeProfile))
+            {
+                return ActiveProfileBackendInventoryController;
+            }
+
+            return preferredController;
         }
 
         internal static bool CanRepairLoadoutEditorEquipmentItem(Item item)
@@ -1477,6 +1535,77 @@ namespace pitTeam.Patches
             }
 
             return serializedStash;
+        }
+
+        private static void CaptureLoadoutEditorInitialState(Profile editorProfile, bool realItemCommit)
+        {
+            if (!realItemCommit)
+            {
+                LoadoutEditorInitialEquipmentItems = null;
+                LoadoutEditorInitialStashItems = null;
+                return;
+            }
+
+            InventoryEquipment equipment = editorProfile?.Inventory?.Equipment;
+            Item stash = editorProfile?.Inventory?.Stash;
+            LoadoutEditorInitialEquipmentItems = equipment == null
+                ? null
+                : Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(new Item[] { equipment });
+            LoadoutEditorInitialStashItems = stash == null
+                ? null
+                : Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(new Item[] { stash });
+        }
+
+        private static bool HasLoadoutEditorRealChanges(FlatItemsDataClass[] currentEquipment, FlatItemsDataClass[] currentStash)
+        {
+            if (LoadoutEditorInitialEquipmentItems == null || LoadoutEditorInitialStashItems == null)
+            {
+                return true;
+            }
+
+            return !FlatItemArraysEqual(LoadoutEditorInitialEquipmentItems, currentEquipment)
+                || !FlatItemArraysEqual(LoadoutEditorInitialStashItems, currentStash);
+        }
+
+        private static bool FlatItemArraysEqual(FlatItemsDataClass[] left, FlatItemsDataClass[] right)
+        {
+            if (left == null || right == null || left.Length != right.Length)
+            {
+                return false;
+            }
+
+            Dictionary<string, FlatItemsDataClass> leftById = ToFlatItemDictionary(left);
+            Dictionary<string, FlatItemsDataClass> rightById = ToFlatItemDictionary(right);
+            if (leftById.Count != rightById.Count)
+            {
+                return false;
+            }
+
+            foreach (KeyValuePair<string, FlatItemsDataClass> entry in leftById)
+            {
+                if (!rightById.TryGetValue(entry.Key, out FlatItemsDataClass rightItem)
+                    || !FlatItemStateEquals(entry.Value, rightItem))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool FlatItemStateEquals(FlatItemsDataClass left, FlatItemsDataClass right)
+        {
+            if (left == null || right == null)
+            {
+                return left == right;
+            }
+
+            return string.Equals(left._id.ToString(), right._id.ToString(), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left._tpl.ToString(), right._tpl.ToString(), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(GetParentId(left), GetParentId(right), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.slotId, right.slotId, StringComparison.Ordinal)
+                && JsonTokenEquals(left.location, right.location)
+                && JsonTokenEquals(left.upd, right.upd);
         }
 
         private static GClass3953 TryGetCustomBuildById(string buildId)
