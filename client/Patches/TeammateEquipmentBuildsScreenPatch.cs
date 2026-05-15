@@ -1518,7 +1518,18 @@ namespace pitTeam.Patches
 
         private static bool IsIgnoredEquipmentBuildSlot(Slot slot)
         {
-            return slot != null && string.Equals(slot.ID, EquipmentSlot.Dogtag.ToStringNoBox<EquipmentSlot>(), StringComparison.Ordinal);
+            if (slot == null)
+            {
+                return false;
+            }
+
+            if (string.Equals(slot.ID, EquipmentSlot.Dogtag.ToStringNoBox<EquipmentSlot>(), StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return !pitFireTeam.IsFollowerLoadoutRealisticMode()
+                && string.Equals(slot.ID, EquipmentSlot.SecuredContainer.ToStringNoBox<EquipmentSlot>(), StringComparison.Ordinal);
         }
 
         private static bool IsIgnoredKitRequirementItem(Item item)

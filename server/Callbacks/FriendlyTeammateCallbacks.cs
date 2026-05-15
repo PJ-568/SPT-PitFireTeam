@@ -52,6 +52,11 @@ public class FriendlyTeammateCallbacks(
         return new ValueTask<string>(httpResponse.NullResponse());
     }
 
+    public ValueTask<string> GetLostOnDeathSettings(string url, EmptyRequestData _, MongoId sessionId)
+    {
+        return new ValueTask<string>(httpResponse.GetBody(settingsService.GetLostOnDeathSettings()));
+    }
+
     public ValueTask<string> GetProfile(string url, GetOtherProfileRequest request, MongoId sessionId)
     {
         try

@@ -29,6 +29,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/pitfireteam/settings",
                 async (url, info, sessionId, output) => await callbacks.SetServerSettings(url, info, sessionId)
             ),
+            new RouteAction<EmptyRequestData>(
+                "/singleplayer/pitfireteam/lostondeath",
+                async (url, info, sessionId, output) => await callbacks.GetLostOnDeathSettings(url, info, sessionId)
+            ),
             new RouteAction<GetOtherProfileRequest>(
                 "/singleplayer/pitfireteam/teammate/profile",
                 async (url, info, sessionId, output) => await callbacks.GetProfile(url, info, sessionId)

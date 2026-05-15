@@ -109,6 +109,7 @@ The estimate intentionally does not:
 - use stock equipment-build weight
 - use stock overweight coloring
 - include the `Dogtag` equipment slot, because dogtags belong to profiles and are not kit-sale items
+- include the `SecuredContainer` slot or its contents outside `Realistic`, because non-Realistic modes auto-manage teammate secure containers during spawn preparation
 
 This estimate is the price submitted to the server-side buy-kit route. The route still owns the actual profile mutation and can reject the request if the player no longer has enough roubles or required stash items.
 
@@ -159,7 +160,7 @@ Server-side transaction behavior:
 - if `Use items in stash` is enabled, consumes the exact template/count summary shown in the confirmation overlay from the player's stash tree only; if those items are no longer present, the purchase is rejected
 - deducts the quoted rouble price from rouble stacks under the player's stash tree
 - sends the teammate's previous active kit roots through the pitFireTeam courier before replacing the teammate equipment, so stash space is not part of the buy transaction
-- when delivering the previous kit, the equipment root, dogtag, and special slots are not delivered; pocket contents are delivered as normal reward roots; non-Realistic managed secure containers are skipped; Realistic secure containers and their contents are delivered
+- when delivering the previous kit, the equipment root and dogtag are not delivered; pocket contents and special-slot items are delivered as normal reward roots; non-Realistic managed secure containers are skipped; Realistic secure containers and their contents are delivered
 - clones the selected build with fresh ids and saves it to the teammate as the current equipment and new `Default`
 - switches teammate loadout selection back to `Default`
 - saves the player profile and teammate profile together, rolling both back if the commit throws

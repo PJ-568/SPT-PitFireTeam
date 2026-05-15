@@ -1116,8 +1116,14 @@ public class FriendlyTeammateService(
             useReplacementSecureContainer: IsExtremeLoadoutManagementMode(mode));
         teammate.Inventory.Equipment = teammate.Inventory.Items.First().Id;
 
+        bool keepSecureContainer = IsExtremeLoadoutManagementMode(mode);
+        if (!keepSecureContainer)
+        {
+            RemoveSecureContainerTree(teammate);
+        }
+
         EnsureFollowerHasScabbardKnife(teammate);
-        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: keepSecureContainer);
         logger.Info($"Persisted escaped Default equipment state for teammate '{teammate.Aid}' in loadout management mode '{mode}'.");
     }
 
@@ -1146,13 +1152,15 @@ public class FriendlyTeammateService(
         }
 
         // Persist the stripped equipment as the new Default snapshot so the next spawn/portrait
-        // sees the loss instead of silently restoring the pre-raid gear.
-        StripDefaultEquipmentAfterDeath(teammate, mode);
-        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+        // sees the loss instead of silently restoring the pre-raid gear. Permanent bot identity
+        // slots are kept, but the secure-container tree is only persisted for Realistic/Extreme.
+        bool keepSecureContainer = IsExtremeLoadoutManagementMode(mode);
+        StripDefaultEquipmentAfterDeath(teammate, keepSecureContainer);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: keepSecureContainer);
         logger.Info($"Stripped teammate '{teammate.Aid}' default equipment after death in loadout management mode '{mode}'.");
     }
 
-    private void StripDefaultEquipmentAfterDeath(BotBase teammate, string mode)
+    private void StripDefaultEquipmentAfterDeath(BotBase teammate, bool keepSecureContainer)
     {
         teammate.Inventory ??= new BotBaseInventory { Items = [] };
         teammate.Inventory.Items ??= [];
@@ -1167,23 +1175,9 @@ public class FriendlyTeammateService(
 
         string rootId = GetEquipmentRootId(teammate);
         var keepIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootId };
-        // Immersive keeps only equipment root, scabbard/knife, and armband. Realistic/internal
-        // Extreme also keeps an existing secure-container tree. Every other equipped item is lost.
-        var preservedSlots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            nameof(EquipmentSlots.Scabbard),
-            "ArmBand",
-            "Armband"
-        };
-
-        if (IsExtremeLoadoutManagementMode(mode))
-        {
-            preservedSlots.Add(nameof(EquipmentSlots.SecuredContainer));
-        }
-
         foreach (var preservedItem in teammate.Inventory.Items.Where(item =>
                      !string.IsNullOrWhiteSpace(item?.SlotId) &&
-                     preservedSlots.Contains(item.SlotId)).ToList())
+                     IsPermanentTeammateEquipmentSlot(item.SlotId, keepSecureContainer)).ToList())
         {
             // Preserve descendants for kept containers/items so attached child items are not orphaned.
             AddItemAndDescendantsToKeepSet(teammate.Inventory.Items, preservedItem.Id.ToString(), keepIds);
@@ -1405,7 +1399,6 @@ public class FriendlyTeammateService(
     private static bool IsIgnoredReturnedEquipmentSlot(string slotId, bool includeSecureContainer)
     {
         return slotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
-            || slotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
             || (!includeSecureContainer && slotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -1413,6 +1406,17 @@ public class FriendlyTeammateService(
     {
         return string.Equals(item.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
             && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.EquipmentContainer.Pockets, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPermanentTeammateEquipmentSlot(string? slotId, bool keepSecureContainer)
+    {
+        return !string.IsNullOrWhiteSpace(slotId)
+            && (slotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
+                || slotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
+                || (keepSecureContainer && slotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(slotId, nameof(EquipmentSlots.Scabbard), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(slotId, "ArmBand", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(slotId, "Armband", StringComparison.OrdinalIgnoreCase));
     }
 
     private void ConsumeStashItemsForKit(PmcData profile, IEnumerable<FriendlyTeammateBuyKitUsedItem>? usedItems)
@@ -3001,16 +3005,14 @@ public class FriendlyTeammateService(
             .Where(item => !string.IsNullOrWhiteSpace(item.SlotId))
             .Where(item =>
                 item.SlotId!.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
-                || (!useReplacementSecureContainer && item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase))
-                || item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase))
+                || (!useReplacementSecureContainer && item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase)))
             .Select(item => cloner.Clone(item) ?? item)
             .ToList();
 
         var mergedItems = replacementItems
             .Where(item =>
                 string.IsNullOrWhiteSpace(item.SlotId)
-                || (!item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
-                    && (useReplacementSecureContainer || !item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase))
+                || ((useReplacementSecureContainer || !item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase))
                     && !item.SlotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)))
             .ToList();
 

@@ -81,44 +81,13 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            var flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(_toSendItems);
-
-            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-
-            var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
-
-            if (flatItems != null && flatItems.Any())
+            Dictionary<string, object>? member = null;
+            if (_followersWithLoot != null && _followersWithLoot.Count > 0)
             {
-                Dictionary<string, object>? member = null;
-                if (_followersWithLoot != null && _followersWithLoot.Count > 0)
-                {
-                    member = _followersWithLoot.Values.FirstOrDefault();
-                }
-
-                string returnItemsJson = new
-                {
-                    items = flatItems,
-                    member,
-                }.ToJson(_defaultJsonConverters);
-
-                Task.Run(() =>
-                {
-                    try
-                    {
-                        RequestHandler.PostJson("/singleplayer/returnitems", returnItemsJson);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Failed to send post-raid returned follower items");
-                        Logger.LogError(ex);
-                    }
-                });
-
-                return true;
+                member = _followersWithLoot.Values.FirstOrDefault();
             }
 
-            return false;
+            return SendReturnItems(_toSendItems, member, "post-raid returned follower items");
         }
         /** Gather what items where given to followers and which is still alive to count */
         private void GatherItems()
@@ -291,6 +260,11 @@ namespace pitTeam.Modules
             }
         }
 
+        public static void SendDeathEscapeRecoveredGear(IEnumerable<Item> recoveredItems)
+        {
+            SendReturnItems(recoveredItems, null, "recovered death-escape gear");
+        }
+
         private void GatherStoredItemsFromBot(BotOwner bot, List<string> gathered)
         {
             if (_toSendItems == null || bot?.GetPlayer?.InventoryController == null)
@@ -385,43 +359,70 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            var flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(_toSendItems);
-            if (flatItems == null || !flatItems.Any())
-            {
-                return false;
-            }
-
-            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-
-            var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
-
             Dictionary<string, object>? member = null;
             if (_followersWithLoot != null && _followersWithLoot.Count > 0)
             {
                 member = _followersWithLoot.Values.FirstOrDefault();
             }
 
-            string returnItemsJson = new
-            {
-                items = flatItems,
-                member,
-            }.ToJson(defaultJsonConverters);
+            return SendReturnItems(_toSendItems, member, "post-raid returned follower items");
+        }
 
-            Task.Run(() =>
+        private static bool SendReturnItems(
+            IEnumerable<Item> items,
+            Dictionary<string, object>? member,
+            string context)
+        {
+            if (!EnableBackendItemReturn || items == null)
             {
-                try
-                {
-                    RequestHandler.PostJson("/singleplayer/returnitems", returnItemsJson);
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError("Failed to send post-raid returned follower items");
-                    Logger.LogError(ex);
-                }
-            });
+                return false;
+            }
 
-            return true;
+            try
+            {
+                List<Item> rootItems = items.Where(item => item != null).ToList();
+                if (rootItems.Count == 0)
+                {
+                    return false;
+                }
+
+                FlatItemsDataClass[] flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(rootItems);
+                if (flatItems == null || !flatItems.Any())
+                {
+                    return false;
+                }
+
+                var converterClass = typeof(AbstractGame).Assembly.GetTypes()
+                    .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+                var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+
+                string returnItemsJson = new
+                {
+                    items = flatItems,
+                    member,
+                }.ToJson(defaultJsonConverters);
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        RequestHandler.PostJson("/singleplayer/returnitems", returnItemsJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError($"Failed to send {context}");
+                        Logger.LogError(ex);
+                    }
+                });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to prepare {context}");
+                Logger.LogError(ex);
+                return false;
+            }
         }
 
         public void Destroy()
@@ -647,13 +648,20 @@ namespace pitTeam.Modules
         }
 
         /** Set what bot is going to pick up the loot */
-        public static bool SetTaker(BotOwner bot)
+        public static bool SetTaker(BotOwner bot, LootItem? lootItem = null)
         {
             if (Instance == null) return false;
 
             var _follower = BossPlayers.Instance.GetFollower(bot);
 
             if (_follower == null) return false;
+
+            if (lootItem != null)
+            {
+                // Pin the target at command issue time. The quick panel can clear its current
+                // interactable before the follower action starts moving toward the item.
+                Instance._lootItem = lootItem;
+            }
 
             if (Instance._lootItem != null)
             {

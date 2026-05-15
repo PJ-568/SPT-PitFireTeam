@@ -1,0 +1,274 @@
+# Team Escape
+
+Date: 2026-05-15
+
+## Scope
+
+This document tracks the player-death squad escape system.
+
+The feature exists for the specific case where the player dies before raid end. In that case, surviving squadmates can independently escape the raid and keep the post-raid systems usable:
+
+- escaped squadmates are marked alive in their teammate profile
+- lost squadmates stay dead for roster/spawn logic
+- player-given tracked follower loot can still be returned if at least one squadmate escapes
+- recoverable player gear can be carried out by escaped squadmates and returned by mail
+- in `Immersive` and `Realistic` / internal `Extreme`, fallen teammate gear can also be carried out and returned by mail
+- recovered death gear is not kept in escaped teammate inventories
+
+This is separate from the normal player-extract flow. If the player extracts alive, follower loot and follower gear continue to use the normal raid-end behavior.
+
+Related docs:
+
+- `docs/Loadout-Management.md`
+- `docs/My-Squad-Screen.md`
+
+## Trigger
+
+The escape system runs when the player boss dies and `BossPlayers.KillPlayerBoss(...)` tears down the active boss/follower relationship.
+
+Authoritative client files:
+
+- `client/Modules/FollowerDeathEscapeResolver.cs`
+- `client/Modules/FollowerDeathEscapeResolver.RouteThreat.cs`
+- `client/Modules/FollowerDeathEscapeResolver.GearSnapshot.cs`
+- `client/Modules/FollowerDeathEscapeResolver.GearRecovery.cs`
+- `client/Modules/BossPlayers.cs`
+- `client/Patches/PlayerPatch.cs`
+- `client/Modules/InteractableObjects.cs`
+
+Authoritative server files:
+
+- `server/Callbacks/FriendlyPostRaidCallbacks.cs`
+- `server/Routers/Static/FriendlyPostRaidRouter.cs`
+- `server/Services/FriendlyTeammateService.cs`
+- `server/Services/FriendlyPostRaidService.cs`
+- `server/Services/FriendlyServerSettingsService.cs`
+
+Routes:
+
+- `POST /singleplayer/pitfireteam/teammate/death-escape`
+- `GET /singleplayer/pitfireteam/lostondeath`
+- `POST /singleplayer/returnitems`
+
+## Client Flow
+
+The resolver is split into focused partials:
+
+- `FollowerDeathEscapeResolver.cs` owns orchestration: capture shared context, roll each follower, attach fallen outcomes, run recovery, and post outcomes.
+- `FollowerDeathEscapeResolver.RouteThreat.cs` owns route corridor filtering and boss/follower threat multipliers.
+- `FollowerDeathEscapeResolver.GearSnapshot.cs` owns fallen-squadmate snapshots, player-death equipment snapshots, tracked-loot filtering, and SPT `lostondeath` loading.
+- `FollowerDeathEscapeResolver.GearRecovery.cs` owns carrier-space simulation, recovered gear mail-return, and escaped teammate equipment serialization.
+
+Return mail is centralized through `InteractableObjects.SendReturnItems(...)`. Normal stored follower loot and death-escape recovered gear both use the same `/singleplayer/returnitems` payload path.
+
+## Escape Roll
+
+Each squadmate rolls independently. With three followers, any result is possible: three escape, two escape, one escapes, or none escape.
+
+Only followers alive at the moment the player dies can escape. Followers who already died before player death are included as lost outcomes, but they do not roll.
+
+Current probability inputs:
+
+- extract distance from the player death position
+- surviving squadmate count
+- follower health ratio
+- follower equipment power
+- average enemy equipment power along the route to extract
+- secure-container meds
+
+The result is clamped between the configured minimum and maximum chance in code.
+
+## Extract And Distance
+
+The resolver chooses an available extract snapshot and measures direct distance from the player death position.
+
+This intentionally uses a simple route assumption. It does not do detailed enemy-path simulation or full map navigation. The goal is a stable post-death survival model, not a second raid simulation.
+
+Farther extract means lower chance.
+
+## Route Threat
+
+Enemy threat is calculated from living enemies between the squad/player death position and the chosen extract.
+
+The route check uses a corridor around the straight line to extract. Enemies outside that corridor do not affect the roll.
+
+Threat uses `Player.AIData.PowerOfEquipment` and applies role multipliers for bosses and boss followers. Some roles are ignored or reduced because they are not useful for this escape model.
+
+Ignored roles:
+
+- `bossZryachiy`
+- `followerZryachiy`
+- `bossTagillaAgro`
+- `bossKillaAgro`
+- test boss/follower roles
+
+High-threat examples:
+
+- `followerBirdEye`
+- `bossKnight`
+- `followerBigPipe`
+- `bossTagilla`
+- `bossKilla`
+
+Lower-threat examples:
+
+- `bossBully`
+- `bossPartisan`
+
+Unknown roles fall back by name:
+
+- role name starting with `boss` gets a boss multiplier
+- role name starting with `follower` gets a follower multiplier
+- everything else uses raw equipment power
+
+## Fallen Squadmate Snapshot
+
+When a squadmate dies, the client records a lightweight fallen-gear snapshot.
+
+That snapshot is used only if the player later dies within the fallen-teammate pickup radius, currently `50m`.
+
+The snapshot exists because by the time player-death escape resolution runs, normal raid cleanup may already be invalidating live bot state.
+
+The snapshot also records identity data so the server receives a lost outcome for a squadmate who died before the player. That lost outcome is what lets `Immersive` and `Realistic` strip the dead teammate's saved `Default` gear.
+
+## Gear Recovery
+
+Gear recovery happens after escape rolls, using escaped squadmates as possible carriers.
+
+The carrier simulation answers one question:
+
+Can any escaped squadmate near this gear fit it in an empty equipment slot or container?
+
+If yes, the item is mailed to the player. The recovered item is removed from the simulated carrier equipment before escaped teammate state is sent to the server.
+
+Current pickup radius:
+
+- `50m` from carrier to fallen/death gear position
+
+Current recovery priority:
+
+1. first primary weapon
+2. armor or armored tactical vest
+3. helmet
+4. second primary weapon
+5. holster weapon
+6. tactical vest contents
+7. backpack contents
+8. remaining recoverable gear
+
+The simulation can use empty live slots on escaped teammates:
+
+- second primary weapon slot
+- first primary weapon slot
+- holster
+- armor vest
+- tactical vest
+- headwear
+- earpiece
+- face cover
+- eyewear
+- backpack
+
+The simulation can also use available container space in:
+
+- backpack
+- tactical vest
+- pockets
+- secure container only in `Realistic` / internal `Extreme`
+
+Fallen teammate backpacks can be recovered first as capacity. Their grid contents are split into separate lower-priority candidates, so the backpack shell can increase available carry space without automatically dragging all contents with it.
+
+## Player Gear
+
+Player gear recovery applies in every loadout-management mode:
+
+- `Simple`
+- `Restricted`
+- `Immersive`
+- `Realistic` / internal `Extreme`
+
+The client asks the server for SPT `lostondeath` equipment-slot rules. Player equipment slots are only considered recoverable if SPT would remove that slot on death.
+
+This prevents the escape system from mailing items the player was not going to lose anyway.
+
+Always excluded from death-escape recovery:
+
+- secure container and its contents
+- dogtag slot
+- armband
+- scabbard / knife slot
+- special slots
+
+## Teammate Gear
+
+Fallen teammate gear recovery only applies in:
+
+- `Immersive`
+- `Realistic` / internal `Extreme`
+
+In `Simple` and `Restricted`, teammate gear is protected and is not recovered from fallen bodies.
+
+If teammate gear is recovered, it is mailed to the player. It is not saved onto escaped teammate profiles.
+
+If a teammate died before the player, that teammate should still receive a lost outcome. In `Immersive` and `Realistic`, the server strips that teammate's saved `Default` equipment according to the loadout-management death-loss rules.
+
+## Tracked Follower Loot
+
+Tracked follower loot is different from teammate gear.
+
+Tracked loot means items the follower picked up for the player through pitFireTeam's follower-loot system.
+
+When the player dies:
+
+- if no squadmate escapes, tracked follower loot is not returned
+- if at least one squadmate escapes, tracked follower loot can be returned even if the original carrier did not escape
+
+This behavior only applies to the player-death escape situation. If the player extracts alive, a follower dying with loot before player extraction does not count as escaped loot.
+
+## Escaped Teammate State
+
+Escaped teammates are marked alive by server persistence.
+
+In `Immersive` and `Realistic`, escaped teammates using `Default` can save their live raid equipment state back to their saved `Default` loadout. This preserves their own durability, ammo, and consumed-med state.
+
+Tracked follower loot is removed from the escaped teammate snapshot before saving.
+
+Recovered player or fallen-teammate death gear is also removed from the escaped teammate snapshot before saving, because recovered death gear is returned by mail.
+
+Secure-container persistence follows the loadout-management mode:
+
+- non-`Realistic` modes strip the generated secure-container tree before saving the escaped or stripped `Default` state
+- `Realistic` / internal `Extreme` keeps the editable secure-container tree
+
+Secure-container items are still excluded from death-escape mail recovery unless they are only being used as carrier space in `Realistic` / internal `Extreme`.
+
+## Notifications
+
+Death-escape outcomes are posted to the server with `Notify = true` by default.
+
+The server builds a summary message for escaped and lost squadmates. The message is sent through the post-raid delivery/notification path instead of relying on an in-raid notification screen.
+
+The message text must use the language system. Hardcoded English should not be added in the client for player-facing escape outcome messages.
+
+## Roster Refresh
+
+Death escape can mutate teammate profiles after raid end:
+
+- escaped teammates may be marked alive
+- lost teammates may stay dead
+- `Immersive` / `Realistic` dead teammates may have their saved gear stripped
+- escaped teammates may persist their own updated `Default` equipment state
+
+The client marks the My Squad roster dirty after posting death-escape outcomes. The next My Squad open should rebuild roster portraits from the updated teammate profiles.
+
+## Current Gaps
+
+The recovery system is intentionally simple and does not simulate:
+
+- exact enemy patrol paths
+- line-of-sight fights during escape
+- detailed stamina/weight travel time
+- per-item pickup animation timing
+- exact corpse looting permissions beyond the recovery slot filters
+
+The implementation should stay conservative. If more realism is added later, prefer small inputs that are already available at player-death time rather than long-running post-death AI simulation.

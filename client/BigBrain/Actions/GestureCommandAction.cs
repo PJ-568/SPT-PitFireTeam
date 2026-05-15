@@ -1142,6 +1142,13 @@ namespace pitTeam.BigBrain.Actions
 
         private void ClearTakeLootState(string reason)
         {
+            if (!string.Equals(reason, "TakeLoot:done", StringComparison.Ordinal) &&
+                !string.Equals(reason, "TakeLoot:actionStop", StringComparison.Ordinal))
+            {
+                Modules.Logger.LogInfo(
+                    $"[LootCommand] Take loot ended for '{BotOwner?.Profile?.Nickname ?? BotOwner?.ProfileId ?? "unknown"}': {reason}");
+            }
+
             CleanupLootInteraction(reason);
             followerData?.ClearCommand(reason);
         }

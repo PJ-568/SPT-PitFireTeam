@@ -311,7 +311,7 @@ namespace pitTeam.Patches
                 }
 
                 NpcMessage.RemoveNpc(player.ProfileId, true);
-                Modules.Logger.LogInfo($"[DeathEscape] Recorded dead squadmate '{player.Profile?.Nickname ?? player.ProfileId}' for loadout loss.");
+                FollowerDeathEscapeResolver.RecordFallenSquadmate(player);
             }
             catch (Exception ex)
             {

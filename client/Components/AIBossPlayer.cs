@@ -241,7 +241,10 @@ namespace pitTeam.Components
                     ApplyOpenDoorCommand(info.PlayerRequester);
                     return;
                 }
-                else if (info.phrase == EPhraseTrigger.LootGeneric || info.phrase == EPhraseTrigger.LootWeapon)
+                else if (info.phrase == EPhraseTrigger.LootGeneric ||
+                         info.phrase == EPhraseTrigger.LootWeapon ||
+                         info.phrase == EPhraseTrigger.LootKey ||
+                         info.phrase == EPhraseTrigger.LootMoney)
                 {
                     // Loot: closest eligible follower takes the target item.
                     ApplyTakeLootCommand(info.PlayerRequester);
@@ -1505,7 +1508,7 @@ namespace pitTeam.Components
                 return;
             }
 
-            if (!InteractableObjects.SetTaker(closestFollower))
+            if (!InteractableObjects.SetTaker(closestFollower, lootItem))
             {
                 closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
                 return;

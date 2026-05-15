@@ -14,6 +14,7 @@ This is a current-state review, not a target design doc. It should be read along
 
 - `docs/team-management-ui-investigation-2026-03-19.md` for the earlier stock-UI investigation and target direction
 - `docs/Loadout-Management.md` for the dedicated loadout-management mode behavior and implementation status
+- `docs/Team-Escape.md` for player-death squad escape and roster refresh behavior after escape outcomes
 
 ## High-Level Shape
 

@@ -55,6 +55,34 @@ public class FriendlyServerSettingsService(
         ApplySettings(LoadSettings());
     }
 
+    public FriendlyLostOnDeathSettingsResponse GetLostOnDeathSettings()
+    {
+        LostOnDeathConfig config = configServer.GetConfig<LostOnDeathConfig>();
+        LostEquipment equipment = config.Equipment;
+
+        return new FriendlyLostOnDeathSettingsResponse
+        {
+            Equipment = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ArmBand"] = equipment.ArmBand,
+                ["Compass"] = equipment.Compass,
+                ["Headwear"] = equipment.Headwear,
+                ["Earpiece"] = equipment.Earpiece,
+                ["FaceCover"] = equipment.FaceCover,
+                ["ArmorVest"] = equipment.ArmorVest,
+                ["Eyewear"] = equipment.Eyewear,
+                ["TacticalVest"] = equipment.TacticalVest,
+                ["PocketItems"] = equipment.PocketItems,
+                ["Backpack"] = equipment.Backpack,
+                ["Holster"] = equipment.Holster,
+                ["FirstPrimaryWeapon"] = equipment.FirstPrimaryWeapon,
+                ["SecondPrimaryWeapon"] = equipment.SecondPrimaryWeapon,
+                ["Scabbard"] = equipment.Scabbard,
+                ["SecuredContainer"] = equipment.SecuredContainer,
+            },
+        };
+    }
+
     private void SaveSettings(FriendlyServerSettingsRequest settings)
     {
         try

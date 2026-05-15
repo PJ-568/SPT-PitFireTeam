@@ -205,6 +205,7 @@ namespace pitTeam.Modules
             _followersByProfileId.Clear();
             _shallBeFollower.Clear();
             FollowerGrenadeCooldowns.ClearAll();
+            FollowerDeathEscapeResolver.ClearFallenSquadmateSnapshots();
 
             IsDisposed = true;
             Instance = null;

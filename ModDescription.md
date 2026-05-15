@@ -353,23 +353,23 @@ Use commands deliberately instead of continuously micromanaging.
 
 ### Raid Survival Post Player
 
-Your spawned teammates can still make it our a raid if you die and return the loot you got them to carry. The probability is calculated based on how far the extraction point is, how many of the teammates are left, their equipment score, the average score of the enemy between the teammates and the exist, and their health and meds stats.
+Your teammates can still successfully extract after your death and return any loot they were carrying for you. The escape chance is calculated based on the distance to extraction, how many teammates are still alive, their equipment quality, the estimated threat level of enemies between them and the extraction, as well as their current health and available medical supplies.
 
 ### Loot Management
 
-You can give teammates loot by looking at an item and use the lower-left interaction prompt to order a teammate to pick it up.
+You can give loot to teammates by looking at an item and using the interaction prompt shown in the lower-left corner of the screen.
 
-The teammate:
+A teammate can pick up the item only if they:
 
-- must not be in combat
-- must have inventory space
-- must be able to reach the item
+- are not in combat
+- have enough inventory space
+- can physically reach the item
 
-You must successfully extract with that teammate for the loot to be returned after the raid. Note that only teammates you spawned with, will return the loot.
+You must successfully extract with that teammate for the loot to be returned after the raid. Only teammates you originally spawned with are able to return carried loot.
 
-If the teammate dies, the loot is lost.
+If the teammate dies, the carried loot is lost.
 
-You can also view the contents of a teammate's backpack by approaching them and using the interaction prompt that appears in the lower-left corner of the screen. Can be done only out of combat.
+You can also inspect a teammate’s backpack by approaching them and using the lower-left interaction prompt. This can only be done while out of combat.
 
 ## Loadout Management
 

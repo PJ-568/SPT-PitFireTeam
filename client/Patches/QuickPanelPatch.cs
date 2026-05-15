@@ -38,9 +38,9 @@ namespace pitTeam.Patches
                     bool flag2 = lootItem != null && lootItem.ItemOwner.RootItem is MoneyItemClass;
                     bool flag3 = lootItem != null && (lootItem.ItemOwner.RootItem is Weapon || lootItem.ItemOwner.RootItem.GetItemComponent<KnifeComponent>() != null);
 
-                    // modification here - set what loot item will be picked up
-                    if (lootItem != null && !flag && !flag2) InteractableObjects.SetCurLootItem(lootItem);
-                    else InteractableObjects.SetCurLootItem(null);
+                    // Commanded follower looting uses the same world target for key, money, weapon,
+                    // and generic loot phrases. Keep it pinned for any loot phrase the panel exposes.
+                    InteractableObjects.SetCurLootItem(lootItem);
 
                     // original - loot command
                     __instance.method_7(EPhraseTrigger.LootKey, flag);
