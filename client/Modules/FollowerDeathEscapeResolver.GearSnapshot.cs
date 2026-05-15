@@ -313,12 +313,19 @@ namespace pitTeam.Modules
                 // Store an isolated clone now. Later raid-end cleanup or simulated follower
                 // deaths must not affect what was available at the moment the player died.
                 Item clone = item.CloneItemWithSameId();
-                if (slot == EquipmentSlot.Backpack || slot == EquipmentSlot.TacticalVest)
+                if (slot == EquipmentSlot.Backpack)
                 {
-                    // Container grid contents have their own recovery priority. Keep armor plates
-                    // and other slotted parts, but do not let rig/backpack contents ride along with
-                    // the shell.
+                    // Backpacks are capacity-first shells. Their contents are still last-priority
+                    // recovery candidates so a backpack can add space without automatically taking
+                    // every loose item inside it.
                     StripGridContents(clone);
+                }
+                else if (slot == EquipmentSlot.TacticalVest)
+                {
+                    // If the vest can be carried, its non-tracked contents and armor plates ride
+                    // with it. Player-given tracked loot is still stripped so it stays owned by the
+                    // tracked follower-loot return path.
+                    StripTrackedGridContents(clone, trackedLootIds);
                 }
 
                 yield return new RecoverableGearCandidate(
@@ -345,7 +352,8 @@ namespace pitTeam.Modules
                             slot,
                             slot == EquipmentSlot.TacticalVest ? 5 : 7,
                             sequence++,
-                            false);
+                            false,
+                            slot == EquipmentSlot.TacticalVest ? item.Id : null);
                     }
                 }
             }
@@ -387,6 +395,30 @@ namespace pitTeam.Modules
             foreach (StashGridClass grid in compound.Grids)
             {
                 grid?.RemoveAll();
+            }
+        }
+
+        private static void StripTrackedGridContents(Item item, HashSet<string> trackedLootIds)
+        {
+            if (trackedLootIds == null || trackedLootIds.Count == 0 ||
+                item is not CompoundItem compound || compound.Grids == null)
+            {
+                return;
+            }
+
+            foreach (StashGridClass grid in compound.Grids)
+            {
+                if (grid?.Items == null)
+                {
+                    continue;
+                }
+
+                foreach (Item trackedItem in grid.Items
+                             .Where(gridItem => IsTrackedLootTree(gridItem, trackedLootIds))
+                             .ToList())
+                {
+                    trackedItem.Parent?.Remove(trackedItem, false);
+                }
             }
         }
 

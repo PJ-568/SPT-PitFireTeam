@@ -61,6 +61,11 @@ The resolver is split into focused partials:
 
 Return mail is centralized through `InteractableObjects.SendReturnItems(...)`. Normal stored follower loot and death-escape recovered gear both use the same `/singleplayer/returnitems` payload path.
 
+When pitFireTeam return mail sends an item that is also insured, the server removes that item id from insurance tracking. This mirrors SPT's BTR delivery behavior and prevents the same item from later being returned by both teammate mail and insurance. The cleanup covers:
+
+- active `PmcData.InsuredItems` entries before SPT creates the insurance package
+- already-scheduled `InsuranceList` package item trees if the package already exists
+
 ## Escape Roll
 
 Each squadmate rolls independently. With three followers, any result is possible: three escape, two escape, one escapes, or none escape.
@@ -156,6 +161,13 @@ Current recovery priority:
 7. backpack contents
 8. remaining recoverable gear
 
+Armor and tactical vest recovery is container-aware:
+
+- if armor is recovered, attached plates and armor parts ride with it
+- if a tactical vest is recovered, its non-tracked grid contents ride with it
+- tactical vest contents are only tried as separate low-priority items if the vest itself was not recovered
+- tracked follower-loot items are stripped from recovered vest snapshots so they stay on the tracked-loot return path
+
 The simulation can use empty live slots on escaped teammates:
 
 - second primary weapon slot
@@ -176,7 +188,7 @@ The simulation can also use available container space in:
 - pockets
 - secure container only in `Realistic` / internal `Extreme`
 
-Fallen teammate backpacks can be recovered first as capacity. Their grid contents are split into separate lower-priority candidates, so the backpack shell can increase available carry space without automatically dragging all contents with it.
+Backpacks keep the previous capacity-first behavior. Fallen teammate backpacks can be recovered first as capacity. Their grid contents are split into separate lower-priority candidates, so the backpack shell can increase available carry space without automatically dragging all contents with it.
 
 ## Player Gear
 

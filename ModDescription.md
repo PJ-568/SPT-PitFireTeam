@@ -107,7 +107,7 @@ The current loadout editor uses cloned/local items. Editing a teammate loadout d
 
 ## Squad Commands
 
-![Gestures Menu](https://iili.io/BQdlFv1.png)
+![Gestures Menu](https://iili.io/BQdlFv1.md.png)
 
 Commands use Tarkov's existing phrase and gesture system. Depending on voice and side, some phrases may appear in different places or may not be available for every voice.
 Some of the commands can be applied to individual teammates by looking directly at them when issuing the command.
@@ -152,7 +152,7 @@ Recruited allies are temporary and limited in behavior. Saved teammates are full
 
 ---
 
-Saved teammates automatically have ammo (primary weapon only and works best with vanilla ammo) and medical supplies available, in their secure container, and do not require these items in their loadout. Recruited allies found during a raid do not receive this behavior and rely on their existing equipment.
+In Non-Realistic loadout management mode, saved teammates automatically have ammo (primary weapon only and works best with vanilla ammo) and medical supplies available, in their secure container, and do not require these items in their loadout. Recruited allies found during a raid do not receive this behavior and rely on their existing equipment.
 teammates still use Tarkov bot movement and navigation. They can choose cover or movement paths that are not exactly where you expected, especially in complex interiors.
 
 ---
@@ -357,7 +357,9 @@ Your teammates can still successfully extract after your death and return any lo
 
 ### Loot Management
 
-You can give loot to teammates by looking at an item and using the interaction prompt shown in the lower-left corner of the screen.
+**You can give loot to teammates by looking at an item and using the interaction prompt shown in the lower-left corner of the screen.**
+
+![Look Pickup](https://iili.io/BpKc90x.md.png)
 
 A teammate can pick up the item only if they:
 
@@ -369,9 +371,13 @@ You must successfully extract with that teammate for the loot to be returned aft
 
 If the teammate dies, the carried loot is lost.
 
-You can also inspect a teammate’s backpack by approaching them and using the lower-left interaction prompt. This can only be done while out of combat.
+**You can also inspect a teammate’s backpack by approaching them and using the lower-left interaction prompt. This can only be done while out of combat.**
+
+![Look Pickup](https://iili.io/BpKvke1.md.png)
 
 ## Loadout Management
+
+![Loadout Management](https://iili.io/BpKDP4I.md.png)
 
 - **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
 - **Restricted** — Teammate loadouts must use gear from your stash or be purchased through the kit buyout system. Gear is still protected: it is not lost on death and cannot be looted.

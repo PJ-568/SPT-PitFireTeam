@@ -1,6 +1,7 @@
 using pitTeam.Server.Models;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Helpers;
+using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.Match;
@@ -8,6 +9,7 @@ using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Dialog;
 using SPTarkov.Server.Core.Models.Utils;
+using SPTarkov.Server.Core.Servers;
 using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Utils;
 using System.Collections.Concurrent;
@@ -22,6 +24,7 @@ public class FriendlyPostRaidService(
     FriendlyLanguageService languageService,
     FriendlyTeammateService teammateService,
     TimeUtil timeUtil,
+    SaveServer saveServer,
     ISptLogger<FriendlyPostRaidService> logger
 )
 {
@@ -67,6 +70,8 @@ public class FriendlyPostRaidService(
             return;
         }
 
+        RemoveReturnedItemsFromInsurance(sessionId, items);
+
         UserDialogInfo sender = GetDeliverySender();
         SendMessageDetails details = new()
         {
@@ -82,6 +87,98 @@ public class FriendlyPostRaidService(
 
         mailSendService.SendMessageToPlayer(details);
         EnsureDialogHasSender(sessionId, sender);
+    }
+
+    private void RemoveReturnedItemsFromInsurance(MongoId sessionId, List<SPTarkov.Server.Core.Models.Eft.Common.Tables.Item> returnedItems)
+    {
+        HashSet<MongoId> returnedItemIds = returnedItems
+            .Where(item => item != null)
+            .Select(item => item.Id)
+            .ToHashSet();
+        if (returnedItemIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            SptProfile profile = saveServer.GetProfile(sessionId);
+            PmcData? pmcData = profile?.CharacterData?.PmcData;
+            int activeInsuranceRemoved = 0;
+            int scheduledInsuranceRemoved = 0;
+
+            // Match SPT's BTR delivery behavior: once an item is returned by a delivery service,
+            // remove its insurance marker so post-raid insurance cannot schedule a duplicate copy.
+            if (pmcData?.InsuredItems != null)
+            {
+                int beforeCount = pmcData.InsuredItems.Count;
+                pmcData.InsuredItems = pmcData.InsuredItems
+                    .Where(insuredItem => insuredItem?.ItemId == null || !returnedItemIds.Contains(insuredItem.ItemId.Value))
+                    .ToList();
+                activeInsuranceRemoved = beforeCount - pmcData.InsuredItems.Count;
+            }
+
+            if (profile?.InsuranceList != null)
+            {
+                foreach (SPTarkov.Server.Core.Models.Eft.Profile.Insurance insurancePackage in profile.InsuranceList.Where(package => package?.Items != null))
+                {
+                    HashSet<MongoId> packageRemovalIds = BuildReturnedInsuranceRemovalIds(insurancePackage.Items!, returnedItemIds);
+                    if (packageRemovalIds.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    int beforeCount = insurancePackage.Items!.Count;
+                    insurancePackage.Items = insurancePackage.Items
+                        .Where(item => item != null && !packageRemovalIds.Contains(item.Id))
+                        .ToList();
+                    scheduledInsuranceRemoved += beforeCount - insurancePackage.Items.Count;
+                }
+            }
+
+            if (activeInsuranceRemoved > 0 || scheduledInsuranceRemoved > 0)
+            {
+                logger.Info(
+                    $"Removed pitFireTeam-returned item(s) from insurance tracking: active={activeInsuranceRemoved}, scheduled={scheduledInsuranceRemoved}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to remove returned pitFireTeam item(s) from insurance tracking: {ex.Message}");
+        }
+    }
+
+    private static HashSet<MongoId> BuildReturnedInsuranceRemovalIds(
+        List<SPTarkov.Server.Core.Models.Eft.Common.Tables.Item> insuranceItems,
+        HashSet<MongoId> returnedItemIds)
+    {
+        HashSet<MongoId> idsToRemove = insuranceItems
+            .Where(item => item != null && returnedItemIds.Contains(item.Id))
+            .Select(item => item.Id)
+            .ToHashSet();
+
+        bool added;
+        do
+        {
+            added = false;
+            foreach (SPTarkov.Server.Core.Models.Eft.Common.Tables.Item item in insuranceItems)
+            {
+                if (item == null ||
+                    idsToRemove.Contains(item.Id) ||
+                    string.IsNullOrWhiteSpace(item.ParentId))
+                {
+                    continue;
+                }
+
+                if (idsToRemove.Any(parentId => string.Equals(item.ParentId, parentId.ToString(), StringComparison.Ordinal)))
+                {
+                    added |= idsToRemove.Add(item.Id);
+                }
+            }
+        }
+        while (added);
+
+        return idsToRemove;
     }
 
     public void HandleTeamEscaped(MongoId sessionId, FriendlyPostRaidTeamEscapedRequest request)

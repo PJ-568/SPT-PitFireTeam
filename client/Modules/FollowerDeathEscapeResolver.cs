@@ -476,7 +476,8 @@ namespace pitTeam.Modules
                 EquipmentSlot slot,
                 int itemPriority,
                 int sequence,
-                bool useAsRecoveryCapacity)
+                bool useAsRecoveryCapacity,
+                string coveredByItemId = null)
             {
                 Item = item;
                 Position = position;
@@ -487,6 +488,7 @@ namespace pitTeam.Modules
                 ItemPriority = itemPriority;
                 Sequence = sequence;
                 UseAsRecoveryCapacity = useAsRecoveryCapacity;
+                CoveredByItemId = coveredByItemId;
             }
 
             public Item Item { get; }
@@ -499,6 +501,7 @@ namespace pitTeam.Modules
             public int ItemPriority { get; }
             public int Sequence { get; }
             public bool UseAsRecoveryCapacity { get; }
+            public string CoveredByItemId { get; }
 
             public RecoverableGearCandidate WithSequence(int sequence)
             {
@@ -511,7 +514,8 @@ namespace pitTeam.Modules
                     Slot,
                     ItemPriority,
                     sequence,
-                    UseAsRecoveryCapacity);
+                    UseAsRecoveryCapacity,
+                    CoveredByItemId);
             }
         }
 

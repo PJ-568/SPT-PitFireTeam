@@ -86,6 +86,15 @@ namespace pitTeam.Modules
                              .ThenBy(candidate => candidate.ItemPriority)
                              .ThenBy(candidate => candidate.Sequence))
                 {
+                    if (!string.IsNullOrWhiteSpace(candidate.CoveredByItemId) &&
+                        recoveredGearIds.Contains(candidate.CoveredByItemId))
+                    {
+                        Logger.LogInfo(
+                            $"[DeathEscape] Skipped death gear '{DescribeRecoverableItem(candidate)}' from '{candidate.OwnerName}': " +
+                            "parent carrier item was already recovered with its contents.");
+                        continue;
+                    }
+
                     if (TryRecoverDeathGearCandidate(candidate, escapedBots, escapedEquipment, stats))
                     {
                         recovered++;
