@@ -384,6 +384,8 @@ If the teammate dies, the carried loot is lost.
 - **Immersive** — Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted.
 - **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 
+Switching away from **Simple** mode also changes how teammate loadouts are managed. Created loadouts must now be equipped through the **Kit Loadout** screen, where the required gear is either purchased or taken from your stash.
+
 ## Upcoming
 
 The following are planned features in reaching a release version (1.0.0)

@@ -6,6 +6,7 @@ using EFT.InputSystem;
 using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Builds;
+using EFT.UI.DragAndDrop;
 using EFT.UI.Health;
 using EFT.UI.Screens;
 using HarmonyLib;
@@ -54,6 +55,8 @@ namespace pitTeam.Patches
         private static Sprite _roublesSprite;
         private static ScreenChromeState _screenChromeState;
         private static GameObject _buyConfirmOverlay;
+        private static int _buyConfirmOverlayGeneration;
+        private static readonly List<Action> BuyConfirmIconBindings = new List<Action>();
         private static readonly MarketPriceSource BuildMarketPriceSource = new MarketPriceSource();
         private static readonly Dictionary<int, BuildRowState> BuildRowStates = new Dictionary<int, BuildRowState>();
 
@@ -639,6 +642,8 @@ namespace pitTeam.Patches
                 ExcludeExistingItems = _excludeExistingItems,
                 CanEquipFromStash = _excludeExistingItems && exclusionPlan.HasAllRequiredItems,
                 MissingTemplateCounts = new Dictionary<string, int>(_selectedBuildMissingCounts),
+                AvailableStashItems = exclusionPlan.UsedItems,
+                BasePurchasedItems = exclusionPlan.PurchasedItems,
                 UsedStashItems = exclusionPlan.UsedItems,
                 PurchasedItems = exclusionPlan.PurchasedItems
             };
@@ -715,6 +720,7 @@ namespace pitTeam.Patches
         private static void ShowBuyConfirmOverlay(EquipmentBuildBuyQuote quote)
         {
             CloseBuyConfirmOverlay();
+            quote.IconGeneration = ++_buyConfirmOverlayGeneration;
 
             Transform overlayParent = _activeScreen?.transform;
             if (overlayParent == null)
@@ -732,6 +738,7 @@ namespace pitTeam.Patches
             Image overlayImage = overlayRoot.GetComponent<Image>();
             overlayImage.color = new Color(0f, 0f, 0f, 0.62f);
             overlayImage.raycastTarget = true;
+            _buyConfirmOverlay = overlayRoot;
 
             GameObject panel = new GameObject("pitFireTeam_BuyLoadoutConfirmPanel", typeof(RectTransform), typeof(Image));
             panel.transform.SetParent(overlayRoot.transform, false);
@@ -763,7 +770,7 @@ namespace pitTeam.Patches
 
             GameObject titleObject = CreateOverlayText(
                 "pitFireTeam_BuyLoadoutConfirmTitle",
-                GetSocialUiText("BuyKitTitle", "BUY KIT"),
+                FormatBuyOverlayTitle(quote),
                 18f,
                 TextAlignmentOptions.MidlineLeft);
             RectTransform titleRect = titleObject.GetComponent<RectTransform>();
@@ -772,6 +779,7 @@ namespace pitTeam.Patches
             titleRect.anchorMax = new Vector2(1f, 1f);
             titleRect.offsetMin = new Vector2(16f, 0f);
             titleRect.offsetMax = new Vector2(-42f, 0f);
+            TextMeshProUGUI titleLabel = titleObject.GetComponent<TextMeshProUGUI>();
 
             Button closeButton = CreateOverlayCloseButton(header.transform, "pitFireTeam_BuyLoadoutConfirmCloseButton");
             if (closeButton.transform is RectTransform closeRect)
@@ -788,32 +796,9 @@ namespace pitTeam.Patches
                 CloseBuyConfirmOverlay();
             });
 
-            string bodyText = CreateBuyConfirmBodyText(quote);
-
-            if (hasItemizedQuote)
-            {
-                CreateScrollableOverlayText(panel.transform, "pitFireTeam_BuyLoadoutConfirmBodyScroll", bodyText, 18f, new Vector2(28f, 72f), new Vector2(-28f, -42f), itemizedLineCount);
-            }
-            else
-            {
-                GameObject bodyObject = CreateOverlayText(
-                    "pitFireTeam_BuyLoadoutConfirmBody",
-                    bodyText,
-                    23f,
-                    TextAlignmentOptions.Center);
-                RectTransform bodyRect = bodyObject.GetComponent<RectTransform>();
-                bodyRect.SetParent(panel.transform, false);
-                bodyRect.anchorMin = new Vector2(0f, 0f);
-                bodyRect.anchorMax = new Vector2(1f, 1f);
-                bodyRect.offsetMin = new Vector2(28f, 72f);
-                bodyRect.offsetMax = new Vector2(-28f, -42f);
-
-                TextMeshProUGUI bodyLabel = bodyObject.GetComponent<TextMeshProUGUI>();
-                bodyLabel.enableWordWrapping = true;
-                bodyLabel.overflowMode = TextOverflowModes.Ellipsis;
-            }
-
             DefaultUIButton buyButton = CreateOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f));
+            Button fallbackBuyButton = null;
+            TextMeshProUGUI fallbackBuyButtonLabel = null;
             if (buyButton != null)
             {
                 buyButton.SetRawText(GetQuoteActionButtonText(quote), 22);
@@ -822,12 +807,507 @@ namespace pitTeam.Patches
             }
             else
             {
-                Button fallbackButton = CreateFallbackOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f), GetQuoteActionButtonText(quote));
-                fallbackButton.onClick.AddListener(() => ConfirmBuyQuote(quote));
+                fallbackBuyButton = CreateFallbackOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f), GetQuoteActionButtonText(quote));
+                fallbackBuyButton.onClick.AddListener(() => ConfirmBuyQuote(quote));
+                fallbackBuyButtonLabel = fallbackBuyButton.GetComponentInChildren<TextMeshProUGUI>(true);
+            }
+
+            if (quote.ExcludeExistingItems && quote.AvailableStashItems.Count > 0)
+            {
+                CreateInteractiveBuyQuoteBody(panel.transform, quote, titleLabel, buyButton, fallbackBuyButton, fallbackBuyButtonLabel);
+            }
+            else
+            {
+                string bodyText = CreateBuyConfirmBodyText(quote);
+                if (hasItemizedQuote)
+                {
+                    CreateScrollableOverlayText(panel.transform, "pitFireTeam_BuyLoadoutConfirmBodyScroll", bodyText, 18f, new Vector2(28f, 72f), new Vector2(-28f, -42f), itemizedLineCount);
+                }
+                else
+                {
+                    GameObject bodyObject = CreateOverlayText(
+                        "pitFireTeam_BuyLoadoutConfirmBody",
+                        bodyText,
+                        23f,
+                        TextAlignmentOptions.Center);
+                    RectTransform bodyRect = bodyObject.GetComponent<RectTransform>();
+                    bodyRect.SetParent(panel.transform, false);
+                    bodyRect.anchorMin = new Vector2(0f, 0f);
+                    bodyRect.anchorMax = new Vector2(1f, 1f);
+                    bodyRect.offsetMin = new Vector2(28f, 72f);
+                    bodyRect.offsetMax = new Vector2(-28f, -42f);
+
+                    TextMeshProUGUI bodyLabel = bodyObject.GetComponent<TextMeshProUGUI>();
+                    bodyLabel.enableWordWrapping = true;
+                    bodyLabel.overflowMode = TextOverflowModes.Ellipsis;
+                }
             }
 
             _buyConfirmOverlay = overlayRoot;
             pitFireTeam.Log.LogInfo($"[UI] Teammate equipment build buy confirmation opened: build='{quote.BuildName}', price={quote.FinalPrice}, excludeExistingItems={quote.ExcludeExistingItems}, stashItemsUsed={quote.UsedStashItems.Count}, missingTemplates={quote.MissingTemplateCounts.Count}.");
+        }
+
+        private static void CreateInteractiveBuyQuoteBody(
+            Transform parent,
+            EquipmentBuildBuyQuote quote,
+            TextMeshProUGUI titleLabel,
+            DefaultUIButton buyButton,
+            Button fallbackBuyButton,
+            TextMeshProUGUI fallbackBuyButtonLabel)
+        {
+            GameObject scrollObject = new GameObject("pitFireTeam_BuyLoadoutInteractiveBodyScroll", typeof(RectTransform), typeof(ScrollRect));
+            scrollObject.transform.SetParent(parent, false);
+            RectTransform scrollRectTransform = scrollObject.GetComponent<RectTransform>();
+            scrollRectTransform.anchorMin = new Vector2(0f, 0f);
+            scrollRectTransform.anchorMax = new Vector2(1f, 1f);
+            scrollRectTransform.offsetMin = new Vector2(28f, 72f);
+            scrollRectTransform.offsetMax = new Vector2(-28f, -42f);
+
+            GameObject viewportObject = new GameObject("pitFireTeam_BuyLoadoutInteractiveBodyViewport", typeof(RectTransform), typeof(Image), typeof(Mask));
+            viewportObject.transform.SetParent(scrollObject.transform, false);
+            RectTransform viewportRect = viewportObject.GetComponent<RectTransform>();
+            Stretch(viewportRect);
+
+            Image viewportImage = viewportObject.GetComponent<Image>();
+            viewportImage.color = new Color(0f, 0f, 0f, 0.01f);
+            viewportImage.raycastTarget = true;
+
+            Mask mask = viewportObject.GetComponent<Mask>();
+            mask.showMaskGraphic = false;
+
+            GameObject contentObject = new GameObject("pitFireTeam_BuyLoadoutInteractiveBodyContent", typeof(RectTransform));
+            contentObject.transform.SetParent(viewportObject.transform, false);
+            RectTransform contentRect = contentObject.GetComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0f, 1f);
+            contentRect.anchorMax = new Vector2(1f, 1f);
+            contentRect.pivot = new Vector2(0.5f, 1f);
+            contentRect.offsetMin = Vector2.zero;
+            contentRect.offsetMax = Vector2.zero;
+
+            ScrollRect scrollRect = scrollObject.GetComponent<ScrollRect>();
+            scrollRect.viewport = viewportRect;
+            scrollRect.content = contentRect;
+            scrollRect.horizontal = false;
+            scrollRect.vertical = true;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+            scrollRect.scrollSensitivity = 35f;
+
+            GameObject promptObject = CreateOverlayText("pitFireTeam_BuyLoadoutInteractivePrompt", "", 20f, TextAlignmentOptions.TopLeft);
+            promptObject.transform.SetParent(contentObject.transform, false);
+            RectTransform promptRect = promptObject.GetComponent<RectTransform>();
+            promptRect.anchorMin = new Vector2(0f, 1f);
+            promptRect.anchorMax = new Vector2(1f, 1f);
+            promptRect.pivot = new Vector2(0.5f, 1f);
+            promptRect.offsetMin = new Vector2(0f, -34f);
+            promptRect.offsetMax = new Vector2(0f, 0f);
+            TextMeshProUGUI promptLabel = promptObject.GetComponent<TextMeshProUGUI>();
+            promptLabel.enableWordWrapping = true;
+            promptLabel.overflowMode = TextOverflowModes.Overflow;
+
+            GameObject deliveryObject = CreateOverlayText(
+                "pitFireTeam_BuyLoadoutInteractiveDeliveryNotice",
+                GetSocialUiText("KitCurrentGearDeliveryNotice", "Teammate's current kit will be returned to you via delivery service."),
+                17f,
+                TextAlignmentOptions.TopLeft);
+            deliveryObject.transform.SetParent(contentObject.transform, false);
+            RectTransform deliveryRect = deliveryObject.GetComponent<RectTransform>();
+            deliveryRect.anchorMin = new Vector2(0f, 1f);
+            deliveryRect.anchorMax = new Vector2(1f, 1f);
+            deliveryRect.pivot = new Vector2(0.5f, 1f);
+            deliveryRect.offsetMin = new Vector2(0f, -70f);
+            deliveryRect.offsetMax = new Vector2(0f, -38f);
+
+            GameObject stashHeaderObject = CreateOverlayText(
+                "pitFireTeam_BuyLoadoutInteractiveStashHeader",
+                GetSocialUiText("KitItemsTakenFromStash", "The following items will be taken from stash:"),
+                18f,
+                TextAlignmentOptions.TopLeft);
+            stashHeaderObject.transform.SetParent(contentObject.transform, false);
+            RectTransform stashHeaderRect = stashHeaderObject.GetComponent<RectTransform>();
+            stashHeaderRect.anchorMin = new Vector2(0f, 1f);
+            stashHeaderRect.anchorMax = new Vector2(1f, 1f);
+            stashHeaderRect.pivot = new Vector2(0.5f, 1f);
+            stashHeaderRect.offsetMin = new Vector2(0f, -104f);
+            stashHeaderRect.offsetMax = new Vector2(0f, -76f);
+
+            RectTransform purchasedItemsContainer = null;
+            Toggle templateToggle = ResolveEditBuildOnlyAvailableToggleTemplate();
+            var pendingIconLoads = new List<OverlayItemIconRequest>();
+            float rowY = -108f;
+            foreach (UsedStashItemSummary backingItem in quote.AvailableStashItems.OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+            {
+                if (backingItem == null)
+                {
+                    continue;
+                }
+
+                Toggle rowToggle = CreateOverlayStashItemRow(contentObject.transform, templateToggle, backingItem, new Vector2(0f, rowY), pendingIconLoads, quote.IconGeneration);
+                if (rowToggle == null)
+                {
+                    continue;
+                }
+
+                rowToggle.SetIsOnWithoutNotify(backingItem.Selected);
+                rowToggle.onValueChanged.AddListener(isOn =>
+                {
+                    backingItem.Selected = isOn;
+                    RecalculateBuyQuoteSelection(quote);
+                    UpdateInteractiveBuyQuoteBody(quote, titleLabel, promptLabel, purchasedItemsContainer, buyButton, fallbackBuyButton, fallbackBuyButtonLabel);
+                });
+                rowY -= 52f;
+            }
+
+            GameObject purchasedObject = new GameObject("pitFireTeam_BuyLoadoutInteractivePurchasedItems", typeof(RectTransform));
+            purchasedObject.transform.SetParent(contentObject.transform, false);
+            RectTransform purchasedRect = purchasedObject.GetComponent<RectTransform>();
+            purchasedRect.anchorMin = new Vector2(0f, 1f);
+            purchasedRect.anchorMax = new Vector2(1f, 1f);
+            purchasedRect.pivot = new Vector2(0.5f, 1f);
+            purchasedRect.offsetMin = new Vector2(0f, rowY - 260f);
+            purchasedRect.offsetMax = new Vector2(0f, rowY - 10f);
+            purchasedItemsContainer = purchasedRect;
+
+            contentRect.sizeDelta = new Vector2(0f, Mathf.Max(320f, Mathf.Abs(rowY) + 320f));
+            UpdateInteractiveBuyQuoteBody(quote, titleLabel, promptLabel, purchasedItemsContainer, buyButton, fallbackBuyButton, fallbackBuyButtonLabel);
+            StartOverlayItemIconLoads(pendingIconLoads);
+        }
+
+        private static Toggle CreateOverlayStashItemRow(Transform parent, Toggle templateToggle, UsedStashItemSummary item, Vector2 anchoredPosition, List<OverlayItemIconRequest> pendingIconLoads, int iconGeneration)
+        {
+            if (templateToggle == null)
+            {
+                return null;
+            }
+
+            GameObject rowObject = new GameObject("pitFireTeam_BuyLoadoutStashItemRow", typeof(RectTransform));
+            rowObject.transform.SetParent(parent, false);
+            RectTransform rowRect = rowObject.GetComponent<RectTransform>();
+            rowRect.anchorMin = new Vector2(0f, 1f);
+            rowRect.anchorMax = new Vector2(1f, 1f);
+            rowRect.pivot = new Vector2(0.5f, 1f);
+            rowRect.offsetMin = new Vector2(0f, anchoredPosition.y - 48f);
+            rowRect.offsetMax = new Vector2(0f, anchoredPosition.y);
+
+            Toggle toggle = UnityEngine.Object.Instantiate(templateToggle, rowObject.transform, false);
+            toggle.name = "pitFireTeam_BuyLoadoutStashItemToggle";
+            toggle.transform.SetParent(rowObject.transform, false);
+            toggle.gameObject.SetActive(true);
+            toggle.onValueChanged.RemoveAllListeners();
+            toggle.group = null;
+            toggle.interactable = true;
+
+            RectTransform rect = toggle.transform as RectTransform;
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(0f, 0.5f);
+                rect.anchorMax = new Vector2(0f, 0.5f);
+                rect.pivot = new Vector2(0f, 0.5f);
+                rect.anchoredPosition = new Vector2(0f, 0f);
+                rect.sizeDelta = new Vector2(34f, 34f);
+                rect.localScale = Vector3.one;
+            }
+
+            foreach (Selectable selectable in toggle.GetComponentsInChildren<Selectable>(true))
+            {
+                selectable.interactable = true;
+            }
+
+            foreach (TMP_Text label in toggle.GetComponentsInChildren<TMP_Text>(true))
+            {
+                label.text = string.Empty;
+            }
+
+            CreateOverlayItemIcon(rowObject.transform, item.TemplateId, new Vector2(40f, 0f), pendingIconLoads, iconGeneration);
+            CreateOverlayItemRowLabel(rowObject.transform, FormatUsedStashItemLine(item), new Vector2(88f, 0f));
+            CreateOverlayDivider(rowObject.transform);
+
+            return toggle;
+        }
+
+        private static void CreateOverlayPurchaseItemRows(RectTransform container, IEnumerable<UsedStashItemSummary> items, int iconGeneration)
+        {
+            if (container == null)
+            {
+                return;
+            }
+
+            for (int i = container.childCount - 1; i >= 0; i--)
+            {
+                UnityEngine.Object.Destroy(container.GetChild(i).gameObject);
+            }
+
+            List<UsedStashItemSummary> displayItems = CreateDisplayItemSummaries(items)
+                .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (displayItems.Count == 0)
+            {
+                container.sizeDelta = new Vector2(0f, 0f);
+                RefreshInteractiveContentHeight(container);
+                return;
+            }
+
+            GameObject headerObject = CreateOverlayText(
+                "pitFireTeam_BuyLoadoutPurchasedHeader",
+                GetSocialUiText("KitItemsPurchased", "The following items will be purchased:"),
+                18f,
+                TextAlignmentOptions.TopLeft);
+            headerObject.transform.SetParent(container, false);
+            RectTransform headerRect = headerObject.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0f, 1f);
+            headerRect.anchorMax = new Vector2(1f, 1f);
+            headerRect.pivot = new Vector2(0.5f, 1f);
+            headerRect.offsetMin = new Vector2(0f, -28f);
+            headerRect.offsetMax = new Vector2(0f, 0f);
+
+            float rowY = -36f;
+            var pendingIconLoads = new List<OverlayItemIconRequest>();
+            foreach (UsedStashItemSummary item in displayItems)
+            {
+                CreateOverlayPurchaseItemRow(container, item, rowY, pendingIconLoads, iconGeneration);
+                rowY -= 52f;
+            }
+
+            container.sizeDelta = new Vector2(0f, Mathf.Abs(rowY) + 12f);
+            RefreshInteractiveContentHeight(container);
+            StartOverlayItemIconLoads(pendingIconLoads);
+        }
+
+        private static void RefreshInteractiveContentHeight(RectTransform purchasedItemsContainer)
+        {
+            if (purchasedItemsContainer?.parent is RectTransform contentRect)
+            {
+                float purchasedBottom = Mathf.Abs(purchasedItemsContainer.offsetMin.y) + purchasedItemsContainer.sizeDelta.y + 48f;
+                contentRect.sizeDelta = new Vector2(0f, Mathf.Max(contentRect.sizeDelta.y, purchasedBottom));
+            }
+        }
+
+        private static void CreateOverlayPurchaseItemRow(Transform parent, UsedStashItemSummary item, float rowY, List<OverlayItemIconRequest> pendingIconLoads, int iconGeneration)
+        {
+            GameObject rowObject = new GameObject("pitFireTeam_BuyLoadoutPurchaseItemRow", typeof(RectTransform));
+            rowObject.transform.SetParent(parent, false);
+            RectTransform rowRect = rowObject.GetComponent<RectTransform>();
+            rowRect.anchorMin = new Vector2(0f, 1f);
+            rowRect.anchorMax = new Vector2(1f, 1f);
+            rowRect.pivot = new Vector2(0.5f, 1f);
+            rowRect.offsetMin = new Vector2(0f, rowY - 48f);
+            rowRect.offsetMax = new Vector2(0f, rowY);
+
+            CreateOverlayItemIcon(rowObject.transform, item.TemplateId, new Vector2(0f, 0f), pendingIconLoads, iconGeneration);
+            CreateOverlayItemRowLabel(rowObject.transform, FormatUsedStashItemLine(item), new Vector2(48f, 0f));
+            CreateOverlayDivider(rowObject.transform);
+        }
+
+        private static void CreateOverlayItemIcon(Transform parent, string templateId, Vector2 anchoredPosition, List<OverlayItemIconRequest> pendingIconLoads, int iconGeneration)
+        {
+            GameObject frameObject = new GameObject("pitFireTeam_BuyLoadoutItemIconFrame", typeof(RectTransform), typeof(Image));
+            frameObject.transform.SetParent(parent, false);
+            RectTransform frameRect = frameObject.GetComponent<RectTransform>();
+            frameRect.anchorMin = new Vector2(0f, 0.5f);
+            frameRect.anchorMax = new Vector2(0f, 0.5f);
+            frameRect.pivot = new Vector2(0f, 0.5f);
+            frameRect.anchoredPosition = anchoredPosition;
+            frameRect.sizeDelta = new Vector2(40f, 40f);
+
+            Image frame = frameObject.GetComponent<Image>();
+            frame.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+            frame.raycastTarget = false;
+
+            GameObject iconObject = new GameObject("pitFireTeam_BuyLoadoutItemIcon", typeof(RectTransform), typeof(Image));
+            iconObject.transform.SetParent(frameObject.transform, false);
+            RectTransform iconRect = iconObject.GetComponent<RectTransform>();
+            iconRect.anchorMin = Vector2.zero;
+            iconRect.anchorMax = Vector2.one;
+            iconRect.offsetMin = new Vector2(2f, 2f);
+            iconRect.offsetMax = new Vector2(-2f, -2f);
+
+            Image image = iconObject.GetComponent<Image>();
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            image.color = Color.white;
+            image.enabled = false;
+            if (pendingIconLoads != null && !string.IsNullOrWhiteSpace(templateId))
+            {
+                pendingIconLoads.Add(new OverlayItemIconRequest
+                {
+                    Image = image,
+                    TemplateId = templateId,
+                    Generation = iconGeneration
+                });
+            }
+        }
+
+        private static void CreateOverlayItemRowLabel(Transform parent, string text, Vector2 anchoredPosition)
+        {
+            GameObject labelObject = CreateOverlayText("pitFireTeam_BuyLoadoutItemLabel", text, 17f, TextAlignmentOptions.MidlineLeft);
+            labelObject.transform.SetParent(parent, false);
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 0f);
+            labelRect.anchorMax = new Vector2(1f, 1f);
+            labelRect.offsetMin = new Vector2(anchoredPosition.x, 0f);
+            labelRect.offsetMax = new Vector2(0f, 0f);
+
+            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            label.enableWordWrapping = false;
+            label.overflowMode = TextOverflowModes.Ellipsis;
+        }
+
+        private static void CreateOverlayDivider(Transform parent)
+        {
+            GameObject dividerObject = new GameObject("pitFireTeam_BuyLoadoutItemDivider", typeof(RectTransform), typeof(Image));
+            dividerObject.transform.SetParent(parent, false);
+            RectTransform dividerRect = dividerObject.GetComponent<RectTransform>();
+            dividerRect.anchorMin = new Vector2(0f, 0f);
+            dividerRect.anchorMax = new Vector2(1f, 0f);
+            dividerRect.pivot = new Vector2(0.5f, 0f);
+            dividerRect.offsetMin = new Vector2(0f, 0f);
+            dividerRect.offsetMax = new Vector2(0f, 1f);
+
+            Image divider = dividerObject.GetComponent<Image>();
+            divider.color = new Color(1f, 1f, 1f, 0.18f);
+            divider.raycastTarget = false;
+        }
+
+        private static void StartOverlayItemIconLoads(IEnumerable<OverlayItemIconRequest> requests)
+        {
+            if (requests == null)
+            {
+                return;
+            }
+
+            // Rows are created first, then icon work starts as a batch. This avoids
+            // interleaving expensive EFT icon generation with layout construction and
+            // gives every icon frame/text row a stable target before async callbacks run.
+            foreach (OverlayItemIconRequest request in requests)
+            {
+                AssignItemIcon(request?.Image, request?.TemplateId, request?.Generation ?? 0);
+            }
+        }
+
+        private static void AssignItemIcon(Image image, string templateId, int iconGeneration)
+        {
+            if (!IsOverlayIconRequestActive(image, iconGeneration) || string.IsNullOrWhiteSpace(templateId))
+            {
+                return;
+            }
+
+            try
+            {
+                Item item = Singleton<ItemFactoryClass>.Instance.CreateItem(MongoID.Generate(true), templateId, null);
+                GClass929 icon = ItemViewFactory.LoadItemIcon(item, 1, false);
+                if (IsOverlayIconRequestActive(image, iconGeneration) && icon?.Sprite != null)
+                {
+                    image.sprite = icon.Sprite;
+                    image.enabled = true;
+                }
+
+                if (icon?.Changed != null)
+                {
+                    BuyConfirmIconBindings.Add(icon.Changed.Bind(() =>
+                    {
+                        if (IsOverlayIconRequestActive(image, iconGeneration) && icon.Sprite != null)
+                        {
+                            image.sprite = icon.Sprite;
+                            image.enabled = true;
+                        }
+                    }));
+                }
+
+                ItemViewFactory.GetItemSpriteAsync(item, 1)
+                    .ContinueWith(task =>
+                    {
+                        AssignLoadedItemIconWithRetry(image, item, templateId, task, retryAttempted: false, iconGeneration);
+                    }, TaskScheduler.FromCurrentSynchronizationContext())
+                    .HandleExceptions();
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogWarning($"[UI] Failed to load teammate kit item icon for '{templateId}': {ex.Message}");
+                if (IsOverlayIconRequestActive(image, iconGeneration))
+                {
+                    image.enabled = false;
+                }
+            }
+        }
+
+        private static bool IsOverlayIconRequestActive(Image image, int iconGeneration)
+        {
+            return image != null
+                && _buyConfirmOverlay != null
+                && iconGeneration != 0
+                && iconGeneration == _buyConfirmOverlayGeneration;
+        }
+
+        private static void AssignLoadedItemIconWithRetry(Image image, Item item, string templateId, Task<Sprite> task, bool retryAttempted, int iconGeneration)
+        {
+            if (!IsOverlayIconRequestActive(image, iconGeneration))
+            {
+                return;
+            }
+
+            if (task.Status == TaskStatus.RanToCompletion && task.Result != null)
+            {
+                image.sprite = task.Result;
+                image.enabled = true;
+                return;
+            }
+
+            if (retryAttempted)
+            {
+                pitFireTeam.Log.LogWarning($"[UI] Teammate kit item icon retry failed for '{templateId}'.");
+                return;
+            }
+
+            ItemViewFactory.GetItemSpriteAsync(item, 1)
+                .ContinueWith(retryTask =>
+                {
+                    AssignLoadedItemIconWithRetry(image, item, templateId, retryTask, retryAttempted: true, iconGeneration);
+                }, TaskScheduler.FromCurrentSynchronizationContext())
+                .HandleExceptions();
+        }
+
+        private static void UpdateInteractiveBuyQuoteBody(
+            EquipmentBuildBuyQuote quote,
+            TextMeshProUGUI titleLabel,
+            TextMeshProUGUI promptLabel,
+            RectTransform purchasedItemsContainer,
+            DefaultUIButton buyButton,
+            Button fallbackBuyButton,
+            TextMeshProUGUI fallbackBuyButtonLabel)
+        {
+            string actionText = GetQuoteActionButtonText(quote);
+            if (titleLabel != null)
+            {
+                titleLabel.text = FormatBuyOverlayTitle(quote);
+            }
+
+            if (promptLabel != null)
+            {
+                promptLabel.text = quote.CanEquipFromStash
+                    ? string.Empty
+                    : string.Format(
+                        GetSocialUiText("PurchaseKitPrompt", "Purchase {0} Kit for {1}?"),
+                        quote.BuildName,
+                        FormatRoubles(quote.FinalPrice));
+            }
+
+            CreateOverlayPurchaseItemRows(purchasedItemsContainer, quote.PurchasedItems, quote.IconGeneration);
+
+            bool canAfford = CanAffordBuyQuote(quote);
+            if (buyButton != null)
+            {
+                buyButton.SetRawText(actionText, 22);
+                buyButton.Interactable = canAfford;
+            }
+
+            if (fallbackBuyButton != null)
+            {
+                fallbackBuyButton.interactable = canAfford;
+            }
+
+            if (fallbackBuyButtonLabel != null)
+            {
+                fallbackBuyButtonLabel.text = actionText;
+            }
         }
 
         private static void ShowNotEnoughResourcesOverlay(EquipmentBuildBuyQuote quote)
@@ -938,6 +1418,13 @@ namespace pitTeam.Patches
 
         private static void ConfirmBuyQuote(EquipmentBuildBuyQuote quote)
         {
+            RecalculateBuyQuoteSelection(quote);
+            if (!CanAffordBuyQuote(quote))
+            {
+                ShowNotEnoughResourcesOverlay(quote);
+                return;
+            }
+
             ConfirmBuyQuoteAsync(quote).HandleExceptions();
         }
 
@@ -1019,6 +1506,20 @@ namespace pitTeam.Patches
 
         private static void CloseBuyConfirmOverlay()
         {
+            _buyConfirmOverlayGeneration++;
+            foreach (Action unsubscribe in BuyConfirmIconBindings.ToList())
+            {
+                try
+                {
+                    unsubscribe?.Invoke();
+                }
+                catch
+                {
+                    // Best-effort cleanup; stale icon callbacks should never block overlay close.
+                }
+            }
+
+            BuyConfirmIconBindings.Clear();
             if (_buyConfirmOverlay != null)
             {
                 UnityEngine.Object.Destroy(_buyConfirmOverlay);
@@ -1230,6 +1731,13 @@ namespace pitTeam.Patches
             return string.Format(GetSocialUiText("CurrencyRoubles", "{0:N0} RUB"), Mathf.Max(0, amount));
         }
 
+        private static string FormatBuyOverlayTitle(EquipmentBuildBuyQuote quote)
+        {
+            return quote == null
+                ? GetSocialUiText("BuyKitTitle", "BUY KIT")
+                : $"{quote.BuildName} - {FormatRoubles(quote.FinalPrice)}";
+        }
+
         private static string CreateBuyConfirmBodyText(EquipmentBuildBuyQuote quote)
         {
             string deliveryText = GetSocialUiText(
@@ -1292,9 +1800,52 @@ namespace pitTeam.Patches
                 .Select(group => new UsedStashItemSummary
                 {
                     DisplayName = group.First().DisplayName,
-                    Count = group.Sum(item => item.Count)
+                    TemplateId = group.First().TemplateId,
+                    Count = group.Sum(item => item.Count),
+                    TotalPrice = group.Sum(item => item.TotalPrice),
+                    Selected = group.Any(item => item.Selected)
                 })
                 .ToList();
+        }
+
+        private static void RecalculateBuyQuoteSelection(EquipmentBuildBuyQuote quote)
+        {
+            if (quote == null)
+            {
+                return;
+            }
+
+            List<UsedStashItemSummary> selectedStashItems = quote.AvailableStashItems
+                .Where(item => item?.Selected == true && item.Count > 0)
+                .Select(CloneUsedStashItemSummary)
+                .ToList();
+            List<UsedStashItemSummary> purchasedItems = quote.BasePurchasedItems
+                .Select(CloneUsedStashItemSummary)
+                .ToList();
+
+            foreach (UsedStashItemSummary unselectedItem in quote.AvailableStashItems.Where(item => item?.Selected != true && item.Count > 0))
+            {
+                purchasedItems.Add(CloneUsedStashItemSummary(unselectedItem));
+            }
+
+            double selectedValue = selectedStashItems.Sum(item => item.TotalPrice);
+            quote.UsedStashItems = selectedStashItems;
+            quote.PurchasedItems = purchasedItems;
+            quote.FinalPrice = Mathf.Max(0, quote.FullKitPrice - Convert.ToInt32(Math.Floor(selectedValue)));
+            quote.MissingOnlyPrice = quote.FinalPrice;
+            quote.CanEquipFromStash = quote.ExcludeExistingItems && quote.PurchasedItems.Count == 0;
+        }
+
+        private static UsedStashItemSummary CloneUsedStashItemSummary(UsedStashItemSummary item)
+        {
+            return new UsedStashItemSummary
+            {
+                TemplateId = item.TemplateId,
+                DisplayName = item.DisplayName,
+                Count = item.Count,
+                TotalPrice = item.TotalPrice,
+                Selected = item.Selected
+            };
         }
 
         private static int CountOverlayTextLines(string text)
@@ -1449,7 +2000,9 @@ namespace pitTeam.Patches
                     {
                         TemplateId = requirement.TemplateId,
                         DisplayName = requirement.DisplayName,
-                        Count = usedCount
+                        Count = usedCount,
+                        TotalPrice = requirement.TotalPrice * ((double)usedCount / requirement.RequiredCount),
+                        Selected = true
                     });
                 }
 
@@ -1460,7 +2013,8 @@ namespace pitTeam.Patches
                     {
                         TemplateId = requirement.TemplateId,
                         DisplayName = requirement.DisplayName,
-                        Count = remainingCount
+                        Count = remainingCount,
+                        TotalPrice = requirement.TotalPrice * ((double)remainingCount / requirement.RequiredCount)
                     });
                 }
             }
@@ -1537,9 +2091,14 @@ namespace pitTeam.Patches
             // These are structural roots inside EFT's equipment-build tree. Their
             // children are real kit requirements, but the roots themselves are not
             // purchasable gear and should not appear in the teammate kit quote.
+            //
+            // BuiltInInsertsItemClass is also skipped: EFT exposes these as child
+            // items for armor/helmet stats, but they are integral materials, not
+            // player-buyable or swappable kit parts.
             return item == null
                 || item is InventoryEquipment
-                || item is PocketsItemClass;
+                || item is PocketsItemClass
+                || item is BuiltInInsertsItemClass;
         }
 
         private static Dictionary<string, int> CreateStashOnlyTemplateCounts()
@@ -2029,7 +2588,10 @@ namespace pitTeam.Patches
             public int FinalPrice;
             public bool ExcludeExistingItems;
             public bool CanEquipFromStash;
+            public int IconGeneration;
             public Dictionary<string, int> MissingTemplateCounts;
+            public List<UsedStashItemSummary> AvailableStashItems = new List<UsedStashItemSummary>();
+            public List<UsedStashItemSummary> BasePurchasedItems = new List<UsedStashItemSummary>();
             public List<UsedStashItemSummary> UsedStashItems = new List<UsedStashItemSummary>();
             public List<UsedStashItemSummary> PurchasedItems = new List<UsedStashItemSummary>();
         }
@@ -2083,6 +2645,15 @@ namespace pitTeam.Patches
             public string TemplateId;
             public string DisplayName;
             public int Count;
+            public double TotalPrice;
+            public bool Selected;
+        }
+
+        private sealed class OverlayItemIconRequest
+        {
+            public Image Image;
+            public string TemplateId;
+            public int Generation;
         }
 
         private sealed class BuildRowState

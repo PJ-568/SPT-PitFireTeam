@@ -143,16 +143,20 @@ When clicked in buy mode:
 - if `Use items in stash` is on, the quote uses a pitFireTeam stash-only availability pass and does not count gear currently equipped on the player
 - the quote builds its requirement list from the full selected equipment build collection, not only visible slot roots, so nested weapon mods, armor plates, armor inserts, magazine contents, and container contents are itemized
 - structural EFT container roots such as the saved equipment object and pockets container are ignored as purchasable requirements; their child items are still scanned and counted
-- when stash items are matched, the overlay lists every matched quantity that will be taken from stash, for example `60 x ammo`, `2 x flashlight`, or `grip`
-- when the stash only covers part of the selected kit, the overlay also lists the remaining deep item requirements that will be purchased
+- built-in armor/helmet inserts such as integral material layers are ignored because they are descriptive/internal components, not buyable or swappable kit parts
+- when stash items are matched, the overlay shows each matched quantity as a checked, left-aligned row with a 40x40 item icon and divider, for example `60 x ammo`, `2 x flashlight`, or `grip`
+- icon frames and text rows are laid out first; item icon sprite generation is started afterward in a batch so delayed EFT icon generation does not block or disturb layout
+- EFT's icon sprite requests are not directly cancellable, so closing the overlay invalidates the current icon-generation token, unsubscribes icon-change bindings, and ignores any late sprite callbacks or retries
+- the player can uncheck matched stash entries before confirming; unchecked entries are moved back into the purchased list and the quoted price/action button updates immediately
+- when the stash only covers part of the selected kit, or when the player unchecks matched stash entries, the overlay lists the remaining deep item requirements that will be purchased as matching icon rows with dividers
 - repeated lines with the same visible item name are grouped for overlay readability
 - the stash-used list prefers full localized item names; EFT short names are only a fallback because some stock short names are intentionally truncated
 - the stash-used list is scrollable so large nested kits do not hide entries behind ellipsis
 - before the confirmation overlay opens, the client checks current stash roubles and the planned `Use items in stash` template/count list
 - if resources are not available, a `Not enough resources to purchase {name} kit` overlay opens with an `OK` button and no purchase action
-- a confirmation overlay asks the user to purchase the selected kit for the quoted price; the quoted amount already reflects the `Use items in stash` choice
+- a confirmation overlay asks the user to purchase the selected kit for the quoted price; its header is `{kit name} - {price}` and updates whenever stash-use checkboxes change
 - if `Use items in stash` covers every required kit item, the overlay skips the purchase question, shows only the stash-take list, and the action button is `EQUIP`
-- pressing `Purchase` / `EQUIP` inside the overlay shows the loader, posts the selected build tree to `/singleplayer/pitfireteam/teammate/profile/buy-kit`, refreshes the live player stash from the server response, queues the teammate roster portrait for regeneration, closes the overlay, and returns to the teammate profile
+- pressing `Purchase` / `EQUIP` inside the overlay shows the loader, posts the selected build tree and only the currently checked stash-use entries to `/singleplayer/pitfireteam/teammate/profile/buy-kit`, refreshes the live player stash from the server response, queues the teammate roster portrait for regeneration, closes the overlay, and returns to the teammate profile
 
 Server-side transaction behavior:
 

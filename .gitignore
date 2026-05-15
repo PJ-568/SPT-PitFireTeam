@@ -58,3 +58,4 @@ types
 /LOCAL.md
 /local.md
 /TASKS.md
+*.csproj.lscache
