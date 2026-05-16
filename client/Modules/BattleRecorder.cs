@@ -211,6 +211,49 @@ namespace pitTeam.Modules
             });
         }
 
+        public static void RecordFollowerDeath(
+            BotFollowerPlayer follower,
+            Player player,
+            IPlayer? aggressor,
+            EBodyPart bodyPart,
+            EDamageType lethalDamageType)
+        {
+            BotOwner? bot = follower?.GetBot();
+            if (!IsRecording() || player == null || string.IsNullOrEmpty(player.ProfileId))
+            {
+                return;
+            }
+
+            RecorderFollowerState state = bot != null
+                ? GetOrCreateState(bot)
+                : GetOrCreateState(player.ProfileId);
+
+            WriteEventInternal("followerDeath", bot, new
+            {
+                profileId = player.ProfileId,
+                nickname = player.Profile?.Nickname,
+                position = CreateVector(player.Transform.position),
+                bodyPart = bodyPart.ToString(),
+                lethalDamageType = lethalDamageType.ToString(),
+                aggressor = aggressor != null
+                    ? new
+                    {
+                        profileId = aggressor.ProfileId,
+                        nickname = aggressor.Profile?.Nickname,
+                        side = aggressor.Side.ToString()
+                    }
+                    : null,
+                botState = bot?.BotState.ToString(),
+                isDead = bot?.IsDead,
+                medical = new
+                {
+                    healthStatus = player.HealthStatus.ToString()
+                },
+                state = CreateRecorderStatePayload(state),
+                snapshot = bot != null ? CreateBotSnapshot(bot, state) : null
+            });
+        }
+
         public static void RecordDecisionSelected(
             BotOwner bot,
             AICoreActionResultStruct<BotLogicDecision, GClass26>? previousDecision,
@@ -759,6 +802,11 @@ namespace pitTeam.Modules
         private static RecorderFollowerState GetOrCreateState(BotOwner bot)
         {
             string profileId = bot.ProfileId ?? string.Empty;
+            return GetOrCreateState(profileId);
+        }
+
+        private static RecorderFollowerState GetOrCreateState(string profileId)
+        {
             if (!FollowerStates.TryGetValue(profileId, out RecorderFollowerState? state))
             {
                 state = new RecorderFollowerState();

@@ -337,8 +337,7 @@ namespace pitTeam.Patches
                     return false;
                 }
 
-                if ((phrase == EPhraseTrigger.OnFirstContact || phrase == EPhraseTrigger.OnRepeatedContact) &&
-                    !FollowerContactPhraseGate.ShouldAllow(botOwner))
+                if (FollowerContactPhraseGate.IsContactPhrase(phrase) && !FollowerContactPhraseGate.ShouldAllow(botOwner))
                 {
                     __result = false;
                     return false;

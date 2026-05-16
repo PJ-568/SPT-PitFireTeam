@@ -523,7 +523,45 @@ namespace pitTeam.Modules
         {
             public int NoNearbyCarrier { get; set; }
             public int NoEquipmentSnapshot { get; set; }
+            public int OverWeight { get; set; }
+            public int BackpackLimit { get; set; }
             public int NoSpace { get; set; }
+        }
+
+        private sealed class RecoveryCarrierState
+        {
+            public RecoveryCarrierState(InventoryEquipment equipment, float maxWeightKg)
+            {
+                Equipment = equipment;
+                MaxWeightKg = maxWeightKg;
+                CurrentWeightKg = GetItemWeight(equipment);
+                BackpackCarryCapacity = equipment.GetSlot(EquipmentSlot.Backpack)?.ContainedItem == null ? 2 : 1;
+            }
+
+            public InventoryEquipment Equipment { get; }
+            public float MaxWeightKg { get; }
+            public float CurrentWeightKg { get; private set; }
+            public int BackpackCarryCapacity { get; }
+            public int RecoveredBackpacks { get; private set; }
+
+            public bool CanCarryWeight(float itemWeight)
+            {
+                return CurrentWeightKg + itemWeight <= MaxWeightKg;
+            }
+
+            public bool CanCarryBackpack(RecoverableGearCandidate candidate)
+            {
+                return candidate.Slot != EquipmentSlot.Backpack || RecoveredBackpacks < BackpackCarryCapacity;
+            }
+
+            public void RecordRecovered(RecoverableGearCandidate candidate, float itemWeight)
+            {
+                CurrentWeightKg += itemWeight;
+                if (candidate.Slot == EquipmentSlot.Backpack)
+                {
+                    RecoveredBackpacks++;
+                }
+            }
         }
 
         private sealed class FallenSquadmateInfo

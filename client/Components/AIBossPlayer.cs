@@ -173,6 +173,7 @@ namespace pitTeam.Components
                 {
                     // Contact: point followers toward a seen or aimed-at threat and seed enemy memory.
                     ProcessContactCommand(info.PlayerRequester);
+                    return;
                 }
                 else if (info.phrase == EPhraseTrigger.InTheFront ||
                          info.phrase == EPhraseTrigger.LeftFlank ||
@@ -272,21 +273,11 @@ namespace pitTeam.Components
                 // Commands handled here are consumed before the gesture is forwarded to vanilla receivers.
                 if (info.Gesture == (EInteraction)CustomGestures.OverThere)
                 {
-                    // Over There: gesture-based Contact plus vanilla receiver feedback.
+                    // Over There: gesture-based Contact. Do not forward the contact phrase to
+                    // receivers; commanded acquisition should be silent and go straight to fighting.
                     _ignoreNextThereGestureUntil = Time.time + 0.75f;
                     ProcessContactCommand(info.Player, true);
 
-                    EventInfo overThereInfo = new EventInfo
-                    {
-                        phrase = EPhraseTrigger.OnRepeatedContact,
-                        PlayerRequester = info.Player
-                    };
-
-                    foreach (var item in Followers)
-                    {
-                        if (!CanReactToBossGesture(item, info.Player)) continue;
-                        item?.Receiver?.method_0(overThereInfo);
-                    }
                     return;
                 }
 
@@ -457,6 +448,7 @@ namespace pitTeam.Components
 
                     bool prioritizeAsGoal = prioritizedGoalEnemy != null &&
                                             enemy.ProfileId == prioritizedGoalEnemy.ProfileId;
+                    pitTeam.Patches.FollowerContactPhraseGate.SuppressCommandedContact(follower, enemy.ProfileId, 4f);
                     RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal, true);
                     enemiesInjected++;
                 }
@@ -2108,6 +2100,7 @@ namespace pitTeam.Components
                 if (hasCombatEnemy)
                 {
                     // GoForward in combat is not a movement ping; it becomes PushEnemy for combat objective routing.
+                    followerData.ClearTemporaryCombatAggressionOverride();
                     followerData.SetPushEnemy(12f);
                     if (followerData.CombatTactic != FollowerCombatTactic.Marksman)
                     {

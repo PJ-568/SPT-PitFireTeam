@@ -373,6 +373,10 @@ namespace pitTeam
             new MainMenuControllerReadyScreenGatePatch().Enable();
             new TarkovApplicationLocalRaidGatePatch().Enable();
             new TarkovApplicationOnlineFallbackPatch().Enable();
+            // Compatibility guard: hideout/trader-scene cleanup can null-ref while
+            // the teammate flow forces the raid into local mode. Keep this narrow
+            // so only that synthetic raid-start unload window is affected.
+            new HideoutGameDisposeSyntheticRaidGuardPatch().Enable();
             new MatchmakerPlayerControllerClassAddMemberPatch().Enable();
             new MatchmakerPlayerControllerClassDisbandGroupPatch().Enable();
             new MatchmakerPlayerControllerClassAbortPatch().Enable();
@@ -421,6 +425,7 @@ namespace pitTeam
             new LoadoutEditorUnloadAmmoPatch().Enable();
             new LoadoutEditorRepairContextInteractionPatch().Enable();
             new LoadoutEditorRepairByKitPatch().Enable();
+            new LoadoutEditorRepairByTraderPatch().Enable();
             new TeammateEquipmentBuildsScreenShowPatch().Enable();
             new TeammateEquipmentBuildsScreenVisualPatch().Enable();
             new TeammateEquipmentBuildsScreenSelectionPatch().Enable();

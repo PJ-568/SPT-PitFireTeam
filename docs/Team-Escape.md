@@ -181,6 +181,17 @@ The simulation can use empty live slots on escaped teammates:
 - eyewear
 - backpack
 
+Carrier limits:
+
+- each escaped teammate can carry up to their EFT walking-drain threshold
+- this threshold uses the same client formula as player weight limits:
+  `WalkOverweightLimits.x * Strength/health/stim relative carry modifiers + health/stim absolute carry modifier`
+- current follower gear counts toward that per-carrier threshold
+- recovered gear uses EFT `Item.TotalWeight`, so armor plates, attachments, and contained vest items count with their parent item
+- each escaped teammate can recover up to two backpack items if they started without a backpack
+- each escaped teammate can recover one additional backpack item if they already had a backpack
+- the backpack cap is checked separately from grid/slot availability
+
 The simulation can also use available container space in:
 
 - backpack
@@ -223,6 +234,8 @@ In `Simple` and `Restricted`, teammate gear is protected and is not recovered fr
 If teammate gear is recovered, it is mailed to the player. It is not saved onto escaped teammate profiles.
 
 If a teammate died before the player, that teammate should still receive a lost outcome. In `Immersive` and `Realistic`, the server strips that teammate's saved `Default` equipment according to the loadout-management death-loss rules.
+
+Death stripping keeps permanent teammate identity/layout slots. Pockets are preserved only as an empty structural container so special slots remain anchored; normal pocket contents are still lost.
 
 ## Tracked Follower Loot
 

@@ -209,7 +209,7 @@ namespace pitTeam.Patches
         {
             try
             {
-                TryRecordDeadSquadmate(__instance);
+                TryRecordDeadSquadmate(__instance, aggressor, bodyPart, lethalDamageType);
                 TryRecordPlayerKillMessage(__instance, aggressor);
 
                 if (aggressor?.Profile?.Info?.Settings == null || __instance?.GameWorld == null)
@@ -294,7 +294,11 @@ namespace pitTeam.Patches
             }
         }
 
-        private static void TryRecordDeadSquadmate(Player player)
+        private static void TryRecordDeadSquadmate(
+            Player player,
+            IPlayer aggressor,
+            EBodyPart bodyPart,
+            EDamageType lethalDamageType)
         {
             try
             {
@@ -310,6 +314,12 @@ namespace pitTeam.Patches
                     return;
                 }
 
+                BattleRecorder.RecordFollowerDeath(
+                    deadFollower,
+                    player,
+                    aggressor,
+                    bodyPart,
+                    lethalDamageType);
                 NpcMessage.RemoveNpc(player.ProfileId, true);
                 FollowerDeathEscapeResolver.RecordFallenSquadmate(player);
             }

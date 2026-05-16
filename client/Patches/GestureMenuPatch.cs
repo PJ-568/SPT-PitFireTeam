@@ -39,7 +39,7 @@ namespace pitTeam.Patches
             textField.enableWordWrapping = false;
             textField.overflowMode = TextOverflowModes.Overflow;
 
-            float textWidth = Mathf.Max(128f, textField.GetPreferredValues(textField.text, 260f, 40f).x + 8f);
+            float textWidth = Mathf.Max(84f, textField.GetPreferredValues(textField.text, 170f, 40f).x + 5f);
             EnsureMinWidth(textField.rectTransform, textWidth);
 
             LayoutElement textLayout = textField.GetComponent<LayoutElement>() ?? textField.gameObject.AddComponent<LayoutElement>();
@@ -48,7 +48,7 @@ namespace pitTeam.Patches
 
             if (quickCommandObject?.transform is RectTransform quickRect)
             {
-                EnsureMinWidth(quickRect, textWidth + 54f);
+                EnsureMinWidth(quickRect, textWidth + 35f);
             }
 
             if (textField.transform.parent is RectTransform parentRect)

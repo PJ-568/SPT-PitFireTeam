@@ -353,7 +353,7 @@ Use commands deliberately instead of continuously micromanaging.
 
 ### Raid Survival Post Player
 
-Your teammates can still successfully extract after your death and return any loot they were carrying for you. The escape chance is calculated based on the distance to extraction, how many teammates are still alive, their equipment quality, the estimated threat level of enemies between them and the extraction, as well as their current health and available medical supplies.
+Your teammates can still successfully extract after your death and return any loot they were carrying for you. The escape chance is calculated based on the distance to extraction, how many teammates are still alive, their equipment quality, the estimated threat level of enemies between them and the extraction, as well as their current health and available medical supplies. The amount of gear they will be able to return upon escaping depends on their available inventory space as well as their strength level.
 
 ### Loot Management
 

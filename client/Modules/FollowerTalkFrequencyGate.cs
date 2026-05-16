@@ -1,5 +1,6 @@
 using EFT;
 using pitTeam.Components;
+using pitTeam.Patches;
 using System;
 
 namespace pitTeam.Modules
@@ -15,6 +16,14 @@ namespace pitTeam.Modules
                 return false;
             }
 
+            // First-contact callouts are tactical information, not ambient combat chatter. They are
+            // still deduplicated by FollowerContactPhraseGate and explicitly suppressed for player
+            // Contact / Over There commands, but the trash-talk percentage must not mute them.
+            if (FollowerContactPhraseGate.IsContactPhrase(phrase))
+            {
+                return false;
+            }
+
             if (!IsCombatTalkPhrase(owner, phrase))
             {
                 return false;
@@ -26,7 +35,6 @@ namespace pitTeam.Modules
         private static bool IsCombatTalkPhrase(BotOwner owner, EPhraseTrigger phrase)
         {
             return phrase == EPhraseTrigger.OnFight
-                || phrase == EPhraseTrigger.OnRepeatedContact
                 || (owner.Memory?.HaveEnemy == true && (phrase == EPhraseTrigger.MumblePhrase || phrase == EPhraseTrigger.OnMutter));
         }
 

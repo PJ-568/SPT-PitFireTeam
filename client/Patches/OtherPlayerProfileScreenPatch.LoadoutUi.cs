@@ -1165,6 +1165,52 @@ namespace pitTeam.Patches
             }
         }
 
+        internal static async Task<IResult> RepairLoadoutEditorEquipmentWithTraderAsync(string traderId, RepairItem repairItem, Item itemToRepair)
+        {
+            if (repairItem == null || !CanRepairLoadoutEditorEquipmentItem(itemToRepair))
+            {
+                return new FailedResult("This teammate loadout item cannot be repaired from the editor", 0);
+            }
+
+            SetLoadoutEditorBusy(true);
+            try
+            {
+                string responseJson = await Task.Run(() => RequestHandler.PostJson(
+                    RepairEquipmentRoute,
+                    SerializeBody(new FriendlyTeammateRepairEquipmentRequest
+                    {
+                        aid = ViewedProfile.AccountId,
+                        target = itemToRepair.Id,
+                        traderId = traderId,
+                        repairCount = repairItem.Count
+                    })));
+
+                FriendlyTeammateBodyResponse<FriendlyTeammateRepairEquipmentResponse> response =
+                    DeserializeBodySuccess<FriendlyTeammateRepairEquipmentResponse>(responseJson);
+                FriendlyTeammateRepairEquipmentResponse data = response?.data;
+                if (data == null)
+                {
+                    return new FailedResult("The teammate trader repair response was empty", 0);
+                }
+
+                ApplyLoadoutEditorRepairResult(itemToRepair, data);
+                ApplyServerSavedPlayerStash(data.playerStashItems);
+                MarkSquadRosterDirty(ViewedProfile.AccountId);
+                pitFireTeam.Log.LogInfo($"[UI] Repaired teammate loadout item '{itemToRepair.Id}' through teammate trader repair route.");
+                return SuccessfulResult.New;
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogError("[UI] Failed to repair teammate loadout equipment with trader.");
+                pitFireTeam.Log.LogError(ex);
+                return new FailedResult("Failed to repair teammate loadout item", 0);
+            }
+            finally
+            {
+                SetLoadoutEditorBusy(false);
+            }
+        }
+
         private static void ApplyLoadoutEditorRepairResult(Item itemToRepair, FriendlyTeammateRepairEquipmentResponse response)
         {
             RepairableComponent repairable = itemToRepair.GetItemComponent<RepairableComponent>();
@@ -1650,6 +1696,8 @@ namespace pitTeam.Patches
             public string aid { get; set; }
             public string target { get; set; }
             public RepairItem[] repairKitsInfo { get; set; }
+            public string traderId { get; set; }
+            public float? repairCount { get; set; }
         }
 
         private sealed class FriendlyTeammateRepairEquipmentResponse

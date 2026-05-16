@@ -682,9 +682,11 @@ public class FriendlyTeammateService(
         var teammate = FindByAccountId(sessionId, request.Aid);
         string targetItemId = NormalizeRequiredValue(request.Target, "target");
         var repairKits = request.RepairKitsInfo?.Where(kit => kit != null).ToList();
-        if (repairKits == null || repairKits.Count == 0)
+        bool repairWithKit = repairKits is { Count: > 0 };
+        bool repairWithTrader = !string.IsNullOrWhiteSpace(request.TraderId) && request.RepairCount.GetValueOrDefault(0) > 0;
+        if (!repairWithKit && !repairWithTrader)
         {
-            throw new FriendlyTeammateException("Missing repair kit information for teammate repair");
+            throw new FriendlyTeammateException("Missing repair information for teammate repair");
         }
 
         teammate.Inventory ??= new BotBaseInventory { Items = [] };
@@ -697,16 +699,19 @@ public class FriendlyTeammateService(
         playerPmc.Inventory ??= new BotBaseInventory { Items = [] };
         playerPmc.Inventory.Items ??= [];
 
-        foreach (var repairKit in repairKits)
+        if (repairWithKit)
         {
-            if (repairKit.Count.GetValueOrDefault(0) <= 0)
+            foreach (var repairKit in repairKits!)
             {
-                throw new FriendlyTeammateException("Invalid repair kit amount for teammate repair");
-            }
+                if (repairKit.Count.GetValueOrDefault(0) <= 0)
+                {
+                    throw new FriendlyTeammateException("Invalid repair kit amount for teammate repair");
+                }
 
-            if (!playerPmc.Inventory.Items.Any(item => item.Id == repairKit.Id))
-            {
-                throw new FriendlyTeammateException($"Player repair kit '{repairKit.Id}' was unavailable for teammate repair");
+                if (!playerPmc.Inventory.Items.Any(item => item.Id == repairKit.Id))
+                {
+                    throw new FriendlyTeammateException($"Player repair kit '{repairKit.Id}' was unavailable for teammate repair");
+                }
             }
         }
 
@@ -731,46 +736,71 @@ public class FriendlyTeammateService(
             fakeRepairProfile.Inventory.Items.Add(item);
         }
 
-        var output = CreateEmptyRepairOutput(sessionId, fakeRepairProfile);
-        RepairDetails repairDetails = repairService.RepairItemByKit(
-            sessionId,
-            fakeRepairProfile,
-            repairKits,
-            new MongoId(targetItemId),
-            output);
-        repairService.AddBuffToItem(repairDetails, fakeRepairProfile);
-        repairService.AddRepairSkillPoints(sessionId, repairDetails, fakeRepairProfile);
-
-        Item repairedFakeItem = fakeRepairProfile.Inventory.Items
-            .FirstOrDefault(item => string.Equals(item.Id.ToString(), targetItemId, StringComparison.OrdinalIgnoreCase))
-            ?? throw new FriendlyTeammateException("Stock repair did not return the repaired teammate item");
-        var repairedRepairable = repairedFakeItem.Upd?.Repairable
-            ?? throw new FriendlyTeammateException("Stock repair did not produce teammate repair durability data");
-        var repairedBuff = repairedFakeItem.Upd?.Buff;
-
         var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
         var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
         var originalTeammateEquipment = teammate.Inventory.Equipment;
+
         try
         {
-            foreach (var repairKit in repairKits)
+            var output = CreateEmptyRepairOutput(sessionId, playerPmc);
+            RepairDetails repairDetails;
+            if (repairWithKit)
             {
-                Item? fakeRepairKit = fakeRepairProfile.Inventory.Items.FirstOrDefault(item => item.Id == repairKit.Id);
-                Item? playerRepairKit = playerPmc.Inventory.Items.FirstOrDefault(item => item.Id == repairKit.Id);
-                if (fakeRepairKit == null)
+                repairDetails = repairService.RepairItemByKit(
+                    sessionId,
+                    fakeRepairProfile,
+                    repairKits!,
+                    new MongoId(targetItemId),
+                    output);
+                repairService.AddBuffToItem(repairDetails, fakeRepairProfile);
+                repairService.AddRepairSkillPoints(sessionId, repairDetails, fakeRepairProfile);
+            }
+            else
+            {
+                var traderId = new MongoId(NormalizeRequiredValue(request.TraderId, "traderId"));
+                var repairItem = new RepairItem
                 {
-                    RemoveItemTreesById(playerPmc.Inventory.Items, [repairKit.Id.ToString()]);
-                    continue;
+                    Id = new MongoId(targetItemId),
+                    Count = request.RepairCount,
+                };
+                repairDetails = repairService.RepairItemByTrader(sessionId, fakeRepairProfile, repairItem, traderId);
+                repairService.PayForRepair(sessionId, playerPmc, targetItemId, repairDetails.RepairCost.GetValueOrDefault(0), traderId, output);
+                if (output.Warnings is { Count: > 0 })
+                {
+                    throw new FriendlyTeammateException("Unable to pay for teammate trader repair");
                 }
 
-                if (playerRepairKit == null)
-                {
-                    throw new FriendlyTeammateException($"Player repair kit '{repairKit.Id}' disappeared during teammate repair");
-                }
+                repairService.AddRepairSkillPoints(sessionId, repairDetails, fakeRepairProfile);
+            }
 
-                playerRepairKit.Upd ??= new Upd();
-                playerRepairKit.Upd.RepairKit = cloner.Clone(fakeRepairKit.Upd?.RepairKit);
-                playerRepairKit.Upd.StackObjectsCount = fakeRepairKit.Upd?.StackObjectsCount ?? playerRepairKit.Upd.StackObjectsCount;
+            Item repairedFakeItem = fakeRepairProfile.Inventory.Items
+                .FirstOrDefault(item => string.Equals(item.Id.ToString(), targetItemId, StringComparison.OrdinalIgnoreCase))
+                ?? throw new FriendlyTeammateException("Stock repair did not return the repaired teammate item");
+            var repairedRepairable = repairedFakeItem.Upd?.Repairable
+                ?? throw new FriendlyTeammateException("Stock repair did not produce teammate repair durability data");
+            var repairedBuff = repairedFakeItem.Upd?.Buff;
+
+            if (repairWithKit)
+            {
+                foreach (var repairKit in repairKits!)
+                {
+                    Item? fakeRepairKit = fakeRepairProfile.Inventory.Items.FirstOrDefault(item => item.Id == repairKit.Id);
+                    Item? playerRepairKit = playerPmc.Inventory.Items.FirstOrDefault(item => item.Id == repairKit.Id);
+                    if (fakeRepairKit == null)
+                    {
+                        RemoveItemTreesById(playerPmc.Inventory.Items, [repairKit.Id.ToString()]);
+                        continue;
+                    }
+
+                    if (playerRepairKit == null)
+                    {
+                        throw new FriendlyTeammateException($"Player repair kit '{repairKit.Id}' disappeared during teammate repair");
+                    }
+
+                    playerRepairKit.Upd ??= new Upd();
+                    playerRepairKit.Upd.RepairKit = cloner.Clone(fakeRepairKit.Upd?.RepairKit);
+                    playerRepairKit.Upd.StackObjectsCount = fakeRepairKit.Upd?.StackObjectsCount ?? playerRepairKit.Upd.StackObjectsCount;
+                }
             }
 
             playerPmc.Skills = cloner.Clone(fakeRepairProfile.Skills) ?? playerPmc.Skills;
@@ -786,7 +816,7 @@ public class FriendlyTeammateService(
             SaveTeammate(sessionId, teammate);
             saveServer.SaveProfileAsync(sessionId).GetAwaiter().GetResult();
 
-            logger.Info($"Repaired teammate '{teammate.Aid}' default equipment item '{targetItemId}' through stock repair service.");
+            logger.Info($"Repaired teammate '{teammate.Aid}' default equipment item '{targetItemId}' through stock {(repairWithKit ? "kit" : "trader")} repair service.");
 
             return new FriendlyTeammateRepairEquipmentResponse
             {
@@ -989,6 +1019,7 @@ public class FriendlyTeammateService(
         // Temporarily disabled: this floor baseline can over-inflate teammate skills.
         // ApplyPmcFollowerSkillBaseline(clone);
         ApplyTemporaryHealthMultiplier(clone, healthMultiplier);
+        EnsureFollowerHasPockets(clone);
         EnsureFollowerHasScabbardKnife(clone);
 
         var mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
@@ -1171,6 +1202,7 @@ public class FriendlyTeammateService(
 
         // Keep or inject a scabbard knife before stripping. EFT already prevents knife looting, and
         // this gives later spawn/preview validation a stable legal melee slot to work with.
+        EnsureFollowerHasPockets(teammate);
         EnsureFollowerHasScabbardKnife(teammate);
 
         string rootId = GetEquipmentRootId(teammate);
@@ -1179,7 +1211,16 @@ public class FriendlyTeammateService(
                      !string.IsNullOrWhiteSpace(item?.SlotId) &&
                      IsPermanentTeammateEquipmentSlot(item.SlotId, keepSecureContainer)).ToList())
         {
-            // Preserve descendants for kept containers/items so attached child items are not orphaned.
+            // Pockets are a permanent equipment container, but pocket contents are normal loot
+            // and should still be lost on teammate death. Keep the container itself so special
+            // slots under it remain anchored, then preserve special-slot trees separately.
+            if (IsPocketsSlotItem(preservedItem))
+            {
+                keepIds.Add(preservedItem.Id.ToString());
+                continue;
+            }
+
+            // Preserve descendants for kept equipment items so attached child items are not orphaned.
             AddItemAndDescendantsToKeepSet(teammate.Inventory.Items, preservedItem.Id.ToString(), keepIds);
         }
 
@@ -1236,6 +1277,45 @@ public class FriendlyTeammateService(
         });
 
         logger.Info($"Injected default scabbard knife for teammate '{profile.Aid}'.");
+    }
+
+    private void EnsureFollowerHasPockets(BotBase profile)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (profile.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        string rootId = GetEquipmentRootId(profile);
+        var pockets = profile.Inventory.Items.FirstOrDefault(IsPocketsSlotItem);
+        if (pockets == null)
+        {
+            pockets = new Item
+            {
+                Id = new MongoId(),
+                Template = new MongoId(FriendlyItemTemplateIds.EquipmentContainer.Pockets),
+                ParentId = rootId,
+                SlotId = nameof(EquipmentSlots.Pockets),
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = 1,
+                    SpawnedInSession = false,
+                },
+            };
+            profile.Inventory.Items.Add(pockets);
+            logger.Info($"Injected missing pockets container for teammate '{profile.Aid}'.");
+        }
+
+        string pocketsId = pockets.Id.ToString();
+        foreach (var specialSlot in profile.Inventory.Items.Where(item =>
+                     item?.SlotId != null &&
+                     item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)))
+        {
+            specialSlot.ParentId = pocketsId;
+        }
     }
 
     private void EnsureManagedSecureContainer(BotBase profile)
@@ -1414,6 +1494,7 @@ public class FriendlyTeammateService(
             && (slotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
                 || slotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
                 || (keepSecureContainer && slotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(slotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
                 || string.Equals(slotId, nameof(EquipmentSlots.Scabbard), StringComparison.OrdinalIgnoreCase)
                 || string.Equals(slotId, "ArmBand", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(slotId, "Armband", StringComparison.OrdinalIgnoreCase));
@@ -2534,6 +2615,8 @@ public class FriendlyTeammateService(
 
     private void SaveTeammate(MongoId sessionId, BotBase teammate)
     {
+        EnsureFollowerHasPockets(teammate);
+
         // Simple/Restricted/Immersive use a temporary managed secure container only on the spawn clone.
         // Do not persist generated meds/ammo, or a stale hidden container, into the teammate profile.
         if (!IsCurrentLoadoutManagementModeExtreme() && RemoveSecureContainerTree(teammate))

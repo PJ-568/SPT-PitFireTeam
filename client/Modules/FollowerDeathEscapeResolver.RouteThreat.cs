@@ -130,7 +130,7 @@ namespace pitTeam.Modules
             }
         }
 
-        private static float GetRouteThreatRoleMultiplier(WildSpawnType role)
+        internal static float GetRouteThreatRoleMultiplier(WildSpawnType role)
         {
             if (RouteThreatRoleMultipliers.TryGetValue(role, out float multiplier))
             {

@@ -50,6 +50,29 @@ namespace pitTeam.Patches
         }
     }
 
+    internal sealed class LoadoutEditorRepairByTraderPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(TraderClass), nameof(TraderClass.RepairItems));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(TraderClass __instance, RepairItem repairItem, ref Task<IResult> __result)
+        {
+            if (__instance == null
+                || repairItem == null
+                || !OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(repairItem.Id, out Item itemToRepair)
+                || !OtherPlayerProfileScreenPatch.CanRepairLoadoutEditorEquipmentItem(itemToRepair))
+            {
+                return true;
+            }
+
+            __result = OtherPlayerProfileScreenPatch.RepairLoadoutEditorEquipmentWithTraderAsync(__instance.Id, repairItem, itemToRepair);
+            return false;
+        }
+    }
+
     internal sealed class LoadoutEditorRepairContextInteractionPatch : ModulePatch
     {
         protected override MethodBase GetTargetMethod()

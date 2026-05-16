@@ -169,7 +169,6 @@ namespace pitTeam.BigBrain
             {
                 // As soon as live enemy is gone, hand off to a short linger hold while the
                 // combat layer remains active for release/handoff timing.
-                BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
                 if (!combatLogicResetForInactive)
                 {
                     combatLogic.Reset();
@@ -183,7 +182,6 @@ namespace pitTeam.BigBrain
             {
                 // Medical work discovered during combat must remain in this layer. Handing the
                 // bot to patrol while heal/surgery is pending can leave vanilla med nodes stuck.
-                BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
                 combatLogicResetForInactive = false;
                 ClearLinger();
                 nextDecision = combatLogic.GetMedicalDecision();

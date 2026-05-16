@@ -74,6 +74,12 @@ public record FriendlyTeammateRepairEquipmentRequest : IRequestData
 
     [JsonPropertyName("repairKitsInfo")]
     public List<RepairKitsInfo>? RepairKitsInfo { get; set; }
+
+    [JsonPropertyName("traderId")]
+    public string? TraderId { get; set; }
+
+    [JsonPropertyName("repairCount")]
+    public double? RepairCount { get; set; }
 }
 
 public record FriendlyTeammateRepairEquipmentResponse

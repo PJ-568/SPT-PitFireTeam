@@ -10,6 +10,8 @@ namespace pitTeam.Modules
 {
     internal static partial class FollowerDeathEscapeResolver
     {
+        private const float FallbackEscapeCarrierWeightKg = 48f;
+
         private static void ApplyDeathGearRecoveryToEscapedEquipment(
             List<FollowerDeathEscapeOutcomeEntry> entries,
             Dictionary<string, BotOwner> entryBotsByAid,
@@ -25,6 +27,7 @@ namespace pitTeam.Modules
             {
                 bool recoverTeammateGear = pitFireTeam.IsFollowerLoadoutLootableMode();
                 Dictionary<string, InventoryEquipment> escapedEquipment = new Dictionary<string, InventoryEquipment>(StringComparer.Ordinal);
+                Dictionary<string, RecoveryCarrierState> carrierStates = new Dictionary<string, RecoveryCarrierState>(StringComparer.Ordinal);
                 foreach (FollowerDeathEscapeOutcomeEntry entry in entries.Where(entry => entry.Escaped))
                 {
                     if (!entryBotsByAid.TryGetValue(entry.Aid, out BotOwner bot))
@@ -36,6 +39,9 @@ namespace pitTeam.Modules
                     if (equipmentClone != null)
                     {
                         escapedEquipment[entry.Aid] = equipmentClone;
+                        carrierStates[entry.Aid] = new RecoveryCarrierState(
+                            equipmentClone,
+                            GetCarrierWalkDrainWeightLimitKg(bot));
                     }
                 }
 
@@ -63,7 +69,7 @@ namespace pitTeam.Modules
                     $"[DeathEscape] Death gear recovery start. teammateGearRecovery={recoverTeammateGear} " +
                     $"escapedCarriers={escapedBots.Count} equipmentSnapshots={escapedEquipment.Count} " +
                     $"snapshotItems={deathGearSnapshot.Count} candidateItems={recoverableCandidates.Count} " +
-                    $"pickupRadius={DeathGearRecoveryDistance:0}m");
+                    $"pickupRadius={DeathGearRecoveryDistance:0}m weightLimit=walk-drain-threshold");
 
                 // Fallen teammate backpack shells are packed before priority items so they can add
                 // container space for the rest of the recovery simulation.
@@ -72,7 +78,7 @@ namespace pitTeam.Modules
                              .OrderBy(candidate => candidate.OwnerPriority)
                              .ThenBy(candidate => candidate.Sequence))
                 {
-                    if (TryRecoverDeathGearCandidate(candidate, escapedBots, escapedEquipment, stats))
+                    if (TryRecoverDeathGearCandidate(candidate, escapedBots, carrierStates, stats))
                     {
                         recovered++;
                         gearToReturn.Add(candidate.Item.CloneItemWithSameId());
@@ -95,7 +101,7 @@ namespace pitTeam.Modules
                         continue;
                     }
 
-                    if (TryRecoverDeathGearCandidate(candidate, escapedBots, escapedEquipment, stats))
+                    if (TryRecoverDeathGearCandidate(candidate, escapedBots, carrierStates, stats))
                     {
                         recovered++;
                         gearToReturn.Add(candidate.Item.CloneItemWithSameId());
@@ -131,7 +137,8 @@ namespace pitTeam.Modules
                 {
                     Logger.LogInfo(
                         $"[DeathEscape] No death gear was recovered. noNearby={stats.NoNearbyCarrier} " +
-                        $"missingEquipmentSnapshot={stats.NoEquipmentSnapshot} noSpace={stats.NoSpace}");
+                        $"missingEquipmentSnapshot={stats.NoEquipmentSnapshot} overweight={stats.OverWeight} " +
+                        $"backpackLimit={stats.BackpackLimit} noSpace={stats.NoSpace}");
                 }
 
                 if (gearToReturn.Count > 0)
@@ -158,7 +165,7 @@ namespace pitTeam.Modules
         private static bool TryRecoverDeathGearCandidate(
             RecoverableGearCandidate candidate,
             List<BotOwner> escapedBots,
-            Dictionary<string, InventoryEquipment> escapedEquipment,
+            Dictionary<string, RecoveryCarrierState> carrierStates,
             RecoveryAttemptStats stats)
         {
             List<BotOwner> nearbyCarriers = escapedBots
@@ -176,36 +183,65 @@ namespace pitTeam.Modules
             }
 
             bool hadEquipmentSnapshot = false;
+            bool attemptedPlacement = false;
             foreach (BotOwner escapedBot in nearbyCarriers)
             {
                 string aid = escapedBot.Profile?.AccountId ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(aid) || !escapedEquipment.TryGetValue(aid, out InventoryEquipment equipment))
+                if (string.IsNullOrWhiteSpace(aid) || !carrierStates.TryGetValue(aid, out RecoveryCarrierState state))
                 {
                     stats.NoEquipmentSnapshot++;
                     continue;
                 }
 
                 hadEquipmentSnapshot = true;
+                float itemWeight = GetItemWeight(candidate.Item);
+                if (!state.CanCarryWeight(itemWeight))
+                {
+                    stats.OverWeight++;
+                    Logger.LogInfo(
+                        $"[DeathEscape] Skipped death gear '{DescribeRecoverableItem(candidate)}' from '{candidate.OwnerName}' for " +
+                        $"'{escapedBot.Profile?.Nickname ?? "Squadmate"}': weight {state.CurrentWeightKg:0.0}+{itemWeight:0.0}kg exceeds {state.MaxWeightKg:0.0}kg.");
+                    continue;
+                }
+
+                if (!state.CanCarryBackpack(candidate))
+                {
+                    stats.BackpackLimit++;
+                    Logger.LogInfo(
+                        $"[DeathEscape] Skipped death gear '{DescribeRecoverableItem(candidate)}' from '{candidate.OwnerName}' for " +
+                        $"'{escapedBot.Profile?.Nickname ?? "Squadmate"}': backpack carry limit reached.");
+                    continue;
+                }
+
+                attemptedPlacement = true;
                 // Candidate.Item is already a player-death snapshot. Clone again so a failed
                 // placement attempt cannot mutate the stored snapshot before another survivor tries.
                 Item clone = candidate.Item.CloneItemWithSameId();
-                if (!TryPlaceRecoveredGear(equipment, candidate, clone))
+                if (!TryPlaceRecoveredGear(state.Equipment, candidate, clone))
                 {
                     continue;
                 }
 
+                state.RecordRecovered(candidate, itemWeight);
                 Logger.LogInfo(
                     $"[DeathEscape] Recovered death gear '{candidate.Item.ShortName?.Localized(null) ?? candidate.Item.Name ?? candidate.Item.Id}' " +
-                    $"from '{candidate.OwnerName}' into '{escapedBot.Profile?.Nickname ?? "Squadmate"}'.");
+                    $"from '{candidate.OwnerName}' into '{escapedBot.Profile?.Nickname ?? "Squadmate"}' " +
+                    $"carryWeight={state.CurrentWeightKg:0.0}/{state.MaxWeightKg:0.0}kg backpacks={state.RecoveredBackpacks}/{state.BackpackCarryCapacity}.");
                 return true;
             }
 
-            if (hadEquipmentSnapshot)
+            if (hadEquipmentSnapshot && attemptedPlacement)
             {
                 stats.NoSpace++;
                 Logger.LogInfo(
                     $"[DeathEscape] Skipped death gear '{DescribeRecoverableItem(candidate)}' from '{candidate.OwnerName}': " +
                     "nearby escaped teammates had no valid equipment slot or container space.");
+            }
+            else if (hadEquipmentSnapshot)
+            {
+                Logger.LogInfo(
+                    $"[DeathEscape] Skipped death gear '{DescribeRecoverableItem(candidate)}' from '{candidate.OwnerName}': " +
+                    "nearby escaped teammates were blocked by weight or backpack carry limits.");
             }
             else
             {
@@ -435,6 +471,40 @@ namespace pitTeam.Modules
             return item.TryGetItemComponent<ArmorHolderComponent>(out _)
                    || item.GetItemComponentsInChildren<ArmorComponent>(true).Any()
                    || item.GetItemComponentsInChildren<CompositeArmorComponent>(true).Any();
+        }
+
+        private static float GetItemWeight(Item item)
+        {
+            try
+            {
+                return Mathf.Max(0f, item?.TotalWeight ?? 0f);
+            }
+            catch
+            {
+                return 0f;
+            }
+        }
+
+        private static float GetCarrierWalkDrainWeightLimitKg(BotOwner bot)
+        {
+            try
+            {
+                // Match EFT's player weight-limit formula from BasePhysicalClass.UpdateWeightLimits:
+                // WalkOverweightLimits.x is scaled by Strength carry bonus and health/stim modifiers.
+                float baseLimit = Singleton<BackendConfigSettingsClass>.Instantiated
+                    ? Singleton<BackendConfigSettingsClass>.Instance.Stamina.WalkOverweightLimits.x
+                    : FallbackEscapeCarrierWeightKg;
+                float skillRelative = bot?.GetPlayer?.Skills?.CarryingWeightRelativeModifier ?? 1f;
+                float healthRelative = bot?.GetPlayer?.HealthController?.CarryingWeightRelativeModifier ?? 1f;
+                float healthAbsolute = bot?.GetPlayer?.HealthController?.CarryingWeightAbsoluteModifier ?? 0f;
+                return Mathf.Max(1f, baseLimit * skillRelative * healthRelative + healthAbsolute);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("[DeathEscape] Failed to calculate carrier walk-drain weight limit; using fallback.");
+                Logger.LogError(ex);
+                return FallbackEscapeCarrierWeightKg;
+            }
         }
 
         private static string DescribeRecoverableItem(RecoverableGearCandidate candidate)
