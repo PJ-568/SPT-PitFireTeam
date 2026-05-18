@@ -82,8 +82,10 @@ Teammates can be customized from their profile screen.
 
 - Rename teammate.
 - Change clothing using the stock clothing selectors.
-- Select a loadout from **Default** or your saved player equipment builds.twi
-- Edit a cloned teammate loadout with the current loadout editor.
+- Manage teammate equipment through the active **Loadout Management** mode.
+- In **Simple**, select **Default** or a saved player equipment build as a template without consuming stash items.
+- In **Restricted**, **Immersive**, and **Realistic**, use **Kit Loadouts** to purchase or equip saved player kits for the teammate.
+- Edit the teammate's **Default** kit from the profile screen.
 - Select a combat tactic.
 - Adjust aggression for Rifleman and Marksman tactics.
 - View teammate-relevant skills.
@@ -101,9 +103,19 @@ Aggression controls how willing a teammate is to leave boss-local safety for pro
 
 **Marksman aggression:** Marksman uses 30% as its default baseline. Marksman aggression is tactic-relative: it mainly controls proactive automatic-weapon close-search/auto-search pressure. It does not turn Marksman into a generic Rifleman, and it does not block defensive automatic secondary use when enemies get close. At 0%, Marksman avoids proactive auto-search and stays range/position focused. Higher values make Marksman more willing to use automatic-weapon offensive search when distance and threat checks are safe.
 
-**Loadout editing note:**
+**Loadout customization:**
 
-The current loadout editor uses cloned/local items. Editing a teammate loadout does not consume items from the player's real stash and gear is not lost on teammate death in this beta.
+Loadout customization changes based on the selected **Loadout Management** mode.
+
+In **Simple**, teammate gear is template-based. The editor can use gear from your stash as a reference without consuming the real items, and teammate gear is protected from raid loss.
+
+In **Restricted**, **Immersive**, and **Realistic**, teammate equipment is treated as real gear. Editing the teammate's **Default** kit stages real stash movement and is committed when you press **Save**. These modes also replace the saved-loadout dropdown with **Kit Loadouts**, where saved player equipment builds can be purchased for a teammate.
+
+The **Kit Loadouts** screen prices the selected kit, including nested weapon parts, armor plates, magazine contents, and container contents where applicable. The **Use items in stash** option lets you choose which matching stash items should be used instead of purchased; selected stash items reduce the final price. If every required item is supplied from your stash, the action becomes **Equip** instead of **Purchase**.
+
+When a kit is purchased or equipped, the teammate's current kit is returned through the pitFireTeam delivery service instead of being discarded. The new kit becomes the teammate's active equipment and new **Default** kit.
+
+**Realistic** is the only mode where teammate secure containers are fully player-managed. In other modes, secure containers are managed automatically and are not counted as part of kit purchase or loadout editing.
 
 ## Squad Commands
 
@@ -384,11 +396,11 @@ If the teammate dies, the carried loot is lost.
 ![Loadout Management](https://iili.io/BpKDP4I.md.png)
 
 - **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
-- **Restricted** — Teammate loadouts must use gear from your stash or be purchased through the kit buyout system. Gear is still protected: it is not lost on death and cannot be looted.
+- **Restricted** — Teammate loadouts must use gear from your stash or be purchased through **Kit Loadouts**. Gear is still protected: it is not lost on death and cannot be looted.
 - **Immersive** — Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted.
 - **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 
-Switching away from **Simple** mode also changes how teammate loadouts are managed. Created loadouts must now be equipped through the **Kit Loadout** screen, where the required gear is either purchased or taken from your stash.
+Switching away from **Simple** also changes profile customization. The saved-loadout dropdown is replaced by **Kit Loadouts**, where saved player equipment builds can be priced, purchased, or equipped using selected stash items. Dogtags are never purchased as part of a kit, and secure containers are only included in **Realistic** mode.
 
 ## Upcoming
 
