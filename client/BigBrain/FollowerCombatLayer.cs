@@ -299,7 +299,7 @@ namespace pitTeam.BigBrain
         {
             hadCombatSinceActivation = false;
             ClearLinger();
-            BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
+            BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
         }
 
         private void ClearMedicalKeepActive()

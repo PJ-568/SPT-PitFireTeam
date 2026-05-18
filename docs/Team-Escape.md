@@ -26,6 +26,8 @@ Related docs:
 
 The escape system runs when the player boss dies and `BossPlayers.KillPlayerBoss(...)` tears down the active boss/follower relationship.
 
+The `Team Escape` raid setting controls whether this system runs at all. It is enabled by default. If disabled, player death skips escape rolls, tracked follower loot return, and death-gear recovery.
+
 Authoritative client files:
 
 - `client/Modules/FollowerDeathEscapeResolver.cs`
@@ -86,6 +88,11 @@ The result is clamped between the configured minimum and maximum chance in code.
 ## Extract And Distance
 
 The resolver chooses an available extract snapshot and measures direct distance from the player death position.
+
+The `Use Any Extraction Point` raid setting controls the extract pool:
+
+- enabled by default: route selection can use any normal map extraction point that is present and usable
+- disabled: route selection is restricted to extraction points assigned to the player by the raid profile/spawn entry point
 
 This intentionally uses a simple route assumption. It does not do detailed enemy-path simulation or full map navigation. The goal is a stable post-death survival model, not a second raid simulation.
 
@@ -160,7 +167,8 @@ Current recovery priority:
 6. tactical vest
 7. tactical vest contents, only if the vest was not recovered
 8. backpack
-9. backpack contents
+9. pocket contents
+10. backpack contents
 10. remaining recoverable gear
 
 Armor and tactical vest recovery is container-aware:
@@ -197,6 +205,7 @@ Carrier limits:
 - each escaped teammate can recover up to two backpack items if they started without a backpack
 - each escaped teammate can recover one additional backpack item if they already had a backpack
 - the backpack cap is checked separately from grid/slot availability, and recovered backpacks can be carried externally instead of requiring a normal equipment slot
+- only actual backpack items count against the backpack cap; loose items found inside a backpack do not consume backpack carry slots
 
 The simulation can also use available container space in:
 
@@ -206,11 +215,11 @@ The simulation can also use available container space in:
 
 Secure containers are not used as available recovery space in any mode.
 
-Backpacks keep the previous capacity-first behavior. Fallen teammate backpacks can be recovered first as capacity. Their grid contents are split into separate lower-priority candidates, so the backpack shell can increase available carry space without automatically dragging all contents with it. If a recovered backpack cannot fit in a normal slot or grid, it can still count as an externally carried backpack within the per-carrier backpack limit, and its empty grids become available for later recovery checks.
+Backpacks keep the previous capacity-first behavior. Player and fallen-teammate backpacks can be recovered first as capacity. Their grid contents are split into separate lower-priority candidates, so the backpack shell can increase available carry space without automatically dragging all contents with it. If a recovered backpack cannot fit in a normal slot or grid, it can still count as an externally carried backpack within the per-carrier backpack limit, and its empty grids become available for later recovery checks.
 
 ## Player Gear
 
-Player gear recovery applies in every loadout-management mode:
+Player gear recovery applies in every loadout-management mode. An escaped squadmate must be within the recovery radius of the player's death position to carry captured player death gear. Fallen teammate gear also keeps its separate nearby-death snapshot rule, so already-dead squadmates must have died close enough to the player death position to be recoverable.
 
 - `Simple`
 - `Restricted`
@@ -220,6 +229,8 @@ Player gear recovery applies in every loadout-management mode:
 The client asks the server for SPT `lostondeath` equipment-slot rules. Player equipment slots are only considered recoverable if SPT would remove that slot on death.
 
 This prevents the escape system from mailing items the player was not going to lose anyway.
+
+The server also checks for SVM / Server Value Modifier death-protection behavior. If SVM is configured so a killed raid is converted into a gear-preserving result such as `Survived`, `Run Through`, or its ignore-raid sentinel, the response marks player gear as protected and the client skips player gear recovery entirely. This covers SVM Softcore-style setups that save gear by changing the final raid result instead of changing SPT `lostondeath` equipment flags.
 
 Always excluded from death-escape recovery:
 

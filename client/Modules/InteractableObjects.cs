@@ -110,108 +110,7 @@ namespace pitTeam.Modules
                         continue;
                     }
 
-                    InventoryController _botInventoryController = bot.GetPlayer.InventoryController;
-
-                    SearchableItemItemClass tacVest = (SearchableItemItemClass)
-                        _botInventoryController.Inventory.Equipment
-                            .GetSlot(EquipmentSlot.TacticalVest)
-                            .ContainedItem;
-
-                    SearchableItemItemClass backpack = (SearchableItemItemClass)
-                        _botInventoryController.Inventory.Equipment
-                            .GetSlot(EquipmentSlot.Backpack)
-                            .ContainedItem;
-
-                    SearchableItemItemClass pockets = (SearchableItemItemClass)
-                        _botInventoryController.Inventory.Equipment
-                            .GetSlot(EquipmentSlot.Pockets)
-                            .ContainedItem;
-
-                    var storedItems = GetStoredItems(bot.ProfileId);
-
-                    if (storedItems != null)
-                    {
-                        foreach (var stored in storedItems)
-                        {
-                            if (gathered.Contains(stored)) continue;
-
-                            bool found = false;
-                            if (tacVest.Grids.Length > 0)
-                            {
-                                foreach (var item in tacVest.GetAllItems())
-                                {
-                                    if (item.Id == stored)
-                                    {
-                                        _toSendItems.Add(item.CloneItem());
-                                        gathered.Add(stored);
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!found && backpack.Grids.Length > 0)
-                            {
-                                foreach (var item in backpack.GetAllItems())
-                                {
-                                    if (item.Id == stored)
-                                    {
-                                        _toSendItems.Add(item.CloneItem());
-                                        found = true;
-                                        gathered.Add(stored);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!found && pockets.Grids.Length > 0)
-                            {
-                                foreach (var item in pockets.GetAllItems())
-                                {
-                                    if (item.Id == stored)
-                                    {
-                                        _toSendItems.Add(item.CloneItem());
-                                        gathered.Add(stored);
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                var primaryWeapon = _botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.FirstPrimaryWeapon).ContainedItem;
-                                if (primaryWeapon != null && primaryWeapon.Id == stored)
-                                {
-                                    _toSendItems.Add(primaryWeapon.CloneItem());
-                                    gathered.Add(stored);
-                                    found = true;
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                var secondaryWeapon = _botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.SecondPrimaryWeapon).ContainedItem;
-                                if (secondaryWeapon != null && secondaryWeapon.Id == stored)
-                                {
-                                    _toSendItems.Add(secondaryWeapon.CloneItem());
-                                    gathered.Add(stored);
-                                    found = true;
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                var meleeWeapon = _botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.Holster).ContainedItem;
-                                if (meleeWeapon != null && meleeWeapon.Id == stored)
-                                {
-                                    _toSendItems.Add(meleeWeapon.CloneItem());
-                                    gathered.Add(stored);
-                                    found = true;
-                                }
-                            }
-                        }
-                    }
+                    GatherStoredItemsFromBot(bot, gathered);
                 }
             }
         }
@@ -272,22 +171,6 @@ namespace pitTeam.Modules
                 return;
             }
 
-            // Stored loot ids can be in any regular follower container or weapon slot. This mirrors
-            // the normal cleanup gatherer without depending on the boss/follower registry.
-            InventoryController botInventoryController = bot.GetPlayer.InventoryController;
-
-            SearchableItemItemClass tacVest = botInventoryController.Inventory.Equipment
-                .GetSlot(EquipmentSlot.TacticalVest)
-                .ContainedItem as SearchableItemItemClass;
-
-            SearchableItemItemClass backpack = botInventoryController.Inventory.Equipment
-                .GetSlot(EquipmentSlot.Backpack)
-                .ContainedItem as SearchableItemItemClass;
-
-            SearchableItemItemClass pockets = botInventoryController.Inventory.Equipment
-                .GetSlot(EquipmentSlot.Pockets)
-                .ContainedItem as SearchableItemItemClass;
-
             var storedItems = GetStoredItems(bot.ProfileId);
             if (storedItems == null)
             {
@@ -297,59 +180,23 @@ namespace pitTeam.Modules
             foreach (var stored in storedItems)
             {
                 if (gathered.Contains(stored)) continue;
-
-                if (TryGatherFromContainer(tacVest, stored, gathered) ||
-                    TryGatherFromContainer(backpack, stored, gathered) ||
-                    TryGatherFromContainer(pockets, stored, gathered))
+                Item item = FindStoredReturnItem(bot.GetPlayer.InventoryController, stored);
+                if (item == null)
                 {
                     continue;
                 }
 
-                var primaryWeapon = botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.FirstPrimaryWeapon).ContainedItem;
-                if (primaryWeapon != null && primaryWeapon.Id == stored)
+                // If both a container and one of its children are tracked, return the container
+                // tree once. Sending overlapping roots to /returnitems duplicates nested rigs/loot.
+                if (HasTrackedAncestor(item, storedItems))
                 {
-                    _toSendItems.Add(primaryWeapon.CloneItem());
                     gathered.Add(stored);
-                    continue;
-                }
-
-                var secondaryWeapon = botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.SecondPrimaryWeapon).ContainedItem;
-                if (secondaryWeapon != null && secondaryWeapon.Id == stored)
-                {
-                    _toSendItems.Add(secondaryWeapon.CloneItem());
-                    gathered.Add(stored);
-                    continue;
-                }
-
-                var holster = botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.Holster).ContainedItem;
-                if (holster != null && holster.Id == stored)
-                {
-                    _toSendItems.Add(holster.CloneItem());
-                    gathered.Add(stored);
-                }
-            }
-        }
-
-        private bool TryGatherFromContainer(SearchableItemItemClass container, string storedItemId, List<string> gathered)
-        {
-            if (_toSendItems == null || container == null || container.Grids.Length <= 0)
-            {
-                return false;
-            }
-
-            foreach (var item in container.GetAllItems())
-            {
-                if (item.Id != storedItemId)
-                {
                     continue;
                 }
 
                 _toSendItems.Add(item.CloneItem());
-                gathered.Add(storedItemId);
-                return true;
+                gathered.Add(stored);
             }
-
-            return false;
         }
 
         private bool SendCurrentStoredItems()
@@ -368,6 +215,157 @@ namespace pitTeam.Modules
             return SendReturnItems(_toSendItems, member, "post-raid returned follower items");
         }
 
+        private static Item? FindStoredReturnItem(InventoryController inventoryController, string itemId)
+        {
+            if (inventoryController?.Inventory?.Equipment == null || string.IsNullOrWhiteSpace(itemId))
+            {
+                return null;
+            }
+
+            foreach (EquipmentSlot slot in GetTrackedReturnSearchSlots())
+            {
+                Item root = inventoryController.Inventory.Equipment.GetSlot(slot)?.ContainedItem;
+                if (root == null)
+                {
+                    continue;
+                }
+
+                if (root.Id == itemId)
+                {
+                    return root;
+                }
+
+                if (root is CompoundItem compound)
+                {
+                    foreach (Item child in compound.GetAllItems())
+                    {
+                        if (child != null && child.Id == itemId)
+                        {
+                            return child;
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static IEnumerable<EquipmentSlot> GetTrackedReturnSearchSlots()
+        {
+            yield return EquipmentSlot.TacticalVest;
+            yield return EquipmentSlot.Backpack;
+            yield return EquipmentSlot.Pockets;
+            yield return EquipmentSlot.FirstPrimaryWeapon;
+            yield return EquipmentSlot.SecondPrimaryWeapon;
+            yield return EquipmentSlot.Holster;
+        }
+
+        private static IEnumerable<Item> RemoveNestedReturnRoots(IEnumerable<Item> items)
+        {
+            List<Item> roots = items?.Where(item => item != null).ToList() ?? new List<Item>();
+            if (roots.Count <= 1)
+            {
+                foreach (Item root in roots)
+                {
+                    yield return root;
+                }
+
+                yield break;
+            }
+
+            List<HashSet<string>> rootTrees = roots
+                .Select(GetItemTreeIds)
+                .ToList();
+
+            for (int index = 0; index < roots.Count; index++)
+            {
+                Item root = roots[index];
+                bool coveredByOtherRoot = false;
+
+                for (int otherIndex = 0; otherIndex < roots.Count; otherIndex++)
+                {
+                    if (index == otherIndex)
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(roots[otherIndex].Id, root.Id, StringComparison.Ordinal))
+                    {
+                        coveredByOtherRoot = otherIndex < index;
+                        if (coveredByOtherRoot)
+                        {
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    if (rootTrees[otherIndex].Contains(root.Id))
+                    {
+                        coveredByOtherRoot = true;
+                        break;
+                    }
+                }
+
+                if (!coveredByOtherRoot)
+                {
+                    yield return root;
+                }
+            }
+        }
+
+        private static bool HasTrackedAncestor(Item item, IEnumerable<string> trackedItemIds)
+        {
+            if (item == null || trackedItemIds == null)
+            {
+                return false;
+            }
+
+            HashSet<string> tracked = new HashSet<string>(trackedItemIds, StringComparer.Ordinal);
+            Item? parent = item.Parent?.Container?.ParentItem;
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
+
+            while (parent != null)
+            {
+                if (!visited.Add(parent.Id))
+                {
+                    return false;
+                }
+
+                if (tracked.Contains(parent.Id))
+                {
+                    return true;
+                }
+
+                parent = parent.Parent?.Container?.ParentItem;
+            }
+
+            return false;
+        }
+
+        private static HashSet<string> GetItemTreeIds(Item item)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            if (item == null)
+            {
+                return ids;
+            }
+
+            ids.Add(item.Id);
+            if (item is CompoundItem compound)
+            {
+                foreach (Item child in compound.GetAllItems())
+                {
+                    if (child != null)
+                    {
+                        ids.Add(child.Id);
+                    }
+                }
+            }
+
+            return ids;
+        }
+
         private static bool SendReturnItems(
             IEnumerable<Item> items,
             Dictionary<string, object>? member,
@@ -380,10 +378,15 @@ namespace pitTeam.Modules
 
             try
             {
-                List<Item> rootItems = items.Where(item => item != null).ToList();
+                List<Item> rootItems = RemoveNestedReturnRoots(items.Where(item => item != null)).ToList();
                 if (rootItems.Count == 0)
                 {
                     return false;
+                }
+
+                foreach (Item root in rootItems)
+                {
+                    DetachReturnRoot(root);
                 }
 
                 FlatItemsDataClass[] flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(rootItems);
@@ -422,6 +425,27 @@ namespace pitTeam.Modules
                 Logger.LogError($"Failed to prepare {context}");
                 Logger.LogError(ex);
                 return false;
+            }
+        }
+
+        private static void DetachReturnRoot(Item item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            try
+            {
+                // Return mail accepts a list of root item trees. Recovered items may have been
+                // cloned from inside a backpack/rig and still carry the old parent address, which
+                // can make nested backpack contents disappear or attach to the wrong mailed root.
+                item.CurrentAddress = null;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to detach return root '{item.Id}' before mail serialization.");
+                Logger.LogError(ex);
             }
         }
 
@@ -842,6 +866,18 @@ namespace pitTeam.Modules
             }
 
             var list = Instance._lootedItems[bot.ProfileId];
+
+            // Track the largest meaningful root. If a whole backpack/rig is tracked, its
+            // children ride inside that one return tree and must not be mailed separately.
+            if (HasTrackedAncestor(item, list))
+            {
+                return;
+            }
+
+            HashSet<string> treeIds = GetItemTreeIds(item);
+            list.RemoveAll(itemId =>
+                !string.Equals(itemId, item.Id, StringComparison.Ordinal) &&
+                treeIds.Contains(itemId));
 
             if (!list.Contains(item.Id))
             {

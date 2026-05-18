@@ -46,7 +46,7 @@ namespace pitTeam.Components
         private const float RosterBlockVerticalOffset = -24f;
         private const float EmptyRosterButtonCenterY = -36f;
         private const float EmptyRosterLabelSpacing = 92f;
-        private const float SettingsViewportTopInset = 34f;
+        private const float SettingsViewportTopInset = 62f;
         private const float SettingsViewportBottomInset = 28f;
         private const float SettingsViewportSideInset = 24f;
         private const float SettingsRowHeight = 104f;

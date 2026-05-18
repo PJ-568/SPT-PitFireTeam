@@ -20,6 +20,7 @@ namespace pitTeam.Modules
             EquipmentSlot.SecondPrimaryWeapon,
             EquipmentSlot.Holster,
             EquipmentSlot.Backpack,
+            EquipmentSlot.Pockets,
             EquipmentSlot.Earpiece,
             EquipmentSlot.FaceCover,
             EquipmentSlot.Eyewear
@@ -170,9 +171,13 @@ namespace pitTeam.Modules
                 JToken configToken = root["data"] ?? root;
                 Dictionary<string, bool> equipment = configToken["equipment"]?.ToObject<Dictionary<string, bool>>()
                     ?? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                bool playerGearProtectedByRaidStatusOverride =
+                    configToken["playerGearProtectedByRaidStatusOverride"]?.ToObject<bool>() == true;
 
-                Logger.LogInfo($"[DeathEscape] Loaded lost-on-death rules for {equipment.Count} equipment slot(s).");
-                return new LostOnDeathRules(equipment);
+                Logger.LogInfo(
+                    $"[DeathEscape] Loaded lost-on-death rules for {equipment.Count} equipment slot(s). " +
+                    $"playerGearProtectedByRaidStatusOverride={playerGearProtectedByRaidStatusOverride}");
+                return new LostOnDeathRules(equipment, playerGearProtectedByRaidStatusOverride);
             }
             catch (Exception ex)
             {
@@ -299,6 +304,12 @@ namespace pitTeam.Modules
             int sequence = startSequence;
             foreach (EquipmentSlot slot in RecoverableGearSlots)
             {
+                if (isPlayer && lostOnDeathRules?.PlayerGearProtectedByRaidStatusOverride == true)
+                {
+                    Logger.LogInfo("[DeathEscape] Skipping player gear recovery because a raid-status override protects player gear.");
+                    yield break;
+                }
+
                 if (isPlayer && lostOnDeathRules?.IsEquipmentSlotLost(slot) != true)
                 {
                     continue;
@@ -337,10 +348,11 @@ namespace pitTeam.Modules
                     slot,
                     GetDeathGearItemPriority(slot, clone),
                     sequence++,
-                    slot == EquipmentSlot.Backpack && !isPlayer,
+                    slot == EquipmentSlot.Backpack,
+                    slot == EquipmentSlot.Backpack,
                     slot == EquipmentSlot.Backpack);
 
-                if (slot == EquipmentSlot.TacticalVest || slot == EquipmentSlot.Backpack)
+                if (slot == EquipmentSlot.TacticalVest || slot == EquipmentSlot.Backpack || slot == EquipmentSlot.Pockets)
                 {
                     foreach (Item containedItem in GetRecoverableGridContents(item, trackedLootIds))
                     {
@@ -351,14 +363,30 @@ namespace pitTeam.Modules
                             ownerName,
                             isPlayer,
                             slot,
-                            slot == EquipmentSlot.TacticalVest ? 6 : 7,
+                            GetContainerContentPriority(slot),
                             sequence++,
                             false,
+                            IsBackpackItem(containedItem),
                             false,
                             slot == EquipmentSlot.TacticalVest ? item.Id : null);
                     }
                 }
             }
+        }
+
+        private static int GetContainerContentPriority(EquipmentSlot slot)
+        {
+            if (slot == EquipmentSlot.TacticalVest)
+            {
+                return 6;
+            }
+
+            if (slot == EquipmentSlot.Pockets)
+            {
+                return 6;
+            }
+
+            return 7;
         }
 
         private static IEnumerable<Item> GetRecoverableGridContents(Item containerItem, HashSet<string> trackedLootIds)
@@ -485,6 +513,11 @@ namespace pitTeam.Modules
             }
 
             return item.IsSpecialSlotOnly;
+        }
+
+        private static bool IsBackpackItem(Item item)
+        {
+            return item is BackpackItemClass;
         }
 
         private static bool IsNear(Vector3 a, Vector3 b, float maxDistance)

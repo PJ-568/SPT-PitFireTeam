@@ -67,7 +67,41 @@ namespace pitTeam.Components
             settingsScrollbar = null;
 
             CreateScrollableSettingsArea(settingsRect);
+            CreateSettingsVersionLabel(settingsRect);
             RebuildSettingsEntries();
+        }
+
+        private void CreateSettingsVersionLabel(RectTransform panelRect)
+        {
+            GameObject labelObject = CreateText("pitFireTeam_SettingsVersionLabel", $"pitFireTeam v{GetPluginVersionText()}", 18f, TextAlignmentOptions.MidlineRight);
+            labelObject.transform.SetParent(panelRect, false);
+            labelObject.transform.SetAsLastSibling();
+
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(1f, 1f);
+            labelRect.anchorMax = new Vector2(1f, 1f);
+            labelRect.pivot = new Vector2(1f, 1f);
+            labelRect.sizeDelta = new Vector2(320f, 30f);
+            labelRect.anchoredPosition = new Vector2(-SettingsViewportSideInset - 28f, -16f);
+
+            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            label.color = new Color(0.86f, 0.84f, 0.76f, 0.96f);
+            label.fontSize = 17f;
+            label.fontWeight = FontWeight.Regular;
+            label.raycastTarget = false;
+        }
+
+        private static string GetPluginVersionText()
+        {
+            Version version = Assembly.GetExecutingAssembly().GetName().Version;
+            if (version == null)
+            {
+                return "UNKNOWN";
+            }
+
+            return version.Revision > 0
+                ? $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}"
+                : $"{version.Major}.{version.Minor}.{version.Build}";
         }
 
         private void CreateScrollableSettingsArea(RectTransform panelRect)
@@ -207,6 +241,22 @@ namespace pitTeam.Components
                 yield return setting;
             }
 
+            foreach (SquadSettingEntry setting in BuildSettingsSection(
+                pitFireTeam.optionsLang?.raidSettings ?? "Raid Settings",
+                pitFireTeam.teamEscape,
+                pitFireTeam.teamEscapeUseAnyExtract,
+                pitFireTeam.pickupEnabled,
+                pitFireTeam.tieredPickup,
+                pitFireTeam.maximumPickup,
+                pitFireTeam.recruitPickup,
+                pitFireTeam.npcSendMessage,
+                pitFireTeam.pitFireTeamFLAG,
+                pitFireTeam.badGuy,
+                pitFireTeam.pmcArmbands))
+            {
+                yield return setting;
+            }
+
             if (!IsRaidRestrictedSettingsContext())
             {
                 string loadoutSection = pitFireTeam.optionsLang?.loadoutManagementSettings ?? "Loadout Management";
@@ -222,20 +272,6 @@ namespace pitTeam.Components
                 pitFireTeam.pingKey,
                 pitFireTeam.contactKey,
                 pitFireTeam.overThereKey))
-            {
-                yield return setting;
-            }
-
-            foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.raidSettings ?? "Raid Settings",
-                pitFireTeam.pickupEnabled,
-                pitFireTeam.tieredPickup,
-                pitFireTeam.maximumPickup,
-                pitFireTeam.recruitPickup,
-                pitFireTeam.npcSendMessage,
-                pitFireTeam.pitFireTeamFLAG,
-                pitFireTeam.badGuy,
-                pitFireTeam.pmcArmbands))
             {
                 yield return setting;
             }
@@ -1932,6 +1968,8 @@ namespace pitTeam.Components
             if (entry == pitFireTeam.tieredPickup) return language.tieredPickup;
             if (entry == pitFireTeam.maximumPickup) return language.maximumPickup;
             if (entry == pitFireTeam.recruitPickup) return language.recruitPickup;
+            if (entry == pitFireTeam.teamEscape) return language.teamEscape;
+            if (entry == pitFireTeam.teamEscapeUseAnyExtract) return language.teamEscapeUseAnyExtract;
             if (entry == pitFireTeam.npcSendMessage) return language.npcSendMessage;
             if (entry == pitFireTeam.pitFireTeamFLAG) return language.pitFireTeam;
             if (entry == pitFireTeam.badGuy) return language.badGuy;

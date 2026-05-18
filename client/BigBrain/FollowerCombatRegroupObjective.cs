@@ -240,16 +240,16 @@ namespace pitTeam.BigBrain
                     return new AICoreActionEndStruct("regroupReachedWithdrawTarget", true);
                 }
 
-                if (ShouldSettleStalledWithdraw(CombatCommon.GetBossPosition()))
+                if (TryGetStalledWithdrawEnd(CombatCommon.GetBossPosition(), out AICoreActionEndStruct stalledWithdrawEnd))
                 {
                     ClearCurrentTarget();
                     ClearCommittedRegroupMove();
-                    if (arrivedSettleUntil <= 0f)
+                    if (stalledWithdrawEnd.Reason == "regroupWithdrawStalledNearBoss" && arrivedSettleUntil <= 0f)
                     {
                         arrivedSettleUntil = Time.time + RegroupArrivalSettleSeconds;
                     }
 
-                    return new AICoreActionEndStruct("regroupWithdrawStalledNearBoss", true);
+                    return stalledWithdrawEnd;
                 }
 
                 if (ShouldReturnMarksmanToSupport(goalEnemy))
@@ -423,10 +423,10 @@ namespace pitTeam.BigBrain
             nextWithdrawProgressCheckAt = 0f;
         }
 
-        private bool ShouldSettleStalledWithdraw(Vector3 bossPosition)
+        private bool TryGetStalledWithdrawEnd(Vector3 bossPosition, out AICoreActionEndStruct end)
         {
-            if (!IsWithinHotRegroupSettleEnvelope(bossPosition) ||
-                Time.time < nextWithdrawProgressCheckAt)
+            end = default;
+            if (Time.time < nextWithdrawProgressCheckAt)
             {
                 return false;
             }
@@ -454,7 +454,16 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            return Time.time - withdrawStallStartedAt >= RegroupWithdrawStalledSeconds;
+            if (Time.time - withdrawStallStartedAt < RegroupWithdrawStalledSeconds)
+            {
+                return false;
+            }
+
+            string reason = IsWithinHotRegroupSettleEnvelope(bossPosition)
+                ? "regroupWithdrawStalledNearBoss"
+                : "regroupWithdrawStalledRepath";
+            end = new AICoreActionEndStruct(reason, true);
+            return true;
         }
 
         private bool TryGetMedicalInterrupt(

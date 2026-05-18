@@ -269,9 +269,9 @@ Verified sections built today:
 - `Base Settings`
 - `Follow Settings`
 - `Combat Settings`
+- `Raid Settings`
 - `Loadout Management`
 - `Input Settings`
-- `Raid Settings`
 - `Miscellaneous`
 
 Verified entry groups:
@@ -290,6 +290,16 @@ Verified entry groups:
     - `enemyRemember`
     - `scanDistance`
     - `botTalk`
+- `Raid Settings`
+    - `teamEscape`
+    - `teamEscapeUseAnyExtract`
+    - `pickupEnabled`
+    - `tieredPickup`
+    - `maximumPickup`
+    - `recruitPickup`
+    - `npcSendMessage`
+    - `pitFireTeamFLAG`
+    - `badGuy`
 - `Loadout Management`
     - `Simple`
     - `Restricted`
@@ -300,14 +310,6 @@ Verified entry groups:
     - `pingKey`
     - `contactKey`
     - `overThereKey`
-- `Raid Settings`
-    - `pickupEnabled`
-    - `tieredPickup`
-    - `maximumPickup`
-    - `recruitPickup`
-    - `npcSendMessage`
-    - `pitFireTeamFLAG`
-    - `badGuy`
 - `Miscellaneous`
     - `teleportKey`
     - `healKey`
@@ -327,7 +329,7 @@ Supported control types:
 
 ### Loadout Management setting
 
-`Loadout Management` is its own settings group placed after `Combat Settings`.
+`Loadout Management` is its own settings group placed after `Raid Settings`.
 
 The group is hidden in raid-restricted settings contexts, including the in-raid `Squad Settings` overlay, so the loadout economy mode cannot be changed while a raid is active.
 

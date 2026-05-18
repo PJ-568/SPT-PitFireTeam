@@ -89,6 +89,8 @@ namespace pitTeam
         public Dictionary<string, string> tieredPickup { get; set; }
         public Dictionary<string, string> maximumPickup { get; set; }
         public Dictionary<string, string> recruitPickup { get; set; }
+        public Dictionary<string, string> teamEscape { get; set; }
+        public Dictionary<string, string> teamEscapeUseAnyExtract { get; set; }
 
         public Dictionary<string, string> memberTactic { get; set; }
         public Dictionary<string, string> memberEquipment { get; set; }
@@ -152,7 +154,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.7.0")]
+    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.7.1")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -178,6 +180,8 @@ namespace pitTeam
         public static ConfigEntry<bool> tieredPickup;
         public static ConfigEntry<int> maximumPickup;
         public static ConfigEntry<bool> recruitPickup;
+        public static ConfigEntry<bool> teamEscape;
+        public static ConfigEntry<bool> teamEscapeUseAnyExtract;
 
         public static ConfigEntry<bool> pitFireTeamFLAG;
         public static ConfigEntry<bool> badGuy;
@@ -655,15 +659,19 @@ namespace pitTeam
 
             recruitPickup = Config.Bind("", "10 RecruitPickup", true, new ConfigDescription(optionsLang.recruitPickup["Description"], null, CreateConfigAttributes(-1000, false, optionsLang.recruitPickup)));
 
-            npcSendMessage = Config.Bind("", "11 NpcSendMessage", true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, CreateConfigAttributes(-1001, false, optionsLang.npcSendMessage)));
+            teamEscape = Config.Bind("", "10 TeamEscape", true, new ConfigDescription(optionsLang.teamEscape["Description"], null, CreateConfigAttributes(-1001, false, optionsLang.teamEscape)));
 
-            pitFireTeamFLAG = Config.Bind("", "12 PitFireTeam", true, new ConfigDescription(optionsLang.pitFireTeam["Description"], null, CreateConfigAttributes(-1002, false, optionsLang.pitFireTeam)));
+            teamEscapeUseAnyExtract = Config.Bind("", "10 TeamEscapeUseAnyExtract", true, new ConfigDescription(optionsLang.teamEscapeUseAnyExtract["Description"], null, CreateConfigAttributes(-1002, false, optionsLang.teamEscapeUseAnyExtract)));
 
-            badGuy = Config.Bind("", "13 BadGuy", false, new ConfigDescription(optionsLang.badGuy["Description"], null, CreateConfigAttributes(-1003, false, optionsLang.badGuy)));
+            npcSendMessage = Config.Bind("", "11 NpcSendMessage", true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, CreateConfigAttributes(-1003, false, optionsLang.npcSendMessage)));
 
-            englishBear = Config.Bind("", "14 EnglishBear", true, new ConfigDescription(optionsLang.englishBear["Description"], null, CreateConfigAttributes(-1004, false, optionsLang.englishBear)));
+            pitFireTeamFLAG = Config.Bind("", "12 PitFireTeam", true, new ConfigDescription(optionsLang.pitFireTeam["Description"], null, CreateConfigAttributes(-1004, false, optionsLang.pitFireTeam)));
 
-            pmcArmbands = Config.Bind("", "14 PmcArmbands", true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.pmcArmbands)));
+            badGuy = Config.Bind("", "13 BadGuy", false, new ConfigDescription(optionsLang.badGuy["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.badGuy)));
+
+            englishBear = Config.Bind("", "14 EnglishBear", true, new ConfigDescription(optionsLang.englishBear["Description"], null, CreateConfigAttributes(-1006, false, optionsLang.englishBear)));
+
+            pmcArmbands = Config.Bind("", "14 PmcArmbands", true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, CreateConfigAttributes(-1007, false, optionsLang.pmcArmbands)));
             pmcArmbands.SettingChanged += (_, _) => SyncServerSettings();
 
             loadoutManagementMode = Config.Bind("", "14 LoadoutManagement", LoadoutManagementMode.Simple, new ConfigDescription("Controls how teammate loadouts are selected, consumed, and preserved.", null, CreateConfigAttributes(-1005, false, optionsLang.loadoutManagementSimple)));

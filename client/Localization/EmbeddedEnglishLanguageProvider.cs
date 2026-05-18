@@ -67,6 +67,12 @@ namespace pitTeam.Localization
                 recruitPickup = Entry(
                     "Recruit Pickup",
                     "Allow picked-up followers that were successfully extracted with to send friend requests. This uses player-vs-bot level difference rules when deciding."),
+                teamEscape = Entry(
+                    "Team Escape",
+                    "Allow surviving squadmates to attempt an escape after you die. Escaped teammates can return eligible follower loot and recoverable gear that would otherwise be lost."),
+                teamEscapeUseAnyExtract = Entry(
+                    "Use Any Extraction Point",
+                    "Allow the squad escape simulation to choose any usable extraction point on the map. Disable this to restrict escape routes to extraction points assigned to the player."),
                 memberTactic = Entry(
                     "Squad Member {0} Tactic",
                     "Set Squad member fight tactic."),

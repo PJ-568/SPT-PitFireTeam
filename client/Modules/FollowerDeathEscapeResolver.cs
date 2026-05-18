@@ -48,7 +48,7 @@ namespace pitTeam.Modules
         private const float MaxChance = 0.90f;
         private const float CloseExtractDistance = 150f;
         private const float FarExtractDistance = 900f;
-        private const float DeathGearRecoveryDistance = 50f;
+        private const float DeathGearRecoveryDistance = 70f;
         private const float FallenTeammateSnapshotRadius = 50f;
 
         private static readonly EBodyPart[] HealthParts =
@@ -71,6 +71,12 @@ namespace pitTeam.Modules
 
             try
             {
+                if (pitFireTeam.teamEscape?.Value != true)
+                {
+                    Logger.LogInfo("[DeathEscape] Player died, but Team Escape is disabled.");
+                    return;
+                }
+
                 // Include all squadmates in the result so already-dead followers appear in the summary,
                 // but only followers still alive at player death get an escape roll.
                 List<BotFollowerPlayer> squadmates = followers
@@ -337,22 +343,22 @@ namespace pitTeam.Modules
         {
             try
             {
-                ExfiltrationPoint[] eligible = ExfiltrationControllerClass.Instance?.EligiblePoints(boss.realPlayer.Profile);
-                if (eligible == null || eligible.Length == 0)
+                ExfiltrationPoint[] candidates = GetDeathEscapeExtractCandidates(boss);
+                if (candidates == null || candidates.Length == 0)
                 {
                     return ExtractSnapshot.Unknown;
                 }
 
                 // Prefer simple normal extracts with no active requirements. This is a simulation of
                 // a practical squad escape route, not a full key/switch/paid-extract planner.
-                ExfiltrationPoint selected = eligible
+                ExfiltrationPoint selected = candidates
                     .Where(IsUsableExtract)
                     .OrderBy(point => Vector3.Distance(deathPosition, point.transform.position))
                     .FirstOrDefault();
 
                 if (selected == null)
                 {
-                    selected = eligible
+                    selected = candidates
                         .Where(point => point != null && point.Status != EExfiltrationStatus.NotPresent)
                         .OrderBy(point => Vector3.Distance(deathPosition, point.transform.position))
                         .FirstOrDefault();
@@ -377,6 +383,35 @@ namespace pitTeam.Modules
                 Logger.LogError(ex);
                 return ExtractSnapshot.Unknown;
             }
+        }
+
+        private static ExfiltrationPoint[] GetDeathEscapeExtractCandidates(pitAIBossPlayer boss)
+        {
+            ExfiltrationControllerClass controller = ExfiltrationControllerClass.Instance;
+            if (controller == null)
+            {
+                return Array.Empty<ExfiltrationPoint>();
+            }
+
+            bool useAnyExtract = pitFireTeam.teamEscapeUseAnyExtract?.Value != false;
+            ExfiltrationPoint[] candidates;
+
+            if (useAnyExtract)
+            {
+                // Forgiving mode: the squad may route to any normal map extract that is present and usable.
+                candidates = controller.ExfiltrationPoints ?? Array.Empty<ExfiltrationPoint>();
+                Logger.LogInfo($"[DeathEscape] Using all map extraction points for escape routing. candidates={candidates.Length}");
+                return candidates;
+            }
+
+            // Strict mode: mirror the player's spawn-side extract assignment from the raid profile.
+            Profile profile = boss?.realPlayer?.Profile;
+            candidates = profile != null
+                ? controller.EligiblePoints(profile)
+                : Array.Empty<ExfiltrationPoint>();
+
+            Logger.LogInfo($"[DeathEscape] Using player-assigned extraction points for escape routing. candidates={candidates.Length}");
+            return candidates;
         }
 
         private static bool IsUsableExtract(ExfiltrationPoint point)
@@ -477,6 +512,7 @@ namespace pitTeam.Modules
                 int itemPriority,
                 int sequence,
                 bool useAsRecoveryCapacity,
+                bool countsAsBackpackCarry,
                 bool ignoreCarryWeight = false,
                 string coveredByItemId = null)
             {
@@ -489,6 +525,7 @@ namespace pitTeam.Modules
                 ItemPriority = itemPriority;
                 Sequence = sequence;
                 UseAsRecoveryCapacity = useAsRecoveryCapacity;
+                CountsAsBackpackCarry = countsAsBackpackCarry;
                 IgnoreCarryWeight = ignoreCarryWeight;
                 CoveredByItemId = coveredByItemId;
             }
@@ -503,6 +540,7 @@ namespace pitTeam.Modules
             public int ItemPriority { get; }
             public int Sequence { get; }
             public bool UseAsRecoveryCapacity { get; }
+            public bool CountsAsBackpackCarry { get; }
             public bool IgnoreCarryWeight { get; }
             public string CoveredByItemId { get; }
 
@@ -518,6 +556,7 @@ namespace pitTeam.Modules
                     ItemPriority,
                     sequence,
                     UseAsRecoveryCapacity,
+                    CountsAsBackpackCarry,
                     IgnoreCarryWeight,
                     CoveredByItemId);
             }
@@ -556,13 +595,13 @@ namespace pitTeam.Modules
 
             public bool CanCarryBackpack(RecoverableGearCandidate candidate)
             {
-                return candidate.Slot != EquipmentSlot.Backpack || RecoveredBackpacks < BackpackCarryCapacity;
+                return !candidate.CountsAsBackpackCarry || RecoveredBackpacks < BackpackCarryCapacity;
             }
 
             public void RecordRecovered(RecoverableGearCandidate candidate, float itemWeight)
             {
                 CurrentWeightKg += itemWeight;
-                if (candidate.Slot == EquipmentSlot.Backpack)
+                if (candidate.CountsAsBackpackCarry)
                 {
                     RecoveredBackpacks++;
                 }
@@ -587,14 +626,16 @@ namespace pitTeam.Modules
 
         private sealed class LostOnDeathRules
         {
-            public LostOnDeathRules(Dictionary<string, bool> equipment)
+            public LostOnDeathRules(Dictionary<string, bool> equipment, bool playerGearProtectedByRaidStatusOverride = false)
             {
                 Equipment = equipment ?? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                PlayerGearProtectedByRaidStatusOverride = playerGearProtectedByRaidStatusOverride;
             }
 
             public static LostOnDeathRules KeepAll { get; } = new LostOnDeathRules(new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase));
 
             private Dictionary<string, bool> Equipment { get; }
+            public bool PlayerGearProtectedByRaidStatusOverride { get; }
 
             public int LostEquipmentSlotCount => Equipment.Count(pair => pair.Value);
 

@@ -72,8 +72,9 @@ namespace pitTeam.Modules
                     $"snapshotItems={deathGearSnapshot.Count} candidateItems={recoverableCandidates.Count} " +
                     $"pickupRadius={DeathGearRecoveryDistance:0}m weightLimit=walk-drain-threshold");
 
-                // Fallen teammate backpack shells are packed before priority items so they can add
-                // container space for the rest of the recovery simulation.
+                // Backpack shells are packed before priority items so they can add container
+                // space for the rest of the recovery simulation. This includes the player's
+                // backpack; its contents are separate low-priority candidates, not auto-returned.
                 foreach (RecoverableGearCandidate candidate in recoverableCandidates
                              .Where(candidate => candidate.UseAsRecoveryCapacity)
                              .OrderBy(candidate => candidate.OwnerPriority)
@@ -323,7 +324,7 @@ namespace pitTeam.Modules
                 return true;
             }
 
-            if (candidate.Slot != EquipmentSlot.Backpack)
+            if (!candidate.CountsAsBackpackCarry)
             {
                 return false;
             }
@@ -503,6 +504,11 @@ namespace pitTeam.Modules
                 return 6;
             }
 
+            if (slot == EquipmentSlot.Pockets)
+            {
+                return 7;
+            }
+
             return 8;
         }
 
@@ -590,8 +596,15 @@ namespace pitTeam.Modules
         {
             // Backpack shells are treated as carried capacity, not carried load. Their contents
             // still count when they are recovered as separate backpack-content candidates.
-            return candidate.IgnoreCarryWeight
-                ? 0f
+            if (candidate.IgnoreCarryWeight)
+            {
+                return 0f;
+            }
+
+            // Backpack shells are capacity, not carried load. For nested backpacks, only their
+            // contents count toward the survivor's weight budget.
+            return candidate.CountsAsBackpackCarry
+                ? Mathf.Max(0f, GetItemWeight(candidate.Item) - GetItemShellWeight(candidate.Item))
                 : GetItemWeight(candidate.Item);
         }
 

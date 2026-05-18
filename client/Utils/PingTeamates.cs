@@ -24,13 +24,15 @@ namespace pitTeam.Utils
             EnemyPos = null;
             EnemyZone = null;
             EnemyMarkerUntil = 0f;
+            EnemyProfileId = null;
         }
 
-        public void SetEnemyMarker(Vector3 enemyPosition, float untilTime)
+        public void SetEnemyMarker(Vector3 enemyPosition, float untilTime, string? enemyProfileId)
         {
             EnemyZone = PingTeamates.GetEnemyMarkerZone(enemyPosition);
             EnemyPos = enemyPosition + (Vector3.up * 1.6f);
             EnemyMarkerUntil = untilTime;
+            EnemyProfileId = enemyProfileId;
         }
 
         public float LastUpdate;
@@ -43,6 +45,7 @@ namespace pitTeam.Utils
         public Vector3? EnemyPos = null;
         public Vector3? EnemyZone = null;
         public float EnemyMarkerUntil;
+        public string? EnemyProfileId;
     }
 
     internal class PingTeamates : MonoBehaviour, IDisposable
@@ -81,6 +84,7 @@ namespace pitTeam.Utils
         private static RadioSound radioSound;
         private const float MaxSpatialPingDistance = 40f;
         private const float DirectionCalloutCooldownSeconds = 15f;
+        private static readonly Color DeadEnemyMarkerColor = new Color(0.55f, 0.55f, 0.55f, 0.45f);
 
         private bool locationPing = false;
         private float _nextDirectionCalloutTime = 0f;
@@ -131,12 +135,12 @@ namespace pitTeam.Utils
                     continue;
                 }
 
-                if (!TryGetGoalEnemyPosition(bot, out Vector3 enemyPosition))
+                if (!TryGetGoalEnemyPosition(bot, out Vector3 enemyPosition, out string? enemyProfileId))
                 {
                     continue;
                 }
 
-                botData.SetEnemyMarker(enemyPosition, lasttime);
+                botData.SetEnemyMarker(enemyPosition, lasttime, enemyProfileId);
 
                 float enemySpeakerSqr = (bot.Position - player.Position).sqrMagnitude;
                 if (enemySpeakerSqr < closestEnemySpeakerSqr)
@@ -476,7 +480,7 @@ namespace pitTeam.Utils
 
                 if (targetSpot != bt.EnemyZone || !bt.EnemyPos.HasValue)
                 {
-                    bt.SetEnemyMarker(enemyPosition.Value, lasttime);
+                    bt.SetEnemyMarker(enemyPosition.Value, lasttime, bt.Data.Memory.GoalEnemy.ProfileId);
                 }
             }
 
@@ -486,9 +490,7 @@ namespace pitTeam.Utils
             }
 
             Vector3 targetZone = bt.EnemyZone ?? GetEnemyMarkerZone(bt.EnemyPos.Value);
-            Color marker = hasLiveEnemy && IsEnemyReliablyVisibleForMarker(bt.Data, bt.Data.Memory.GoalEnemy)
-                ? Color.red
-                : Color.yellow;
+            Color marker = GetEnemyMarkerColor(bt, hasLiveEnemy);
 
             foreach (var item in botMap)
             {
@@ -615,9 +617,10 @@ namespace pitTeam.Utils
             GUI.Box(bt.MarkRect, CreateTriangleTexture(cl), makerGuiStyle);
         }
 
-        private static bool TryGetGoalEnemyPosition(BotOwner bot, out Vector3 enemyPosition)
+        private static bool TryGetGoalEnemyPosition(BotOwner bot, out Vector3 enemyPosition, out string? enemyProfileId)
         {
             enemyPosition = Vector3.zero;
+            enemyProfileId = null;
             if (bot?.Memory == null || !bot.Memory.HaveEnemy)
             {
                 return false;
@@ -632,12 +635,42 @@ namespace pitTeam.Utils
                 }
 
                 enemyPosition = goalEnemy.CurrPosition;
+                enemyProfileId = goalEnemy.ProfileId;
                 return true;
             }
             catch
             {
                 return false;
             }
+        }
+
+        private static Color GetEnemyMarkerColor(BotData bt, bool hasLiveEnemy)
+        {
+            EnemyInfo? goalEnemy = bt.Data?.Memory?.GoalEnemy;
+            if (IsMarkedEnemyDead(bt, goalEnemy))
+            {
+                return DeadEnemyMarkerColor;
+            }
+
+            return hasLiveEnemy && IsEnemyReliablyVisibleForMarker(bt.Data, goalEnemy)
+                ? Color.red
+                : Color.yellow;
+        }
+
+        private static bool IsMarkedEnemyDead(BotData bt, EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy?.Person?.HealthController != null)
+            {
+                return !goalEnemy.Person.HealthController.IsAlive;
+            }
+
+            if (string.IsNullOrEmpty(bt?.EnemyProfileId))
+            {
+                return false;
+            }
+
+            Player? alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(bt.EnemyProfileId);
+            return alivePlayer == null;
         }
 
         private static bool IsEnemyReliablyVisibleForMarker(BotOwner bot, EnemyInfo goalEnemy)

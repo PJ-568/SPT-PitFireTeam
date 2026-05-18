@@ -6,4 +6,7 @@ public record FriendlyLostOnDeathSettingsResponse
 {
     [JsonPropertyName("equipment")]
     public Dictionary<string, bool> Equipment { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("playerGearProtectedByRaidStatusOverride")]
+    public bool PlayerGearProtectedByRaidStatusOverride { get; set; }
 }

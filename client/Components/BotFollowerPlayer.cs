@@ -81,6 +81,8 @@ namespace pitTeam.Components
         private const float TeleportGraceSeconds = 0.45f;
         private const float TeleportReteleportDistance = 1.5f;
         private const float TemporaryCombatAggressionClearDelaySeconds = 2f;
+        private const float TemporaryCombatAggressionRecentEnemySeconds = 3f;
+        private const float TemporaryCombatAggressionGroupEnemySeconds = 5f;
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
@@ -1320,6 +1322,18 @@ namespace pitTeam.Components
                 return;
             }
 
+            if (_bot == null || _bot.IsDead || _bot.BotState != EBotState.Active)
+            {
+                ClearTemporaryCombatAggressionOverride();
+                return;
+            }
+
+            if (!IsSafelyOutOfCombat(_bot))
+            {
+                _temporaryCombatAggressionClearAfter = Time.time + TemporaryCombatAggressionClearDelaySeconds;
+                return;
+            }
+
             ClearTemporaryCombatAggressionOverride();
         }
 
@@ -1684,30 +1698,148 @@ namespace pitTeam.Components
                 return false;
             }
 
-            if (owner.Memory?.HaveEnemy == true)
+            if (HasActiveCombatSignal(owner))
             {
                 return false;
             }
 
-            var infos = owner.EnemiesController?.EnemyInfos;
-            if (infos != null)
+            if (HasRecentGroupCombatSignal(owner))
             {
-                foreach (var kv in infos)
-                {
-                    EnemyInfo info = kv.Value;
-                    if (info == null)
-                    {
-                        continue;
-                    }
+                return false;
+            }
 
-                    if (info.IsVisible)
-                    {
-                        return false;
-                    }
-                }
+            if (HasSquadmateCombatSignal(owner))
+            {
+                return false;
             }
 
             return true;
+        }
+
+        private static bool HasActiveCombatSignal(BotOwner owner)
+        {
+            if (owner?.Memory == null)
+            {
+                return false;
+            }
+
+            EnemyInfo goalEnemy = owner.Memory.GoalEnemy;
+            if (owner.Memory.HaveEnemy && IsEnemyInfoAlive(goalEnemy))
+            {
+                return true;
+            }
+
+            if (owner.Memory.IsUnderFire && Time.time - owner.Memory.LastTimeHit <= 2f)
+            {
+                return true;
+            }
+
+            var infos = owner.EnemiesController?.EnemyInfos;
+            if (infos == null)
+            {
+                return false;
+            }
+
+            foreach (var kv in infos)
+            {
+                EnemyInfo info = kv.Value;
+                if (info == null || !IsEnemyInfoAlive(info))
+                {
+                    continue;
+                }
+
+                if (info.IsVisible ||
+                    info.CanShoot ||
+                    Time.time - info.PersonalLastSeenTime <= TemporaryCombatAggressionRecentEnemySeconds)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasRecentGroupCombatSignal(BotOwner owner)
+        {
+            if (owner?.BotsGroup?.Enemies == null ||
+                owner.BotsGroup.EnemyLastSeenTimeReal <= 0f ||
+                Time.time - owner.BotsGroup.EnemyLastSeenTimeReal > TemporaryCombatAggressionGroupEnemySeconds)
+            {
+                return false;
+            }
+
+            foreach (IPlayer enemy in owner.BotsGroup.Enemies.Keys)
+            {
+                if (IsLiveEnemyPlayer(enemy))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasSquadmateCombatSignal(BotOwner owner)
+        {
+            BotFollowerPlayer self = BossPlayers.Instance?.GetFollower(owner);
+            pitAIBossPlayer boss = self?.GetBoss();
+            string bossProfileId = boss?.realPlayer?.ProfileId;
+            if (string.IsNullOrEmpty(bossProfileId))
+            {
+                return false;
+            }
+
+            foreach (BotFollowerPlayer follower in BossPlayers.GetFollowersByBoss(bossProfileId))
+            {
+                BotOwner squadmate = follower?.GetBot();
+                if (squadmate == null || squadmate == owner)
+                {
+                    continue;
+                }
+
+                if (HasActiveCombatSignal(squadmate) || HasRecentGroupCombatSignal(squadmate))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsEnemyInfoAlive(EnemyInfo info)
+        {
+            if (info == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(info.ProfileId))
+            {
+                Player alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(info.ProfileId);
+                return alivePlayer?.HealthController?.IsAlive == true;
+            }
+
+            return info.Person?.HealthController?.IsAlive == true;
+        }
+
+        private static bool IsLiveEnemyPlayer(IPlayer enemy)
+        {
+            if (enemy == null)
+            {
+                return false;
+            }
+
+            Player player = enemy as Player;
+            if (player?.HealthController?.IsAlive == true)
+            {
+                return true;
+            }
+
+            BotOwner bot = enemy.AIData?.BotOwner;
+            return bot != null &&
+                   !bot.IsDead &&
+                   bot.BotState == EBotState.Active &&
+                   bot.GetPlayer?.HealthController?.IsAlive == true;
         }
 
         public void ClearCommand(string reason = "unspecified")
@@ -1913,6 +2045,7 @@ namespace pitTeam.Components
                 if (owner == null || owner != _bot) return;
 
                 Utils.FollowerMedical.UpdateMedicalHandsWatchdog(owner);
+                UpdateTemporaryCombatAggressionClearDelay();
 
                 if (_teleportGraceUntil > Time.time)
                 {
