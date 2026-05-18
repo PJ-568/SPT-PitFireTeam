@@ -60,10 +60,10 @@ namespace pitTeam.Components
         private const float StopPhraseDistance = 35f;
         private const float CommandLookOverrideMinSeconds = 1.5f;
         private const float CommandLookOverrideMaxSeconds = 3.5f;
-        private const float ComeWithMeMaxDistance = 25f;
+        private const float ComeWithMeMaxDistance = 30f;
         private const float DefaultGoToDistance = 50f;
         private const float CombatThereMaxDistance = 30f;
-        private const float LookAtFollowerDistance = 27f;
+        private const float LookAtFollowerDistance = 30f;
         private const float RegroupCloseNavDistance = 8f;
         private const float RegroupSameLevelTolerance = 1.75f;
         private const float FriendlyDownVisibilityDistance = 60f;
@@ -1474,7 +1474,7 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                if (follower.Memory?.HaveEnemy == true)
+                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
                 {
                     continue;
                 }
@@ -1565,7 +1565,7 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                if (follower.Memory?.HaveEnemy == true)
+                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
                 {
                     continue;
                 }
@@ -1881,6 +1881,13 @@ namespace pitTeam.Components
             }
 
             bool combatCommand = HasActiveCombatEnemy(closestFollower);
+            if (combatCommand && IsPickedUpFollower(followerData))
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                closestFollower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                return;
+            }
+
             Vector3 commandTarget;
             bool hasTarget = combatCommand
                 ? TryGetGoToCommandTarget(requester, CombatThereMaxDistance, out commandTarget)
@@ -2099,6 +2106,23 @@ namespace pitTeam.Components
 
                 if (hasCombatEnemy)
                 {
+                    if (IsPickedUpFollower(followerData))
+                    {
+                        if (followerData.IsTemporaryCombatAggressionOverrideActive)
+                        {
+                            followerData.ClearTemporaryCombatAggressionOverride();
+                            follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                            follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                        }
+                        else
+                        {
+                            follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                            follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                        }
+
+                        continue;
+                    }
+
                     // GoForward in combat is not a movement ping; it becomes PushEnemy for combat objective routing.
                     followerData.ClearTemporaryCombatAggressionOverride();
                     followerData.SetPushEnemy(12f);
@@ -2192,7 +2216,9 @@ namespace pitTeam.Components
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
 
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
-                if (followerData == null || followerData.CombatTactic != FollowerCombatTactic.Marksman)
+                if (followerData == null ||
+                    IsPickedUpFollower(followerData) ||
+                    followerData.CombatTactic != FollowerCombatTactic.Marksman)
                 {
                     continue;
                 }
@@ -2523,8 +2549,12 @@ namespace pitTeam.Components
         private static bool HasActiveCombatEnemy(BotOwner follower)
         {
             EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
-            return follower?.Memory?.HaveEnemy == true &&
-                   goalEnemy?.Person?.HealthController?.IsAlive == true;
+            return goalEnemy?.Person?.HealthController?.IsAlive == true;
+        }
+
+        private static bool IsPickedUpFollower(BotFollowerPlayer? followerData)
+        {
+            return followerData != null && !followerData.IsSquadMate;
         }
 
         private BotOwner FindLookedAtFollower(Player requester, float distance)

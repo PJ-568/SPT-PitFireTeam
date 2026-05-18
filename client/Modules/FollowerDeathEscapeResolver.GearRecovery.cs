@@ -55,6 +55,7 @@ namespace pitTeam.Modules
                 int recovered = 0;
                 List<Item> gearToReturn = new List<Item>();
                 HashSet<string> recoveredGearIds = new HashSet<string>(StringComparer.Ordinal);
+                HashSet<string> coveredByRecoveredTreeIds = new HashSet<string>(StringComparer.Ordinal);
                 RecoveryAttemptStats stats = new RecoveryAttemptStats();
 
                 // Player gear is recoverable in every mode. Fallen teammate gear is recoverable
@@ -92,6 +93,14 @@ namespace pitTeam.Modules
                              .ThenBy(candidate => candidate.ItemPriority)
                              .ThenBy(candidate => candidate.Sequence))
                 {
+                    if (coveredByRecoveredTreeIds.Contains(candidate.Item.Id))
+                    {
+                        Logger.LogInfo(
+                            $"[DeathEscape] Skipped death gear '{DescribeRecoverableItem(candidate)}' from '{candidate.OwnerName}': " +
+                            "item is already covered by a recovered container tree.");
+                        continue;
+                    }
+
                     if (!string.IsNullOrWhiteSpace(candidate.CoveredByItemId) &&
                         recoveredGearIds.Contains(candidate.CoveredByItemId))
                     {
@@ -103,6 +112,8 @@ namespace pitTeam.Modules
 
                     if (TryRecoverDeathGearCandidate(candidate, escapedBots, carrierStates, stats))
                     {
+                        RemoveAlreadyMailedCoveredItems(candidate.Item, gearToReturn, recoveredGearIds);
+                        TrackRecoveredContainerTree(candidate.Item, candidate.Slot, coveredByRecoveredTreeIds);
                         recovered++;
                         gearToReturn.Add(candidate.Item.CloneItemWithSameId());
                         recoveredGearIds.Add(candidate.Item.Id);
@@ -194,7 +205,7 @@ namespace pitTeam.Modules
                 }
 
                 hadEquipmentSnapshot = true;
-                float itemWeight = GetItemWeight(candidate.Item);
+                float itemWeight = GetRecoveryCandidateWeight(candidate);
                 if (!state.CanCarryWeight(itemWeight))
                 {
                     stats.OverWeight++;
@@ -217,7 +228,7 @@ namespace pitTeam.Modules
                 // Candidate.Item is already a player-death snapshot. Clone again so a failed
                 // placement attempt cannot mutate the stored snapshot before another survivor tries.
                 Item clone = candidate.Item.CloneItemWithSameId();
-                if (!TryPlaceRecoveredGear(state.Equipment, candidate, clone))
+                if (!TryPlaceRecoveredGear(state, candidate, clone))
                 {
                     continue;
                 }
@@ -300,9 +311,28 @@ namespace pitTeam.Modules
             }
         }
 
-        private static bool TryPlaceRecoveredGear(InventoryEquipment equipment, RecoverableGearCandidate candidate, Item item)
+        private static bool TryPlaceRecoveredGear(RecoveryCarrierState state, RecoverableGearCandidate candidate, Item item)
         {
-            return TryEquipRecoveredGear(equipment, candidate, item) || TryPackRecoveredGear(equipment, item);
+            if (state?.Equipment == null || item == null)
+            {
+                return false;
+            }
+
+            if (TryEquipRecoveredGear(state.Equipment, candidate, item) || TryPackRecoveredGear(state, item))
+            {
+                return true;
+            }
+
+            if (candidate.Slot != EquipmentSlot.Backpack)
+            {
+                return false;
+            }
+
+            // Backpack carry is intentionally not limited to normal inventory grids. A survivor
+            // can carry one extra backpack if already wearing one, or two if their backpack slot
+            // is empty. Empty recovered backpack grids still expand simulated carry space.
+            state.AddExternallyCarriedBackpack(item);
+            return true;
         }
 
         private static bool TryEquipRecoveredGear(InventoryEquipment equipment, RecoverableGearCandidate candidate, Item item)
@@ -368,14 +398,14 @@ namespace pitTeam.Modules
             }
         }
 
-        private static bool TryPackRecoveredGear(InventoryEquipment equipment, Item item)
+        private static bool TryPackRecoveredGear(RecoveryCarrierState state, Item item)
         {
-            if (equipment == null || item == null)
+            if (state?.Equipment == null || item == null)
             {
                 return false;
             }
 
-            foreach (SearchableItemItemClass container in GetRecoveryContainers(equipment))
+            foreach (SearchableItemItemClass container in GetRecoveryContainers(state))
             {
                 if (container?.Grids == null)
                 {
@@ -394,12 +424,12 @@ namespace pitTeam.Modules
             return false;
         }
 
-        private static IEnumerable<SearchableItemItemClass> GetRecoveryContainers(InventoryEquipment equipment)
+        private static IEnumerable<SearchableItemItemClass> GetRecoveryContainers(RecoveryCarrierState state)
         {
             HashSet<string> yielded = new HashSet<string>(StringComparer.Ordinal);
             foreach (EquipmentSlot slot in GetRecoveryContainerOrder())
             {
-                SearchableItemItemClass rootContainer = equipment.GetSlot(slot)?.ContainedItem as SearchableItemItemClass;
+                SearchableItemItemClass rootContainer = state.Equipment.GetSlot(slot)?.ContainedItem as SearchableItemItemClass;
                 if (rootContainer == null || !yielded.Add(rootContainer.Id))
                 {
                     continue;
@@ -417,6 +447,16 @@ namespace pitTeam.Modules
                     }
                 }
             }
+
+            foreach (SearchableItemItemClass carriedBackpack in state.ExternallyCarriedBackpacks)
+            {
+                if (carriedBackpack == null || !yielded.Add(carriedBackpack.Id))
+                {
+                    continue;
+                }
+
+                yield return carriedBackpack;
+            }
         }
 
         private static IEnumerable<EquipmentSlot> GetRecoveryContainerOrder()
@@ -424,11 +464,6 @@ namespace pitTeam.Modules
             yield return EquipmentSlot.Backpack;
             yield return EquipmentSlot.TacticalVest;
             yield return EquipmentSlot.Pockets;
-
-            if (pitFireTeam.IsFollowerLoadoutRealisticMode())
-            {
-                yield return EquipmentSlot.SecuredContainer;
-            }
         }
 
         private static int GetDeathGearItemPriority(EquipmentSlot slot, Item item)
@@ -458,7 +493,61 @@ namespace pitTeam.Modules
                 return 4;
             }
 
-            return 6;
+            if (slot == EquipmentSlot.TacticalVest)
+            {
+                return 5;
+            }
+
+            if (slot == EquipmentSlot.Backpack)
+            {
+                return 6;
+            }
+
+            return 8;
+        }
+
+        private static void TrackRecoveredContainerTree(Item item, EquipmentSlot sourceSlot, HashSet<string> coveredByRecoveredTreeIds)
+        {
+            if (item == null || coveredByRecoveredTreeIds == null || sourceSlot == EquipmentSlot.Backpack)
+            {
+                return;
+            }
+
+            foreach (Item child in item.GetAllItems())
+            {
+                if (child != null && !string.Equals(child.Id, item.Id, StringComparison.Ordinal))
+                {
+                    coveredByRecoveredTreeIds.Add(child.Id);
+                }
+            }
+        }
+
+        private static void RemoveAlreadyMailedCoveredItems(Item item, List<Item> gearToReturn, HashSet<string> recoveredGearIds)
+        {
+            if (item == null || gearToReturn == null || gearToReturn.Count == 0)
+            {
+                return;
+            }
+
+            HashSet<string> coveredIds = new HashSet<string>(
+                item.GetAllItems()
+                    .Where(child => child != null && !string.Equals(child.Id, item.Id, StringComparison.Ordinal))
+                    .Select(child => child.Id),
+                StringComparer.Ordinal);
+            if (coveredIds.Count == 0)
+            {
+                return;
+            }
+
+            foreach (Item removed in gearToReturn
+                         .Where(returned => returned != null && coveredIds.Contains(returned.Id))
+                         .ToList())
+            {
+                gearToReturn.Remove(removed);
+                Logger.LogInfo(
+                    $"[DeathEscape] Removed separately mailed item '{removed.ShortName?.Localized(null) ?? removed.Name ?? removed.Id}' " +
+                    "because its recovered container now carries it.");
+            }
         }
 
         private static bool IsArmoredVest(EquipmentSlot slot, Item item)
@@ -482,6 +571,50 @@ namespace pitTeam.Modules
             catch
             {
                 return 0f;
+            }
+        }
+
+        private static float GetItemShellWeight(Item item)
+        {
+            try
+            {
+                return Mathf.Max(0f, item?.Weight ?? 0f);
+            }
+            catch
+            {
+                return 0f;
+            }
+        }
+
+        private static float GetRecoveryCandidateWeight(RecoverableGearCandidate candidate)
+        {
+            // Backpack shells are treated as carried capacity, not carried load. Their contents
+            // still count when they are recovered as separate backpack-content candidates.
+            return candidate.IgnoreCarryWeight
+                ? 0f
+                : GetItemWeight(candidate.Item);
+        }
+
+        private static float GetCarrierStartingWeightKg(InventoryEquipment equipment)
+        {
+            float weight = GetItemWeight(equipment);
+            try
+            {
+                Item backpack = equipment?.GetSlot(EquipmentSlot.Backpack)?.ContainedItem;
+                weight -= GetItemShellWeight(backpack);
+
+                // Secure containers are excluded from the escape-carry budget in every mode.
+                // They are protected/special-purpose containers, not general squad recovery space.
+                Item secureContainer = equipment?.GetSlot(EquipmentSlot.SecuredContainer)?.ContainedItem;
+                weight -= GetItemWeight(secureContainer);
+
+                return Mathf.Max(0f, weight);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("[DeathEscape] Failed to adjust carrier start weight for backpack/secure-container policy.");
+                Logger.LogError(ex);
+                return weight;
             }
         }
 

@@ -157,15 +157,18 @@ Current recovery priority:
 3. helmet
 4. second primary weapon
 5. holster weapon
-6. tactical vest contents
-7. backpack contents
-8. remaining recoverable gear
+6. tactical vest
+7. tactical vest contents, only if the vest was not recovered
+8. backpack
+9. backpack contents
+10. remaining recoverable gear
 
 Armor and tactical vest recovery is container-aware:
 
 - if armor is recovered, attached plates and armor parts ride with it
 - if a tactical vest is recovered, its non-tracked grid contents ride with it
 - tactical vest contents are only tried as separate low-priority items if the vest itself was not recovered
+- recovered container-tree descendants are tracked defensively so vest contents cannot be mailed both inside the vest and as loose duplicates
 - tracked follower-loot items are stripped from recovered vest snapshots so they stay on the tracked-loot return path
 
 The simulation can use empty live slots on escaped teammates:
@@ -187,19 +190,23 @@ Carrier limits:
 - this threshold uses the same client formula as player weight limits:
   `WalkOverweightLimits.x * Strength/health/stim relative carry modifiers + health/stim absolute carry modifier`
 - current follower gear counts toward that per-carrier threshold
+- the follower's worn backpack shell does not count toward carrier start weight; backpack contents still count
+- secure containers are excluded from carrier start weight in every mode, because they are protected/special-purpose containers rather than general squad recovery space
 - recovered gear uses EFT `Item.TotalWeight`, so armor plates, attachments, and contained vest items count with their parent item
+- recovered backpack shells count as `0kg` carry load while still providing container space; recovered backpack contents still count as normal item weight
 - each escaped teammate can recover up to two backpack items if they started without a backpack
 - each escaped teammate can recover one additional backpack item if they already had a backpack
-- the backpack cap is checked separately from grid/slot availability
+- the backpack cap is checked separately from grid/slot availability, and recovered backpacks can be carried externally instead of requiring a normal equipment slot
 
 The simulation can also use available container space in:
 
 - backpack
 - tactical vest
 - pockets
-- secure container only in `Realistic` / internal `Extreme`
 
-Backpacks keep the previous capacity-first behavior. Fallen teammate backpacks can be recovered first as capacity. Their grid contents are split into separate lower-priority candidates, so the backpack shell can increase available carry space without automatically dragging all contents with it.
+Secure containers are not used as available recovery space in any mode.
+
+Backpacks keep the previous capacity-first behavior. Fallen teammate backpacks can be recovered first as capacity. Their grid contents are split into separate lower-priority candidates, so the backpack shell can increase available carry space without automatically dragging all contents with it. If a recovered backpack cannot fit in a normal slot or grid, it can still count as an externally carried backpack within the per-carrier backpack limit, and its empty grids become available for later recovery checks.
 
 ## Player Gear
 
@@ -265,7 +272,7 @@ Secure-container persistence follows the loadout-management mode:
 - non-`Realistic` modes strip the generated secure-container tree before saving the escaped or stripped `Default` state
 - `Realistic` / internal `Extreme` keeps the editable secure-container tree
 
-Secure-container items are still excluded from death-escape mail recovery unless they are only being used as carrier space in `Realistic` / internal `Extreme`.
+Secure-container items are excluded from death-escape mail recovery and are never used as carrier space.
 
 ## Notifications
 

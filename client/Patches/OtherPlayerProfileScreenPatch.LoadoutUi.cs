@@ -157,19 +157,11 @@ namespace pitTeam.Patches
 
             DefaultUIButton doneButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
             doneButton.name = "pitFireTeam_LoadoutEditorDoneButton";
-            doneButton.SetRawText(GetSocialUiText("Done", "Done"), 20);
+            doneButton.SetRawText(GetSocialUiText("Save", "Save"), 20);
             doneButton.OnClick.RemoveAllListeners();
             doneButton.OnClick.AddListener(async () =>
             {
-                try
-                {
-                    await SaveLoadoutEditorPresetAsync(profile);
-                }
-                catch (Exception ex)
-                {
-                    pitFireTeam.Log.LogError("[UI] Failed to commit teammate loadout editor changes.");
-                    pitFireTeam.Log.LogError(ex);
-                }
+                await CommitLoadoutEditorPresetFromUiAsync(profile);
             });
             if (doneButton.transform is RectTransform doneRect)
             {
@@ -726,6 +718,8 @@ namespace pitTeam.Patches
 
         internal static void CloseLoadoutEditorOverlay()
         {
+            CloseLoadoutEditorChildWindows();
+
             if (LoadoutEditorEquipmentPanel != null)
             {
                 LoadoutEditorEquipmentPanel.Close();
@@ -759,6 +753,21 @@ namespace pitTeam.Patches
             LoadoutEditorInitialStashItems = null;
 
             RestoreProfileItemUiContext();
+        }
+
+        private static void CloseLoadoutEditorChildWindows()
+        {
+            CloseLoadoutEditorSaveBeforeRepairOverlay();
+
+            try
+            {
+                GClass3752.RequestGlobalClose();
+                ItemUiContext.Instance?.method_11();
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogWarning($"[UI] Failed to close loadout editor child windows: {ex.Message}");
+            }
         }
 
         private static void RestoreProfileItemUiContext()
@@ -801,6 +810,20 @@ namespace pitTeam.Patches
             catch (Exception ex)
             {
                 pitFireTeam.Log.LogError("[UI] Failed to restore teammate profile ItemUiContext after closing loadout editor.");
+                pitFireTeam.Log.LogError(ex);
+            }
+        }
+
+        private static async Task CommitLoadoutEditorPresetFromUiAsync(ResultProfile profile)
+        {
+            try
+            {
+                CloseLoadoutEditorChildWindows();
+                await SaveLoadoutEditorPresetAsync(profile);
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogError("[UI] Failed to commit teammate loadout editor changes.");
                 pitFireTeam.Log.LogError(ex);
             }
         }
@@ -1117,6 +1140,125 @@ namespace pitTeam.Patches
                 && IsDefaultLoadoutEditorSelection()
                 && IsLoadoutEditorEquipmentItem(item)
                 && item.GetItemComponentsInChildren<RepairableComponent>(true).Any();
+        }
+
+        internal static bool ShouldRequireLoadoutEditorSaveBeforeRepair(Item item)
+        {
+            if (!CanRepairLoadoutEditorEquipmentItem(item))
+            {
+                return false;
+            }
+
+            // Teammate repair is server-authoritative and targets the saved teammate equipment tree.
+            // Newly staged editor gear has only local editor ownership until Done commits it, so letting
+            // stock repair submit would leak into the player repair route with an unknown teammate item id.
+            return !IsLoadoutEditorEquipmentItemSavedToTeammateProfile(item);
+        }
+
+        internal static IResult ShowLoadoutEditorSaveBeforeRepairPrompt()
+        {
+            string message = GetSocialUiText(
+                "LoadoutEditorSaveBeforeRepair",
+                "Please save your teammate inventory first to be able to repair.");
+
+            ShowLoadoutEditorSaveBeforeRepairOverlay(message);
+            return new FailedResult(message, 0);
+        }
+
+        private static void ShowLoadoutEditorSaveBeforeRepairOverlay(string message)
+        {
+            CloseLoadoutEditorSaveBeforeRepairOverlay();
+
+            if (LoadoutEditorOverlayRoot == null)
+            {
+                NotificationManagerClass.DisplayWarningNotification(message, ENotificationDurationType.Default);
+                return;
+            }
+
+            DefaultUIButton buttonTemplate = BackButtonField?.GetValue(ActiveProfileScreen) as DefaultUIButton;
+            if (buttonTemplate == null)
+            {
+                NotificationManagerClass.DisplayWarningNotification(message, ENotificationDurationType.Default);
+                return;
+            }
+
+            GameObject overlayRoot = new GameObject("pitFireTeam_LoadoutEditorSaveBeforeRepairOverlay", typeof(RectTransform), typeof(Image));
+            overlayRoot.transform.SetParent(LoadoutEditorOverlayRoot.transform, false);
+            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
+            overlayRect.anchorMin = Vector2.zero;
+            overlayRect.anchorMax = Vector2.one;
+            overlayRect.offsetMin = Vector2.zero;
+            overlayRect.offsetMax = Vector2.zero;
+            overlayRect.localScale = Vector3.one;
+            overlayRect.SetAsLastSibling();
+
+            Image backdrop = overlayRoot.GetComponent<Image>();
+            backdrop.color = new Color(0f, 0f, 0f, 0.58f);
+            backdrop.raycastTarget = true;
+
+            GameObject panel = new GameObject("pitFireTeam_LoadoutEditorSaveBeforeRepairPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(overlayRoot.transform, false);
+            RectTransform panelRect = panel.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.sizeDelta = new Vector2(620f, 190f);
+            panelRect.localScale = Vector3.one;
+
+            Image panelImage = panel.GetComponent<Image>();
+            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
+            panelImage.raycastTarget = true;
+
+            CreateOverlayText(
+                "pitFireTeam_LoadoutEditorSaveBeforeRepairText",
+                panel.transform,
+                new Vector2(28f, 74f),
+                new Vector2(-28f, -30f),
+                TextAlignmentOptions.Center,
+                message,
+                22f,
+                new Color(0.88f, 0.88f, 0.84f, 1f));
+
+            DefaultUIButton cancelButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(122f, 20f), new Vector2(170f, 36f));
+            cancelButton.name = "pitFireTeam_LoadoutEditorSaveBeforeRepairCancelButton";
+            cancelButton.SetRawText(GetSocialUiText("Cancel", "Cancel"), 20);
+            cancelButton.OnClick.RemoveAllListeners();
+            cancelButton.OnClick.AddListener(CloseLoadoutEditorSaveBeforeRepairOverlay);
+
+            DefaultUIButton saveButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(328f, 20f), new Vector2(170f, 36f));
+            saveButton.name = "pitFireTeam_LoadoutEditorSaveBeforeRepairSaveButton";
+            saveButton.SetRawText(GetSocialUiText("Save", "Save"), 20);
+            saveButton.OnClick.RemoveAllListeners();
+            saveButton.OnClick.AddListener(async () =>
+            {
+                CloseLoadoutEditorSaveBeforeRepairOverlay();
+                await CommitLoadoutEditorPresetFromUiAsync(ViewedProfile);
+            });
+
+            LoadoutEditorSaveBeforeRepairOverlayRoot = overlayRoot;
+        }
+
+        private static void CloseLoadoutEditorSaveBeforeRepairOverlay()
+        {
+            if (LoadoutEditorSaveBeforeRepairOverlayRoot == null)
+            {
+                return;
+            }
+
+            GameObject.Destroy(LoadoutEditorSaveBeforeRepairOverlayRoot);
+            LoadoutEditorSaveBeforeRepairOverlayRoot = null;
+        }
+
+        private static bool IsLoadoutEditorEquipmentItemSavedToTeammateProfile(Item item)
+        {
+            if (item == null || ViewedProfile?.Equipment == null)
+            {
+                return false;
+            }
+
+            return ViewedProfile.Equipment
+                .GetAllItemsFromCollection()
+                .Any(candidate => candidate != null && string.Equals(candidate.Id, item.Id, StringComparison.Ordinal));
         }
 
         internal static async Task<IResult> RepairLoadoutEditorEquipmentWithKitAsync(RepairItem[] repairKitsInfo, Item itemToRepair)

@@ -1143,6 +1143,8 @@ namespace pitTeam.BigBrain.Actions
         private void ClearTakeLootState(string reason)
         {
             if (!string.Equals(reason, "TakeLoot:done", StringComparison.Ordinal) &&
+                !string.Equals(reason, "TakeLoot:detectedInInventory", StringComparison.Ordinal) &&
+                !string.Equals(reason, "TakeLoot:detectedInInventoryDuringPickup", StringComparison.Ordinal) &&
                 !string.Equals(reason, "TakeLoot:actionStop", StringComparison.Ordinal))
             {
                 Modules.Logger.LogInfo(
@@ -1150,7 +1152,21 @@ namespace pitTeam.BigBrain.Actions
             }
 
             CleanupLootInteraction(reason);
-            followerData?.ClearCommand(reason);
+            if (IsTakeLootSuccess(reason))
+            {
+                followerData?.CompleteTakeLootItem();
+            }
+            else
+            {
+                followerData?.ClearCommand(reason);
+            }
+        }
+
+        private static bool IsTakeLootSuccess(string reason)
+        {
+            return string.Equals(reason, "TakeLoot:done", StringComparison.Ordinal) ||
+                   string.Equals(reason, "TakeLoot:detectedInInventory", StringComparison.Ordinal) ||
+                   string.Equals(reason, "TakeLoot:detectedInInventoryDuringPickup", StringComparison.Ordinal);
         }
 
         private void HandleOpenDoor()

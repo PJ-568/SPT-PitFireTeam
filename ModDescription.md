@@ -139,14 +139,18 @@ Commands influence teammate behavior but do not force exact actions. teammates w
 
 **Implemented gesture/interaction commands:**
 
-- **Come To Me Gesture** - the looked-at teammate moves close to the boss.
-- **There Direction Gesture** - sends a selected or nearby teammate toward the pointed location.
+- **Come To Me Gesture** - targets the teammate you are looking at. The teammate must be active, no more than 30 meters away, and visible enough for the gesture to be handled.
+    - Outside combat: he moves close to your current position.
+    - During combat: he tries to move back toward you using nearby boss-local cover; if no cover is available, he moves to a deterministic point within about 2 meters of you along his path back to you.
+- **There Direction Gesture** - points a nearby teammate toward a location. The command selects the closest active teammate within 15 meters who can see/react to your gesture, and the pointed location must resolve to a reachable nav point.
+    - Outside combat: he moves to the pointed spot.
+    - During combat: this becomes a short tactical reposition order to the pointed nav point within 30 meters of you, instead of calling him back to your position.
 - **Stop Gesture** - tells nearby teammates to hold position, including crouch behavior.
 - **Over There Gesture** - gesture-based contact/attention toward the pointed direction.
 - **Open Door** - the closest eligible teammate opens the targeted door.
 - **Loot This** - the closest eligible teammate picks up the targeted loot item.
 
-Recruited allies are temporary and limited in behavior. Saved teammates are fully supported squad members with customization, progression, and reliable command response.
+Saved teammates and recruited allies share the basic follower system once they are following you, but saved teammates have the full squad feature set. Saved teammates keep their customization, loadouts, tactics, aggression, progression, backpack access, and post-raid handling. Recruited allies are temporary raid pickups that use the default combat tactic with moderate aggression, rely on their current bot profile and gear, and have a simpler combat command set: they do not use **Need Sniper**, combat **There**, combat **Open Door**, or combat **Go Forward** push orders. If a recruited ally was told **Hold Position** in combat, **Go Forward** only clears that temporary aggression hold.
 
 ## Gameplay Guide
 

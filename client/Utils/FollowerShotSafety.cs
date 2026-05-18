@@ -10,6 +10,12 @@ namespace pitTeam.Utils
         private const float CloseFrontDistance = 2.5f;
         private const float CloseFrontDot = 0.25f;
         private const float DistancePadding = 1.0f;
+        private const float SuppressionLaneRadius = 1.25f;
+        private const float SuppressionCloseFrontDistance = 4.0f;
+        private const float SuppressionCloseFrontDot = 0.1f;
+        private const float SuppressionDistancePadding = 2.0f;
+        private const float AimLaneRadius = 0.5f;
+        private const float AimLaneDistancePadding = 0.5f;
 
         public static bool IsFriendlyInShotLane(BotOwner shooter, Vector3 targetPosition)
         {
@@ -19,7 +25,15 @@ namespace pitTeam.Utils
                 return false;
             }
 
-            return IsFriendlyInShotLaneCore(shooter, origin, direction, maxDistance);
+            return IsFriendlyInShotLaneCore(
+                shooter,
+                origin,
+                direction,
+                maxDistance,
+                LaneRadius,
+                CloseFrontDistance,
+                CloseFrontDot,
+                DistancePadding);
         }
 
         public static bool IsFriendlyInShotLane(BotOwner shooter, Vector3 weaponFirePort, Vector3 targetPosition)
@@ -30,7 +44,15 @@ namespace pitTeam.Utils
                 return false;
             }
 
-            return IsFriendlyInShotLaneCore(shooter, origin, direction, maxDistance);
+            return IsFriendlyInShotLaneCore(
+                shooter,
+                origin,
+                direction,
+                maxDistance,
+                LaneRadius,
+                CloseFrontDistance,
+                CloseFrontDot,
+                DistancePadding);
         }
 
         public static bool IsFriendlyInShotLane(BotOwner shooter, Vector3 weaponFirePort, Vector3 weaponPointDirection, float distance)
@@ -42,17 +64,87 @@ namespace pitTeam.Utils
 
             Vector3 origin = GetFireOrigin(shooter, weaponFirePort);
             Vector3 direction = weaponPointDirection.normalized;
-            return IsFriendlyInShotLaneCore(shooter, origin, direction, distance);
+            return IsFriendlyInShotLaneCore(
+                shooter,
+                origin,
+                direction,
+                distance,
+                LaneRadius,
+                CloseFrontDistance,
+                CloseFrontDot,
+                DistancePadding);
         }
 
-        private static bool IsFriendlyInShotLaneCore(BotOwner shooter, Vector3 origin, Vector3 direction, float maxDistance)
+        public static bool IsFriendlyInSuppressionLane(BotOwner shooter, Vector3 targetPosition)
+        {
+            Vector3 origin = GetFireOrigin(shooter, Vector3.zero);
+            if (!TryBuildLane(origin, targetPosition, out Vector3 direction, out float maxDistance))
+            {
+                return false;
+            }
+
+            return IsFriendlyInSuppressionLaneCore(shooter, origin, direction, maxDistance);
+        }
+
+        public static bool IsFriendlyInSuppressionLane(BotOwner shooter, Vector3 weaponFirePort, Vector3 targetPosition)
+        {
+            Vector3 origin = GetFireOrigin(shooter, weaponFirePort);
+            if (!TryBuildLane(origin, targetPosition, out Vector3 direction, out float maxDistance))
+            {
+                return false;
+            }
+
+            return IsFriendlyInSuppressionLaneCore(shooter, origin, direction, maxDistance);
+        }
+
+        public static bool IsFriendlyInAimLane(BotOwner shooter, Vector3 weaponFirePort, Vector3 aimDirection, float distance)
+        {
+            if (distance <= 0.05f || aimDirection.sqrMagnitude <= 0.0001f)
+            {
+                return false;
+            }
+
+            Vector3 origin = GetFireOrigin(shooter, weaponFirePort);
+            return IsFriendlyInShotLaneCore(
+                shooter,
+                origin,
+                aimDirection.normalized,
+                distance,
+                AimLaneRadius,
+                0f,
+                1f,
+                AimLaneDistancePadding);
+        }
+
+        private static bool IsFriendlyInSuppressionLaneCore(BotOwner shooter, Vector3 origin, Vector3 direction, float maxDistance)
+        {
+            return IsFriendlyInShotLaneCore(
+                shooter,
+                origin,
+                direction,
+                maxDistance,
+                SuppressionLaneRadius,
+                SuppressionCloseFrontDistance,
+                SuppressionCloseFrontDot,
+                SuppressionDistancePadding);
+        }
+
+        private static bool IsFriendlyInShotLaneCore(
+            BotOwner shooter,
+            Vector3 origin,
+            Vector3 direction,
+            float maxDistance,
+            float laneRadius,
+            float closeFrontDistance,
+            float closeFrontDot,
+            float distancePadding)
         {
             if (shooter?.BotFollower?.BossToFollow is not pitAIBossPlayer boss || boss.realPlayer == null)
             {
                 return false;
             }
 
-            if (IsPlayerInLane(shooter, boss.realPlayer, origin, direction, maxDistance))
+            if (IsPlayerInLane(shooter, boss.realPlayer, origin, direction, maxDistance, laneRadius, closeFrontDistance, closeFrontDot, distancePadding))
             {
                 return true;
             }
@@ -71,7 +163,7 @@ namespace pitTeam.Utils
                     continue;
                 }
 
-                if (IsPlayerInLane(shooter, follower.GetPlayer, origin, direction, maxDistance))
+                if (IsPlayerInLane(shooter, follower.GetPlayer, origin, direction, maxDistance, laneRadius, closeFrontDistance, closeFrontDot, distancePadding))
                 {
                     return true;
                 }
@@ -113,7 +205,16 @@ namespace pitTeam.Utils
             return origin;
         }
 
-        private static bool IsPlayerInLane(BotOwner shooter, Player ally, Vector3 origin, Vector3 dir, float maxDistance)
+        private static bool IsPlayerInLane(
+            BotOwner shooter,
+            Player ally,
+            Vector3 origin,
+            Vector3 dir,
+            float maxDistance,
+            float laneRadius,
+            float closeFrontDistance,
+            float closeFrontDot,
+            float distancePadding)
         {
             if (ally == null || ally.HealthController?.IsAlive != true || string.IsNullOrEmpty(ally.ProfileId))
             {
@@ -129,12 +230,20 @@ namespace pitTeam.Utils
             Vector3 torso = feet + Vector3.up * 1.0f;
             Vector3 head = feet + Vector3.up * 1.55f;
 
-            return IsPointInLane(origin, dir, maxDistance, feet) ||
-                   IsPointInLane(origin, dir, maxDistance, torso) ||
-                   IsPointInLane(origin, dir, maxDistance, head);
+            return IsPointInLane(origin, dir, maxDistance, feet, laneRadius, closeFrontDistance, closeFrontDot, distancePadding) ||
+                   IsPointInLane(origin, dir, maxDistance, torso, laneRadius, closeFrontDistance, closeFrontDot, distancePadding) ||
+                   IsPointInLane(origin, dir, maxDistance, head, laneRadius, closeFrontDistance, closeFrontDot, distancePadding);
         }
 
-        private static bool IsPointInLane(Vector3 origin, Vector3 dir, float maxDistance, Vector3 point)
+        private static bool IsPointInLane(
+            Vector3 origin,
+            Vector3 dir,
+            float maxDistance,
+            Vector3 point,
+            float laneRadius,
+            float closeFrontDistance,
+            float closeFrontDot,
+            float distancePadding)
         {
             Vector3 toPoint = point - origin;
             float forward = Vector3.Dot(toPoint, dir);
@@ -143,21 +252,21 @@ namespace pitTeam.Utils
                 return false;
             }
 
-            if (forward <= maxDistance + DistancePadding)
+            if (forward <= maxDistance + distancePadding)
             {
                 Vector3 closest = origin + dir * forward;
                 float lateral = (point - closest).magnitude;
-                if (lateral <= LaneRadius)
+                if (lateral <= laneRadius)
                 {
                     return true;
                 }
             }
 
             float dist = toPoint.magnitude;
-            if (dist <= CloseFrontDistance)
+            if (dist <= closeFrontDistance)
             {
                 float dot = dist > 0.001f ? Vector3.Dot(toPoint / dist, dir) : 1f;
-                if (dot >= CloseFrontDot)
+                if (dot >= closeFrontDot)
                 {
                     return true;
                 }

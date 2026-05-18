@@ -477,6 +477,7 @@ namespace pitTeam.Modules
                 int itemPriority,
                 int sequence,
                 bool useAsRecoveryCapacity,
+                bool ignoreCarryWeight = false,
                 string coveredByItemId = null)
             {
                 Item = item;
@@ -488,6 +489,7 @@ namespace pitTeam.Modules
                 ItemPriority = itemPriority;
                 Sequence = sequence;
                 UseAsRecoveryCapacity = useAsRecoveryCapacity;
+                IgnoreCarryWeight = ignoreCarryWeight;
                 CoveredByItemId = coveredByItemId;
             }
 
@@ -501,6 +503,7 @@ namespace pitTeam.Modules
             public int ItemPriority { get; }
             public int Sequence { get; }
             public bool UseAsRecoveryCapacity { get; }
+            public bool IgnoreCarryWeight { get; }
             public string CoveredByItemId { get; }
 
             public RecoverableGearCandidate WithSequence(int sequence)
@@ -515,6 +518,7 @@ namespace pitTeam.Modules
                     ItemPriority,
                     sequence,
                     UseAsRecoveryCapacity,
+                    IgnoreCarryWeight,
                     CoveredByItemId);
             }
         }
@@ -534,7 +538,7 @@ namespace pitTeam.Modules
             {
                 Equipment = equipment;
                 MaxWeightKg = maxWeightKg;
-                CurrentWeightKg = GetItemWeight(equipment);
+                CurrentWeightKg = GetCarrierStartingWeightKg(equipment);
                 BackpackCarryCapacity = equipment.GetSlot(EquipmentSlot.Backpack)?.ContainedItem == null ? 2 : 1;
             }
 
@@ -543,6 +547,7 @@ namespace pitTeam.Modules
             public float CurrentWeightKg { get; private set; }
             public int BackpackCarryCapacity { get; }
             public int RecoveredBackpacks { get; private set; }
+            public List<SearchableItemItemClass> ExternallyCarriedBackpacks { get; } = new List<SearchableItemItemClass>();
 
             public bool CanCarryWeight(float itemWeight)
             {
@@ -560,6 +565,14 @@ namespace pitTeam.Modules
                 if (candidate.Slot == EquipmentSlot.Backpack)
                 {
                     RecoveredBackpacks++;
+                }
+            }
+
+            public void AddExternallyCarriedBackpack(Item item)
+            {
+                if (item is SearchableItemItemClass backpack)
+                {
+                    ExternallyCarriedBackpacks.Add(backpack);
                 }
             }
         }

@@ -2170,6 +2170,11 @@ namespace pitTeam.BigBrain
 
             float navDistance = CombatCommon.GetBossNavDistance(bossPosition);
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
+            if (CombatDistanceConfiguration.Instance.IsUrbanDetourRegroup(directDistance, navDistance))
+            {
+                return false;
+            }
+
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
             if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman(BotOwner))
             {
@@ -2259,6 +2264,11 @@ namespace pitTeam.BigBrain
 
             float navDistance = CombatCommon.GetBossNavDistance(bossPosition);
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
+            if (CombatDistanceConfiguration.Instance.IsUrbanDetourRegroup(directDistance, navDistance))
+            {
+                return false;
+            }
+
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
             return followerBossDistance >=
                    CombatDistanceConfiguration.Instance.GetRegroupNeededDistanceMarksman(BotOwner) * RegroupExtremeDistanceMultiplier;

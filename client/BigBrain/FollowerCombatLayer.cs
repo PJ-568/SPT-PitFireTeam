@@ -71,8 +71,7 @@ namespace pitTeam.BigBrain
 
             if (lingerArmed && IsLingerExpired() && !HasCurrentLiveGoalEnemy())
             {
-                hadCombatSinceActivation = false;
-                ClearLinger();
+                CompletePostCombatLinger();
                 return false;
             }
 
@@ -105,8 +104,7 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
-            hadCombatSinceActivation = false;
-            ClearLinger();
+            CompletePostCombatLinger();
             return false;
         }
 
@@ -120,7 +118,9 @@ namespace pitTeam.BigBrain
             ClearLinger();
             ClearMedicalKeepActive();
             MarkActive(true);
-            BossPlayers.Instance?.GetFollower(BotOwner)?.BeginCombatIndependenceFromPatrol();
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            followerData?.CancelTemporaryCombatAggressionOverrideClearDelay();
+            followerData?.BeginCombatIndependenceFromPatrol();
             BotOwner?.GetPlayer?.MovementContext?.SetPatrol(false);
             ClearFollowerCommandOnCombatTransition("CombatLayer:Start");
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
@@ -135,7 +135,7 @@ namespace pitTeam.BigBrain
             BattleRecorder.RecordCombatLayerState(BotOwner, false, "layerStop");
             MarkActive(false);
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
-            followerData?.ClearTemporaryCombatAggressionOverride();
+            followerData?.ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
             followerData?.ClearActiveCombatIndependent();
             ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
@@ -293,6 +293,13 @@ namespace pitTeam.BigBrain
             lingerUntil = 0f;
             lingerHardUntil = 0f;
             lingerArmed = false;
+        }
+
+        private void CompletePostCombatLinger()
+        {
+            hadCombatSinceActivation = false;
+            ClearLinger();
+            BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverride();
         }
 
         private void ClearMedicalKeepActive()

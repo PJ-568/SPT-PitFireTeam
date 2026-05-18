@@ -35,6 +35,11 @@ namespace pitTeam.Modules
      */
     public class BossPlayers
     {
+        private const float RecruitMinCombatAggression = 20f;
+        private const float RecruitMaxCombatAggression = 60f;
+        private static readonly Random RecruitAggressionRandom = new Random();
+        private static readonly object RecruitAggressionRandomLock = new object();
+
         public static BossPlayers Instance { get; private set; }
 
         private Dictionary<string, pitAIBossPlayer> _bosses;
@@ -229,6 +234,12 @@ namespace pitTeam.Modules
                 return _follower;
             }
 
+            if (!squadMate)
+            {
+                tactic = "Default";
+                aggression = CreateRecruitCombatAggression();
+            }
+
             if (_shallBeFollower.Contains(bot.ProfileId)) _shallBeFollower.Remove(bot.ProfileId);
 
             bool isAIBoss = false;
@@ -277,6 +288,16 @@ namespace pitTeam.Modules
             SainAddonBridge.RaiseFollowerLifecycleEvent(bot, FollowerLifecycleEvent.OnRecruited);
 
             return _follower;
+        }
+
+        private static float CreateRecruitCombatAggression()
+        {
+            lock (RecruitAggressionRandomLock)
+            {
+                return RecruitMinCombatAggression +
+                       (float)RecruitAggressionRandom.NextDouble() *
+                       (RecruitMaxCombatAggression - RecruitMinCombatAggression);
+            }
         }
 
         private static double GetLevelFactor(int playerLevel, int botLevel)

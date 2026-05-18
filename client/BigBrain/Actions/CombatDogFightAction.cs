@@ -1,6 +1,5 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using pitTeam.Utils;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -114,15 +113,10 @@ namespace pitTeam.BigBrain.Actions
                 BotOwner.Mover.Stop();
             }
 
-            Vector3 fireOrigin = BotOwner.WeaponRoot != null
-                ? BotOwner.WeaponRoot.position
-                : BotOwner.Position + Vector3.up * 1.2f;
-
             // Dogfight tends to happen inside the squad. Friendly lane safety is the hard stop before
             // either our fast-fire helper or the vanilla shoot node can press the trigger.
-            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, shootPoint))
+            if (StopIfFriendlyInCurrentFireLane(shootPoint))
             {
-                StopCombatShooting();
                 return;
             }
 

@@ -39,8 +39,18 @@ namespace pitTeam.Patches
         [PatchPrefix]
         private static bool PatchPrefix(RepairItem[] repairKitsInfo, string targetItemId, ref Task<IResult> __result)
         {
-            if (!OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(targetItemId, out Item itemToRepair)
-                || !OtherPlayerProfileScreenPatch.CanRepairLoadoutEditorEquipmentItem(itemToRepair))
+            if (!OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(targetItemId, out Item itemToRepair))
+            {
+                return true;
+            }
+
+            if (OtherPlayerProfileScreenPatch.ShouldRequireLoadoutEditorSaveBeforeRepair(itemToRepair))
+            {
+                __result = Task.FromResult(OtherPlayerProfileScreenPatch.ShowLoadoutEditorSaveBeforeRepairPrompt());
+                return false;
+            }
+
+            if (!OtherPlayerProfileScreenPatch.CanRepairLoadoutEditorEquipmentItem(itemToRepair))
             {
                 return true;
             }
@@ -62,13 +72,50 @@ namespace pitTeam.Patches
         {
             if (__instance == null
                 || repairItem == null
-                || !OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(repairItem.Id, out Item itemToRepair)
-                || !OtherPlayerProfileScreenPatch.CanRepairLoadoutEditorEquipmentItem(itemToRepair))
+                || !OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(repairItem.Id, out Item itemToRepair))
+            {
+                return true;
+            }
+
+            if (OtherPlayerProfileScreenPatch.ShouldRequireLoadoutEditorSaveBeforeRepair(itemToRepair))
+            {
+                __result = Task.FromResult(OtherPlayerProfileScreenPatch.ShowLoadoutEditorSaveBeforeRepairPrompt());
+                return false;
+            }
+
+            if (!OtherPlayerProfileScreenPatch.CanRepairLoadoutEditorEquipmentItem(itemToRepair))
             {
                 return true;
             }
 
             __result = OtherPlayerProfileScreenPatch.RepairLoadoutEditorEquipmentWithTraderAsync(__instance.Id, repairItem, itemToRepair);
+            return false;
+        }
+    }
+
+    internal sealed class LoadoutEditorRepairExecuteInteractionPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ContextInteractionsAbstractClass), nameof(ContextInteractionsAbstractClass.ExecuteInteractionInternal));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(ContextInteractionsAbstractClass __instance, EItemInfoButton interaction)
+        {
+            if (interaction != EItemInfoButton.Repair)
+            {
+                return true;
+            }
+
+            Item item = __instance?.Item_0;
+            if (item == null || !OtherPlayerProfileScreenPatch.ShouldRequireLoadoutEditorSaveBeforeRepair(item))
+            {
+                return true;
+            }
+
+            __instance.Action_6?.Invoke();
+            OtherPlayerProfileScreenPatch.ShowLoadoutEditorSaveBeforeRepairPrompt();
             return false;
         }
     }

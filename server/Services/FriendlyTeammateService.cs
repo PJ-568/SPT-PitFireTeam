@@ -1348,7 +1348,7 @@ public class FriendlyTeammateService(
             },
         });
 
-        logger.Info($"Injected managed secure container for teammate '{profile.Aid}' in non-Realistic loadout mode.");
+        logger.Debug($"Injected managed secure container for teammate '{profile.Aid}' in non-Realistic loadout mode.");
     }
 
     private static string GetEquipmentRootId(BotBase profile)

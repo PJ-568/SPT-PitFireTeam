@@ -15,12 +15,19 @@ namespace pitTeam.BigBrain
     /// </summary>
     internal sealed class FollowerCombatPush
     {
+        public enum PushActivationSource
+        {
+            Automatic,
+            Ordered
+        }
+
         private const string PushReasonPrefix = "push.";
         private const float RunToEnemyNonSprintGraceSeconds = 0.75f;
         private const float RunToEnemyNoSprintBlockSeconds = 3f;
         private const int AutoPushMinMagazineAmmo = 10;
         private const int ShotgunAutoPushMinMagazineAmmo = 6;
         private const float ShotgunAutoPushMaxEnemyDistance = 20f;
+        private const float CautiousPushRoleThreatMultiplier = 1.1f;
 
         private readonly BotOwner botOwner;
         private readonly FollowerCombatCommon combatCommon;
@@ -187,10 +194,12 @@ namespace pitTeam.BigBrain
         }
 
         /// <summary>
-        /// Ported from old plugin EngageEnemy intent: decide direct engage pressure
-        /// based on visibility, distance band, and low-threat checks.
+        /// Ported from old plugin EngageEnemy intent: decide push movement style after the
+        /// caller has already chosen automatic or ordered push activation.
         /// </summary>
-        public AICoreActionResultStruct<BotLogicDecision, GClass26> EngageEnemy(bool pushOrdered = false, bool enemyLowThreat = false)
+        public AICoreActionResultStruct<BotLogicDecision, GClass26> EngageEnemy(
+            PushActivationSource source,
+            bool enemyLowThreat = false)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
@@ -198,7 +207,9 @@ namespace pitTeam.BigBrain
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "engageNoEnemy");
             }
 
-            if (IsEnemyMarksman(goalEnemy) &&
+            bool pushOrdered = source == PushActivationSource.Ordered;
+            if (!pushOrdered &&
+                IsEnemyMarksman(goalEnemy) &&
                 TryCreateMarksmanFightDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> marksmanFight))
             {
                 return marksmanFight;
@@ -206,9 +217,10 @@ namespace pitTeam.BigBrain
 
             bool enemyVisible = goalEnemy.IsVisible;
             Utils.Enemy.EnemyDistance distanceToEnemy = Utils.Enemy.Distance(goalEnemy);
-            float enemiesAtLocation = enemyLowThreat || string.IsNullOrEmpty(goalEnemy.ProfileId)
+            float enemiesAtLocation = enemyLowThreat && !pushOrdered || string.IsNullOrEmpty(goalEnemy.ProfileId)
                 ? 1f
                 : Utils.Enemy.GetEnemiesAtLocation(botOwner, goalEnemy, goalEnemy.CurrPosition);
+            bool cautiousPush = ShouldUseCautiousPushStyle(goalEnemy, pushOrdered, enemyLowThreat, enemiesAtLocation);
 
             if (!pushOrdered &&
                 ShouldRestrictAutoPushForWeapon(out bool allowCloseShotgunPush) &&
@@ -222,9 +234,15 @@ namespace pitTeam.BigBrain
                 return CreateLowAmmoNoPushDecision(goalEnemy);
             }
 
-            // Old pusher behavior: push aggressively if ordered or if attack-immediate conditions align.
-            if (botOwner.Memory.AttackImmediately || pushOrdered)
+            // Once push is activated, threat affects movement style, not whether ordered push exists.
+            if (pushOrdered || source == PushActivationSource.Automatic || botOwner.Memory.AttackImmediately)
             {
+                if (cautiousPush &&
+                    TryCreateCautiousPushDecision(goalEnemy, distanceToEnemy, pushOrdered, out AICoreActionResultStruct<BotLogicDecision, GClass26> cautiousDecision))
+                {
+                    return cautiousDecision;
+                }
+
                 bool canRunToEnemy = combatCommon.CanSprintForCombatMovement() &&
                                      combatCommon.CanRunToEnemyNow();
                 if ((distanceToEnemy <= Utils.Enemy.EnemyDistance.Close && enemiesAtLocation < 2f) ||
@@ -307,7 +325,7 @@ namespace pitTeam.BigBrain
                     return blindApproachDecision;
                 }
 
-                return combatCommon.EnemySearch("push.search", pushOrdered: pushOrdered);
+                return combatCommon.EnemySearch("push.search", pushOrdered: pushOrdered, cautious: cautiousPush);
             }
 
             // Old plugin "intimidation" fallback: maintain pressure from cover or hold lane.
@@ -341,6 +359,58 @@ namespace pitTeam.BigBrain
             }
 
             return combatCommon.EnemySearch("push.search");
+        }
+
+        private bool TryCreateCautiousPushDecision(
+            EnemyInfo goalEnemy,
+            Utils.Enemy.EnemyDistance distanceToEnemy,
+            bool pushOrdered,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+
+            if (goalEnemy.IsVisible)
+            {
+                if (botOwner.Memory.IsInCover && botOwner.Memory.CurCustomCoverPoint?.CanIShootToEnemy == true)
+                {
+                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                        BotLogicDecision.shootFromCover,
+                        pushOrdered ? "push.ordered.cautiousShootFromCover" : "push.cautiousShootFromCover");
+                    return true;
+                }
+
+                if (goalEnemy.CanShoot)
+                {
+                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                        BotLogicDecision.shootFromPlace,
+                        pushOrdered ? "push.ordered.cautiousShootFromPlace" : "push.cautiousShootFromPlace");
+                    return true;
+                }
+            }
+
+            CustomNavigationPoint? approachCover = combatCommon.GetApproachableCover(distanceToEnemy > Utils.Enemy.EnemyDistance.Mid);
+            if (TryCreateApproachCoverDecision(approachCover, out decision))
+            {
+                return true;
+            }
+
+            if (pushOrdered && distanceToEnemy <= Utils.Enemy.EnemyDistance.Distant)
+            {
+                decision = CreatePushDecision(BotLogicDecision.goToEnemy);
+                return true;
+            }
+
+            if (goalEnemy.IsVisible)
+            {
+                decision = CreatePushDecision(BotLogicDecision.attackMoving);
+                return true;
+            }
+
+            decision = combatCommon.EnemySearch(
+                "push.search.cautious",
+                pushOrdered: pushOrdered,
+                cautious: true);
+            return true;
         }
 
         public bool TryCreateOrderedPushFiringPosition(
@@ -431,6 +501,32 @@ namespace pitTeam.BigBrain
 
             return (enemyAnchor - botOwner.Position).sqrMagnitude <=
                    ShotgunAutoPushMaxEnemyDistance * ShotgunAutoPushMaxEnemyDistance;
+        }
+
+        private static bool ShouldUseCautiousPushStyle(
+            EnemyInfo goalEnemy,
+            bool pushOrdered,
+            bool enemyLowThreat,
+            float enemiesAtLocation)
+        {
+            if (goalEnemy == null)
+            {
+                return true;
+            }
+
+            WildSpawnType role = goalEnemy.Person?.Profile?.Info?.Settings?.Role ?? WildSpawnType.assault;
+            float roleThreat = FollowerDeathEscapeResolver.GetRouteThreatRoleMultiplier(role);
+            if (roleThreat > CautiousPushRoleThreatMultiplier)
+            {
+                return true;
+            }
+
+            if (enemiesAtLocation >= (pushOrdered ? 3f : 2f))
+            {
+                return true;
+            }
+
+            return !pushOrdered && !enemyLowThreat;
         }
 
         private bool TryCreateLowAmmoCoveredPush(
@@ -555,6 +651,14 @@ namespace pitTeam.BigBrain
             }
 
             if (combatCommon.TryGetCommittedPushDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedPush) &&
+                IsStartWeakEnemyPushReason(committedPush.Reason) &&
+                combatCommon.ShouldBlockWeakEnemyRushForBossDistance(goalEnemy))
+            {
+                reason = "weakPushBossDistance";
+                return true;
+            }
+
+            if (combatCommon.TryGetCommittedPushDecision(goalEnemy, out committedPush) &&
                 combatCommon.ShouldBreakCommittedPushForVisibility(
                     goalEnemy,
                     committedPush,

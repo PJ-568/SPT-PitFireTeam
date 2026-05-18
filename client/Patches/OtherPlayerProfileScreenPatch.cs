@@ -378,6 +378,7 @@ namespace pitTeam.Patches
         public static DefaultUIButton EditLoadoutButton { get; set; }
         public static Transform EditLoadoutButtonRoot { get; set; }
         public static GameObject LoadoutEditorOverlayRoot { get; set; }
+        public static GameObject LoadoutEditorSaveBeforeRepairOverlayRoot { get; set; }
         public static SimpleStashPanel LoadoutEditorStashPanel { get; set; }
         public static ComplexStashPanel LoadoutEditorEquipmentPanel { get; set; }
         public static Profile LoadoutEditorProfile { get; set; }

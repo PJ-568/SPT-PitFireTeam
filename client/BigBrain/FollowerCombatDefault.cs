@@ -702,7 +702,7 @@ namespace pitTeam.BigBrain
                 // Once local logic decides a visible enemy should be pushed, hand off to the old-plugin
                 // engage helper so it can choose rush/walk/approach behavior from its richer threat checks.
                 bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
-                decision = combatPush.EngageEnemy(false, enemyLowThreat);
+                decision = combatPush.EngageEnemy(FollowerCombatPush.PushActivationSource.Automatic, enemyLowThreat);
                 return true;
             }
 
@@ -731,7 +731,7 @@ namespace pitTeam.BigBrain
 
             combatCommon.ClearCommittedCover();
             bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
-            decision = combatPush.EngageEnemy(false, enemyLowThreat);
+            decision = combatPush.EngageEnemy(FollowerCombatPush.PushActivationSource.Automatic, enemyLowThreat);
             return true;
         }
 
@@ -1008,7 +1008,7 @@ namespace pitTeam.BigBrain
             }
 
             bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
-            decision = combatPush.EngageEnemy(false, enemyLowThreat);
+            decision = combatPush.EngageEnemy(FollowerCombatPush.PushActivationSource.Automatic, enemyLowThreat);
             return true;
         }
 
@@ -1276,8 +1276,7 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
-            bool enemyLowThreat = combatCommon.IsEnemyLowThreat(goalEnemy, combatCommon.GetAggression01());
-            decision = MarkOrderedPushDecision(combatPush.EngageEnemy(true, enemyLowThreat));
+            decision = MarkOrderedPushDecision(combatPush.EngageEnemy(FollowerCombatPush.PushActivationSource.Ordered));
             return true;
         }
 
@@ -1900,6 +1899,11 @@ namespace pitTeam.BigBrain
 
             float navDistance = combatCommon.GetBossNavDistance(bossPosition);
             float directDistance = Vector3.Distance(botOwner.Position, bossPosition);
+            if (IsUrbanDetourRegroup(directDistance, navDistance))
+            {
+                return false;
+            }
+
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
             if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetBossRegroupTriggerDistance(botOwner))
             {
@@ -1907,6 +1911,11 @@ namespace pitTeam.BigBrain
             }
 
             return true;
+        }
+
+        private static bool IsUrbanDetourRegroup(float directDistance, float navDistance)
+        {
+            return CombatDistanceConfiguration.Instance.IsUrbanDetourRegroup(directDistance, navDistance);
         }
 
         private static float GetSafeRegroupDistance(float navDistance, float directDistance)

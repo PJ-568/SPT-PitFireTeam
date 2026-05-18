@@ -337,7 +337,8 @@ namespace pitTeam.Modules
                     slot,
                     GetDeathGearItemPriority(slot, clone),
                     sequence++,
-                    slot == EquipmentSlot.Backpack && !isPlayer);
+                    slot == EquipmentSlot.Backpack && !isPlayer,
+                    slot == EquipmentSlot.Backpack);
 
                 if (slot == EquipmentSlot.TacticalVest || slot == EquipmentSlot.Backpack)
                 {
@@ -350,8 +351,9 @@ namespace pitTeam.Modules
                             ownerName,
                             isPlayer,
                             slot,
-                            slot == EquipmentSlot.TacticalVest ? 5 : 7,
+                            slot == EquipmentSlot.TacticalVest ? 6 : 7,
                             sequence++,
+                            false,
                             false,
                             slot == EquipmentSlot.TacticalVest ? item.Id : null);
                     }

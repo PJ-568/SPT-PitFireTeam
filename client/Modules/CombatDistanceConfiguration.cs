@@ -41,6 +41,11 @@ namespace pitTeam.Modules
         private const float DefaultBulletHearDistanceSqr = 50f * 50f;
         private const float DefaultBulletImpactDispersionSqr = 5f * 5f;
         private const float DefaultMarksmanRegroupMultiplier = 1.5f;
+        private const float DefaultUrbanDetourDirectDistance = 45f;
+        private const float DefaultUrbanDetourMaxPathDistance = 75f;
+        private const float DefaultUrbanDetourMaxExtraDistance = 28f;
+        private const float DefaultUrbanDetourMaxRatio = 2.4f;
+        private const float DefaultRegroupBossMoveRefreshDistance = 10f;
 
 
         // Factory map settings (compressed for close-quarters gameplay)
@@ -60,6 +65,11 @@ namespace pitTeam.Modules
         private const float FactoryCloseThreatAutoAcquireDistance = 5f;
         private const float FactoryBulletHearDistanceSqr = 25f * 25f;
         private const float FactoryMarksmanRegroupMultiplier = 2f;
+        private const float FactoryUrbanDetourDirectDistance = 24f;
+        private const float FactoryUrbanDetourMaxPathDistance = 42f;
+        private const float FactoryUrbanDetourMaxExtraDistance = 16f;
+        private const float FactoryUrbanDetourMaxRatio = 2.2f;
+        private const float FactoryRegroupBossMoveRefreshDistance = 8f;
 
 
         public void SetFactoryMode(bool isFactory)
@@ -180,6 +190,39 @@ namespace pitTeam.Modules
         public float GetBossSupportShootCoverRadius()
         {
             return isFactoryMode ? FactoryBossSupportShootCoverRadius : DefaultBossSupportShootCoverRadius;
+        }
+
+        public bool IsUrbanDetourRegroup(float directDistance, float navDistance)
+        {
+            return directDistance <= GetUrbanDetourDirectDistance() &&
+                   navDistance > GetUrbanDetourMaxPathDistance() &&
+                   navDistance > directDistance + GetUrbanDetourMaxExtraDistance() &&
+                   navDistance > directDistance * GetUrbanDetourMaxRatio();
+        }
+
+        public float GetRegroupBossMoveRefreshDistance()
+        {
+            return isFactoryMode ? FactoryRegroupBossMoveRefreshDistance : DefaultRegroupBossMoveRefreshDistance;
+        }
+
+        private float GetUrbanDetourDirectDistance()
+        {
+            return isFactoryMode ? FactoryUrbanDetourDirectDistance : DefaultUrbanDetourDirectDistance;
+        }
+
+        private float GetUrbanDetourMaxPathDistance()
+        {
+            return isFactoryMode ? FactoryUrbanDetourMaxPathDistance : DefaultUrbanDetourMaxPathDistance;
+        }
+
+        private float GetUrbanDetourMaxExtraDistance()
+        {
+            return isFactoryMode ? FactoryUrbanDetourMaxExtraDistance : DefaultUrbanDetourMaxExtraDistance;
+        }
+
+        private float GetUrbanDetourMaxRatio()
+        {
+            return isFactoryMode ? FactoryUrbanDetourMaxRatio : DefaultUrbanDetourMaxRatio;
         }
 
 

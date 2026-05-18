@@ -23,6 +23,14 @@ namespace pitTeam.Utils
             // Cached BotData instances are reused across pings; reset marker state so stale zones don't suppress triangles.
             EnemyPos = null;
             EnemyZone = null;
+            EnemyMarkerUntil = 0f;
+        }
+
+        public void SetEnemyMarker(Vector3 enemyPosition, float untilTime)
+        {
+            EnemyZone = PingTeamates.GetEnemyMarkerZone(enemyPosition);
+            EnemyPos = enemyPosition + (Vector3.up * 1.6f);
+            EnemyMarkerUntil = untilTime;
         }
 
         public float LastUpdate;
@@ -34,6 +42,7 @@ namespace pitTeam.Utils
 
         public Vector3? EnemyPos = null;
         public Vector3? EnemyZone = null;
+        public float EnemyMarkerUntil;
     }
 
     internal class PingTeamates : MonoBehaviour, IDisposable
@@ -126,6 +135,8 @@ namespace pitTeam.Utils
                 {
                     continue;
                 }
+
+                botData.SetEnemyMarker(enemyPosition, lasttime);
 
                 float enemySpeakerSqr = (bot.Position - player.Position).sqrMagnitude;
                 if (enemySpeakerSqr < closestEnemySpeakerSqr)
@@ -445,7 +456,8 @@ namespace pitTeam.Utils
 
             if (bt == null || bt.Data == null || !bt.Data.HealthController.IsAlive) return;
 
-            if (bt.Data.Memory.HaveEnemy)
+            bool hasLiveEnemy = bt.Data.Memory?.HaveEnemy == true && bt.Data.Memory.GoalEnemy != null;
+            if (hasLiveEnemy)
             {
                 Vector3? enemyPosition;
 
@@ -460,66 +472,71 @@ namespace pitTeam.Utils
                     return;
                 }
 
-                Vector3 targetSpot = new Vector3(
-                    Mathf.Floor(enemyPosition.Value.x / 25f) * 25f,
-                    Mathf.Floor(enemyPosition.Value.y / 25f) * 25f,
-                    Mathf.Floor(enemyPosition.Value.z / 25f) * 25f
-                );
+                Vector3 targetSpot = GetEnemyMarkerZone(enemyPosition.Value);
 
-                if (targetSpot != bt.EnemyZone)
+                if (targetSpot != bt.EnemyZone || !bt.EnemyPos.HasValue)
                 {
-                    bt.EnemyZone = targetSpot;
-                    bt.EnemyPos = enemyPosition.Value + (Vector3.up * 1.6f);
+                    bt.SetEnemyMarker(enemyPosition.Value, lasttime);
+                }
+            }
+
+            if (!bt.EnemyPos.HasValue || Time.time > bt.EnemyMarkerUntil)
+            {
+                return;
+            }
+
+            Vector3 targetZone = bt.EnemyZone ?? GetEnemyMarkerZone(bt.EnemyPos.Value);
+            Color marker = hasLiveEnemy && IsEnemyReliablyVisibleForMarker(bt.Data, bt.Data.Memory.GoalEnemy)
+                ? Color.red
+                : Color.yellow;
+
+            foreach (var item in botMap)
+            {
+                if (item == bt)
+                {
+                    break;
                 }
 
-                Color marker = IsEnemyReliablyVisibleForMarker(bt.Data, bt.Data.Memory.GoalEnemy)
-                    ? Color.red
-                    : Color.yellow;
-
-                foreach (var item in botMap)
+                if (item.EnemyPos.HasValue && item.EnemyZone.HasValue && item.EnemyZone == targetZone && marker != Color.red)
                 {
-                    if (item != bt && item.EnemyPos.HasValue && item.EnemyZone.HasValue && item.EnemyZone == targetSpot && marker != Color.red)
-                    {
-                        bt.EnemyPos = null;
-                        break;
-                    }
+                    return;
                 }
+            }
 
-                if (bt.EnemyPos.HasValue)
-                {
-                    if (bt.MarkRect == null)
-                    {
-                        bt.MarkRect = new Rect();
-                    }
+            if (bt.MarkRect == null)
+            {
+                bt.MarkRect = new Rect();
+            }
 
+            Vector3 screenPos;
 
-                    Vector3 screenPos;
+            // take optics into consideration when triggering enemy location report
+            if (
+                CameraClass.Instance.OpticCameraManager.CurrentOpticSight != null &&
+                CameraClass.Instance.OpticCameraManager.Camera != null
+            )
+            {
+                return;
 
-                    // take optics into consideration when triggering enemy location report
-                    if (
-                        CameraClass.Instance.OpticCameraManager.CurrentOpticSight != null &&
-                        CameraClass.Instance.OpticCameraManager.Camera != null
-                    )
-                    {
-                        return;
-
-                    }
-                    else
-                    {
-                        screenPos = Camera.main.WorldToScreenPoint(bt.EnemyPos.Value);
-                    }
-
-                    if (screenPos.z > 0)
-                    {
-                        DrawEnemyMarker(bt, screenPos, marker);
-                    }
-                }
             }
             else
             {
-                bt.EnemyPos = null;
+                screenPos = Camera.main.WorldToScreenPoint(bt.EnemyPos.Value);
             }
 
+            if (screenPos.z > 0)
+            {
+                DrawEnemyMarker(bt, screenPos, marker);
+            }
+        }
+
+        public static Vector3 GetEnemyMarkerZone(Vector3 enemyPosition)
+        {
+            return new Vector3(
+                Mathf.Floor(enemyPosition.x / 25f) * 25f,
+                Mathf.Floor(enemyPosition.y / 25f) * 25f,
+                Mathf.Floor(enemyPosition.z / 25f) * 25f
+            );
         }
 
         private void CreateGuiStyle()

@@ -8,7 +8,7 @@ namespace pitTeam.SAINAddon
     {
         public static bool IsFriendlyInSuppressionLane(BotOwner shooter, Vector3 targetPosition)
         {
-            return FollowerShotSafety.IsFriendlyInShotLane(shooter, targetPosition);
+            return FollowerShotSafety.IsFriendlyInSuppressionLane(shooter, targetPosition);
         }
     }
 }

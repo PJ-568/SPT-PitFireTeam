@@ -22,7 +22,9 @@ namespace pitTeam.BigBrain.Actions
         private readonly GClass219 baseLogic;
         private GClass30? cachedData;
         private Vector3 cachedPoint;
+        private Vector3 bossAnchor;
         private bool hasCachedPoint;
+        private bool hasBossAnchor;
 
         public CombatRegroupRunAction(BotOwner botOwner) : base(botOwner)
         {
@@ -33,14 +35,8 @@ namespace pitTeam.BigBrain.Actions
         {
             base.Start();
 
-            cachedPoint = GetBossRunTarget(GetBossPosition());
-            hasCachedPoint = true;
-            cachedData = new GClass30(cachedPoint)
-            {
-                Used = true
-            };
-
-            BotOwner.GoToSomePointData.SetPoint(cachedPoint);
+            Vector3 bossPosition = GetBossPosition();
+            SetCachedPoint(GetBossRunTarget(bossPosition), bossPosition);
         }
 
         public override void Stop()
@@ -48,7 +44,9 @@ namespace pitTeam.BigBrain.Actions
             ReleaseDestinationClaim();
             cachedData = null;
             cachedPoint = Vector3.zero;
+            bossAnchor = Vector3.zero;
             hasCachedPoint = false;
+            hasBossAnchor = false;
             base.Stop();
         }
 
@@ -59,16 +57,10 @@ namespace pitTeam.BigBrain.Actions
                 BotOwner.SetPose(1f);
             }
 
-            if (!hasCachedPoint)
+            Vector3 bossPosition = GetBossPosition();
+            if (!hasCachedPoint || ShouldRefreshCachedPoint(bossPosition))
             {
-                cachedPoint = GetBossRunTarget(GetBossPosition());
-                hasCachedPoint = true;
-                cachedData = new GClass30(cachedPoint)
-                {
-                    Used = true
-                };
-
-                BotOwner.GoToSomePointData.SetPoint(cachedPoint);
+                SetCachedPoint(GetBossRunTarget(bossPosition), bossPosition);
             }
             else
             {
@@ -90,6 +82,31 @@ namespace pitTeam.BigBrain.Actions
         private Vector3 GetBossPosition()
         {
             return FollowerCombatAnchor.GetAnchorPosition(BotOwner);
+        }
+
+        private void SetCachedPoint(Vector3 point, Vector3 bossPosition)
+        {
+            cachedPoint = point;
+            bossAnchor = bossPosition;
+            hasCachedPoint = true;
+            hasBossAnchor = true;
+            cachedData = new GClass30(cachedPoint)
+            {
+                Used = true
+            };
+
+            BotOwner.GoToSomePointData.SetPoint(cachedPoint);
+        }
+
+        private bool ShouldRefreshCachedPoint(Vector3 bossPosition)
+        {
+            if (!hasBossAnchor)
+            {
+                return true;
+            }
+
+            float refreshDistance = CombatDistanceConfiguration.Instance.GetRegroupBossMoveRefreshDistance();
+            return (bossPosition - bossAnchor).sqrMagnitude > refreshDistance * refreshDistance;
         }
 
         private Vector3 GetBossRunTarget(Vector3 bossPosition)

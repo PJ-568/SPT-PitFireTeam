@@ -59,6 +59,7 @@ namespace pitTeam.BigBrain.Actions
             private const float LostVisualSuppressSeconds = 2f;
             private const float UnsafeCloseThreatDistance = 8f;
             private const float UnsafeCloseThreatLookAngle = 70f;
+            private const float RegroupCatchUpDestinationDistance = 25f;
 
             private readonly bool autoCover;
             private readonly bool forceThreatLookWhenShootable;
@@ -91,11 +92,30 @@ namespace pitTeam.BigBrain.Actions
                     ForceCurrentCoverDestination();
                 }
 
+                bool regroupCatchUp = ShouldUseRegroupCatchUp();
+                if (regroupCatchUp)
+                {
+                    ForceRegroupCatchUpMovement();
+                }
+
                 base.UpdateNodeByBrain(data);
+
+                if (regroupCatchUp)
+                {
+                    ForceRegroupCatchUpMovement();
+                }
             }
 
             public override void AimingAndShoot(GClass26 data)
             {
+                if (ShouldUseRegroupCatchUp())
+                {
+                    StopShooting();
+                    BotOwner_0.LookData.SetLookPointByHearing(null);
+                    BotOwner_0.Steering.LookToMovingDirection();
+                    return;
+                }
+
                 if (nextSuppressToggleTime < Time.time)
                 {
                     nextSuppressToggleTime = Time.time + GClass856.Random(2f, 4f);
@@ -116,6 +136,12 @@ namespace pitTeam.BigBrain.Actions
                     if (forceThreatLookWhenShootable && goalEnemy != null)
                     {
                         BotOwner_0.Steering.LookToPoint(threatPoint);
+                    }
+
+                    if (IsCurrentAimLaneUnsafe(threatPoint))
+                    {
+                        StopShooting();
+                        return;
                     }
 
                     Gclass178_0.UpdateNodeByBrain(data as GClass27);
@@ -158,7 +184,28 @@ namespace pitTeam.BigBrain.Actions
                     ? goalEnemy.GetBodyPartPosition()
                     : goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
 
-                return !FollowerShotSafety.IsFriendlyInShotLane(BotOwner_0, target);
+                Vector3 fireOrigin = BotOwner_0.WeaponRoot != null
+                    ? BotOwner_0.WeaponRoot.position
+                    : BotOwner_0.Position + Vector3.up * 1.2f;
+                return !FollowerShotSafety.IsFriendlyInShotLane(BotOwner_0, fireOrigin, target);
+            }
+
+            private bool IsCurrentAimLaneUnsafe(Vector3 target)
+            {
+                Vector3 aimDirection = BotOwner_0.LookDirection;
+                if (aimDirection.sqrMagnitude <= 0.0001f && BotOwner_0.Transform != null)
+                {
+                    aimDirection = BotOwner_0.Transform.forward;
+                }
+
+                Vector3 fireOrigin = BotOwner_0.WeaponRoot != null
+                    ? BotOwner_0.WeaponRoot.position
+                    : BotOwner_0.Position + Vector3.up * 1.2f;
+                return FollowerShotSafety.IsFriendlyInAimLane(
+                    BotOwner_0,
+                    fireOrigin,
+                    aimDirection,
+                    Vector3.Distance(fireOrigin, target));
             }
 
             private bool TryStopUnsafeCloseThreatRetreat(EnemyInfo? goalEnemy)
@@ -270,6 +317,32 @@ namespace pitTeam.BigBrain.Actions
                 {
                     BotOwner_0.BotAttackManager.UpdateNextTick();
                 }
+            }
+
+            private bool ShouldUseRegroupCatchUp()
+            {
+                if (!global::pitTeam.BigBrain.FollowerCombatRegroupObjective.IsRegroupReason(currentReason) ||
+                    BotOwner_0.GoToSomePointData?.HaveTarget() != true)
+                {
+                    return false;
+                }
+
+                Vector3 target = BotOwner_0.GoToSomePointData.Point;
+                return (BotOwner_0.Position - target).sqrMagnitude >
+                       RegroupCatchUpDestinationDistance * RegroupCatchUpDestinationDistance;
+            }
+
+            private void ForceRegroupCatchUpMovement()
+            {
+                BotOwner_0.SetPose(1f);
+                BotOwner_0.SetTargetMoveSpeed(1f);
+                BotOwner_0.Mover.Sprint(true, false);
+            }
+
+            private void StopShooting()
+            {
+                BotOwner_0.ShootData?.EndShoot();
+                BotOwner_0.WeaponManager?.ShootController?.SetTriggerPressed(false);
             }
         }
     }

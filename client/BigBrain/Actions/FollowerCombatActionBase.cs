@@ -2,6 +2,7 @@ using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using pitTeam.Components;
 using pitTeam.Modules;
+using pitTeam.Utils;
 using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
@@ -152,6 +153,46 @@ namespace pitTeam.BigBrain.Actions
             {
                 shootController.SetTriggerPressed(false);
             }
+        }
+
+        protected bool StopIfFriendlyInCurrentFireLane(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            ShootPointClass? shootPoint = BotOwner.CurrentEnemyTargetPosition(false);
+            Vector3 target = shootPoint?.Point ?? goalEnemy.GetBodyPartPosition();
+            return StopIfFriendlyInCurrentFireLane(target);
+        }
+
+        protected bool StopIfFriendlyInCurrentFireLane(Vector3 target)
+        {
+            Vector3 fireOrigin = BotOwner.WeaponRoot != null
+                ? BotOwner.WeaponRoot.position
+                : BotOwner.Position + Vector3.up * 1.2f;
+
+            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target))
+            {
+                StopCombatShooting();
+                return true;
+            }
+
+            Vector3 aimDirection = BotOwner.LookDirection;
+            if (aimDirection.sqrMagnitude <= 0.0001f && BotOwner.Transform != null)
+            {
+                aimDirection = BotOwner.Transform.forward;
+            }
+
+            float distance = Vector3.Distance(fireOrigin, target);
+            if (FollowerShotSafety.IsFriendlyInAimLane(BotOwner, fireOrigin, aimDirection, distance))
+            {
+                StopCombatShooting();
+                return true;
+            }
+
+            return false;
         }
 
         protected void TryPreferPrimaryAtRange(EnemyInfo? goalEnemy)
