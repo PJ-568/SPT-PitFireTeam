@@ -1,6 +1,6 @@
 # My Squad Current State Review
 
-Date: 2026-04-28
+Date: 2026-05-13
 
 ## Goal
 
@@ -13,6 +13,8 @@ Document the current verified implementation of the `My Squad` experience as it 
 This is a current-state review, not a target design doc. It should be read alongside:
 
 - `docs/team-management-ui-investigation-2026-03-19.md` for the earlier stock-UI investigation and target direction
+- `docs/Loadout-Management.md` for the dedicated loadout-management mode behavior and implementation status
+- `docs/Team-Escape.md` for player-death squad escape and roster refresh behavior after escape outcomes
 
 ## High-Level Shape
 
@@ -267,8 +269,9 @@ Verified sections built today:
 - `Base Settings`
 - `Follow Settings`
 - `Combat Settings`
-- `Input Settings`
 - `Raid Settings`
+- `Loadout Management`
+- `Input Settings`
 - `Miscellaneous`
 
 Verified entry groups:
@@ -287,12 +290,9 @@ Verified entry groups:
     - `enemyRemember`
     - `scanDistance`
     - `botTalk`
-- `Input Settings`
-    - `hideUnsupportedCommands`
-    - `pingKey`
-    - `contactKey`
-    - `overThereKey`
 - `Raid Settings`
+    - `teamEscape`
+    - `teamEscapeUseAnyExtract`
     - `pickupEnabled`
     - `tieredPickup`
     - `maximumPickup`
@@ -300,6 +300,16 @@ Verified entry groups:
     - `npcSendMessage`
     - `pitFireTeamFLAG`
     - `badGuy`
+- `Loadout Management`
+    - `Simple`
+    - `Restricted`
+    - `Immersive`
+    - `Realistic`
+- `Input Settings`
+    - `hideUnsupportedCommands`
+    - `pingKey`
+    - `contactKey`
+    - `overThereKey`
 - `Miscellaneous`
     - `teleportKey`
     - `healKey`
@@ -313,8 +323,32 @@ Supported control types:
 
 - `bool` -> toggle
 - ranged `int` -> slider
+- `LoadoutManagementMode` -> mutually exclusive radio-style toggle rows
 - `KeyboardShortcut` -> press-to-capture button
 - everything else -> read-only text fallback
+
+### Loadout Management setting
+
+`Loadout Management` is its own settings group placed after `Raid Settings`.
+
+The group is hidden in raid-restricted settings contexts, including the in-raid `Squad Settings` overlay, so the loadout economy mode cannot be changed while a raid is active.
+
+It is rendered as four mutually exclusive rows using cloned Ragfair `UIAnimatedToggleSpawner` controls under one `ToggleGroup`:
+
+- `Simple`
+- `Restricted`
+- `Immersive`
+- `Realistic` (stored internally as `Extreme`)
+
+The rows are intentionally vertical: each row shows the mode description on the left and the selectable mode toggle on the right.
+
+Changing from the current mode opens a confirmation overlay before the setting is applied. The overlay warns that switching loadout management will switch all teammates to their `Default` loadout. `Continue` applies the mode and closes the overlay; the `X` cancels and leaves the previous mode selected.
+
+On confirmation, the client saves the BepInEx setting, syncs the new mode to the server, and updates the visible radio state in place instead of rebuilding the full settings panel.
+
+Crossing into or out of `Realistic` also strips the secure-container tree from saved teammate `Default` loadouts before the next profile/edit view can expose it.
+
+Detailed gameplay behavior, current server-side mode-switch behavior, and pending implementation gaps are documented in `docs/Loadout-Management.md`.
 
 Shortcut capture behavior:
 
@@ -372,9 +406,10 @@ For teammate profiles the patch:
 - hides stock report actions
 - clears the stock right-side profile content blocks
 - reuses the stock clothing panel for suit selection
-- injects a cloned second clothing-style row for loadout + tactic
+- injects a cloned second clothing-style row for loadout + tactic in `Simple`
+- replaces the loadout dropdown side with `EDIT LOADOUT` in `Restricted`, `Immersive`, and `Realistic`, leaving the tactic dropdown intact
 - injects an aggression slider row below that
-- injects an `Edit Loadout` button row below that
+- injects an `Edit Loadout` button row below that in `Simple`, or a `KIT LOADOUTS` row in the real-transfer modes
 - clones and hosts a filtered `SkillsScreen`
 - moves the faction badge down to fit the custom rows
 - turns the stock hideout button into `EDIT NAME`
@@ -400,12 +435,19 @@ After successful profile-side persistence the code marks the squad roster dirty 
 
 The loadout/tactic row is still based on `InventoryClothingSelectionPanel`.
 
-Upper dropdown:
+Upper control in `Simple`:
 
 - current teammate equipment selection
 - populated from:
     - `Default`
     - player custom equipment builds returned by the backend
+
+Upper control in `Restricted`, `Immersive`, and `Realistic`:
+
+- saved-loadout selection is hidden
+- the row becomes `EDIT LOADOUT`
+- `Default` is the real editable gear surface
+- full kit acquisition is handled by the separate `KIT LOADOUTS` button, which sends the teammate's previous active kit back through the pitFireTeam courier before equipping the newly purchased kit
 
 Lower dropdown:
 
@@ -463,7 +505,7 @@ The `Edit Loadout` button opens a full-screen modal overlay on top of the teamma
 The overlay currently builds:
 
 - draggable header bar
-- subtitle explaining that this is a cloned/local editing surface
+- subtitle explaining whether the edit is cloned/local (`Simple`) or staged real item movement (`Restricted`, `Immersive`, `Realistic`)
 - left section: cloned fake player stash
 - right section: cloned follower inventory/equipment view
 - cancel button
@@ -471,13 +513,18 @@ The overlay currently builds:
 
 Confirmed implementation details:
 
-- the left stash is a fake stash created with `CreateFakeStash(...)` and populated by cloning the real player stash items
-- the right follower inventory is built from cloned teammate equipment and a fake `TraderControllerClass`
-- secure container is removed from the edited equipment before display/save
+- the left stash is a staged stash view built from the player stash
+- the right follower inventory is built from staged teammate equipment and a local editor inventory controller
+- `Simple` keeps clone/save behavior
+- `Restricted`, `Immersive`, and `Realistic` preserve item ids while editing `Default` so `Done` can commit real item movement
+- repair is available for repairable teammate gear in all modes; it updates teammate equipment and player repair resources, not saved player equipment presets
+- secure container is removed from the edited equipment before display/save except in `Realistic`
+- teammates created while `Realistic` is active start with an editable secure container based on level: Beta below 15, Epsilon below 30, Gamma at 30+
 - the follower containers panel currently renders only:
     - `TacticalVest`
     - `Pockets`
     - `Backpack`
+    - `SecuredContainer` in `Realistic`
 - the follower equipment tab currently renders:
     - scabbard
     - holster
@@ -491,7 +538,7 @@ Confirmed implementation details:
 
 Verified save behavior:
 
-- the editor uses a cloned local stash + cloned follower equipment session
+- the editor uses a staged local stash + follower equipment session
 - item edits stay local until `Done`
 - if the selected loadout is a custom player equipment build:
     - `Done` opens the stock preset naming dialog
@@ -502,8 +549,10 @@ Verified save behavior:
     - the editor now opens the teammate's actual current default equipment instead of stale pre-switch profile equipment
     - `Done` does not show the preset naming dialog
     - it saves directly as the bot's default equipment and closes
+    - in `Restricted`, `Immersive`, and `Realistic`, the server also updates the real player stash and the client refreshes the live stash view from the server response
 
 ### Current limitations
 
-- the editor still uses cloned/local items and does not consume real player stash items
-- immersive/real-item loadout editing is not implemented
+- real-item movement is currently limited to `Default`
+- custom player equipment build editing still uses the stock preset save flow
+- spawn preparation and death-stripping behavior are tracked separately in `docs/Loadout-Management.md`

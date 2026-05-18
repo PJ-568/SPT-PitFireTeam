@@ -29,6 +29,10 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
                 "/singleplayer/pitfireteam/settings",
                 async (url, info, sessionId, output) => await callbacks.SetServerSettings(url, info, sessionId)
             ),
+            new RouteAction<EmptyRequestData>(
+                "/singleplayer/pitfireteam/lostondeath",
+                async (url, info, sessionId, output) => await callbacks.GetLostOnDeathSettings(url, info, sessionId)
+            ),
             new RouteAction<GetOtherProfileRequest>(
                 "/singleplayer/pitfireteam/teammate/profile",
                 async (url, info, sessionId, output) => await callbacks.GetProfile(url, info, sessionId)
@@ -52,6 +56,14 @@ public class FriendlyTeammateStaticRouter(JsonUtil jsonUtil, FriendlyTeammateCal
             new RouteAction<FriendlyTeammateDefaultEquipmentRequest>(
                 "/singleplayer/pitfireteam/teammate/profile/default-equipment",
                 async (url, info, sessionId, output) => await callbacks.SaveDefaultEquipment(url, info, sessionId)
+            ),
+            new RouteAction<FriendlyTeammateBuyKitRequest>(
+                "/singleplayer/pitfireteam/teammate/profile/buy-kit",
+                async (url, info, sessionId, output) => await callbacks.BuyKit(url, info, sessionId)
+            ),
+            new RouteAction<FriendlyTeammateRepairEquipmentRequest>(
+                "/singleplayer/pitfireteam/teammate/profile/repair-equipment",
+                async (url, info, sessionId, output) => await callbacks.RepairDefaultEquipment(url, info, sessionId)
             ),
             new RouteAction<FriendlyTeammateAggressionRequest>(
                 "/singleplayer/pitfireteam/teammate/profile/aggression",

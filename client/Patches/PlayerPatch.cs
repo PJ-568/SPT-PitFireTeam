@@ -7,10 +7,13 @@ using EFT.Quests;
 using pitTeam.Components;
 using pitTeam.Modules;
 using HarmonyLib;
+using Newtonsoft.Json;
+using SPT.Common.Http;
 using SPT.Reflection.Patching;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading.Tasks;
 using UnityEngine;
 
 using GestureData = GClass532;
@@ -111,6 +114,12 @@ namespace pitTeam.Patches
         [PatchPrefix]
         private static bool PatchPrefix(GamePlayerOwner __instance, int actionId, bool aggressive)
         {
+            if ((EPhraseTrigger)actionId == (EPhraseTrigger)CustomPhrases.ViewBackpack)
+            {
+                TeammateBackpackInspection.TryOpenFromQuickInteraction(__instance);
+                return false;
+            }
+
             pitAIBossPlayer? boss = BossPlayers.GetBoss(__instance.Player.ProfileId);
 
             if (!GClass3937.IsPlayerGesture(actionId) &&
@@ -156,9 +165,37 @@ namespace pitTeam.Patches
         }
     }
 
+    internal class QuickMumbleStartViewBackpackPatch : ModulePatch
+    {
+        private static readonly FieldInfo BattleUiControllerField = AccessTools.Field(typeof(GamePlayerOwner), "BattleUIScreenController");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GamePlayerOwner), nameof(GamePlayerOwner.QuickMumbleStart));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(GamePlayerOwner __instance)
+        {
+            EPhraseTrigger viewBackpackPhrase = (EPhraseTrigger)CustomPhrases.ViewBackpack;
+            GInterface472 battleUi = BattleUiControllerField.GetValue(__instance) as GInterface472;
+            if (battleUi?.GesturesQuickPanel?.EPhraseTrigger_0 != viewBackpackPhrase)
+            {
+                return true;
+            }
+
+            battleUi.GesturesQuickPanel.ActivateCommand();
+            TeammateBackpackInspection.TryOpenFromQuickInteraction(__instance);
+            return false;
+        }
+    }
+
     /** Have follower kills grant the same raid XP counters used by the legacy plugin. **/
     internal class PlayerKilledPatch : ModulePatch
     {
+        private const string KillMessageRoute = "/singleplayer/pitfireteam/postraid/kill-message";
+        private static readonly HashSet<string> RecordedKillMessageVictims = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly object RecordedKillMessageLock = new object();
         private static FieldInfo _questControllerProfileField;
         private static bool _questControllerProfileFieldPrepared;
 
@@ -172,6 +209,9 @@ namespace pitTeam.Patches
         {
             try
             {
+                TryRecordDeadSquadmate(__instance, aggressor, bodyPart, lethalDamageType);
+                TryRecordPlayerKillMessage(__instance, aggressor);
+
                 if (aggressor?.Profile?.Info?.Settings == null || __instance?.GameWorld == null)
                 {
                     return;
@@ -252,6 +292,138 @@ namespace pitTeam.Patches
             {
                 Logger.LogError(ex);
             }
+        }
+
+        private static void TryRecordDeadSquadmate(
+            Player player,
+            IPlayer aggressor,
+            EBodyPart bodyPart,
+            EDamageType lethalDamageType)
+        {
+            try
+            {
+                if (player == null || string.IsNullOrWhiteSpace(player.ProfileId))
+                {
+                    return;
+                }
+
+                BotFollowerPlayer deadFollower = BossPlayers.GetFollowers()
+                    .Find(follower => follower?.GetBot()?.ProfileId == player.ProfileId);
+                if (deadFollower == null || !deadFollower.IsSquadMate)
+                {
+                    return;
+                }
+
+                BattleRecorder.RecordFollowerDeath(
+                    deadFollower,
+                    player,
+                    aggressor,
+                    bodyPart,
+                    lethalDamageType);
+                NpcMessage.RemoveNpc(player.ProfileId, true);
+                FollowerDeathEscapeResolver.RecordFallenSquadmate(player);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to record dead squadmate for loadout loss");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static void TryRecordPlayerKillMessage(Player victim, IPlayer aggressor)
+        {
+            try
+            {
+                if (victim == null || aggressor == null || !aggressor.IsYourPlayer || !victim.IsAI)
+                {
+                    return;
+                }
+
+                string messageKind = GetKillMessageKind(victim, aggressor);
+                if (string.IsNullOrEmpty(messageKind))
+                {
+                    return;
+                }
+
+                string messageText = GetKillMessageText(messageKind);
+                if (string.IsNullOrWhiteSpace(messageText))
+                {
+                    return;
+                }
+
+                string victimProfileId = victim.ProfileId;
+                if (string.IsNullOrEmpty(victimProfileId))
+                {
+                    return;
+                }
+
+                lock (RecordedKillMessageLock)
+                {
+                    if (!RecordedKillMessageVictims.Add(victimProfileId))
+                    {
+                        return;
+                    }
+                }
+
+                string json = JsonConvert.SerializeObject(new
+                {
+                    victimProfileId,
+                    victimAccountId = victim.AccountId,
+                    messageKind,
+                    messageText,
+                });
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        RequestHandler.PostJson(KillMessageRoute, json);
+                    }
+                    catch (Exception ex)
+                    {
+                        Modules.Logger.LogError($"Failed to record post-raid kill message for {victim.Profile?.Info?.Nickname}");
+                        Modules.Logger.LogError(ex);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to classify post-raid kill message");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static string GetKillMessageKind(Player victim, IPlayer aggressor)
+        {
+            BotFollowerPlayer follower = BossPlayers.GetFollowerByProfileId(victim.ProfileId);
+            if (follower != null)
+            {
+                return follower.IsSquadMate ? string.Empty : "traitor";
+            }
+
+            bool friendlyPmcEnabled = pitFireTeam.pitFireTeamFLAG.Value && !pitFireTeam.badGuy.Value;
+            if (!friendlyPmcEnabled)
+            {
+                return string.Empty;
+            }
+
+            bool victimIsPmc = victim.Side == EPlayerSide.Bear || victim.Side == EPlayerSide.Usec;
+            bool sameSide = victim.Side == aggressor.Side;
+            return victimIsPmc && sameSide ? "jerk" : string.Empty;
+        }
+
+        private static string GetKillMessageText(string messageKind)
+        {
+            string[] messages = messageKind == "traitor"
+                ? pitFireTeam.optionsLang?.traitorKillMessages
+                : pitFireTeam.optionsLang?.jerkKillMessages;
+
+            if (messages == null || messages.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            return messages[UnityEngine.Random.Range(0, messages.Length)];
         }
 
         private static void TryCreditFollowerKillQuestProgress(

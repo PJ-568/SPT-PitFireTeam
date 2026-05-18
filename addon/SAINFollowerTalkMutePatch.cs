@@ -4,6 +4,7 @@ using SAIN.SAINComponent.Classes.EnemyClasses;
 using SAIN.SAINComponent.Classes.Talk;
 using pitTeam.Components;
 using pitTeam.Modules;
+using pitTeam.Patches;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -17,8 +18,6 @@ namespace pitTeam.SAINAddon
         private const float LogThrottleSeconds = 2f;
         private static readonly HashSet<EPhraseTrigger> MutedFollowerTriggers = new HashSet<EPhraseTrigger>
         {
-            EPhraseTrigger.OnFirstContact,
-            EPhraseTrigger.OnRepeatedContact,
             EPhraseTrigger.LostVisual,
             EPhraseTrigger.OnLostVisual,
             EPhraseTrigger.Clear
@@ -79,9 +78,7 @@ namespace pitTeam.SAINAddon
                 return true;
             }
 
-            __result = false;
-            LogBlockedPhrase(owner!, enemy, "GroupTalk.CheckEnemyContact", "OnFirstContact/OnRepeatedContact");
-            return false;
+            return true;
         }
 
         private static bool Prefix_ShallReportLostVisual(GroupTalk __instance, Enemy enemy, ref bool __result)
@@ -114,6 +111,18 @@ namespace pitTeam.SAINAddon
             if (!TryGetFollowerOwner(player?.AIData?.BotOwner, out BotOwner? owner))
             {
                 return true;
+            }
+
+            if (FollowerContactPhraseGate.IsContactPhrase(phrase) && !FollowerContactPhraseGate.ShouldAllow(owner!))
+            {
+                __result = false;
+                LogBlockedPhrase(
+                    owner!,
+                    enemy: null,
+                    "PlayerComponent.PlayVoiceLine",
+                    phrase.ToString(),
+                    $"reason=contactGate mask={mask} aggressive={aggressive}");
+                return false;
             }
 
             if (FollowerTalkFrequencyGate.ShouldBlockCombatTalk(owner!, phrase))

@@ -27,6 +27,9 @@ namespace pitTeam.Patches
 {
     internal static class SyntheticTeammateRaidGuard
     {
+        private static readonly TimeSpan SyntheticRaidStartErrorWindow = TimeSpan.FromSeconds(30);
+        private static DateTime _lastSyntheticRaidStartUtc = DateTime.MinValue;
+
         private static readonly MethodInfo LocalRaidStartMethod = AccessTools.Method(typeof(TarkovApplication), "method_41", new Type[]
         {
             typeof(TimeAndWeatherSettings),
@@ -54,8 +57,14 @@ namespace pitTeam.Patches
 
             raidSettings.RaidMode = ERaidMode.Local;
             raidSettings.IsPveOffline = true;
+            _lastSyntheticRaidStartUtc = DateTime.UtcNow;
             pitFireTeam.Log.LogInfo($"[Raid] Forced local teammate raid at {reason}. groupPlayers={MainMenuControllerPatch.GroupPlayers.Count}");
             return true;
+        }
+
+        public static bool IsRecentSyntheticRaidStart()
+        {
+            return HasSyntheticTeammates() && DateTime.UtcNow - _lastSyntheticRaidStartUtc <= SyntheticRaidStartErrorWindow;
         }
 
         public static Task StartLocalRaid(TarkovApplication application)
@@ -71,6 +80,53 @@ namespace pitTeam.Patches
                 raidSettings.TimeAndWeatherSettings,
                 false
             });
+        }
+    }
+
+    // Finalizer-only compatibility patch for raid startup. We still let EFT run
+    // HideoutGame.Dispose normally, then suppress only the known null-ref that can
+    // happen when hideout/trader-scene unload races our synthetic local raid start.
+    internal class HideoutGameDisposeSyntheticRaidGuardPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(HideoutGame), "Dispose");
+        }
+
+        [PatchFinalizer]
+        private static Exception PatchFinalizer(HideoutGame __instance, Exception __exception)
+        {
+            if (__exception == null)
+            {
+                return null;
+            }
+
+            // Some hideout/trader-scene unload paths can null-ref exactly as the
+            // synthetic teammate flow switches the client into a local raid. This
+            // finalizer is intentionally narrow: only suppress that null-ref during
+            // the short raid-start window, and let every other dispose failure surface.
+            if (__exception is NullReferenceException && SyntheticTeammateRaidGuard.IsRecentSyntheticRaidStart())
+            {
+                pitFireTeam.Log.LogWarning("[Raid] Suppressed HideoutGame.Dispose null-ref during synthetic teammate raid start.");
+                pitFireTeam.Log.LogWarning(__exception);
+
+                try
+                {
+                    if (__instance != null && __instance.gameObject != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(__instance.gameObject);
+                    }
+                }
+                catch (Exception cleanupException)
+                {
+                    pitFireTeam.Log.LogWarning("[Raid] Failed fallback hideout game-object cleanup after suppressed dispose exception.");
+                    pitFireTeam.Log.LogWarning(cleanupException);
+                }
+
+                return null;
+            }
+
+            return __exception;
         }
     }
 

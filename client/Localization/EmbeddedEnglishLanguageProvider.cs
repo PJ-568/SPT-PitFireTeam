@@ -24,6 +24,7 @@ namespace pitTeam.Localization
                 miscSettings = "Miscellaneous",
                 testSettings = "Testing",
                 raidSettings = "Raid Settings",
+                loadoutManagementSettings = "Loadout Management",
                 equipOptions = new[] { "Default" },
                 tacticOptions = new[] { "Rifleman", "Support", "Marksman", "Pusher", "Holder", "Assist" },
 
@@ -66,6 +67,12 @@ namespace pitTeam.Localization
                 recruitPickup = Entry(
                     "Recruit Pickup",
                     "Allow picked-up followers that were successfully extracted with to send friend requests. This uses player-vs-bot level difference rules when deciding."),
+                teamEscape = Entry(
+                    "Team Escape",
+                    "Allow surviving squadmates to attempt an escape after you die. Escaped teammates can return eligible follower loot and recoverable gear that would otherwise be lost."),
+                teamEscapeUseAnyExtract = Entry(
+                    "Use Any Extraction Point",
+                    "Allow the squad escape simulation to choose any usable extraction point on the map. Disable this to restrict escape routes to extraction points assigned to the player."),
                 memberTactic = Entry(
                     "Squad Member {0} Tactic",
                     "Set Squad member fight tactic."),
@@ -87,6 +94,18 @@ namespace pitTeam.Localization
                 equipmentLock = Entry(
                     "Lock Squad Equipment",
                     "Locks the equipment of the squad members."),
+                loadoutManagementSimple = Entry(
+                    "Simple",
+                    "Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted."),
+                loadoutManagementRestricted = Entry(
+                    "Restricted",
+                    "Teammate loadouts must use gear from your stash or be purchased through the kit buyout system. Gear is still protected: it is not lost on death and cannot be looted."),
+                loadoutManagementImmersive = Entry(
+                    "Immersive",
+                    "Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted."),
+                loadoutManagementExtreme = Entry(
+                    "Realistic",
+                    "Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself."),
                 npcSendMessage = Entry(
                     "Raid End Messages",
                     "Followers will send message at the end of the raid based on conditions such as if all made it out or if you picked up a follower and kept him alive. Return items messages are excluded"),
@@ -149,6 +168,7 @@ namespace pitTeam.Localization
                 {
                     ["OverThere"] = "Over There",
                     ["TeamStatus"] = "Status Report",
+                    ["ViewBackpack"] = "View Backpack",
                     ["OnRepeatedContact"] = "Contact"
                 },
                 botStatus = new Dictionary<string, string>
@@ -178,8 +198,24 @@ namespace pitTeam.Localization
                     ["RenameCancel"] = "Cancel",
                     ["RenameChange"] = "EDIT NAME",
                     ["EditLoadout"] = "EDIT LOADOUT",
+                    ["BuyGearLoadout"] = "KIT LOADOUTS",
+                    ["KitLoadoutsOpenFailed"] = "Unable to open teammate kit loadouts.",
+                    ["KitLoadoutPriceFailed"] = "Unable to price selected teammate kit.",
+                    ["KitLoadoutPurchaseFailed"] = "Unable to purchase teammate kit.",
+                    ["NotEnoughResourcesKitPrompt"] = "Not enough resources to purchase {0} kit",
+                    ["BuyKitTitle"] = "BUY KIT",
+                    ["PurchaseKitPrompt"] = "Purchase {0} Kit for {1}?",
+                    ["KitCurrentGearDeliveryNotice"] = "Teammate's current kit will be returned to you via delivery service.",
+                    ["KitItemsTakenFromStash"] = "The following items will be taken from stash:",
+                    ["KitItemsPurchased"] = "The following items will be purchased:",
+                    ["PurchaseKitAction"] = "Purchase",
+                    ["EquipKitAction"] = "EQUIP",
+                    ["UseItemsInStash"] = "Use items in stash",
+                    ["CurrencyRoubles"] = "{0:N0} RUB",
+                    ["UnknownItem"] = "Unknown item",
                     ["EditLoadoutTitle"] = "Edit Loadout",
                     ["EditLoadoutSubtitle"] = "Edit cloned items for {0}. Changes here do not touch the real stash yet.",
+                    ["EditLoadoutSubtitleReal"] = "Edit staged gear for {0}. Saving moves items between your stash and this teammate.",
                     ["PlayerStash"] = "Player Stash",
                     ["PlayerStashPlaceholder"] = "Failed to load cloned stash view.\n{0}",
                     ["BotInventory"] = "Follower Inventory",
@@ -225,13 +261,42 @@ namespace pitTeam.Localization
                     ["SquadControlEmptyRoster"] = "You have not created any team members yet, press the add button below to get started",
                     ["SettingsPressKey"] = "Press key...",
                     ["SettingsNotBound"] = "Not Bound",
-                    ["SettingsUnavailableDuringRaid"] = "Not available during raid"
+                    ["SettingsUnavailableDuringRaid"] = "Not available during raid",
+                    ["LoadoutManagementConfirmTitle"] = "SWITCH LOADOUT MANAGMENT",
+                    ["LoadoutManagementConfirmPrompt"] = "Switching loadout management will switch all teammates to their Default loadout.",
+                    ["LoadoutManagementConfirm"] = "Continue"
                 },
                 returnItems = new[] { "Items received from your teammate. Ready for you to claim." },
                 returnItemsDeath = new[] { "Your teammate recovered these items." },
                 teamEscaped = new[] { "Nice!\nWe managed to get out." },
                 teamSomeEscaped = new[] { "Well it's a shame about {0}, but at least the rest of us made it." },
-                friendlyEscaped = new[] { "Glad we made it.\nThanks for letting me tag along." }
+                friendlyEscaped = new[] { "Glad we made it.\nThanks for letting me tag along." },
+                deathEscapeMessages = new[]
+                {
+                    "Squad extraction report:\n{0}",
+                    "Post-raid squad report:\n{0}",
+                    "Your squad's final status:\n{0}",
+                },
+                deathEscape = new Dictionary<string, string>
+                {
+                    ["MadeItOut"] = "Made it out: {0}",
+                    ["Lost"] = "Lost: {0}",
+                    ["ExtractRoute"] = "Extract route: {0}",
+                },
+                traitorKillMessages = new[]
+                {
+                    "I trusted you. Guess that was my mistake.",
+                    "So that's how you treat someone who joined your side?",
+                    "You picked me up just to put me down? Real classy.",
+                    "I had your back. You shot me in it.",
+                },
+                jerkKillMessages = new[]
+                {
+                    "Same side, genius. Try checking your targets next time.",
+                    "Friendly PMC. Friendly. The word means something.",
+                    "You shoot everyone wearing your colors, or was I special?",
+                    "Nice work. You killed one of your own.",
+                }
             };
         }
     }

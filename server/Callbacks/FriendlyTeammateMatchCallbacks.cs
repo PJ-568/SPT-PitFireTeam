@@ -6,6 +6,7 @@ using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Eft.Ws;
+using SPTarkov.Server.Core.Services;
 using SPTarkov.Server.Core.Utils;
 
 namespace pitTeam.Server.Callbacks;
@@ -14,7 +15,8 @@ namespace pitTeam.Server.Callbacks;
 public class FriendlyTeammateMatchCallbacks(
     FriendlyTeammateService teammateService,
     HttpResponseUtil httpResponseUtil,
-    NotificationSendHelper notificationSendHelper
+    NotificationSendHelper notificationSendHelper,
+    MailSendService mailSendService
 )
 {
     public ValueTask<string> SendGroupInvite(
@@ -23,8 +25,31 @@ public class FriendlyTeammateMatchCallbacks(
         MongoId sessionId,
         string? previousOutput)
     {
-        if (!teammateService.TryGetRaidGroupCharacter(sessionId, request.To, out var teammate))
+        if (!teammateService.TryGetRaidGroupCharacter(sessionId, request.To, out var teammate, out var rejectionReason))
         {
+            if (teammate != null && !string.IsNullOrWhiteSpace(rejectionReason))
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(1000);
+
+                    notificationSendHelper.SendMessage(
+                        sessionId,
+                        new WsGroupMatchInviteDecline
+                        {
+                            EventType = NotificationEventType.groupMatchInviteDecline,
+                            EventIdentifier = new MongoId(),
+                            Aid = teammate.Aid,
+                            Nickname = teammate.Info?.Nickname ?? teammate.Aid?.ToString(),
+                        }
+                    );
+
+                    mailSendService.SendSystemMessageToPlayer(sessionId, rejectionReason, null);
+                });
+
+                return new ValueTask<string>(previousOutput ?? httpResponseUtil.GetBody("pitfireteam-teammate-invite"));
+            }
+
             return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
         }
 

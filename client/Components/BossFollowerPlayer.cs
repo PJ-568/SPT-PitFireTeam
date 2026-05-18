@@ -29,7 +29,7 @@ namespace pitTeam.Components
         public BossFollowerPlayer(BotOwner bot, pitAIBossPlayer player, WildSpawnType bossRole) : base(bot, player, false, bossRole)
         {
 
-            NpcMessage.RemoveNpc(bot.ProfileId);
+            NpcMessage.RemoveNpc(bot.ProfileId, false);
 
             // when questing with bosses, there will not be any messages from them
             if (player.realPlayer.Side != EPlayerSide.Savage && (!Utils.Props.BossFollowersType.Contains(bossRole) || !Utils.Utils.FlagGet("questGoons")))

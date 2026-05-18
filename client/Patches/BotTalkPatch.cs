@@ -95,16 +95,41 @@ namespace pitTeam.Patches
         }
     }
 
-    internal static class FollowerContactPhraseGate
+    public static class FollowerContactPhraseGate
     {
         private const float StableSeenWindowSeconds = 1.25f;
 
         private sealed class ContactState
         {
             public string LastEnemyProfileId;
+            public string SuppressedEnemyProfileId;
+            public float SuppressUntilTime;
         }
 
         private static readonly Dictionary<string, ContactState> StateByFollower = new Dictionary<string, ContactState>(StringComparer.Ordinal);
+
+        public static bool IsContactPhrase(EPhraseTrigger phrase)
+        {
+            return phrase == EPhraseTrigger.OnFirstContact || phrase == EPhraseTrigger.OnRepeatedContact;
+        }
+
+        public static void SuppressCommandedContact(BotOwner owner, string enemyProfileId, float durationSeconds)
+        {
+            if (owner == null || string.IsNullOrEmpty(owner.ProfileId))
+            {
+                return;
+            }
+
+            string safeEnemyId = string.IsNullOrEmpty(enemyProfileId) ? "<unknown>" : enemyProfileId;
+            if (!StateByFollower.TryGetValue(owner.ProfileId, out ContactState state))
+            {
+                state = new ContactState();
+                StateByFollower[owner.ProfileId] = state;
+            }
+
+            state.SuppressedEnemyProfileId = safeEnemyId;
+            state.SuppressUntilTime = UnityEngine.Time.time + Math.Max(0.1f, durationSeconds);
+        }
 
         public static bool ShouldAllow(BotOwner owner)
         {
@@ -133,6 +158,16 @@ namespace pitTeam.Patches
             if (string.IsNullOrEmpty(enemyId))
             {
                 enemyId = "<unknown>";
+            }
+
+            if (StateByFollower.TryGetValue(owner.ProfileId, out ContactState suppressedState) &&
+                UnityEngine.Time.time <= suppressedState.SuppressUntilTime &&
+                string.Equals(suppressedState.SuppressedEnemyProfileId, enemyId, StringComparison.Ordinal))
+            {
+                // Player-directed Contact / Over There already told the follower where to fight. Mark
+                // that enemy as handled so they do not acknowledge the command with a delayed contact callout.
+                suppressedState.LastEnemyProfileId = enemyId;
+                return false;
             }
 
             if (!StateByFollower.TryGetValue(owner.ProfileId, out ContactState state))
@@ -190,8 +225,7 @@ namespace pitTeam.Patches
 
             if (__instance.IsSilenced) return false;
 
-            if ((type == EPhraseTrigger.OnFirstContact || type == EPhraseTrigger.OnRepeatedContact) &&
-                BossPlayers.IsFollower(__instance.BotOwner_0))
+            if (FollowerContactPhraseGate.IsContactPhrase(type) && BossPlayers.IsFollower(__instance.BotOwner_0))
             {
                 if (!FollowerContactPhraseGate.ShouldAllow(__instance.BotOwner_0))
                 {
@@ -230,8 +264,7 @@ namespace pitTeam.Patches
 
             if (__instance.IsSilenced) return false;
 
-            if ((type == EPhraseTrigger.OnFirstContact || type == EPhraseTrigger.OnRepeatedContact) &&
-                BossPlayers.IsFollower(__instance.BotOwner_0))
+            if (FollowerContactPhraseGate.IsContactPhrase(type) && BossPlayers.IsFollower(__instance.BotOwner_0))
             {
                 if (!FollowerContactPhraseGate.ShouldAllow(__instance.BotOwner_0))
                 {

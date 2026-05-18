@@ -45,13 +45,12 @@ namespace pitTeam.BigBrain.Actions
         private const float CloseKnownThreatBadLookAngle = 65f;
         private const float CloseKnownThreatBadPathAngle = 75f;
         private const float WalkingThreatLookDistance = 90f;
-        private const float RunRestoreStableSeconds = 0.45f;
         private static readonly float[] RunPointDistances = { 8f, 10f, 6.5f, 5f };
         private static readonly float[] RunPointAngles = { 0f, -25f, 25f, -50f, 50f, -90f, 90f, 180f };
 
         private readonly CombatGoToEnemyAction walkFallback;
+        private readonly FallbackRunRestoreGate restoreRunGate = new FallbackRunRestoreGate();
         private MovementMode movementMode;
-        private float canRunStableSince;
         private float nextMoveRefreshTime;
         private Vector3 committedRunPoint;
         private bool hasCommittedRunPoint;
@@ -70,7 +69,7 @@ namespace pitTeam.BigBrain.Actions
         {
             base.Start();
             movementMode = MovementMode.Run;
-            canRunStableSince = 0f;
+            restoreRunGate.Reset();
             StartRunMode();
         }
 
@@ -137,7 +136,7 @@ namespace pitTeam.BigBrain.Actions
         {
             StopRunMode();
             movementMode = MovementMode.Walk;
-            canRunStableSince = 0f;
+            restoreRunGate.Reset();
             walkFallback.Start();
             walkFallback.Update(data);
         }
@@ -146,26 +145,14 @@ namespace pitTeam.BigBrain.Actions
         {
             walkFallback.Update(data);
 
-            if (!canRun)
-            {
-                canRunStableSince = 0f;
-                return;
-            }
-
-            if (canRunStableSince <= 0f)
-            {
-                canRunStableSince = Time.time;
-                return;
-            }
-
-            if (Time.time - canRunStableSince < RunRestoreStableSeconds)
+            if (!restoreRunGate.ShouldRestoreToRun(canRun, BotOwner.Memory?.GoalEnemy))
             {
                 return;
             }
 
             walkFallback.Stop();
             movementMode = MovementMode.Run;
-            canRunStableSince = 0f;
+            restoreRunGate.Reset();
             StartRunMode();
             UpdateRun(data, true);
         }

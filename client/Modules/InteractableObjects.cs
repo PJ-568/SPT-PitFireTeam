@@ -1,5 +1,6 @@
 using Comfort.Common;
 using EFT;
+using EFT.HealthSystem;
 using EFT.Interactive;
 using EFT.InventoryLogic;
 using pitTeam.Components;
@@ -80,44 +81,13 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            var flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(_toSendItems);
-
-            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-
-            var _defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
-
-            if (flatItems != null && flatItems.Any())
+            Dictionary<string, object>? member = null;
+            if (_followersWithLoot != null && _followersWithLoot.Count > 0)
             {
-                Dictionary<string, object>? member = null;
-                if (_followersWithLoot != null && _followersWithLoot.Count > 0)
-                {
-                    member = _followersWithLoot.Values.FirstOrDefault();
-                }
-
-                string returnItemsJson = new
-                {
-                    items = flatItems,
-                    member,
-                }.ToJson(_defaultJsonConverters);
-
-                Task.Run(() =>
-                {
-                    try
-                    {
-                        RequestHandler.PostJson("/singleplayer/returnitems", returnItemsJson);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Failed to send post-raid returned follower items");
-                        Logger.LogError(ex);
-                    }
-                });
-
-                return true;
+                member = _followersWithLoot.Values.FirstOrDefault();
             }
 
-            return false;
+            return SendReturnItems(_toSendItems, member, "post-raid returned follower items");
         }
         /** Gather what items where given to followers and which is still alive to count */
         private void GatherItems()
@@ -140,109 +110,342 @@ namespace pitTeam.Modules
                         continue;
                     }
 
-                    InventoryController _botInventoryController = bot.GetPlayer.InventoryController;
+                    GatherStoredItemsFromBot(bot, gathered);
+                }
+            }
+        }
 
-                    SearchableItemItemClass tacVest = (SearchableItemItemClass)
-                        _botInventoryController.Inventory.Equipment
-                            .GetSlot(EquipmentSlot.TacticalVest)
-                            .ContainedItem;
+        public static void SendDeathEscapeFollowerStoredItems(IEnumerable<BotOwner> squadBots, IEnumerable<BotOwner> escapedBots)
+        {
+            if (Instance == null || squadBots == null || escapedBots == null || Instance._toSendItems == null)
+            {
+                return;
+            }
 
-                    SearchableItemItemClass backpack = (SearchableItemItemClass)
-                        _botInventoryController.Inventory.Equipment
-                            .GetSlot(EquipmentSlot.Backpack)
-                            .ContainedItem;
+            try
+            {
+                // Player-death cleanup is special: once at least one squadmate makes it out, the
+                // squad recovers all tracked follower loot, even if the original carrier died.
+                // Normal player-extract cleanup still only gathers from living followers.
+                if (!escapedBots.Any())
+                {
+                    return;
+                }
 
-                    SearchableItemItemClass pockets = (SearchableItemItemClass)
-                        _botInventoryController.Inventory.Equipment
-                            .GetSlot(EquipmentSlot.Pockets)
-                            .ContainedItem;
+                Instance._toSendItems.Clear();
+                List<string> gathered = new List<string>();
 
-                    var storedItems = GetStoredItems(bot.ProfileId);
-
-                    if (storedItems != null)
+                foreach (BotOwner bot in squadBots)
+                {
+                    if (bot == null)
                     {
-                        foreach (var stored in storedItems)
+                        continue;
+                    }
+
+                    Instance.GatherStoredItemsFromBot(bot, gathered);
+                }
+
+                if (Instance._toSendItems.Count == 0)
+                {
+                    return;
+                }
+
+                Instance.SendCurrentStoredItems();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Failed to send escaped follower stored loot");
+                Logger.LogError(ex);
+            }
+        }
+
+        public static void SendDeathEscapeRecoveredGear(IEnumerable<Item> recoveredItems)
+        {
+            SendReturnItems(recoveredItems, null, "recovered death-escape gear");
+        }
+
+        private void GatherStoredItemsFromBot(BotOwner bot, List<string> gathered)
+        {
+            if (_toSendItems == null || bot?.GetPlayer?.InventoryController == null)
+            {
+                return;
+            }
+
+            var storedItems = GetStoredItems(bot.ProfileId);
+            if (storedItems == null)
+            {
+                return;
+            }
+
+            foreach (var stored in storedItems)
+            {
+                if (gathered.Contains(stored)) continue;
+                Item item = FindStoredReturnItem(bot.GetPlayer.InventoryController, stored);
+                if (item == null)
+                {
+                    continue;
+                }
+
+                // If both a container and one of its children are tracked, return the container
+                // tree once. Sending overlapping roots to /returnitems duplicates nested rigs/loot.
+                if (HasTrackedAncestor(item, storedItems))
+                {
+                    gathered.Add(stored);
+                    continue;
+                }
+
+                _toSendItems.Add(item.CloneItem());
+                gathered.Add(stored);
+            }
+        }
+
+        private bool SendCurrentStoredItems()
+        {
+            if (!EnableBackendItemReturn || _toSendItems == null)
+            {
+                return false;
+            }
+
+            Dictionary<string, object>? member = null;
+            if (_followersWithLoot != null && _followersWithLoot.Count > 0)
+            {
+                member = _followersWithLoot.Values.FirstOrDefault();
+            }
+
+            return SendReturnItems(_toSendItems, member, "post-raid returned follower items");
+        }
+
+        private static Item? FindStoredReturnItem(InventoryController inventoryController, string itemId)
+        {
+            if (inventoryController?.Inventory?.Equipment == null || string.IsNullOrWhiteSpace(itemId))
+            {
+                return null;
+            }
+
+            foreach (EquipmentSlot slot in GetTrackedReturnSearchSlots())
+            {
+                Item root = inventoryController.Inventory.Equipment.GetSlot(slot)?.ContainedItem;
+                if (root == null)
+                {
+                    continue;
+                }
+
+                if (root.Id == itemId)
+                {
+                    return root;
+                }
+
+                if (root is CompoundItem compound)
+                {
+                    foreach (Item child in compound.GetAllItems())
+                    {
+                        if (child != null && child.Id == itemId)
                         {
-                            if (gathered.Contains(stored)) continue;
-
-                            bool found = false;
-                            if (tacVest.Grids.Length > 0)
-                            {
-                                foreach (var item in tacVest.GetAllItems())
-                                {
-                                    if (item.Id == stored)
-                                    {
-                                        _toSendItems.Add(item.CloneItem());
-                                        gathered.Add(stored);
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!found && backpack.Grids.Length > 0)
-                            {
-                                foreach (var item in backpack.GetAllItems())
-                                {
-                                    if (item.Id == stored)
-                                    {
-                                        _toSendItems.Add(item.CloneItem());
-                                        found = true;
-                                        gathered.Add(stored);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!found && pockets.Grids.Length > 0)
-                            {
-                                foreach (var item in pockets.GetAllItems())
-                                {
-                                    if (item.Id == stored)
-                                    {
-                                        _toSendItems.Add(item.CloneItem());
-                                        gathered.Add(stored);
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                var primaryWeapon = _botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.FirstPrimaryWeapon).ContainedItem;
-                                if (primaryWeapon != null && primaryWeapon.Id == stored)
-                                {
-                                    _toSendItems.Add(primaryWeapon.CloneItem());
-                                    gathered.Add(stored);
-                                    found = true;
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                var secondaryWeapon = _botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.SecondPrimaryWeapon).ContainedItem;
-                                if (secondaryWeapon != null && secondaryWeapon.Id == stored)
-                                {
-                                    _toSendItems.Add(secondaryWeapon.CloneItem());
-                                    gathered.Add(stored);
-                                    found = true;
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                var meleeWeapon = _botInventoryController.Inventory.Equipment.GetSlot(EquipmentSlot.Holster).ContainedItem;
-                                if (meleeWeapon != null && meleeWeapon.Id == stored)
-                                {
-                                    _toSendItems.Add(meleeWeapon.CloneItem());
-                                    gathered.Add(stored);
-                                    found = true;
-                                }
-                            }
+                            return child;
                         }
                     }
                 }
+            }
+
+            return null;
+        }
+
+        private static IEnumerable<EquipmentSlot> GetTrackedReturnSearchSlots()
+        {
+            yield return EquipmentSlot.TacticalVest;
+            yield return EquipmentSlot.Backpack;
+            yield return EquipmentSlot.Pockets;
+            yield return EquipmentSlot.FirstPrimaryWeapon;
+            yield return EquipmentSlot.SecondPrimaryWeapon;
+            yield return EquipmentSlot.Holster;
+        }
+
+        private static IEnumerable<Item> RemoveNestedReturnRoots(IEnumerable<Item> items)
+        {
+            List<Item> roots = items?.Where(item => item != null).ToList() ?? new List<Item>();
+            if (roots.Count <= 1)
+            {
+                foreach (Item root in roots)
+                {
+                    yield return root;
+                }
+
+                yield break;
+            }
+
+            List<HashSet<string>> rootTrees = roots
+                .Select(GetItemTreeIds)
+                .ToList();
+
+            for (int index = 0; index < roots.Count; index++)
+            {
+                Item root = roots[index];
+                bool coveredByOtherRoot = false;
+
+                for (int otherIndex = 0; otherIndex < roots.Count; otherIndex++)
+                {
+                    if (index == otherIndex)
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(roots[otherIndex].Id, root.Id, StringComparison.Ordinal))
+                    {
+                        coveredByOtherRoot = otherIndex < index;
+                        if (coveredByOtherRoot)
+                        {
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    if (rootTrees[otherIndex].Contains(root.Id))
+                    {
+                        coveredByOtherRoot = true;
+                        break;
+                    }
+                }
+
+                if (!coveredByOtherRoot)
+                {
+                    yield return root;
+                }
+            }
+        }
+
+        private static bool HasTrackedAncestor(Item item, IEnumerable<string> trackedItemIds)
+        {
+            if (item == null || trackedItemIds == null)
+            {
+                return false;
+            }
+
+            HashSet<string> tracked = new HashSet<string>(trackedItemIds, StringComparer.Ordinal);
+            Item? parent = item.Parent?.Container?.ParentItem;
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
+
+            while (parent != null)
+            {
+                if (!visited.Add(parent.Id))
+                {
+                    return false;
+                }
+
+                if (tracked.Contains(parent.Id))
+                {
+                    return true;
+                }
+
+                parent = parent.Parent?.Container?.ParentItem;
+            }
+
+            return false;
+        }
+
+        private static HashSet<string> GetItemTreeIds(Item item)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            if (item == null)
+            {
+                return ids;
+            }
+
+            ids.Add(item.Id);
+            if (item is CompoundItem compound)
+            {
+                foreach (Item child in compound.GetAllItems())
+                {
+                    if (child != null)
+                    {
+                        ids.Add(child.Id);
+                    }
+                }
+            }
+
+            return ids;
+        }
+
+        private static bool SendReturnItems(
+            IEnumerable<Item> items,
+            Dictionary<string, object>? member,
+            string context)
+        {
+            if (!EnableBackendItemReturn || items == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                List<Item> rootItems = RemoveNestedReturnRoots(items.Where(item => item != null)).ToList();
+                if (rootItems.Count == 0)
+                {
+                    return false;
+                }
+
+                foreach (Item root in rootItems)
+                {
+                    DetachReturnRoot(root);
+                }
+
+                FlatItemsDataClass[] flatItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(rootItems);
+                if (flatItems == null || !flatItems.Any())
+                {
+                    return false;
+                }
+
+                var converterClass = typeof(AbstractGame).Assembly.GetTypes()
+                    .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+                var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+
+                string returnItemsJson = new
+                {
+                    items = flatItems,
+                    member,
+                }.ToJson(defaultJsonConverters);
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        RequestHandler.PostJson("/singleplayer/returnitems", returnItemsJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError($"Failed to send {context}");
+                        Logger.LogError(ex);
+                    }
+                });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to prepare {context}");
+                Logger.LogError(ex);
+                return false;
+            }
+        }
+
+        private static void DetachReturnRoot(Item item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            try
+            {
+                // Return mail accepts a list of root item trees. Recovered items may have been
+                // cloned from inside a backpack/rig and still carry the old parent address, which
+                // can make nested backpack contents disappear or attach to the wrong mailed root.
+                item.CurrentAddress = null;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to detach return root '{item.Id}' before mail serialization.");
+                Logger.LogError(ex);
             }
         }
 
@@ -253,6 +456,9 @@ namespace pitTeam.Modules
 
             try
             {
+                SendEscapedFollowerDefaultLoadoutOutcomes();
+                NpcMessage.SendLostTeammateOutcomes();
+
                 if (!SendStoreItems())
                 {
                     NpcMessage.NpcSendThankYou();
@@ -305,6 +511,120 @@ namespace pitTeam.Modules
             Instance = null;
         }
 
+        private void SendEscapedFollowerDefaultLoadoutOutcomes()
+        {
+            if (_isBossDead || BossPlayers.Instance == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var entries = new List<object>();
+                var seenAids = new HashSet<string>(StringComparer.Ordinal);
+
+                foreach (var boss in BossPlayers.Instance.GetBossPlayers())
+                {
+                    foreach (var bot in boss.Value.Followers)
+                    {
+                        if (bot == null ||
+                            bot.BotState != EBotState.Active ||
+                            bot.HealthController?.IsAlive != true ||
+                            bot.GetPlayer?.InventoryController?.Inventory?.Equipment == null ||
+                            string.IsNullOrWhiteSpace(bot.Profile?.AccountId) ||
+                            !seenAids.Add(bot.Profile.AccountId))
+                        {
+                            continue;
+                        }
+
+                        FlatItemsDataClass[] equipmentItems = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(
+                            new Item[] { bot.GetPlayer.InventoryController.Inventory.Equipment });
+                        if (equipmentItems == null || equipmentItems.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        entries.Add(new
+                        {
+                            Aid = bot.Profile.AccountId,
+                            ProfileId = bot.ProfileId ?? string.Empty,
+                            Nickname = bot.Profile?.Nickname ?? "Squadmate",
+                            Escaped = true,
+                            Chance = 1d,
+                            ExtractName = string.Empty,
+                            Distance = 0d,
+                            HealthRatio = CalculateHealthRatio(bot),
+                            EquipmentPower = 0d,
+                            EnemyAveragePower = 0d,
+                            AliveSquadmates = 0,
+                            HasSecureMeds = false,
+                            EquipmentItems = equipmentItems,
+                            TrackedItemIds = GetStoredItems(bot.ProfileId)?.ToArray() ?? Array.Empty<string>()
+                        });
+                    }
+                }
+
+                if (entries.Count == 0)
+                {
+                    return;
+                }
+
+                var converterClass = typeof(AbstractGame).Assembly.GetTypes()
+                    .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+                var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+
+                string json = new
+                {
+                    Notify = false,
+                    Entries = entries
+                }.ToJson(defaultJsonConverters);
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/death-escape", json);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Failed to send escaped teammate loadout outcomes");
+                        Logger.LogError(ex);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Failed to prepare escaped teammate loadout outcomes");
+                Logger.LogError(ex);
+            }
+        }
+
+        private static double CalculateHealthRatio(BotOwner bot)
+        {
+            if (bot?.GetPlayer?.ActiveHealthController == null)
+            {
+                return 1d;
+            }
+
+            float current = 0f;
+            float maximum = 0f;
+            foreach (EBodyPart part in GClass3058.RealBodyParts)
+            {
+                try
+                {
+                    ValueStruct health = bot.GetPlayer.ActiveHealthController.GetBodyPartHealth(part, false);
+                    current += Mathf.Max(0f, health.Current);
+                    maximum += Mathf.Max(0f, health.Maximum);
+                }
+                catch
+                {
+                    // Missing body-part data should not block raid-end persistence.
+                }
+            }
+
+            return maximum > 0f ? Mathf.Clamp01(current / maximum) : 1d;
+        }
+
         public static void Dispose()
         {
             if (Instance != null)
@@ -352,13 +672,20 @@ namespace pitTeam.Modules
         }
 
         /** Set what bot is going to pick up the loot */
-        public static bool SetTaker(BotOwner bot)
+        public static bool SetTaker(BotOwner bot, LootItem? lootItem = null)
         {
             if (Instance == null) return false;
 
             var _follower = BossPlayers.Instance.GetFollower(bot);
 
             if (_follower == null) return false;
+
+            if (lootItem != null)
+            {
+                // Pin the target at command issue time. The quick panel can clear its current
+                // interactable before the follower action starts moving toward the item.
+                Instance._lootItem = lootItem;
+            }
 
             if (Instance._lootItem != null)
             {
@@ -539,6 +866,18 @@ namespace pitTeam.Modules
             }
 
             var list = Instance._lootedItems[bot.ProfileId];
+
+            // Track the largest meaningful root. If a whole backpack/rig is tracked, its
+            // children ride inside that one return tree and must not be mailed separately.
+            if (HasTrackedAncestor(item, list))
+            {
+                return;
+            }
+
+            HashSet<string> treeIds = GetItemTreeIds(item);
+            list.RemoveAll(itemId =>
+                !string.Equals(itemId, item.Id, StringComparison.Ordinal) &&
+                treeIds.Contains(itemId));
 
             if (!list.Contains(item.Id))
             {
@@ -782,19 +1121,22 @@ namespace pitTeam.Modules
 
                     if (contained != null)
                     {
-                        try
+                        if (!pitFireTeam.IsFollowerLoadoutLootableMode())
                         {
-                            FieldInfo? componentsField = AccessTools.Field(typeof(Item), "Components");
-                            List<IItemComponent>? components = componentsField?.GetValue(contained) as List<IItemComponent>;
-                            if (components != null)
+                            try
                             {
-                                components.Add(new UnlootableComponent(contained, contained.Template));
+                                FieldInfo? componentsField = AccessTools.Field(typeof(Item), "Components");
+                                List<IItemComponent>? components = componentsField?.GetValue(contained) as List<IItemComponent>;
+                                if (components != null)
+                                {
+                                    components.Add(new UnlootableComponent(contained, contained.Template));
+                                }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError("Could not make item unlootable");
-                            Logger.LogError(ex.ToString());
+                            catch (Exception ex)
+                            {
+                                Logger.LogError("Could not make item unlootable");
+                                Logger.LogError(ex.ToString());
+                            }
                         }
 
                         if (slotType == EquipmentSlot.Backpack) items.Add(contained.Id);

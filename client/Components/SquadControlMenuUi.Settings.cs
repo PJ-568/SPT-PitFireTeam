@@ -6,6 +6,7 @@ using EFT.Communications;
 using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Matchmaker;
+using EFT.UI.Ragfair;
 using EFT.UI.Settings;
 using pitTeam.Modules;
 using pitTeam.Patches;
@@ -66,7 +67,41 @@ namespace pitTeam.Components
             settingsScrollbar = null;
 
             CreateScrollableSettingsArea(settingsRect);
+            CreateSettingsVersionLabel(settingsRect);
             RebuildSettingsEntries();
+        }
+
+        private void CreateSettingsVersionLabel(RectTransform panelRect)
+        {
+            GameObject labelObject = CreateText("pitFireTeam_SettingsVersionLabel", $"pitFireTeam v{GetPluginVersionText()}", 18f, TextAlignmentOptions.MidlineRight);
+            labelObject.transform.SetParent(panelRect, false);
+            labelObject.transform.SetAsLastSibling();
+
+            RectTransform labelRect = labelObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(1f, 1f);
+            labelRect.anchorMax = new Vector2(1f, 1f);
+            labelRect.pivot = new Vector2(1f, 1f);
+            labelRect.sizeDelta = new Vector2(320f, 30f);
+            labelRect.anchoredPosition = new Vector2(-SettingsViewportSideInset - 28f, -16f);
+
+            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            label.color = new Color(0.86f, 0.84f, 0.76f, 0.96f);
+            label.fontSize = 17f;
+            label.fontWeight = FontWeight.Regular;
+            label.raycastTarget = false;
+        }
+
+        private static string GetPluginVersionText()
+        {
+            Version version = Assembly.GetExecutingAssembly().GetName().Version;
+            if (version == null)
+            {
+                return "UNKNOWN";
+            }
+
+            return version.Revision > 0
+                ? $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}"
+                : $"{version.Major}.{version.Minor}.{version.Build}";
         }
 
         private void CreateScrollableSettingsArea(RectTransform panelRect)
@@ -144,6 +179,9 @@ namespace pitTeam.Components
             }
 
             CancelShortcutCapture(false);
+            ClearLoadoutManagementToggleGroup();
+            loadoutManagementToggleSpawners.Clear();
+            loadoutManagementFallbackToggles.Clear();
 
             for (int index = settingsContentRoot.childCount - 1; index >= 0; index--)
             {
@@ -159,7 +197,7 @@ namespace pitTeam.Components
                     CreateSettingsSectionHeader(currentSection);
                 }
 
-                CreateSettingsEntryRow(setting.Entry);
+                CreateSettingsEntryRow(setting);
             }
 
             LayoutRebuilder.ForceRebuildLayoutImmediate(settingsContentRoot);
@@ -204,17 +242,9 @@ namespace pitTeam.Components
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.inputSettings ?? "Input Settings",
-                pitFireTeam.hideUnsupportedCommands,
-                pitFireTeam.pingKey,
-                pitFireTeam.contactKey,
-                pitFireTeam.overThereKey))
-            {
-                yield return setting;
-            }
-
-            foreach (SquadSettingEntry setting in BuildSettingsSection(
                 pitFireTeam.optionsLang?.raidSettings ?? "Raid Settings",
+                pitFireTeam.teamEscape,
+                pitFireTeam.teamEscapeUseAnyExtract,
                 pitFireTeam.pickupEnabled,
                 pitFireTeam.tieredPickup,
                 pitFireTeam.maximumPickup,
@@ -223,6 +253,25 @@ namespace pitTeam.Components
                 pitFireTeam.pitFireTeamFLAG,
                 pitFireTeam.badGuy,
                 pitFireTeam.pmcArmbands))
+            {
+                yield return setting;
+            }
+
+            if (!IsRaidRestrictedSettingsContext())
+            {
+                string loadoutSection = pitFireTeam.optionsLang?.loadoutManagementSettings ?? "Loadout Management";
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Simple };
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Restricted };
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Immersive };
+                yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Extreme };
+            }
+
+            foreach (SquadSettingEntry setting in BuildSettingsSection(
+                pitFireTeam.optionsLang?.inputSettings ?? "Input Settings",
+                pitFireTeam.hideUnsupportedCommands,
+                pitFireTeam.pingKey,
+                pitFireTeam.contactKey,
+                pitFireTeam.overThereKey))
             {
                 yield return setting;
             }
@@ -334,6 +383,17 @@ namespace pitTeam.Components
             divider.raycastTarget = false;
         }
 
+        private void CreateSettingsEntryRow(SquadSettingEntry setting)
+        {
+            if (setting?.LoadoutMode is LoadoutManagementMode loadoutMode)
+            {
+                CreateLoadoutManagementEntryRow(loadoutMode);
+                return;
+            }
+
+            CreateSettingsEntryRow(setting?.Entry);
+        }
+
         private void CreateSettingsEntryRow(ConfigEntryBase entry)
         {
             if (entry == null)
@@ -433,6 +493,79 @@ namespace pitTeam.Components
             }
 
             CreateReadOnlySettingControl(controlRect, entry.BoxedValue?.ToString() ?? string.Empty);
+            AddRaidDisabledTooltipOverlay(rowObject, disabledDuringRaid);
+        }
+
+        private void CreateLoadoutManagementEntryRow(LoadoutManagementMode mode)
+        {
+            bool disabledDuringRaid = IsRaidActive();
+            GameObject rowObject = new GameObject(
+                $"pitFireTeam_Setting_LoadoutManagement_{mode}",
+                typeof(RectTransform),
+                typeof(Image),
+                typeof(LayoutElement));
+            rowObject.transform.SetParent(settingsContentRoot, false);
+
+            LayoutElement layout = rowObject.GetComponent<LayoutElement>();
+            layout.preferredHeight = SettingsRowHeight;
+            layout.flexibleWidth = 1f;
+
+            Image background = rowObject.GetComponent<Image>();
+            background.color = new Color(0.07f, 0.07f, 0.07f, 0.84f);
+            background.raycastTarget = true;
+
+            RectTransform rowRect = rowObject.GetComponent<RectTransform>();
+            rowRect.sizeDelta = new Vector2(0f, SettingsRowHeight);
+
+            CreateSettingsRowChrome(rowObject.transform);
+
+            Dictionary<string, string> languageEntry = GetLoadoutManagementLanguageEntry(mode);
+            string displayName = GetLoadoutManagementDisplayName(mode, languageEntry);
+            string description = GetLoadoutManagementDescription(languageEntry);
+
+            GameObject nameObject = CreateText("Name", displayName, 22f, TextAlignmentOptions.MidlineLeft);
+            nameObject.transform.SetParent(rowObject.transform, false);
+            RectTransform nameRect = nameObject.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(1f, 1f);
+            nameRect.pivot = new Vector2(0f, 1f);
+            nameRect.offsetMin = new Vector2(22f, -34f);
+            nameRect.offsetMax = new Vector2(-418f, -8f);
+
+            TextMeshProUGUI nameLabel = nameObject.GetComponent<TextMeshProUGUI>();
+            nameLabel.fontWeight = FontWeight.SemiBold;
+            nameLabel.fontSize = 20f;
+            if (disabledDuringRaid)
+            {
+                nameLabel.color = new Color(0.62f, 0.62f, 0.62f, 1f);
+            }
+
+            GameObject descriptionObject = CreateText("Description", description, 16f, TextAlignmentOptions.TopLeft);
+            descriptionObject.transform.SetParent(rowObject.transform, false);
+            RectTransform descriptionRect = descriptionObject.GetComponent<RectTransform>();
+            descriptionRect.anchorMin = new Vector2(0f, 0f);
+            descriptionRect.anchorMax = new Vector2(1f, 1f);
+            descriptionRect.pivot = new Vector2(0f, 1f);
+            descriptionRect.offsetMin = new Vector2(22f, 16f);
+            descriptionRect.offsetMax = new Vector2(-418f, -38f);
+
+            TextMeshProUGUI descriptionLabel = descriptionObject.GetComponent<TextMeshProUGUI>();
+            descriptionLabel.fontSize = 14f;
+            descriptionLabel.color = disabledDuringRaid
+                ? new Color(0.46f, 0.46f, 0.46f, 1f)
+                : new Color(0.72f, 0.72f, 0.72f, 1f);
+            descriptionLabel.enableWordWrapping = true;
+            descriptionLabel.overflowMode = TextOverflowModes.Ellipsis;
+
+            RectTransform controlRect = new GameObject("Control", typeof(RectTransform)).GetComponent<RectTransform>();
+            controlRect.SetParent(rowObject.transform, false);
+            controlRect.anchorMin = new Vector2(1f, 0.5f);
+            controlRect.anchorMax = new Vector2(1f, 0.5f);
+            controlRect.pivot = new Vector2(1f, 0.5f);
+            controlRect.sizeDelta = new Vector2(186f, 48f);
+            controlRect.anchoredPosition = new Vector2(-SettingsControlRightInset, 0f);
+
+            CreateLoadoutManagementRadioControl(controlRect, mode, displayName, !disabledDuringRaid);
             AddRaidDisabledTooltipOverlay(rowObject, disabledDuringRaid);
         }
 
@@ -627,6 +760,375 @@ namespace pitTeam.Components
                     entry.BoxedValue = isOn;
                     pitFireTeam.Instance?.Config.Save();
                 });
+            }
+        }
+
+        private void ClearLoadoutManagementToggleGroup()
+        {
+            loadoutManagementToggleGroup = null;
+            Transform parent = settingsPanel != null ? settingsPanel.transform : null;
+            if (parent == null)
+            {
+                return;
+            }
+
+            Transform existing = parent.Find("pitFireTeam_LoadoutManagementToggleGroup");
+            if (existing != null)
+            {
+                Destroy(existing.gameObject);
+            }
+        }
+
+        private void CreateLoadoutManagementRadioControl(RectTransform parent, LoadoutManagementMode mode, string label, bool interactable)
+        {
+            Image hoverBackground = CreateLoadoutManagementHoverBackground(parent);
+            UIAnimatedToggleSpawner toggle = CloneLoadoutManagementToggle(parent);
+            if (toggle == null)
+            {
+                Toggle fallbackToggle = CreateBasicToggle(parent);
+                fallbackToggle.SetIsOnWithoutNotify(pitFireTeam.loadoutManagementMode?.Value == mode);
+                loadoutManagementFallbackToggles[mode] = fallbackToggle;
+                SetSettingsControlInteractable(fallbackToggle.transform, interactable);
+                CreateLoadoutManagementClickOverlay(parent, fallbackToggle.transform as RectTransform, hoverBackground, mode, interactable);
+                return;
+            }
+
+            RectTransform rect = toggle.transform as RectTransform;
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(0f, 0.5f);
+                rect.anchorMax = new Vector2(1f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = Vector2.zero;
+                rect.sizeDelta = new Vector2(0f, 42f);
+                rect.localScale = Vector3.one * 0.86f;
+            }
+
+            CanvasGroup canvasGroup = toggle.GetComponent<CanvasGroup>() ?? toggle.gameObject.AddComponent<CanvasGroup>();
+            canvasGroup.alpha = interactable ? 1f : 0.42f;
+            canvasGroup.interactable = interactable;
+            canvasGroup.blocksRaycasts = interactable;
+            AnimatedToggleCanvasGroupField?.SetValue(toggle, canvasGroup);
+
+            ToggleGroup group = EnsureLoadoutManagementToggleGroup();
+            toggle.SpawnableToggle.method_1(group);
+
+            foreach (TextMeshProUGUI text in toggle.GetComponentsInChildren<TextMeshProUGUI>(true))
+            {
+                text.text = label.ToUpperInvariant();
+                text.overflowMode = TextOverflowModes.Ellipsis;
+            }
+
+            toggle.SetActive(true);
+            toggle.SpawnableToggle.Interactable = interactable;
+
+            if (toggle.SpawnedObject != null)
+            {
+                toggle.SpawnedObject.group = group;
+                toggle.SpawnedObject.interactable = interactable;
+                if (interactable)
+                {
+                    toggle.SpawnedObject.OnMouseDown += () =>
+                    {
+                        pitFireTeam.Log.LogInfo($"[UI] Loadout management toggle clicked: {mode}");
+                        RequestLoadoutManagementModeChange(mode);
+                    };
+                    toggle.SpawnedObject.onValueChanged.AddListener(isOn =>
+                    {
+                        pitFireTeam.Log.LogInfo($"[UI] Loadout management toggle value changed: {mode}={isOn}");
+                    });
+                }
+            }
+
+            toggle.ToggleSilently(pitFireTeam.loadoutManagementMode?.Value == mode);
+            loadoutManagementToggleSpawners[mode] = toggle;
+            SetSettingsControlInteractable(toggle.transform, interactable);
+            CreateLoadoutManagementClickOverlay(parent, toggle.transform as RectTransform, hoverBackground, mode, interactable);
+        }
+
+        private void CreateLoadoutManagementClickOverlay(RectTransform parent, RectTransform hoverTarget, Image hoverBackground, LoadoutManagementMode mode, bool interactable)
+        {
+            GameObject overlayObject = new GameObject("pitFireTeam_LoadoutManagementClickOverlay", typeof(RectTransform), typeof(Image));
+            overlayObject.transform.SetParent(parent, false);
+
+            RectTransform overlayRect = overlayObject.GetComponent<RectTransform>();
+            Stretch(overlayRect);
+            overlayRect.SetAsLastSibling();
+
+            Image overlayImage = overlayObject.GetComponent<Image>();
+            overlayImage.color = new Color(0f, 0f, 0f, 0.001f);
+            overlayImage.raycastTarget = interactable;
+
+            LoadoutModeToggleHoverController hoverController = overlayObject.AddComponent<LoadoutModeToggleHoverController>();
+            hoverController.Configure(hoverTarget, hoverBackground);
+            if (interactable)
+            {
+                hoverController.OnClick = _ =>
+                {
+                    pitFireTeam.Log.LogInfo($"[UI] Loadout management toggle clicked: {mode}");
+                    RequestLoadoutManagementModeChange(mode);
+                };
+            }
+        }
+
+        private static Image CreateLoadoutManagementHoverBackground(RectTransform parent)
+        {
+            GameObject backgroundObject = new GameObject("HoverBackground", typeof(RectTransform), typeof(Image));
+            backgroundObject.transform.SetParent(parent, false);
+
+            RectTransform rect = backgroundObject.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(-8f, 5f);
+            rect.offsetMax = new Vector2(8f, -5f);
+            rect.localScale = Vector3.one;
+            backgroundObject.transform.SetAsFirstSibling();
+
+            Image image = backgroundObject.GetComponent<Image>();
+            image.color = new Color(0.46f, 0.38f, 0.22f, 0.34f);
+            image.raycastTarget = false;
+            image.enabled = false;
+            return image;
+        }
+
+        private UIAnimatedToggleSpawner CloneLoadoutManagementToggle(RectTransform parent)
+        {
+            UIAnimatedToggleSpawner template = ResolveLoadoutManagementToggleTemplate();
+            if (template == null)
+            {
+                return null;
+            }
+
+            UIAnimatedToggleSpawner toggle = Instantiate(template, parent, false);
+            toggle.name = "pitFireTeam_LoadoutManagementModeToggle";
+            toggle.gameObject.SetActive(true);
+            return toggle;
+        }
+
+        private UIAnimatedToggleSpawner ResolveLoadoutManagementToggleTemplate()
+        {
+            return Resources.FindObjectsOfTypeAll<RagfairScreen>()
+                .Select(screen => RagfairAllOffersToggleField?.GetValue(screen) as UIAnimatedToggleSpawner)
+                .FirstOrDefault(toggle => toggle != null);
+        }
+
+        private ToggleGroup EnsureLoadoutManagementToggleGroup()
+        {
+            if (loadoutManagementToggleGroup != null)
+            {
+                return loadoutManagementToggleGroup;
+            }
+
+            Transform parent = settingsPanel != null ? settingsPanel.transform : settingsContentRoot;
+            GameObject groupObject = new GameObject("pitFireTeam_LoadoutManagementToggleGroup", typeof(RectTransform), typeof(ToggleGroup));
+            groupObject.transform.SetParent(parent, false);
+            groupObject.SetActive(true);
+
+            loadoutManagementToggleGroup = groupObject.GetComponent<ToggleGroup>();
+            loadoutManagementToggleGroup.allowSwitchOff = false;
+            return loadoutManagementToggleGroup;
+        }
+
+        private void RequestLoadoutManagementModeChange(LoadoutManagementMode mode)
+        {
+            if (pitFireTeam.loadoutManagementMode == null)
+            {
+                return;
+            }
+
+            if (pitFireTeam.loadoutManagementMode.Value == mode)
+            {
+                pitFireTeam.Log.LogInfo($"[UI] Loadout management mode '{mode}' is already selected.");
+                return;
+            }
+
+            pitFireTeam.Log.LogInfo($"[UI] Loadout management mode change requested: {pitFireTeam.loadoutManagementMode.Value} -> {mode}");
+            ShowLoadoutManagementConfirmOverlay(mode);
+        }
+
+        private void ApplyLoadoutManagementModeChange(LoadoutManagementMode mode)
+        {
+            if (pitFireTeam.loadoutManagementMode == null)
+            {
+                CloseLoadoutManagementConfirmOverlay();
+                return;
+            }
+
+            pitFireTeam.loadoutManagementMode.Value = mode;
+            pitFireTeam.Instance?.Config.Save();
+            Task serverSyncTask = pitFireTeam.SyncServerSettingsNowAsync();
+            CloseLoadoutManagementConfirmOverlay();
+            UpdateLoadoutManagementRadioStates();
+            RefreshRosterPortraitsAfterLoadoutManagementSync(serverSyncTask);
+        }
+
+        private void RefreshRosterPortraitsAfterLoadoutManagementSync(Task serverSyncTask)
+        {
+            if (pitFireTeam.Instance == null)
+            {
+                RequestRosterRefreshOnNextInject();
+                return;
+            }
+
+            if (loadoutManagementRosterRefreshCoroutine != null)
+            {
+                pitFireTeam.Instance.StopCoroutine(loadoutManagementRosterRefreshCoroutine);
+                loadoutManagementRosterRefreshCoroutine = null;
+            }
+
+            loadoutManagementRosterRefreshCoroutine = pitFireTeam.Instance.StartCoroutine(RefreshRosterPortraitsAfterLoadoutManagementSyncCoroutine(serverSyncTask));
+        }
+
+        private IEnumerator RefreshRosterPortraitsAfterLoadoutManagementSyncCoroutine(Task serverSyncTask)
+        {
+            while (serverSyncTask != null && !serverSyncTask.IsCompleted)
+            {
+                yield return null;
+            }
+
+            loadoutManagementRosterRefreshCoroutine = null;
+
+            if (serverSyncTask != null && serverSyncTask.IsFaulted)
+            {
+                pitFireTeam.Log.LogWarning("[UI] Loadout management server sync completed with an error before roster portrait refresh.");
+            }
+
+            if (rosterGridRoot == null)
+            {
+                RequestRosterRefreshOnNextInject();
+                yield break;
+            }
+
+            pitFireTeam.Log.LogInfo("[UI] Refreshing roster portraits after loadout management mode switch.");
+            RebuildRosterTiles();
+        }
+
+        private void UpdateLoadoutManagementRadioStates()
+        {
+            LoadoutManagementMode current = pitFireTeam.loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple;
+
+            foreach (KeyValuePair<LoadoutManagementMode, UIAnimatedToggleSpawner> pair in loadoutManagementToggleSpawners)
+            {
+                if (pair.Value != null)
+                {
+                    pair.Value.ToggleSilently(pair.Key == current);
+                }
+            }
+
+            foreach (KeyValuePair<LoadoutManagementMode, Toggle> pair in loadoutManagementFallbackToggles)
+            {
+                if (pair.Value != null)
+                {
+                    pair.Value.SetIsOnWithoutNotify(pair.Key == current);
+                }
+            }
+        }
+
+        private void ShowLoadoutManagementConfirmOverlay(LoadoutManagementMode mode)
+        {
+            CloseLoadoutManagementConfirmOverlay(rebuild: false);
+
+            Transform overlayParent = settingsPanel?.transform.parent ?? screenRoot?.transform;
+            if (overlayParent == null)
+            {
+                pitFireTeam.Log.LogWarning("[UI] Loadout management confirmation overlay could not open: no overlay parent was available.");
+                return;
+            }
+
+            GameObject overlayRoot = new GameObject("pitFireTeam_LoadoutManagementConfirmOverlay", typeof(RectTransform), typeof(Image));
+            overlayRoot.transform.SetParent(overlayParent, false);
+            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
+            Stretch(overlayRect);
+            overlayRect.SetAsLastSibling();
+
+            Image overlayImage = overlayRoot.GetComponent<Image>();
+            overlayImage.color = new Color(0f, 0f, 0f, 0.62f);
+            overlayImage.raycastTarget = true;
+
+            GameObject panel = new GameObject("pitFireTeam_LoadoutManagementConfirmPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(overlayRoot.transform, false);
+            RectTransform panelRect = panel.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.sizeDelta = new Vector2(680f, 204f);
+
+            Image panelImage = panel.GetComponent<Image>();
+            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
+            panelImage.raycastTarget = true;
+
+            GameObject header = new GameObject("pitFireTeam_LoadoutManagementConfirmHeader", typeof(RectTransform), typeof(Image));
+            header.transform.SetParent(panel.transform, false);
+            RectTransform headerRect = header.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0f, 1f);
+            headerRect.anchorMax = new Vector2(1f, 1f);
+            headerRect.pivot = new Vector2(0.5f, 1f);
+            headerRect.offsetMin = new Vector2(0f, -28f);
+            headerRect.offsetMax = new Vector2(0f, 0f);
+
+            Image headerImage = header.GetComponent<Image>();
+            headerImage.color = new Color(0.06f, 0.06f, 0.06f, 1f);
+            headerImage.raycastTarget = true;
+
+            GameObject titleObject = CreateText(
+                "pitFireTeam_LoadoutManagementConfirmTitle",
+                GetSocialUiText("LoadoutManagementConfirmTitle", "Change loadout management").ToUpperInvariant(),
+                18f,
+                TextAlignmentOptions.MidlineLeft);
+            RectTransform titleRect = titleObject.GetComponent<RectTransform>();
+            titleRect.SetParent(header.transform, false);
+            titleRect.anchorMin = new Vector2(0f, 0f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.offsetMin = new Vector2(16f, 0f);
+            titleRect.offsetMax = new Vector2(-42f, 0f);
+
+            Button closeButton = CreateWindowCloseButton(header.transform, "pitFireTeam_LoadoutManagementConfirmCloseButton");
+            if (closeButton.transform is RectTransform closeRect)
+            {
+                closeRect.anchorMin = new Vector2(1f, 0.5f);
+                closeRect.anchorMax = new Vector2(1f, 0.5f);
+                closeRect.pivot = new Vector2(1f, 0.5f);
+                closeRect.anchoredPosition = new Vector2(-4f, 0f);
+            }
+
+            closeButton.onClick.AddListener(() => CloseLoadoutManagementConfirmOverlay());
+
+            GameObject bodyObject = CreateText(
+                "pitFireTeam_LoadoutManagementConfirmBody",
+                GetSocialUiText("LoadoutManagementConfirmPrompt", "Switching loadout management will switch all teammates to their Default loadout."),
+                24f,
+                TextAlignmentOptions.Center);
+            RectTransform bodyRect = bodyObject.GetComponent<RectTransform>();
+            bodyRect.SetParent(panel.transform, false);
+            bodyRect.anchorMin = new Vector2(0f, 0f);
+            bodyRect.anchorMax = new Vector2(1f, 1f);
+            bodyRect.offsetMin = new Vector2(28f, 72f);
+            bodyRect.offsetMax = new Vector2(-28f, -42f);
+
+            TextMeshProUGUI bodyLabel = bodyObject.GetComponent<TextMeshProUGUI>();
+            bodyLabel.enableWordWrapping = true;
+            bodyLabel.overflowMode = TextOverflowModes.Ellipsis;
+
+            DefaultUIButton confirmButton = CreateOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f));
+            confirmButton.SetRawText(GetSocialUiText("LoadoutManagementConfirm", "Continue"), 22);
+            confirmButton.OnClick.RemoveAllListeners();
+            confirmButton.OnClick.AddListener(() => ApplyLoadoutManagementModeChange(mode));
+
+            loadoutManagementConfirmOverlay = overlayRoot;
+            pitFireTeam.Log.LogInfo($"[UI] Loadout management confirmation overlay opened for mode: {mode}");
+        }
+
+        private void CloseLoadoutManagementConfirmOverlay(bool rebuild = false)
+        {
+            if (loadoutManagementConfirmOverlay != null)
+            {
+                Destroy(loadoutManagementConfirmOverlay);
+                loadoutManagementConfirmOverlay = null;
+            }
+
+            if (rebuild)
+            {
+                RebuildSettingsEntries();
             }
         }
 
@@ -1466,6 +1968,8 @@ namespace pitTeam.Components
             if (entry == pitFireTeam.tieredPickup) return language.tieredPickup;
             if (entry == pitFireTeam.maximumPickup) return language.maximumPickup;
             if (entry == pitFireTeam.recruitPickup) return language.recruitPickup;
+            if (entry == pitFireTeam.teamEscape) return language.teamEscape;
+            if (entry == pitFireTeam.teamEscapeUseAnyExtract) return language.teamEscapeUseAnyExtract;
             if (entry == pitFireTeam.npcSendMessage) return language.npcSendMessage;
             if (entry == pitFireTeam.pitFireTeamFLAG) return language.pitFireTeam;
             if (entry == pitFireTeam.badGuy) return language.badGuy;
@@ -1488,6 +1992,43 @@ namespace pitTeam.Components
             if (entry == pitFireTeam.battleRecorderSnapshotIntervalMs) return language.battleRecorderSnapshotIntervalMs;
 
             return null;
+        }
+
+        private static Dictionary<string, string> GetLoadoutManagementLanguageEntry(LoadoutManagementMode mode)
+        {
+            LanguageOptions language = pitFireTeam.optionsLang;
+            if (language == null)
+            {
+                return null;
+            }
+
+            return mode switch
+            {
+                LoadoutManagementMode.Restricted => language.loadoutManagementRestricted,
+                LoadoutManagementMode.Immersive => language.loadoutManagementImmersive,
+                LoadoutManagementMode.Extreme => language.loadoutManagementExtreme,
+                _ => language.loadoutManagementSimple,
+            };
+        }
+
+        private static string GetLoadoutManagementDisplayName(LoadoutManagementMode mode, Dictionary<string, string> languageEntry)
+        {
+            if (languageEntry != null && languageEntry.TryGetValue("Name", out string name) && !string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+
+            return mode.ToString();
+        }
+
+        private static string GetLoadoutManagementDescription(Dictionary<string, string> languageEntry)
+        {
+            if (languageEntry != null && languageEntry.TryGetValue("Description", out string description))
+            {
+                return description ?? string.Empty;
+            }
+
+            return string.Empty;
         }
 
         private static string SanitizeName(string value)

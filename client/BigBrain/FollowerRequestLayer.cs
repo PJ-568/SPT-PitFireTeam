@@ -70,6 +70,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (followerData.IsBackpackInspectionActive)
+            {
+                return false;
+            }
+
             bool hasCommand = followerData.TryGetActiveCommand(out FollowerCommandType command, out _);
             if (hasCommand &&
                 (command == FollowerCommandType.PushEnemy ||

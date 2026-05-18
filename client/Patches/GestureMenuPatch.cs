@@ -1,4 +1,5 @@
 using EFT.UI.Gestures;
+using EFT.UI;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -7,12 +8,69 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using UI.BattleUI.Gestures;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 using GestureAction = EFT.UI.Gestures.GestureBaseItem.GStruct449;
 using GestureMenuItem = EFT.UI.Gestures.GesturesMenu.Class3396;
 
 namespace pitTeam.Patches
 {
+    internal static class CustomGestureText
+    {
+        public static string ViewBackpackTextUpper()
+        {
+            string text = pitFireTeam.optionsLang?.gestures != null &&
+                          pitFireTeam.optionsLang.gestures.TryGetValue("ViewBackpack", out string value) &&
+                          !string.IsNullOrWhiteSpace(value)
+                ? value
+                : "View Backpack";
+
+            return text.ToUpperInvariant();
+        }
+
+        public static void FitViewBackpackQuickText(CustomTextMeshProUGUI textField, GameObject? quickCommandObject = null)
+        {
+            if (textField == null)
+            {
+                return;
+            }
+
+            textField.enableWordWrapping = false;
+            textField.overflowMode = TextOverflowModes.Overflow;
+
+            float textWidth = Mathf.Max(84f, textField.GetPreferredValues(textField.text, 170f, 40f).x + 5f);
+            EnsureMinWidth(textField.rectTransform, textWidth);
+
+            LayoutElement textLayout = textField.GetComponent<LayoutElement>() ?? textField.gameObject.AddComponent<LayoutElement>();
+            textLayout.minWidth = Mathf.Max(textLayout.minWidth, textWidth);
+            textLayout.preferredWidth = Mathf.Max(textLayout.preferredWidth, textWidth);
+
+            if (quickCommandObject?.transform is RectTransform quickRect)
+            {
+                EnsureMinWidth(quickRect, textWidth + 35f);
+            }
+
+            if (textField.transform.parent is RectTransform parentRect)
+            {
+                EnsureMinWidth(parentRect, textWidth);
+            }
+        }
+
+        private static void EnsureMinWidth(RectTransform rectTransform, float width)
+        {
+            if (rectTransform == null || width <= 0f)
+            {
+                return;
+            }
+
+            if (rectTransform.rect.width + 0.5f < width)
+            {
+                rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
+            }
+        }
+    }
+
     // Add new prhases to the menu
     internal class GestureMenuPatch : ModulePatch
     {
@@ -232,6 +290,58 @@ namespace pitTeam.Patches
         {
             var hashSet_1 = (HashSet<EPhraseTrigger>)AccessTools.Field(typeof(GesturesMenu), "hashSet_1").GetValue(__instance);
             hashSet_1.Add((EPhraseTrigger)CustomPhrases.TeamStatus);
+            hashSet_1.Add((EPhraseTrigger)CustomPhrases.ViewBackpack);
+        }
+    }
+
+    internal class ViewBackpackQuickPanelTextPatch : ModulePatch
+    {
+        private static readonly FieldInfo TextField = AccessTools.Field(typeof(GesturesQuickPanel), "_textField");
+        private static readonly FieldInfo QuickCommandObjectField = AccessTools.Field(typeof(GesturesQuickPanel), "_quickCommandObject");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GesturesQuickPanel), "method_8");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(GesturesQuickPanel __instance)
+        {
+            if (__instance.EPhraseTrigger_0 != (EPhraseTrigger)CustomPhrases.ViewBackpack)
+            {
+                return;
+            }
+
+            if (TextField.GetValue(__instance) is CustomTextMeshProUGUI textField)
+            {
+                textField.text = CustomGestureText.ViewBackpackTextUpper();
+                CustomGestureText.FitViewBackpackQuickText(textField, QuickCommandObjectField.GetValue(__instance) as GameObject);
+            }
+        }
+    }
+
+    internal class ViewBackpackQuickPanelItemTextPatch : ModulePatch
+    {
+        private static readonly FieldInfo LabelField = AccessTools.Field(typeof(GesturesQuickPanelItem), "_label");
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GesturesQuickPanelItem), nameof(GesturesQuickPanelItem.Show));
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(GesturesQuickPanelItem __instance, EPhraseTrigger trigger)
+        {
+            if (trigger != (EPhraseTrigger)CustomPhrases.ViewBackpack)
+            {
+                return;
+            }
+
+            if (LabelField.GetValue(__instance) is CustomTextMeshProUGUI label)
+            {
+                label.text = CustomGestureText.ViewBackpackTextUpper();
+                CustomGestureText.FitViewBackpackQuickText(label, __instance.gameObject);
+            }
         }
     }
 
@@ -297,6 +407,12 @@ namespace pitTeam.Patches
                 return false;
             }
 
+            if (index == (int)(EPhraseTrigger)CustomPhrases.ViewBackpack)
+            {
+                __result = GetGestureText("ViewBackpack", CustomPhrases.ViewBackpack.ToString());
+                return false;
+            }
+
             if (index == (int)(EInteraction)CustomGestures.OverThere)
             {
                 __result = GetGestureText("OverThere", CustomGestures.OverThere.ToString());
@@ -339,6 +455,11 @@ namespace pitTeam.Patches
                 else if (trigger == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
                     __result = pitFireTeam.optionsLang.gestures["TeamStatus"];
+                    return false;
+                }
+                else if (trigger == (EPhraseTrigger)CustomPhrases.ViewBackpack)
+                {
+                    __result = pitFireTeam.optionsLang.gestures["ViewBackpack"];
                     return false;
                 }
             }

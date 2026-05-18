@@ -35,6 +35,11 @@ namespace pitTeam.Modules
      */
     public class BossPlayers
     {
+        private const float RecruitMinCombatAggression = 20f;
+        private const float RecruitMaxCombatAggression = 60f;
+        private static readonly Random RecruitAggressionRandom = new Random();
+        private static readonly object RecruitAggressionRandomLock = new object();
+
         public static BossPlayers Instance { get; private set; }
 
         private Dictionary<string, pitAIBossPlayer> _bosses;
@@ -145,6 +150,13 @@ namespace pitTeam.Modules
                 });
                 if (followersToRemove.Count > 0)
                 {
+                    if (died)
+                    {
+                        // Player death tears down the boss/follower relationship before normal raid cleanup.
+                        // Resolve simulated follower escapes while live bot state is still available.
+                        FollowerDeathEscapeResolver.ResolveAndSend(boss, followersToRemove);
+                    }
+
                     SaveFollowersProgress(died ? followersToRemove.FindAll(fl => fl.IsSquadMate) : followersToRemove);
                 }
 
@@ -198,6 +210,7 @@ namespace pitTeam.Modules
             _followersByProfileId.Clear();
             _shallBeFollower.Clear();
             FollowerGrenadeCooldowns.ClearAll();
+            FollowerDeathEscapeResolver.ClearFallenSquadmateSnapshots();
 
             IsDisposed = true;
             Instance = null;
@@ -219,6 +232,12 @@ namespace pitTeam.Modules
             if (_follower != null)
             {
                 return _follower;
+            }
+
+            if (!squadMate)
+            {
+                tactic = "Default";
+                aggression = CreateRecruitCombatAggression();
             }
 
             if (_shallBeFollower.Contains(bot.ProfileId)) _shallBeFollower.Remove(bot.ProfileId);
@@ -269,6 +288,16 @@ namespace pitTeam.Modules
             SainAddonBridge.RaiseFollowerLifecycleEvent(bot, FollowerLifecycleEvent.OnRecruited);
 
             return _follower;
+        }
+
+        private static float CreateRecruitCombatAggression()
+        {
+            lock (RecruitAggressionRandomLock)
+            {
+                return RecruitMinCombatAggression +
+                       (float)RecruitAggressionRandom.NextDouble() *
+                       (RecruitMaxCombatAggression - RecruitMinCombatAggression);
+            }
         }
 
         private static double GetLevelFactor(int playerLevel, int botLevel)

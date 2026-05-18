@@ -54,6 +54,11 @@ namespace pitTeam.BigBrain.Actions
                     return;
                 }
 
+                if (StopIfFriendlyInCurrentFireLane(BotOwner.Memory?.GoalEnemy))
+                {
+                    return;
+                }
+
                 baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
 
                 // The cover node may change pose internally during its update. Re-run the standing

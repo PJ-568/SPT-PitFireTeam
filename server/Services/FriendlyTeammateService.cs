@@ -1,4 +1,5 @@
 using pitTeam.Server.Models;
+using pitTeam.Server.Constants;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Constants;
 using SPTarkov.Server.Core.Generators;
@@ -8,9 +9,12 @@ using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.Dialog;
+using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Eft.Profile;
+using SPTarkov.Server.Core.Models.Eft.Repair;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Enums.RaidSettings;
+using SPTarkov.Server.Core.Models.Spt.Dialog;
 using SPTarkov.Server.Core.Models.Spt.Bots;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Servers;
@@ -32,8 +36,11 @@ public class FriendlyTeammateService(
     HashUtil hashUtil,
     JsonUtil jsonUtil,
     ItemHelper itemHelper,
+    MailSendService mailSendService,
     ProfileHelper profileHelper,
     ProfileActivityService profileActivityService,
+    RepairService repairService,
+    FriendlyServerSettingsService settingsService,
     SaveServer saveServer,
     ICloner cloner,
     ISptLogger<FriendlyTeammateService> logger
@@ -57,15 +64,18 @@ public class FriendlyTeammateService(
     private static readonly string[] TacticOptions = ["Rifleman", "Marksman"];
     private const int RelativeLevelDelta = 5;
     private const int SecureContainerAmmoStackCount = 10;
-    private const string GrizzlyMedicalKitTemplateId = "590c657e86f77412b013051d";
-    private const string Surv12SurgicalKitTemplateId = "5d02797c86f774203f38e30a";
-    private const string CmsSurgicalKitTemplateId = "60d4399358ef941a33423dad";
     private const string TeammateGenerationLocation = "factory4_day";
+    private static readonly string[] RequiredRaidWeaponSlots =
+    [
+        nameof(EquipmentSlots.FirstPrimaryWeapon),
+        nameof(EquipmentSlots.SecondPrimaryWeapon),
+        nameof(EquipmentSlots.Holster),
+    ];
 
     private static readonly HashSet<string> SurgicalKitTemplateIds =
     [
-        Surv12SurgicalKitTemplateId,
-        CmsSurgicalKitTemplateId,
+        FriendlyItemTemplateIds.Medical.Surv12SurgicalKit,
+        FriendlyItemTemplateIds.Medical.CmsSurgicalKit,
     ];
 
     public SearchFriendResponse CreateTeammate(MongoId sessionId, FriendlyTeammateCreateRequest request)
@@ -111,7 +121,8 @@ public class FriendlyTeammateService(
         NormalizeTeammateSkillsForCreation(teammate, playerPmc);
         // Temporarily disabled: this floor baseline can over-inflate teammate skills.
         // ApplyPmcFollowerSkillBaseline(teammate);
-        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+        PrepareNewTeammateDefaultForCurrentLoadoutMode(teammate);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsCurrentLoadoutManagementModeExtreme());
         SaveTeammate(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, CreateDefaultTeammateSettings());
 
@@ -162,7 +173,8 @@ public class FriendlyTeammateService(
         NormalizeTeammateSkillsForCreation(teammate, playerPmc);
         // Temporarily disabled: this floor baseline can over-inflate teammate skills.
         // ApplyPmcFollowerSkillBaseline(teammate);
-        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+        PrepareNewTeammateDefaultForCurrentLoadoutMode(teammate);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsCurrentLoadoutManagementModeExtreme());
         SaveTeammate(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, CreateDefaultTeammateSettings());
 
@@ -178,14 +190,189 @@ public class FriendlyTeammateService(
             .ToList();
     }
 
+    public void LogLoadoutManagementModeChange(MongoId sessionId, string previousMode, string nextMode)
+    {
+        logger.Info($"Loadout management mode changed for session '{sessionId}' from '{previousMode}' to '{nextMode}'.");
+    }
+
+    public void SelectDefaultLoadoutForAllTeammates(MongoId sessionId, string? previousMode = null, string? nextMode = null)
+    {
+        var teammates = LoadTeammates(sessionId);
+        bool crossedRealisticBoundary = IsExtremeLoadoutManagementMode(NormalizeLoadoutManagementMode(previousMode))
+            || IsExtremeLoadoutManagementMode(NormalizeLoadoutManagementMode(nextMode));
+
+        foreach (var teammate in teammates)
+        {
+            try
+            {
+                if (crossedRealisticBoundary && RemoveSecureContainerTree(teammate))
+                {
+                    SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: true);
+                    SaveTeammate(sessionId, teammate);
+                    logger.Info($"Removed secure container from teammate '{teammate.Aid}' default loadout after Realistic boundary switch.");
+                }
+
+                var settings = GetTeammateSettings(sessionId, teammate);
+                settings.SelectedLoadoutId = DefaultLoadoutId;
+
+                SaveTeammateSettings(sessionId, teammate, settings);
+                logger.Info($"Selected existing Default loadout for teammate '{teammate.Aid}' after loadout management mode change.");
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Failed to select Default loadout for teammate '{teammate.Aid}' after loadout management mode change: {ex.Message}");
+            }
+        }
+    }
+
     public List<string> GetAutoJoinTeammateAccountIds(MongoId sessionId)
     {
-        return LoadTeammates(sessionId)
-            .Where(teammate => GetTeammateSettings(sessionId, teammate).AutoJoinEnabled)
-            .Select(teammate => teammate.Aid?.ToString())
-            .Where(aid => !string.IsNullOrWhiteSpace(aid))
-            .Cast<string>()
-            .ToList();
+        var accountIds = new List<string>();
+        foreach (var teammate in LoadTeammates(sessionId))
+        {
+            if (!GetTeammateSettings(sessionId, teammate).AutoJoinEnabled)
+            {
+                continue;
+            }
+
+            var preparedTeammate = PrepareTeammateForFetch(teammate);
+            if (!HasProperRaidKit(preparedTeammate))
+            {
+                logger.Info($"Skipped auto-join for teammate '{GetTeammateDisplayName(preparedTeammate)}' because their Default loadout has no primary or pistol weapon.");
+                continue;
+            }
+
+            var aid = teammate.Aid?.ToString();
+            if (!string.IsNullOrWhiteSpace(aid))
+            {
+                accountIds.Add(aid);
+            }
+        }
+
+        return accountIds;
+    }
+
+    private void PrepareNewTeammateDefaultForCurrentLoadoutMode(BotBase teammate)
+    {
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (!IsExtremeLoadoutManagementMode(mode))
+        {
+            return;
+        }
+
+        AssignInitialRealisticSecureContainer(teammate);
+    }
+
+    private void AssignInitialRealisticSecureContainer(BotBase teammate)
+    {
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+        if (teammate.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        RemoveSecureContainerTree(teammate);
+
+        int level = Math.Max(1, teammate.Info?.Level ?? 1);
+        string templateId = level < 15
+            ? FriendlyItemTemplateIds.SecureContainer.Beta
+            : level < 30
+                ? FriendlyItemTemplateIds.SecureContainer.Epsilon
+                : FriendlyItemTemplateIds.SecureContainer.Gamma;
+
+        teammate.Inventory.Items.Add(new Item
+        {
+            Id = new MongoId(),
+            Template = new MongoId(templateId),
+            ParentId = GetEquipmentRootId(teammate),
+            SlotId = nameof(EquipmentSlots.SecuredContainer),
+            Location = null,
+            Upd = new Upd
+            {
+                StackObjectsCount = 1,
+                SpawnedInSession = false,
+            },
+        });
+
+        logger.Info($"Assigned initial Realistic secure container '{templateId}' to teammate '{teammate.Aid}' at level {level}.");
+    }
+
+    private static bool RemoveSecureContainerTree(BotBase teammate)
+    {
+        return RemoveSecureContainerTree(teammate?.Inventory?.Items);
+    }
+
+    private static bool RemoveSecureContainerTree(List<Item>? inventoryItems)
+    {
+        if (inventoryItems == null || inventoryItems.Count == 0)
+        {
+            return false;
+        }
+
+        Item? secureContainer = inventoryItems.FirstOrDefault(item =>
+            string.Equals(item?.SlotId, nameof(EquipmentSlots.SecuredContainer), StringComparison.OrdinalIgnoreCase));
+        if (secureContainer?.Id == null)
+        {
+            return false;
+        }
+
+        var removeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { secureContainer.Id.ToString() };
+        bool foundChild = true;
+        while (foundChild)
+        {
+            foundChild = false;
+            foreach (var item in inventoryItems)
+            {
+                if (item?.Id == null || string.IsNullOrWhiteSpace(item.ParentId) || !removeIds.Contains(item.ParentId))
+                {
+                    continue;
+                }
+
+                if (removeIds.Add(item.Id.ToString()))
+                {
+                    foundChild = true;
+                }
+            }
+        }
+
+        return inventoryItems.RemoveAll(item => item?.Id != null && removeIds.Contains(item.Id.ToString())) > 0;
+    }
+
+    private static bool RemoveItemTreesById(List<Item>? inventoryItems, IEnumerable<string>? rootItemIds)
+    {
+        if (inventoryItems == null || inventoryItems.Count == 0 || rootItemIds == null)
+        {
+            return false;
+        }
+
+        var removeIds = rootItemIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (removeIds.Count == 0)
+        {
+            return false;
+        }
+
+        bool foundChild = true;
+        while (foundChild)
+        {
+            foundChild = false;
+            foreach (var item in inventoryItems)
+            {
+                if (item?.Id == null || string.IsNullOrWhiteSpace(item.ParentId) || !removeIds.Contains(item.ParentId))
+                {
+                    continue;
+                }
+
+                if (removeIds.Add(item.Id.ToString()))
+                {
+                    foundChild = true;
+                }
+            }
+        }
+
+        return inventoryItems.RemoveAll(item => item?.Id != null && removeIds.Contains(item.Id.ToString())) > 0;
     }
 
     private BotBase GenerateTeammateBot(MongoId sessionId, BotGenerationDetails details)
@@ -389,13 +576,21 @@ public class FriendlyTeammateService(
         SaveTeammate(sessionId, teammate);
     }
 
-    public void SaveTeammateDefaultEquipment(MongoId sessionId, FriendlyTeammateDefaultEquipmentRequest request)
+    public FriendlyTeammateDefaultEquipmentResponse SaveTeammateDefaultEquipment(MongoId sessionId, FriendlyTeammateDefaultEquipmentRequest request)
     {
         var teammate = FindByAccountId(sessionId, request.Aid);
         var items = request.Items?.Where(item => item != null).ToList();
         if (items == null || items.Count == 0)
         {
             throw new FriendlyTeammateException("Missing teammate default equipment items");
+        }
+
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (request.RealItemCommit && IsRealTransferLoadoutManagementMode(mode))
+        {
+            // Restricted/Immersive/Extreme Default edits are real ownership transfers. Keep the normal
+            // clone-save path for Simple and for future non-default loadout modes until those rules are explicit.
+            return SaveTeammateDefaultEquipmentWithRealItemCommit(sessionId, teammate, request, items, mode);
         }
 
         teammate.Inventory ??= new BotBaseInventory();
@@ -406,9 +601,329 @@ public class FriendlyTeammateService(
         var settings = GetTeammateSettings(sessionId, teammate);
         settings.SelectedLoadoutId = DefaultLoadoutId;
 
-        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
         SaveTeammateSettings(sessionId, teammate, settings);
         SaveTeammate(sessionId, teammate);
+
+        return new FriendlyTeammateDefaultEquipmentResponse();
+    }
+
+    public FriendlyTeammateBuyKitResponse BuyTeammateKit(MongoId sessionId, FriendlyTeammateBuyKitRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        var buildItems = request.Items?.Where(item => item != null).ToList();
+        if (buildItems == null || buildItems.Count == 0)
+        {
+            throw new FriendlyTeammateException("Missing teammate kit equipment items");
+        }
+
+        int price = Math.Max(0, request.Price);
+        var playerPmc = GetPlayerProfile(sessionId);
+        playerPmc.Inventory ??= new BotBaseInventory { Items = [] };
+        playerPmc.Inventory.Items ??= [];
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+
+        var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
+        var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
+        var originalTeammateEquipment = teammate.Inventory.Equipment;
+        var fullProfile = profileHelper.GetFullProfile(sessionId);
+        var originalDialogueRecords = cloner.Clone(fullProfile.DialogueRecords);
+
+        try
+        {
+            if (request.UseItemsInStash)
+            {
+                ConsumeStashItemsForKit(playerPmc, request.UsedItems);
+            }
+
+            DeductRoublesFromPlayerStash(playerPmc, price);
+
+            var clonedBuild = cloner.Clone(buildItems) ?? buildItems;
+            var normalizedBuild = itemHelper.ReplaceIDs(clonedBuild, playerPmc).ToList();
+            MongoId rootId = normalizedBuild.First().Id;
+
+            string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+            List<Item> previousKitDeliveryItems = BuildCurrentTeammateKitDeliveryItems(teammate, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            teammate.Inventory.Items = MergeEquipmentWithPreservedSpecialItems(
+                teammate.Inventory.Items,
+                normalizedBuild,
+                useReplacementSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            teammate.Inventory.Equipment = rootId;
+
+            var settings = GetTeammateSettings(sessionId, teammate);
+            settings.SelectedLoadoutId = DefaultLoadoutId;
+
+            SendPreviousTeammateKitDelivery(sessionId, teammate, previousKitDeliveryItems);
+            SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            SaveTeammateSettings(sessionId, teammate, settings);
+            SaveTeammate(sessionId, teammate);
+            saveServer.SaveProfileAsync(sessionId).GetAwaiter().GetResult();
+
+            logger.Info($"Bought teammate kit for '{teammate.Aid}' with price={price}, useItemsInStash={request.UseItemsInStash}; previous active kit sent by delivery when present.");
+
+            return new FriendlyTeammateBuyKitResponse
+            {
+                PlayerStashItems = GetPlayerStashItems(playerPmc),
+            };
+        }
+        catch
+        {
+            playerPmc.Inventory.Items = originalPlayerItems;
+            teammate.Inventory.Items = originalTeammateItems;
+            teammate.Inventory.Equipment = originalTeammateEquipment;
+            fullProfile.DialogueRecords = originalDialogueRecords;
+            throw;
+        }
+    }
+
+    public FriendlyTeammateRepairEquipmentResponse RepairTeammateDefaultEquipment(MongoId sessionId, FriendlyTeammateRepairEquipmentRequest request)
+    {
+        var teammate = FindByAccountId(sessionId, request.Aid);
+        string targetItemId = NormalizeRequiredValue(request.Target, "target");
+        var repairKits = request.RepairKitsInfo?.Where(kit => kit != null).ToList();
+        bool repairWithKit = repairKits is { Count: > 0 };
+        bool repairWithTrader = !string.IsNullOrWhiteSpace(request.TraderId) && request.RepairCount.GetValueOrDefault(0) > 0;
+        if (!repairWithKit && !repairWithTrader)
+        {
+            throw new FriendlyTeammateException("Missing repair information for teammate repair");
+        }
+
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+        Item teammateItem = teammate.Inventory.Items
+            .FirstOrDefault(item => string.Equals(item.Id.ToString(), targetItemId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new FriendlyTeammateException("Unable to find teammate equipment item to repair");
+
+        var playerPmc = GetPlayerProfile(sessionId);
+        playerPmc.Inventory ??= new BotBaseInventory { Items = [] };
+        playerPmc.Inventory.Items ??= [];
+
+        if (repairWithKit)
+        {
+            foreach (var repairKit in repairKits!)
+            {
+                if (repairKit.Count.GetValueOrDefault(0) <= 0)
+                {
+                    throw new FriendlyTeammateException("Invalid repair kit amount for teammate repair");
+                }
+
+                if (!playerPmc.Inventory.Items.Any(item => item.Id == repairKit.Id))
+                {
+                    throw new FriendlyTeammateException($"Player repair kit '{repairKit.Id}' was unavailable for teammate repair");
+                }
+            }
+        }
+
+        // Build a temporary PMC-shaped profile by cloning the real player, then inserting the teammate
+        // equipment tree. SPT's stock RepairService can then read normal player skills/bonuses and real
+        // repair kits while treating the teammate item as if it belonged to the player for this operation.
+        var fakeRepairProfile = cloner.Clone(playerPmc) ?? throw new FriendlyTeammateException("Unable to clone player profile for teammate repair");
+        fakeRepairProfile.Inventory ??= new BotBaseInventory { Items = [] };
+        fakeRepairProfile.Inventory.Items ??= [];
+
+        var teammateRepairItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
+        var fakeExistingIds = fakeRepairProfile.Inventory.Items
+            .Select(item => item.Id.ToString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in teammateRepairItems)
+        {
+            if (item?.Id == null || fakeExistingIds.Contains(item.Id.ToString()))
+            {
+                continue;
+            }
+
+            fakeRepairProfile.Inventory.Items.Add(item);
+        }
+
+        var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
+        var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
+        var originalTeammateEquipment = teammate.Inventory.Equipment;
+
+        try
+        {
+            var output = CreateEmptyRepairOutput(sessionId, playerPmc);
+            RepairDetails repairDetails;
+            if (repairWithKit)
+            {
+                repairDetails = repairService.RepairItemByKit(
+                    sessionId,
+                    fakeRepairProfile,
+                    repairKits!,
+                    new MongoId(targetItemId),
+                    output);
+                repairService.AddBuffToItem(repairDetails, fakeRepairProfile);
+                repairService.AddRepairSkillPoints(sessionId, repairDetails, fakeRepairProfile);
+            }
+            else
+            {
+                var traderId = new MongoId(NormalizeRequiredValue(request.TraderId, "traderId"));
+                var repairItem = new RepairItem
+                {
+                    Id = new MongoId(targetItemId),
+                    Count = request.RepairCount,
+                };
+                repairDetails = repairService.RepairItemByTrader(sessionId, fakeRepairProfile, repairItem, traderId);
+                repairService.PayForRepair(sessionId, playerPmc, targetItemId, repairDetails.RepairCost.GetValueOrDefault(0), traderId, output);
+                if (output.Warnings is { Count: > 0 })
+                {
+                    throw new FriendlyTeammateException("Unable to pay for teammate trader repair");
+                }
+
+                repairService.AddRepairSkillPoints(sessionId, repairDetails, fakeRepairProfile);
+            }
+
+            Item repairedFakeItem = fakeRepairProfile.Inventory.Items
+                .FirstOrDefault(item => string.Equals(item.Id.ToString(), targetItemId, StringComparison.OrdinalIgnoreCase))
+                ?? throw new FriendlyTeammateException("Stock repair did not return the repaired teammate item");
+            var repairedRepairable = repairedFakeItem.Upd?.Repairable
+                ?? throw new FriendlyTeammateException("Stock repair did not produce teammate repair durability data");
+            var repairedBuff = repairedFakeItem.Upd?.Buff;
+
+            if (repairWithKit)
+            {
+                foreach (var repairKit in repairKits!)
+                {
+                    Item? fakeRepairKit = fakeRepairProfile.Inventory.Items.FirstOrDefault(item => item.Id == repairKit.Id);
+                    Item? playerRepairKit = playerPmc.Inventory.Items.FirstOrDefault(item => item.Id == repairKit.Id);
+                    if (fakeRepairKit == null)
+                    {
+                        RemoveItemTreesById(playerPmc.Inventory.Items, [repairKit.Id.ToString()]);
+                        continue;
+                    }
+
+                    if (playerRepairKit == null)
+                    {
+                        throw new FriendlyTeammateException($"Player repair kit '{repairKit.Id}' disappeared during teammate repair");
+                    }
+
+                    playerRepairKit.Upd ??= new Upd();
+                    playerRepairKit.Upd.RepairKit = cloner.Clone(fakeRepairKit.Upd?.RepairKit);
+                    playerRepairKit.Upd.StackObjectsCount = fakeRepairKit.Upd?.StackObjectsCount ?? playerRepairKit.Upd.StackObjectsCount;
+                }
+            }
+
+            playerPmc.Skills = cloner.Clone(fakeRepairProfile.Skills) ?? playerPmc.Skills;
+            playerPmc.Bonuses = cloner.Clone(fakeRepairProfile.Bonuses) ?? playerPmc.Bonuses;
+
+            teammateItem.Upd ??= new Upd();
+            var savedRepairable = cloner.Clone(repairedRepairable) ?? repairedRepairable;
+            teammateItem.Upd.Repairable = savedRepairable;
+            teammateItem.Upd.Buff = cloner.Clone(repairedBuff);
+
+            string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+            SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            SaveTeammate(sessionId, teammate);
+            saveServer.SaveProfileAsync(sessionId).GetAwaiter().GetResult();
+
+            logger.Info($"Repaired teammate '{teammate.Aid}' default equipment item '{targetItemId}' through stock {(repairWithKit ? "kit" : "trader")} repair service.");
+
+            return new FriendlyTeammateRepairEquipmentResponse
+            {
+                ItemId = targetItemId,
+                Durability = savedRepairable.Durability,
+                MaxDurability = savedRepairable.MaxDurability,
+                PlayerStashItems = GetPlayerStashItems(playerPmc),
+            };
+        }
+        catch
+        {
+            playerPmc.Inventory.Items = originalPlayerItems;
+            teammate.Inventory.Items = originalTeammateItems;
+            teammate.Inventory.Equipment = originalTeammateEquipment;
+            throw;
+        }
+    }
+
+    private FriendlyTeammateDefaultEquipmentResponse SaveTeammateDefaultEquipmentWithRealItemCommit(
+        MongoId sessionId,
+        BotBase teammate,
+        FriendlyTeammateDefaultEquipmentRequest request,
+        List<Item> replacementEquipmentItems,
+        string mode)
+    {
+        var replacementStashItems = request.PlayerStashItems?.Where(item => item != null).ToList();
+        if (replacementStashItems == null || replacementStashItems.Count == 0)
+        {
+            throw new FriendlyTeammateException("Missing player stash items for real teammate equipment save");
+        }
+
+        var playerPmc = GetPlayerProfile(sessionId);
+        playerPmc.Inventory ??= new BotBaseInventory { Items = [] };
+        playerPmc.Inventory.Items ??= [];
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+
+        string playerStashRootId = GetPlayerStashRootId(playerPmc);
+        string replacementStashRootId = replacementStashItems.First().Id.ToString();
+        if (!string.Equals(playerStashRootId, replacementStashRootId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new FriendlyTeammateException("Submitted player stash root does not match the active profile stash");
+        }
+
+        // Only two inventories may contribute real item ids: the player's current stash and the teammate's
+        // current saved inventory. Anything else would mean the client submitted equipped/player-external gear.
+        var currentPlayerStashIds = GetItemTreeIds(playerPmc.Inventory.Items, playerStashRootId);
+        var currentTeammateItemIds = teammate.Inventory.Items
+            .Select(item => item.Id.ToString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var allowedMovedItemIds = new HashSet<string>(currentPlayerStashIds, StringComparer.OrdinalIgnoreCase);
+        allowedMovedItemIds.UnionWith(currentTeammateItemIds);
+
+        // Validate the staged final state before mutating either profile. This prevents partial transfer
+        // corruption and lets the catch block restore both inventories if persistence fails later.
+        ValidateRealCommitItemSet(replacementEquipmentItems, allowedMovedItemIds, "teammate equipment");
+        ValidateRealCommitItemSet(replacementStashItems, allowedMovedItemIds, "player stash");
+        ValidateNoRealCommitOverlap(replacementEquipmentItems, replacementStashItems, playerStashRootId);
+        ValidateNoEquippedPlayerItemCommit(playerPmc, replacementEquipmentItems, currentPlayerStashIds);
+
+        var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
+        var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
+        var originalTeammateEquipment = teammate.Inventory.Equipment;
+
+        try
+        {
+            var replacementEquipment = cloner.Clone(replacementEquipmentItems) ?? replacementEquipmentItems;
+            var mergedEquipment = MergeEquipmentWithPreservedSpecialItems(
+                teammate.Inventory.Items,
+                replacementEquipment,
+                useReplacementSecureContainer: IsExtremeLoadoutManagementMode(mode));
+
+            // Replace only the stash tree. Player equipment, quest inventory, sorting table, and other
+            // profile-owned item roots are left untouched by real teammate loadout commits.
+            playerPmc.Inventory.Items = playerPmc.Inventory.Items
+                .Where(item => !currentPlayerStashIds.Contains(item.Id.ToString()))
+                .ToList();
+            playerPmc.Inventory.Items.AddRange(cloner.Clone(replacementStashItems) ?? replacementStashItems);
+
+            // The teammate stores the committed equipment as its new Default snapshot. Spawn preparation may
+            // still inject mode-specific protected items such as knife/secure-container policy later.
+            teammate.Inventory.Items = mergedEquipment;
+            teammate.Inventory.Equipment = teammate.Inventory.Items.First().Id;
+
+            var settings = GetTeammateSettings(sessionId, teammate);
+            settings.SelectedLoadoutId = DefaultLoadoutId;
+
+            SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsExtremeLoadoutManagementMode(mode));
+            SaveTeammateSettings(sessionId, teammate, settings);
+            SaveTeammate(sessionId, teammate);
+            saveServer.SaveProfileAsync(sessionId).GetAwaiter().GetResult();
+
+            logger.Info($"Committed real default equipment movement for teammate '{teammate.Aid}' in loadout management mode '{NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode)}'.");
+
+            return new FriendlyTeammateDefaultEquipmentResponse
+            {
+                RealItemCommit = true,
+                PlayerStashItems = cloner.Clone(replacementStashItems) ?? replacementStashItems,
+            };
+        }
+        catch
+        {
+            playerPmc.Inventory.Items = originalPlayerItems;
+            teammate.Inventory.Items = originalTeammateItems;
+            teammate.Inventory.Equipment = originalTeammateEquipment;
+            throw;
+        }
     }
 
     public void SetTeammateAggression(MongoId sessionId, FriendlyTeammateAggressionRequest request)
@@ -457,13 +972,32 @@ public class FriendlyTeammateService(
 
     public bool TryGetRaidGroupCharacter(MongoId sessionId, string? accountId, out GroupCharacter? groupCharacter)
     {
+        var accepted = TryGetRaidGroupCharacter(sessionId, accountId, out groupCharacter, out _);
+        if (!accepted)
+        {
+            groupCharacter = null;
+        }
+
+        return accepted;
+    }
+
+    public bool TryGetRaidGroupCharacter(MongoId sessionId, string? accountId, out GroupCharacter? groupCharacter, out string? rejectionReason)
+    {
         groupCharacter = null;
+        rejectionReason = null;
         if (!TryFindByAccountId(sessionId, accountId, out var teammate))
         {
             return false;
         }
 
-        groupCharacter = ToGroupCharacter(PrepareTeammateForFetch(teammate!));
+        var preparedTeammate = PrepareTeammateForFetch(teammate!);
+        groupCharacter = ToGroupCharacter(preparedTeammate);
+        if (!HasProperRaidKit(preparedTeammate))
+        {
+            rejectionReason = $"Cannot add {GetTeammateDisplayName(preparedTeammate)} to the raid group without a proper kit.";
+            return false;
+        }
+
         return true;
     }
 
@@ -485,7 +1019,16 @@ public class FriendlyTeammateService(
         // Temporarily disabled: this floor baseline can over-inflate teammate skills.
         // ApplyPmcFollowerSkillBaseline(clone);
         ApplyTemporaryHealthMultiplier(clone, healthMultiplier);
-        EnsureFollowerHasSecureContainerSupplies(clone);
+        EnsureFollowerHasPockets(clone);
+        EnsureFollowerHasScabbardKnife(clone);
+
+        var mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (!IsExtremeLoadoutManagementMode(mode))
+        {
+            EnsureManagedSecureContainer(clone);
+            EnsureFollowerHasSecureContainerSupplies(clone);
+        }
+
         return clone;
     }
 
@@ -508,6 +1051,787 @@ public class FriendlyTeammateService(
         }
     }
 
+    public FriendlyTeammateDeathEscapeSummary PersistDeathEscapeOutcomes(
+        MongoId sessionId,
+        IEnumerable<FriendlyTeammateDeathEscapeEntry>? entries)
+    {
+        var summary = new FriendlyTeammateDeathEscapeSummary();
+        if (entries == null)
+        {
+            return summary;
+        }
+
+        foreach (var entry in entries)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.Aid))
+            {
+                continue;
+            }
+
+            string displayName = string.IsNullOrWhiteSpace(entry.Nickname) ? "Squadmate" : entry.Nickname;
+            if (entry.Escaped)
+            {
+                summary.EscapedNames.Add(displayName);
+            }
+            else
+            {
+                summary.LostNames.Add(displayName);
+            }
+
+            if (string.IsNullOrWhiteSpace(summary.ExtractName) && !string.IsNullOrWhiteSpace(entry.ExtractName))
+            {
+                summary.ExtractName = entry.ExtractName;
+            }
+
+            if (!TryFindByAccountId(sessionId, entry.Aid, out var teammate) || teammate == null)
+            {
+                continue;
+            }
+
+            // Client has already rolled the result using live raid state. Server only persists the
+            // teammate profile state and builds a message summary for the player.
+            ApplyDeathEscapeOutcome(teammate, entry);
+
+            // Immersive/Realistic surviving Default loadouts keep the in-raid state. This is where
+            // durability, consumed ammo, and used meds become the new saved Default.
+            ApplyImmersiveEscapedDefaultEquipmentState(sessionId, teammate, entry);
+
+            // Immersive/Extreme loss is applied after the health/death outcome so the teammate's
+            // saved Default equipment reflects the post-raid penalty instead of regenerating gear.
+            ApplyImmersiveDefaultGearLoss(sessionId, teammate, entry);
+            SaveTeammate(sessionId, teammate);
+        }
+
+        return summary;
+    }
+
+    private void ApplyImmersiveEscapedDefaultEquipmentState(MongoId sessionId, BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)
+    {
+        if (!entry.Escaped)
+        {
+            return;
+        }
+
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (!IsImmersiveLikeLoadoutManagementMode(mode))
+        {
+            return;
+        }
+
+        var settings = GetTeammateSettings(sessionId, teammate);
+        if (!string.Equals(settings.SelectedLoadoutId, DefaultLoadoutId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var equipmentItems = entry.EquipmentItems?.Where(item => item != null).ToList();
+        if (equipmentItems == null || equipmentItems.Count == 0)
+        {
+            logger.Warning($"Skipped escaped Default equipment persistence for teammate '{teammate.Aid}' because no equipment snapshot was provided.");
+            return;
+        }
+
+        var replacementItems = cloner.Clone(equipmentItems) ?? equipmentItems;
+        RemoveItemTreesById(replacementItems, entry.TrackedItemIds);
+
+        if (replacementItems.Count == 0)
+        {
+            logger.Warning($"Skipped escaped Default equipment persistence for teammate '{teammate.Aid}' because the filtered equipment snapshot was empty.");
+            return;
+        }
+
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items = MergeEquipmentWithPreservedSpecialItems(
+            teammate.Inventory.Items,
+            replacementItems,
+            useReplacementSecureContainer: IsExtremeLoadoutManagementMode(mode));
+        teammate.Inventory.Equipment = teammate.Inventory.Items.First().Id;
+
+        bool keepSecureContainer = IsExtremeLoadoutManagementMode(mode);
+        if (!keepSecureContainer)
+        {
+            RemoveSecureContainerTree(teammate);
+        }
+
+        EnsureFollowerHasScabbardKnife(teammate);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: keepSecureContainer);
+        logger.Info($"Persisted escaped Default equipment state for teammate '{teammate.Aid}' in loadout management mode '{mode}'.");
+    }
+
+    private void ApplyImmersiveDefaultGearLoss(MongoId sessionId, BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)
+    {
+        // Escaped teammates are handled by ApplyImmersiveEscapedDefaultEquipmentState. Only a death
+        // result can strip the saved Default down to the non-loss exceptions.
+        if (entry.Escaped)
+        {
+            return;
+        }
+
+        // Simple/Restricted never lose teammate gear on death; Immersive and Extreme do.
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (!IsImmersiveLikeLoadoutManagementMode(mode))
+        {
+            return;
+        }
+
+        var settings = GetTeammateSettings(sessionId, teammate);
+        // This phase only applies death loss to the live Default loadout. Non-default preset loss
+        // needs separate ownership tracking before it can safely mutate saved preset data.
+        if (!string.Equals(settings.SelectedLoadoutId, DefaultLoadoutId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Persist the stripped equipment as the new Default snapshot so the next spawn/portrait
+        // sees the loss instead of silently restoring the pre-raid gear. Permanent bot identity
+        // slots are kept, but the secure-container tree is only persisted for Realistic/Extreme.
+        bool keepSecureContainer = IsExtremeLoadoutManagementMode(mode);
+        StripDefaultEquipmentAfterDeath(teammate, keepSecureContainer);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: keepSecureContainer);
+        logger.Info($"Stripped teammate '{teammate.Aid}' default equipment after death in loadout management mode '{mode}'.");
+    }
+
+    private void StripDefaultEquipmentAfterDeath(BotBase teammate, bool keepSecureContainer)
+    {
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+        if (teammate.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        // Keep or inject a scabbard knife before stripping. EFT already prevents knife looting, and
+        // this gives later spawn/preview validation a stable legal melee slot to work with.
+        EnsureFollowerHasPockets(teammate);
+        EnsureFollowerHasScabbardKnife(teammate);
+
+        string rootId = GetEquipmentRootId(teammate);
+        var keepIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootId };
+        foreach (var preservedItem in teammate.Inventory.Items.Where(item =>
+                     !string.IsNullOrWhiteSpace(item?.SlotId) &&
+                     IsPermanentTeammateEquipmentSlot(item.SlotId, keepSecureContainer)).ToList())
+        {
+            // Pockets are a permanent equipment container, but pocket contents are normal loot
+            // and should still be lost on teammate death. Keep the container itself so special
+            // slots under it remain anchored, then preserve special-slot trees separately.
+            if (IsPocketsSlotItem(preservedItem))
+            {
+                keepIds.Add(preservedItem.Id.ToString());
+                continue;
+            }
+
+            // Preserve descendants for kept equipment items so attached child items are not orphaned.
+            AddItemAndDescendantsToKeepSet(teammate.Inventory.Items, preservedItem.Id.ToString(), keepIds);
+        }
+
+        // The filter is the actual loss operation: anything outside the keep set is removed from
+        // the teammate profile before the Default snapshot is saved.
+        teammate.Inventory.Items = teammate.Inventory.Items
+            .Where(item => keepIds.Contains(item.Id.ToString()))
+            .ToList();
+        teammate.Inventory.Equipment = new MongoId(rootId);
+    }
+
+    private static void AddItemAndDescendantsToKeepSet(List<Item> inventoryItems, string itemId, HashSet<string> keepIds)
+    {
+        if (!keepIds.Add(itemId))
+        {
+            return;
+        }
+
+        foreach (var child in inventoryItems.Where(item =>
+                     string.Equals(item.ParentId, itemId, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            AddItemAndDescendantsToKeepSet(inventoryItems, child.Id.ToString(), keepIds);
+        }
+    }
+
+    private void EnsureFollowerHasScabbardKnife(BotBase profile)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (profile.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        if (profile.Inventory.Items.Any(item =>
+                string.Equals(item.SlotId, nameof(EquipmentSlots.Scabbard), StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        string rootId = GetEquipmentRootId(profile);
+        profile.Inventory.Items.Add(new Item
+        {
+            Id = new MongoId(),
+            Template = new MongoId(FriendlyItemTemplateIds.Weapon.DefaultKnife),
+            ParentId = rootId,
+            SlotId = nameof(EquipmentSlots.Scabbard),
+            Location = null,
+            Upd = new Upd
+            {
+                StackObjectsCount = 1,
+                SpawnedInSession = false,
+            },
+        });
+
+        logger.Info($"Injected default scabbard knife for teammate '{profile.Aid}'.");
+    }
+
+    private void EnsureFollowerHasPockets(BotBase profile)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (profile.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        string rootId = GetEquipmentRootId(profile);
+        var pockets = profile.Inventory.Items.FirstOrDefault(IsPocketsSlotItem);
+        if (pockets == null)
+        {
+            pockets = new Item
+            {
+                Id = new MongoId(),
+                Template = new MongoId(FriendlyItemTemplateIds.EquipmentContainer.Pockets),
+                ParentId = rootId,
+                SlotId = nameof(EquipmentSlots.Pockets),
+                Location = null,
+                Upd = new Upd
+                {
+                    StackObjectsCount = 1,
+                    SpawnedInSession = false,
+                },
+            };
+            profile.Inventory.Items.Add(pockets);
+            logger.Info($"Injected missing pockets container for teammate '{profile.Aid}'.");
+        }
+
+        string pocketsId = pockets.Id.ToString();
+        foreach (var specialSlot in profile.Inventory.Items.Where(item =>
+                     item?.SlotId != null &&
+                     item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)))
+        {
+            specialSlot.ParentId = pocketsId;
+        }
+    }
+
+    private void EnsureManagedSecureContainer(BotBase profile)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (profile.Inventory.Items.Count == 0)
+        {
+            return;
+        }
+
+        bool hasSecureContainer = profile.Inventory.Items.Any(item =>
+            string.Equals(item?.SlotId, nameof(EquipmentSlots.SecuredContainer), StringComparison.OrdinalIgnoreCase));
+        if (hasSecureContainer)
+        {
+            return;
+        }
+
+        profile.Inventory.Items.Add(new Item
+        {
+            Id = new MongoId(),
+            Template = new MongoId(FriendlyItemTemplateIds.SecureContainer.Boss),
+            ParentId = GetEquipmentRootId(profile),
+            SlotId = nameof(EquipmentSlots.SecuredContainer),
+            Location = null,
+            Upd = new Upd
+            {
+                StackObjectsCount = 1,
+                SpawnedInSession = false,
+            },
+        });
+
+        logger.Debug($"Injected managed secure container for teammate '{profile.Aid}' in non-Realistic loadout mode.");
+    }
+
+    private static string GetEquipmentRootId(BotBase profile)
+    {
+        string? rootId = profile.Inventory?.Equipment?.ToString();
+        if (!string.IsNullOrWhiteSpace(rootId))
+        {
+            return rootId;
+        }
+
+        Item rootItem = profile.Inventory?.Items?.FirstOrDefault()
+            ?? throw new FriendlyTeammateException("Teammate inventory is missing equipment root item");
+        profile.Inventory!.Equipment = rootItem.Id;
+        return rootItem.Id.ToString();
+    }
+
+    private static string GetPlayerStashRootId(PmcData profile)
+    {
+        string? rootId = profile.Inventory?.Stash?.ToString();
+        if (!string.IsNullOrWhiteSpace(rootId))
+        {
+            return rootId;
+        }
+
+        Item rootItem = profile.Inventory?.Items?.FirstOrDefault(item =>
+            string.Equals(item.SlotId, "hideout", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item.SlotId, "main", StringComparison.OrdinalIgnoreCase))
+            ?? throw new FriendlyTeammateException("Player inventory is missing stash root item");
+
+        profile.Inventory!.Stash = rootItem.Id;
+        return rootItem.Id.ToString();
+    }
+
+    private List<Item> GetPlayerStashItems(PmcData profile)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        string playerStashRootId = GetPlayerStashRootId(profile);
+        var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
+        return cloner.Clone(profile.Inventory.Items.Where(item => stashIds.Contains(item.Id.ToString())).ToList())
+            ?? profile.Inventory.Items.Where(item => stashIds.Contains(item.Id.ToString())).ToList();
+    }
+
+    private List<Item> BuildCurrentTeammateKitDeliveryItems(BotBase teammate, bool includeSecureContainer)
+    {
+        var items = teammate.Inventory?.Items;
+        if (items == null || items.Count == 0)
+        {
+            return [];
+        }
+
+        string equipmentRootId = GetEquipmentRootId(teammate);
+        var deliveryItems = new List<Item>();
+        foreach (var slotItem in items.Where(item =>
+                     item?.ParentId != null
+                     && string.Equals(item.ParentId, equipmentRootId, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            if (slotItem?.Id == null || string.IsNullOrWhiteSpace(slotItem.SlotId))
+            {
+                continue;
+            }
+
+            if (IsIgnoredReturnedEquipmentSlot(slotItem.SlotId, includeSecureContainer))
+            {
+                continue;
+            }
+
+            if (IsPocketsSlotItem(slotItem))
+            {
+                foreach (var pocketChild in items.Where(item =>
+                             item?.ParentId != null
+                             && string.Equals(item.ParentId, slotItem.Id.ToString(), StringComparison.OrdinalIgnoreCase)).ToList())
+                {
+                    AddDeliveryItemTree(items, pocketChild, deliveryItems);
+                }
+
+                continue;
+            }
+
+            AddDeliveryItemTree(items, slotItem, deliveryItems);
+        }
+
+        return deliveryItems;
+    }
+
+    private void AddDeliveryItemTree(List<Item> sourceItems, Item rootItem, List<Item> deliveryItems)
+    {
+        if (rootItem?.Id == null || IsIgnoredKitRequirementItem(rootItem))
+        {
+            return;
+        }
+
+        var treeIds = GetItemTreeIds(sourceItems, rootItem.Id.ToString());
+        var tree = cloner.Clone(sourceItems.Where(item => treeIds.Contains(item.Id.ToString())).ToList())
+            ?? sourceItems.Where(item => treeIds.Contains(item.Id.ToString())).ToList();
+        if (tree.Count == 0)
+        {
+            return;
+        }
+
+        tree[0].ParentId = null;
+        tree[0].SlotId = null;
+        tree[0].Location = null;
+        deliveryItems.AddRange(tree);
+    }
+
+    private void SendPreviousTeammateKitDelivery(MongoId sessionId, BotBase teammate, List<Item> deliveryItems)
+    {
+        if (deliveryItems.Count == 0)
+        {
+            return;
+        }
+
+        mailSendService.SendMessageToPlayer(new SendMessageDetails
+        {
+            RecipientId = sessionId,
+            Sender = MessageType.NpcTraderMessage,
+            DialogType = MessageType.NpcTraderMessage,
+            Trader = FriendlyCourierTraderProfile.CourierTraderIdValue,
+            MessageText = "Teammate's previous kit is ready for pickup.",
+            Items = deliveryItems,
+            ItemsMaxStorageLifetimeSeconds = 86400,
+        });
+
+        logger.Info($"Sent {deliveryItems.Count} previous teammate kit items by delivery for '{teammate.Aid}'.");
+    }
+
+    private static bool IsIgnoredReturnedEquipmentSlot(string slotId, bool includeSecureContainer)
+    {
+        return slotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
+            || (!includeSecureContainer && slotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsPocketsSlotItem(Item item)
+    {
+        return string.Equals(item.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.EquipmentContainer.Pockets, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPermanentTeammateEquipmentSlot(string? slotId, bool keepSecureContainer)
+    {
+        return !string.IsNullOrWhiteSpace(slotId)
+            && (slotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
+                || slotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
+                || (keepSecureContainer && slotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(slotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(slotId, nameof(EquipmentSlots.Scabbard), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(slotId, "ArmBand", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(slotId, "Armband", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ConsumeStashItemsForKit(PmcData profile, IEnumerable<FriendlyTeammateBuyKitUsedItem>? usedItems)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        Dictionary<string, int> requirements = BuildRequestedStashUseRequirements(usedItems);
+        if (requirements.Count == 0)
+        {
+            return;
+        }
+
+        string playerStashRootId = GetPlayerStashRootId(profile);
+        var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
+        var consumedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var countedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var requirement in requirements)
+        {
+            int remaining = requirement.Value;
+            if (remaining <= 0)
+            {
+                continue;
+            }
+
+            foreach (var candidate in profile.Inventory.Items.ToList())
+            {
+                if (remaining <= 0)
+                {
+                    break;
+                }
+
+                if (candidate?.Id == null
+                    || countedIds.Contains(candidate.Id.ToString())
+                    || !stashIds.Contains(candidate.Id.ToString())
+                    || IsIgnoredKitRequirementItem(candidate)
+                    || !string.Equals(candidate.Template.ToString(), requirement.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string candidateId = candidate.Id.ToString();
+                bool alreadyRemovedWithParent = consumedIds.Contains(candidateId);
+                int candidateCount = GetItemStackCount(candidate);
+                if (candidateCount > remaining)
+                {
+                    countedIds.Add(candidateId);
+                    if (alreadyRemovedWithParent)
+                    {
+                        remaining = 0;
+                        break;
+                    }
+
+                    candidate.Upd ??= new Upd();
+                    candidate.Upd.StackObjectsCount = candidateCount - remaining;
+                    remaining = 0;
+                    break;
+                }
+
+                countedIds.Add(candidateId);
+                if (!alreadyRemovedWithParent)
+                {
+                    foreach (string itemId in GetItemTreeIds(profile.Inventory.Items, candidateId))
+                    {
+                        consumedIds.Add(itemId);
+                    }
+                }
+
+                remaining -= candidateCount;
+            }
+
+            if (remaining > 0)
+            {
+                throw new FriendlyTeammateException($"Player stash item '{requirement.Key}' was unavailable for teammate kit purchase");
+            }
+        }
+
+        if (consumedIds.Count > 0)
+        {
+            RemoveItemTreesById(profile.Inventory.Items, consumedIds);
+        }
+    }
+
+    private static Dictionary<string, int> BuildRequestedStashUseRequirements(IEnumerable<FriendlyTeammateBuyKitUsedItem>? usedItems)
+    {
+        var requirements = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (usedItems == null)
+        {
+            return requirements;
+        }
+
+        foreach (var item in usedItems)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.TemplateId) || item.Count <= 0)
+            {
+                continue;
+            }
+
+            requirements[item.TemplateId] = requirements.TryGetValue(item.TemplateId, out int existing)
+                ? existing + item.Count
+                : item.Count;
+        }
+
+        return requirements;
+    }
+
+    private void DeductRoublesFromPlayerStash(PmcData profile, int amount)
+    {
+        profile.Inventory ??= new BotBaseInventory { Items = [] };
+        profile.Inventory.Items ??= [];
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        string playerStashRootId = GetPlayerStashRootId(profile);
+        var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
+        int available = profile.Inventory.Items
+            .Where(item => item?.Id != null
+                && stashIds.Contains(item.Id.ToString())
+                && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.Currency.Roubles, StringComparison.OrdinalIgnoreCase))
+            .Sum(GetItemStackCount);
+        if (available < amount)
+        {
+            throw new FriendlyTeammateException($"Not enough roubles to buy teammate kit. Required {amount}, available {available}");
+        }
+
+        int remaining = amount;
+        var removeIds = new List<string>();
+        foreach (var money in profile.Inventory.Items.ToList())
+        {
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            if (money?.Id == null
+                || !stashIds.Contains(money.Id.ToString())
+                || !string.Equals(money.Template.ToString(), FriendlyItemTemplateIds.Currency.Roubles, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            int stackCount = GetItemStackCount(money);
+            if (stackCount > remaining)
+            {
+                money.Upd ??= new Upd();
+                money.Upd.StackObjectsCount = stackCount - remaining;
+                remaining = 0;
+                break;
+            }
+
+            removeIds.Add(money.Id.ToString());
+            remaining -= stackCount;
+        }
+
+        RemoveItemTreesById(profile.Inventory.Items, removeIds);
+    }
+
+    private static bool IsIgnoredKitRequirementItem(Item? item)
+    {
+        if (item?.Id == null || string.IsNullOrWhiteSpace(item.Template.ToString()))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(item.ParentId))
+        {
+            return true;
+        }
+
+        if (string.Equals(item.SlotId, "Dogtag", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(item.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.EquipmentContainer.Pockets, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetItemStackCount(Item item)
+    {
+        return Math.Max(1, (int)Math.Ceiling(item.Upd?.StackObjectsCount ?? 1d));
+    }
+
+    private static ItemEventRouterResponse CreateEmptyRepairOutput(MongoId sessionId, PmcData profile)
+    {
+        return new ItemEventRouterResponse
+        {
+            Warnings = [],
+            ProfileChanges = new Dictionary<MongoId, ProfileChange>
+            {
+                {
+                    sessionId,
+                    new ProfileChange
+                    {
+                        Id = sessionId.ToString(),
+                        Experience = profile.Info?.Experience,
+                        Quests = [],
+                        RagFairOffers = [],
+                        WeaponBuilds = [],
+                        EquipmentBuilds = [],
+                        Items = new ItemChanges
+                        {
+                            NewItems = [],
+                            ChangedItems = [],
+                            DeletedItems = [],
+                        },
+                        Production = [],
+                        Improvements = [],
+                        Skills = new Skills
+                        {
+                            Common = [],
+                            Mastering = [],
+                            Points = 0,
+                        },
+                        Health = profile.Health ?? new BotBaseHealth(),
+                        TraderRelations = [],
+                        QuestsStatus = [],
+                    }
+                },
+            },
+        };
+    }
+
+    private static HashSet<string> GetItemTreeIds(List<Item> items, string rootId)
+    {
+        var treeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddItemTreeIds(items, rootId, treeIds);
+        return treeIds;
+    }
+
+    private static void AddItemTreeIds(List<Item> items, string itemId, HashSet<string> treeIds)
+    {
+        if (!treeIds.Add(itemId))
+        {
+            return;
+        }
+
+        foreach (var child in items.Where(item =>
+                     string.Equals(item.ParentId, itemId, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            AddItemTreeIds(items, child.Id.ToString(), treeIds);
+        }
+    }
+
+    private static void ValidateRealCommitItemSet(List<Item> items, HashSet<string> allowedItemIds, string setName)
+    {
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            string id = item.Id.ToString();
+            if (!allowedItemIds.Contains(id))
+            {
+                throw new FriendlyTeammateException($"Submitted {setName} contains an item that was not available for movement");
+            }
+
+            if (!seenIds.Add(id))
+            {
+                throw new FriendlyTeammateException($"Submitted {setName} contains duplicate item ids");
+            }
+        }
+    }
+
+    private static void ValidateNoRealCommitOverlap(
+        List<Item> replacementEquipmentItems,
+        List<Item> replacementStashItems,
+        string playerStashRootId)
+    {
+        var equipmentIds = replacementEquipmentItems
+            .Select(item => item.Id.ToString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var stashItem in replacementStashItems)
+        {
+            string id = stashItem.Id.ToString();
+            if (string.Equals(id, playerStashRootId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (equipmentIds.Contains(id))
+            {
+                throw new FriendlyTeammateException("Submitted teammate equipment and player stash both contain the same moved item");
+            }
+        }
+    }
+
+    private static void ValidateNoEquippedPlayerItemCommit(
+        PmcData playerPmc,
+        List<Item> replacementEquipmentItems,
+        HashSet<string> currentPlayerStashIds)
+    {
+        var nonStashPlayerItemIds = (playerPmc.Inventory?.Items ?? [])
+            .Select(item => item.Id.ToString())
+            .Where(id => !currentPlayerStashIds.Contains(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in replacementEquipmentItems)
+        {
+            if (nonStashPlayerItemIds.Contains(item.Id.ToString()))
+            {
+                throw new FriendlyTeammateException("Submitted teammate equipment contains an item equipped on the player");
+            }
+        }
+    }
+
+    private static string NormalizeLoadoutManagementMode(string? mode)
+    {
+        return string.IsNullOrWhiteSpace(mode) ? "Simple" : mode.Trim();
+    }
+
+    private static bool IsExtremeLoadoutManagementMode(string mode)
+    {
+        return string.Equals(mode, "Extreme", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsCurrentLoadoutManagementModeExtreme()
+    {
+        return IsExtremeLoadoutManagementMode(NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode));
+    }
+
+    private static bool IsImmersiveLikeLoadoutManagementMode(string mode)
+    {
+        return string.Equals(mode, "Immersive", StringComparison.OrdinalIgnoreCase)
+            || IsExtremeLoadoutManagementMode(mode);
+    }
+
+    private static bool IsRealTransferLoadoutManagementMode(string mode)
+    {
+        return string.Equals(mode, "Restricted", StringComparison.OrdinalIgnoreCase)
+            || IsImmersiveLikeLoadoutManagementMode(mode);
+    }
+
     private void EnsureFollowerHasSecureContainerSupplies(BotBase profile)
     {
         if (profile?.Inventory?.Items == null)
@@ -520,7 +1844,7 @@ public class FriendlyTeammateService(
             return;
         }
 
-        bool hasGrizzlyInBackpack = HasTemplateInBackpack(profile.Inventory.Items, GrizzlyMedicalKitTemplateId);
+        bool hasGrizzlyInBackpack = HasTemplateInBackpack(profile.Inventory.Items, FriendlyItemTemplateIds.Medical.GrizzlyMedicalKit);
         bool hasSurgeryKitInBackpack = HasAnyTemplateInBackpack(profile.Inventory.Items, SurgicalKitTemplateIds);
 
         ClearSecureContainerContents(profile.Inventory.Items, secureContainerId);
@@ -531,7 +1855,7 @@ public class FriendlyTeammateService(
             profile.Inventory.Items.Add(new Item
             {
                 Id = grizzlyId,
-                Template = new MongoId(GrizzlyMedicalKitTemplateId),
+                Template = new MongoId(FriendlyItemTemplateIds.Medical.GrizzlyMedicalKit),
                 ParentId = secureContainerId,
                 SlotId = "main",
                 Location = null,
@@ -549,7 +1873,7 @@ public class FriendlyTeammateService(
             profile.Inventory.Items.Add(new Item
             {
                 Id = surv12Id,
-                Template = new MongoId(Surv12SurgicalKitTemplateId),
+                Template = new MongoId(FriendlyItemTemplateIds.Medical.Surv12SurgicalKit),
                 ParentId = secureContainerId,
                 SlotId = "main",
                 Location = null,
@@ -729,6 +2053,40 @@ public class FriendlyTeammateService(
         return null;
     }
 
+    private bool HasProperRaidKit(BotBase teammate)
+    {
+        var items = teammate.Inventory?.Items;
+        if (items == null || items.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var slotId in RequiredRaidWeaponSlots)
+        {
+            var item = items.FirstOrDefault(candidate => string.Equals(candidate.SlotId, slotId, StringComparison.OrdinalIgnoreCase));
+            if (item?.Template == null)
+            {
+                continue;
+            }
+
+            if (itemHelper.IsOfBaseclass(item.Template, BaseClasses.WEAPON)
+                && !itemHelper.IsOfBaseclass(item.Template, BaseClasses.KNIFE))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string GetTeammateDisplayName(BotBase teammate)
+    {
+        return teammate.Info?.Nickname
+            ?? teammate.Aid?.ToString()
+            ?? teammate.Id?.ToString()
+            ?? "teammate";
+    }
+
     private MongoId? FindAmmoTemplateRecursive(List<Item> inventoryItems, Item item)
     {
         if (itemHelper.IsOfBaseclass(item.Template, BaseClasses.AMMO))
@@ -761,8 +2119,8 @@ public class FriendlyTeammateService(
             // Surgical item template IDs
             var surgicalTemplates = new[]
             {
-                Surv12SurgicalKitTemplateId,
-                CmsSurgicalKitTemplateId,
+                FriendlyItemTemplateIds.Medical.Surv12SurgicalKit,
+                FriendlyItemTemplateIds.Medical.CmsSurgicalKit,
             };
             return surgicalTemplates.Contains(templateId);
         }
@@ -771,14 +2129,14 @@ public class FriendlyTeammateService(
             // Medical item template IDs (non-surgical)
             var medicalTemplates = new[]
             {
-                GrizzlyMedicalKitTemplateId,
-                "544fb3364bdc2dfb738b4567", // Salewa
-                "544fc38949f06fd411383b42", // AI-2 Medkit
-                "5c0e30fa86f77413531e1cd3", // Car First Aid Kit
-                "5e831507ea0a7c419314e497", // Blue Painkillers
-                "5e8488fa988873513c331205", // Morphine Injector
-                "544fb37d4bdc2dee738b4567", // Army Bandage
-                "544fb44d4bdc2dee738b4568", // Regular Bandage
+                FriendlyItemTemplateIds.Medical.GrizzlyMedicalKit,
+                FriendlyItemTemplateIds.Medical.SalewaFirstAidKit,
+                FriendlyItemTemplateIds.Medical.Ai2Medkit,
+                FriendlyItemTemplateIds.Medical.CarFirstAidKit,
+                FriendlyItemTemplateIds.Medical.AnalginPainkillers,
+                FriendlyItemTemplateIds.Medical.MorphineInjector,
+                FriendlyItemTemplateIds.Medical.ArmyBandage,
+                FriendlyItemTemplateIds.Medical.RegularBandage,
             };
             return medicalTemplates.Contains(templateId);
         }
@@ -799,6 +2157,24 @@ public class FriendlyTeammateService(
         }
 
         return DeleteTeammate(sessionId, teammate);
+    }
+
+    public bool IsTeammateIdentity(MongoId sessionId, MongoId? profileId, string? accountId)
+    {
+        int? aid = null;
+        if (!string.IsNullOrWhiteSpace(accountId) && int.TryParse(accountId, out var parsedAid))
+        {
+            aid = parsedAid;
+        }
+
+        if (profileId is null && aid is null)
+        {
+            return false;
+        }
+
+        return LoadTeammates(sessionId).Any(profile =>
+            (profileId is not null && profile.Id == profileId)
+            || (aid is not null && profile.Aid == aid.Value));
     }
 
     private bool DeleteTeammate(MongoId sessionId, BotBase teammate)
@@ -1048,6 +2424,54 @@ public class FriendlyTeammateService(
         teammate.Skills.Common = commonSkills;
     }
 
+    private static void ApplyDeathEscapeOutcome(BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)
+    {
+        var bodyParts = teammate.Health?.BodyParts;
+        if (bodyParts == null || bodyParts.Count == 0)
+        {
+            return;
+        }
+
+        double healthRatio = Math.Clamp(entry.HealthRatio, 0.05d, 1d);
+        foreach (var (partName, bodyPart) in bodyParts)
+        {
+            var health = bodyPart?.Health;
+            if (health == null)
+            {
+                continue;
+            }
+
+            double maximum = Math.Max(1d, health.Maximum ?? health.Current ?? 1d);
+            health.Maximum = maximum;
+
+            if (!entry.Escaped)
+            {
+                // Failed escape means the teammate remains dead for later roster/spawn logic.
+                health.Current = 0d;
+                continue;
+            }
+
+            // Successful escape preserves the raid-end health ratio while forcing vital parts above
+            // zero so the teammate is considered alive by subsequent profile fetch/spawn paths.
+            double minimumAlive = IsVitalBodyPart(partName) ? 1d : 0d;
+            health.Current = Math.Clamp(maximum * healthRatio, minimumAlive, maximum);
+        }
+
+        if (entry.Escaped)
+        {
+            teammate.Health!.Hydration ??= new CurrentMinMax { Current = 100d, Maximum = 100d, Minimum = 0d };
+            teammate.Health.Energy ??= new CurrentMinMax { Current = 100d, Maximum = 100d, Minimum = 0d };
+            teammate.Health.Hydration.Current = Math.Max(teammate.Health.Hydration.Current ?? 0d, 1d);
+            teammate.Health.Energy.Current = Math.Max(teammate.Health.Energy.Current ?? 0d, 1d);
+        }
+    }
+
+    private static bool IsVitalBodyPart(string partName)
+    {
+        return string.Equals(partName, "Head", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(partName, "Chest", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void ApplyPmcFollowerSkillBaseline(BotBase teammate)
     {
         teammate.Info ??= new CommonInfo();
@@ -1191,6 +2615,15 @@ public class FriendlyTeammateService(
 
     private void SaveTeammate(MongoId sessionId, BotBase teammate)
     {
+        EnsureFollowerHasPockets(teammate);
+
+        // Simple/Restricted/Immersive use a temporary managed secure container only on the spawn clone.
+        // Do not persist generated meds/ammo, or a stale hidden container, into the teammate profile.
+        if (!IsCurrentLoadoutManagementModeExtreme() && RemoveSecureContainerTree(teammate))
+        {
+            logger.Info($"Removed non-Realistic secure container tree before saving teammate '{teammate.Aid}'.");
+        }
+
         var filePath = GetTeammateFilePath(sessionId, teammate);
         var json = jsonUtil.Serialize(teammate, indented: true);
         if (json is null)
@@ -1307,6 +2740,7 @@ public class FriendlyTeammateService(
                 SelectedMemberCategory = MemberCategory.Unheard,
             },
             AutoJoinEnabled = settings.AutoJoinEnabled,
+            HasProperRaidKit = HasProperRaidKit(PrepareTeammateForFetch(teammate)),
         };
     }
 
@@ -1513,7 +2947,11 @@ public class FriendlyTeammateService(
         fileUtil.WriteFile(filePath, json);
     }
 
-    private void SaveDefaultEquipmentSnapshot(MongoId sessionId, BotBase teammate, bool overwrite = false)
+    private void SaveDefaultEquipmentSnapshot(
+        MongoId sessionId,
+        BotBase teammate,
+        bool overwrite = false,
+        bool includeSecureContainer = false)
     {
         teammate.Inventory ??= new BotBaseInventory { Items = [] };
 
@@ -1524,6 +2962,11 @@ public class FriendlyTeammateService(
         }
 
         var items = cloner.Clone(teammate.Inventory.Items ?? []) ?? [];
+        if (!includeSecureContainer)
+        {
+            RemoveSecureContainerTree(items);
+        }
+
         string? json = jsonUtil.Serialize(items, indented: true);
         if (json is null)
         {
@@ -1630,7 +3073,10 @@ public class FriendlyTeammateService(
         teammate.Inventory.Equipment = rootId;
     }
 
-    private List<Item> MergeEquipmentWithPreservedSpecialItems(List<Item>? existingItems, List<Item> replacementItems)
+    private List<Item> MergeEquipmentWithPreservedSpecialItems(
+        List<Item>? existingItems,
+        List<Item> replacementItems,
+        bool useReplacementSecureContainer = false)
     {
         if (replacementItems == null || replacementItems.Count == 0)
         {
@@ -1642,16 +3088,14 @@ public class FriendlyTeammateService(
             .Where(item => !string.IsNullOrWhiteSpace(item.SlotId))
             .Where(item =>
                 item.SlotId!.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
-                || item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase)
-                || item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase))
+                || (!useReplacementSecureContainer && item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase)))
             .Select(item => cloner.Clone(item) ?? item)
             .ToList();
 
         var mergedItems = replacementItems
             .Where(item =>
                 string.IsNullOrWhiteSpace(item.SlotId)
-                || (!item.SlotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
-                    && !item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase)
+                || ((useReplacementSecureContainer || !item.SlotId.Contains("SecuredContainer", StringComparison.OrdinalIgnoreCase))
                     && !item.SlotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)))
             .ToList();
 

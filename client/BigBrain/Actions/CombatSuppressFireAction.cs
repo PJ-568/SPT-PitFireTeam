@@ -15,6 +15,8 @@ namespace pitTeam.BigBrain.Actions
     internal sealed class CombatSuppressFireAction : FollowerCombatActionBase
     {
         private const float CloseThreatSuppressCorrectionDistance = 18f;
+        private const float CloseThreatSuppressFireAlignmentDistance = 6f;
+        private const float CloseThreatSuppressFireMaxAngle = 35f;
         private const float SuppressPointCorrectionAngle = 25f;
 
         private readonly GClass281 baseLogic;
@@ -51,7 +53,13 @@ namespace pitTeam.BigBrain.Actions
                     : BotOwner.Position + Vector3.up * 1.2f;
 
                 BotOwner.Steering.LookToPoint(target);
-                if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target))
+                if (FollowerShotSafety.IsFriendlyInSuppressionLane(BotOwner, fireOrigin, target))
+                {
+                    StopCombatShooting();
+                    return;
+                }
+
+                if (IsCurrentSuppressionAimUnsafe(fireOrigin, target))
                 {
                     StopCombatShooting();
                     return;
@@ -63,7 +71,17 @@ namespace pitTeam.BigBrain.Actions
 
             // The vanilla suppress node can still fire through squadmates, so keep friendly lane
             // safety as the final hard gate before delegating to it.
-            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, goalEnemy.CurrPosition))
+            if (FollowerShotSafety.IsFriendlyInSuppressionLane(BotOwner, goalEnemy.CurrPosition))
+            {
+                BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition);
+                StopCombatShooting();
+                return;
+            }
+
+            if (IsCurrentSuppressionAimUnsafe(BotOwner.WeaponRoot != null
+                    ? BotOwner.WeaponRoot.position
+                    : BotOwner.Position + Vector3.up * 1.2f,
+                goalEnemy.CurrPosition))
             {
                 BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition);
                 StopCombatShooting();
@@ -110,7 +128,19 @@ namespace pitTeam.BigBrain.Actions
                 ? BotOwner.WeaponRoot.position
                 : BotOwner.Position + Vector3.up * 1.2f;
             BotOwner.Steering.LookToPoint(target.Value);
-            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target.Value))
+            if (FollowerShotSafety.IsFriendlyInSuppressionLane(BotOwner, fireOrigin, target.Value))
+            {
+                StopCombatShooting();
+                return;
+            }
+
+            if (IsCurrentSuppressionAimUnsafe(fireOrigin, target.Value))
+            {
+                StopCombatShooting();
+                return;
+            }
+
+            if (ShouldHoldCloseThreatSuppressFire(target.Value))
             {
                 StopCombatShooting();
                 return;
@@ -126,7 +156,19 @@ namespace pitTeam.BigBrain.Actions
                 BotOwner.Steering.LookToPoint(target.Value);
                 BotOwner.GoToSomePointData.SetPoint(suppressFrom.Position);
                 BotOwner.GoToSomePointData.UpdateToGo(true);
+                if (ShouldHoldCloseThreatSuppressFire(target.Value))
+                {
+                    StopCombatShooting();
+                    return;
+                }
+
                 if (!CanSuppressFromCurrentPosition(fireOrigin, target.Value))
+                {
+                    StopCombatShooting();
+                    return;
+                }
+
+                if (IsCurrentSuppressionAimUnsafe(fireOrigin, target.Value))
                 {
                     StopCombatShooting();
                     return;
@@ -141,7 +183,26 @@ namespace pitTeam.BigBrain.Actions
                 BotOwner.StopMove();
             }
 
+            if (ShouldHoldCloseThreatSuppressFire(target.Value))
+            {
+                StopCombatShooting();
+                return;
+            }
+
             baseLogic.UpdateNodeByBrain(null);
+        }
+
+        private bool IsCurrentSuppressionAimUnsafe(Vector3 fireOrigin, Vector3 suppressTarget)
+        {
+            Vector3 aimDirection = BotOwner.LookDirection;
+            aimDirection.y = 0f;
+            if (aimDirection.sqrMagnitude <= 0.0001f)
+            {
+                return true;
+            }
+
+            float distance = Vector3.Distance(fireOrigin, suppressTarget);
+            return FollowerShotSafety.IsFriendlyInAimLane(BotOwner, fireOrigin, aimDirection, distance);
         }
 
         private bool CanSuppressFromCurrentPosition(Vector3 fireOrigin, Vector3 target)
@@ -156,6 +217,33 @@ namespace pitTeam.BigBrain.Actions
             }
 
             return FollowerCombatCommon.IsSoftObstructedSuppressionLane(fireOrigin, target, BotOwner.LookSensor.Mask);
+        }
+
+        private bool ShouldHoldCloseThreatSuppressFire(Vector3 suppressTarget)
+        {
+            EnemyInfo goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (goalEnemy == null ||
+                !goalEnemy.IsVisible ||
+                goalEnemy.Distance > CloseThreatSuppressFireAlignmentDistance)
+            {
+                return false;
+            }
+
+            Vector3 lookDirection = BotOwner.LookDirection;
+            lookDirection.y = 0f;
+            if (lookDirection.sqrMagnitude <= 0.01f)
+            {
+                return true;
+            }
+
+            Vector3 targetDirection = suppressTarget - BotOwner.Position;
+            targetDirection.y = 0f;
+            if (targetDirection.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            return Vector3.Angle(lookDirection.normalized, targetDirection.normalized) > CloseThreatSuppressFireMaxAngle;
         }
 
         private Vector3 CorrectCloseThreatSuppressPoint(Vector3 suppressPoint)

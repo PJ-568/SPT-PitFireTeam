@@ -36,25 +36,32 @@ namespace pitTeam.Patches
 
         private static void EnsureBodySuccess(string responseJson)
         {
+            DeserializeBodySuccess<object>(responseJson);
+        }
+
+        private static FriendlyTeammateBodyResponse<T> DeserializeBodySuccess<T>(string responseJson)
+        {
             if (string.IsNullOrWhiteSpace(responseJson))
             {
-                return;
+                return null;
             }
 
-            FriendlyTeammateBodyResponse<object> body = null;
+            FriendlyTeammateBodyResponse<T> body = null;
             try
             {
-                body = JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<object>>(responseJson);
+                body = JsonConvert.DeserializeObject<FriendlyTeammateBodyResponse<T>>(responseJson);
             }
             catch
             {
-                return;
+                return null;
             }
 
             if (body != null && body.err != 0)
             {
                 throw new InvalidOperationException(body.errmsg ?? "Unknown teammate backend error");
             }
+
+            return body;
         }
 
         private static FriendlyTeammateProfileOptions TryLoadProfileOptions(string accountId)
@@ -339,12 +346,14 @@ namespace pitTeam.Patches
         }
 
         private static void DisplayLoadoutOptions(
+            OtherPlayerProfileScreen screen,
             ResultProfile profile,
             InventoryController inventoryController,
             ISession session,
             InventoryClothingSelectionPanel panel,
             InventoryPlayerModelWithStatsWindow window,
-            FriendlyTeammateProfileOptions options
+            FriendlyTeammateProfileOptions options,
+            bool replaceLoadoutDropdown = true
         )
         {
             CustomDropdownIds.Clear();
@@ -354,6 +363,7 @@ namespace pitTeam.Patches
             HashSet<string> tacticIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, string> tacticValueByDropdownId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             dropDownItem currentLoadout = null;
+            dropDownItem defaultLoadout = null;
             foreach (FriendlyTeammateLoadoutOption option in options.Loadouts)
             {
                 FriendlyProfileDropdownItem item = new FriendlyProfileDropdownItem
@@ -366,10 +376,20 @@ namespace pitTeam.Patches
                 loadoutIds.Add(item.Id);
                 loadoutItems.Add(item);
 
+                if (string.Equals(option.Id, DefaultLoadoutId, StringComparison.OrdinalIgnoreCase))
+                {
+                    defaultLoadout = item;
+                }
+
                 if (string.Equals(option.Id, options.CurrentLoadoutId, StringComparison.OrdinalIgnoreCase))
                 {
                     currentLoadout = item;
                 }
+            }
+
+            if (pitFireTeam.IsFollowerLoadoutRealTransferMode())
+            {
+                currentLoadout = defaultLoadout ?? currentLoadout;
             }
 
             currentLoadout ??= loadoutItems.FirstOrDefault();
@@ -494,6 +514,87 @@ namespace pitTeam.Patches
                     }
                 }
             });
+
+            if (replaceLoadoutDropdown && pitFireTeam.IsFollowerLoadoutRealTransferMode())
+            {
+                ReplaceLoadoutDropdownWithEditButton(screen, profile, panel);
+            }
+        }
+
+        private static void ReplaceLoadoutDropdownWithEditButton(
+            OtherPlayerProfileScreen screen,
+            ResultProfile profile,
+            InventoryClothingSelectionPanel panel)
+        {
+            try
+            {
+                if (screen == null || profile == null || panel == null)
+                {
+                    return;
+                }
+
+                DropDownBox upperDropdown = UpperDropdownField?.GetValue(panel) as DropDownBox;
+                RectTransform sourceRect = upperDropdown?.transform as RectTransform;
+                Transform buttonParent = sourceRect?.parent ?? panel.transform.Find("Upper") ?? panel.transform;
+                Transform existing = buttonParent.Find("pitFireTeam_LoadoutDropdownEditButton");
+                if (existing != null)
+                {
+                    GameObject.Destroy(existing.gameObject);
+                }
+
+                DefaultUIButton buttonTemplate = HideoutButtonField?.GetValue(screen) as DefaultUIButton;
+                if (buttonTemplate == null)
+                {
+                    pitFireTeam.Log.LogWarning("[UI] Loadout dropdown edit button aborted: hideout button template not found.");
+                    return;
+                }
+
+                DefaultUIButton button = GameObject.Instantiate(buttonTemplate, buttonParent, false);
+                button.name = "pitFireTeam_LoadoutDropdownEditButton";
+                button.gameObject.SetActive(true);
+                button.Interactable = true;
+                button.SetRawText(GetSocialUiText("EditLoadout", "EDIT LOADOUT"), 18);
+                HideProfileButtonIconContainer(button);
+                button.OnClick.RemoveAllListeners();
+                button.OnClick.AddListener(() =>
+                {
+                    ActiveTeammateLoadoutId = DefaultLoadoutId;
+                    ActiveTeammateLoadoutName = DefaultLoadoutName;
+                    ShowLoadoutEditorOverlay(screen, profile);
+                });
+
+                if (button.transform is RectTransform buttonRect)
+                {
+                    if (sourceRect != null)
+                    {
+                        buttonRect.anchorMin = sourceRect.anchorMin;
+                        buttonRect.anchorMax = sourceRect.anchorMax;
+                        buttonRect.pivot = sourceRect.pivot;
+                        buttonRect.anchoredPosition = sourceRect.anchoredPosition;
+                        buttonRect.sizeDelta = sourceRect.sizeDelta;
+                        buttonRect.offsetMin = sourceRect.offsetMin;
+                        buttonRect.offsetMax = sourceRect.offsetMax;
+                    }
+
+                    buttonRect.localScale = Vector3.one;
+                }
+
+                if (upperDropdown != null)
+                {
+                    upperDropdown.gameObject.SetActive(false);
+                }
+
+                Transform icon = panel.transform.Find("Upper/Icon");
+                if (icon != null)
+                {
+                    icon.gameObject.SetActive(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogError("[UI] Failed to replace loadout dropdown with edit button.");
+                pitFireTeam.Log.LogError(ex);
+            }
         }
 
         private static bool IsBetaHiddenTactic(string tactic)

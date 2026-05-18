@@ -80,11 +80,16 @@ namespace pitTeam.Components
         private float _teleportGraceUntil;
         private const float TeleportGraceSeconds = 0.45f;
         private const float TeleportReteleportDistance = 1.5f;
+        private const float TemporaryCombatAggressionClearDelaySeconds = 2f;
+        private const float TemporaryCombatAggressionRecentEnemySeconds = 3f;
+        private const float TemporaryCombatAggressionGroupEnemySeconds = 5f;
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
         private bool _holdPositionShouldCrouch = true;
         private bool _resumeHoldAfterComeCloser;
+        private bool _resumeHoldAfterTakeLoot;
+        private bool _resumeHoldAfterTakeLootCrouch;
         private float _commandLookPauseUntil;
         private Vector3 _commandLookOverridePoint;
         private float _commandLookOverrideUntil;
@@ -100,7 +105,9 @@ namespace pitTeam.Components
         private float _combatAggression = 50f;
         private bool _temporaryCombatAggressionOverrideActive;
         private float _temporaryCombatAggressionOverride;
+        private float _temporaryCombatAggressionClearAfter;
         private FollowerCombatTactic _combatTactic = FollowerCombatTactic.Balanced;
+        private bool _backpackInspectionActive;
         public bool CanPatrol
         {
             get
@@ -141,6 +148,7 @@ namespace pitTeam.Components
         {
             get
             {
+                UpdateTemporaryCombatAggressionClearDelay();
                 return _temporaryCombatAggressionOverrideActive
                     ? _temporaryCombatAggressionOverride
                     : _combatAggression;
@@ -151,6 +159,7 @@ namespace pitTeam.Components
         {
             get
             {
+                UpdateTemporaryCombatAggressionClearDelay();
                 return _temporaryCombatAggressionOverrideActive;
             }
         }
@@ -159,7 +168,16 @@ namespace pitTeam.Components
         {
             get
             {
+                UpdateTemporaryCombatAggressionClearDelay();
                 return _temporaryCombatAggressionOverrideActive && _temporaryCombatAggressionOverride <= 0.01f;
+            }
+        }
+
+        public bool IsBackpackInspectionActive
+        {
+            get
+            {
+                return _backpackInspectionActive;
             }
         }
 
@@ -927,7 +945,7 @@ namespace pitTeam.Components
                 {
                     InteractableObjects.ClearStoredItems(_bot.ProfileId);
                     InteractableObjects.RemoveTaker(_bot);
-                    NpcMessage.RemoveNpc(_bot.ProfileId);
+                    NpcMessage.RemoveNpc(_bot.ProfileId, _bot.HealthController?.IsAlive == false);
                 }
 
                 ClearCommand("Dismiss:finally");
@@ -1072,6 +1090,11 @@ namespace pitTeam.Components
             _combatRegroupUsesBossAnchor = value;
         }
 
+        public void SetBackpackInspectionActive(bool active)
+        {
+            _backpackInspectionActive = active;
+        }
+
         public void SetHoldPosition(float duration, bool crouch = true)
         {
             _activeCommand = FollowerCommandType.HoldPosition;
@@ -1079,6 +1102,8 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _holdPositionShouldCrouch = crouch;
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetHoldPosition));
         }
 
@@ -1088,6 +1113,8 @@ namespace pitTeam.Components
             _commandTarget = target;
             _commandUntilTime = float.PositiveInfinity;
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetMoveToPoint));
         }
 
@@ -1108,6 +1135,8 @@ namespace pitTeam.Components
                 ? float.PositiveInfinity
                 : Time.time + Mathf.Max(2f, duration);
             _commandTarget = Vector3.zero;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetComeCloser));
         }
 
@@ -1122,12 +1151,27 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(2f, duration);
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetRegroup));
         }
 
         public void SetTakeLootItem(float duration)
         {
-            if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.TakeLootItem)
+            if (_activeCommand == FollowerCommandType.HoldPosition)
+            {
+                _resumeHoldAfterTakeLoot = true;
+                _resumeHoldAfterTakeLootCrouch = _holdPositionShouldCrouch;
+            }
+            else if (_activeCommand != FollowerCommandType.TakeLootItem)
+            {
+                _resumeHoldAfterTakeLoot = false;
+                _resumeHoldAfterTakeLootCrouch = false;
+            }
+
+            if (_activeCommand != FollowerCommandType.None &&
+                _activeCommand != FollowerCommandType.TakeLootItem &&
+                _activeCommand != FollowerCommandType.HoldPosition)
             {
                 ClearCommand($"SetTakeLootItem:replace({_activeCommand})");
             }
@@ -1150,6 +1194,8 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(6f, duration);
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetOpenDoor));
         }
 
@@ -1164,6 +1210,8 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetPushEnemy));
         }
 
@@ -1178,6 +1226,8 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetSuppressEnemy));
         }
 
@@ -1192,6 +1242,8 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetNeedSniper));
         }
 
@@ -1206,6 +1258,8 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetCombatComeToBossCover));
         }
 
@@ -1220,6 +1274,8 @@ namespace pitTeam.Components
             _commandTarget = target;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetCombatMoveToPointTactical));
         }
 
@@ -1227,12 +1283,58 @@ namespace pitTeam.Components
         {
             _temporaryCombatAggressionOverride = Mathf.Clamp(aggression, 0f, 100f);
             _temporaryCombatAggressionOverrideActive = true;
+            _temporaryCombatAggressionClearAfter = 0f;
         }
 
         public void ClearTemporaryCombatAggressionOverride()
         {
             _temporaryCombatAggressionOverrideActive = false;
             _temporaryCombatAggressionOverride = 0f;
+            _temporaryCombatAggressionClearAfter = 0f;
+        }
+
+        public void ClearTemporaryCombatAggressionOverrideAfterCombatCooldown()
+        {
+            if (!_temporaryCombatAggressionOverrideActive)
+            {
+                _temporaryCombatAggressionClearAfter = 0f;
+                return;
+            }
+
+            float clearAt = Time.time + TemporaryCombatAggressionClearDelaySeconds;
+            _temporaryCombatAggressionClearAfter = Mathf.Max(_temporaryCombatAggressionClearAfter, clearAt);
+        }
+
+        public void CancelTemporaryCombatAggressionOverrideClearDelay()
+        {
+            _temporaryCombatAggressionClearAfter = 0f;
+        }
+
+        private void UpdateTemporaryCombatAggressionClearDelay()
+        {
+            if (_temporaryCombatAggressionClearAfter <= 0f)
+            {
+                return;
+            }
+
+            if (Time.time < _temporaryCombatAggressionClearAfter)
+            {
+                return;
+            }
+
+            if (_bot == null || _bot.IsDead || _bot.BotState != EBotState.Active)
+            {
+                ClearTemporaryCombatAggressionOverride();
+                return;
+            }
+
+            if (!IsSafelyOutOfCombat(_bot))
+            {
+                _temporaryCombatAggressionClearAfter = Time.time + TemporaryCombatAggressionClearDelaySeconds;
+                return;
+            }
+
+            ClearTemporaryCombatAggressionOverride();
         }
 
         public void CompleteComeCloser()
@@ -1258,6 +1360,29 @@ namespace pitTeam.Components
         public bool IsComeCloserFromHold()
         {
             return _activeCommand == FollowerCommandType.ComeCloser && _resumeHoldAfterComeCloser;
+        }
+
+        public void CompleteTakeLootItem()
+        {
+            if (_activeCommand != FollowerCommandType.TakeLootItem)
+            {
+                return;
+            }
+
+            if (_resumeHoldAfterTakeLoot)
+            {
+                _activeCommand = FollowerCommandType.HoldPosition;
+                _commandTarget = Vector3.zero;
+                _commandUntilTime = float.PositiveInfinity;
+                _holdPositionShouldCrouch = _resumeHoldAfterTakeLootCrouch;
+                _resumeHoldAfterComeCloser = false;
+                _resumeHoldAfterTakeLoot = false;
+                _resumeHoldAfterTakeLootCrouch = false;
+                BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(CompleteTakeLootItem));
+                return;
+            }
+
+            ClearCommand("CompleteTakeLootItem");
         }
 
         public bool ShouldCrouchForHoldPosition()
@@ -1530,7 +1655,7 @@ namespace pitTeam.Components
 
             if (!pitFireTeam.UseSainFollowerCombat)
             {
-                ClearTemporaryCombatAggressionOverride();
+                ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
                 return true;
             }
 
@@ -1552,7 +1677,7 @@ namespace pitTeam.Components
 
             if (bridgeReady)
             {
-                ClearTemporaryCombatAggressionOverride();
+                ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
                 return true;
             }
 
@@ -1573,30 +1698,148 @@ namespace pitTeam.Components
                 return false;
             }
 
-            if (owner.Memory?.HaveEnemy == true)
+            if (HasActiveCombatSignal(owner))
             {
                 return false;
             }
 
-            var infos = owner.EnemiesController?.EnemyInfos;
-            if (infos != null)
+            if (HasRecentGroupCombatSignal(owner))
             {
-                foreach (var kv in infos)
-                {
-                    EnemyInfo info = kv.Value;
-                    if (info == null)
-                    {
-                        continue;
-                    }
+                return false;
+            }
 
-                    if (info.IsVisible)
-                    {
-                        return false;
-                    }
-                }
+            if (HasSquadmateCombatSignal(owner))
+            {
+                return false;
             }
 
             return true;
+        }
+
+        private static bool HasActiveCombatSignal(BotOwner owner)
+        {
+            if (owner?.Memory == null)
+            {
+                return false;
+            }
+
+            EnemyInfo goalEnemy = owner.Memory.GoalEnemy;
+            if (owner.Memory.HaveEnemy && IsEnemyInfoAlive(goalEnemy))
+            {
+                return true;
+            }
+
+            if (owner.Memory.IsUnderFire && Time.time - owner.Memory.LastTimeHit <= 2f)
+            {
+                return true;
+            }
+
+            var infos = owner.EnemiesController?.EnemyInfos;
+            if (infos == null)
+            {
+                return false;
+            }
+
+            foreach (var kv in infos)
+            {
+                EnemyInfo info = kv.Value;
+                if (info == null || !IsEnemyInfoAlive(info))
+                {
+                    continue;
+                }
+
+                if (info.IsVisible ||
+                    info.CanShoot ||
+                    Time.time - info.PersonalLastSeenTime <= TemporaryCombatAggressionRecentEnemySeconds)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasRecentGroupCombatSignal(BotOwner owner)
+        {
+            if (owner?.BotsGroup?.Enemies == null ||
+                owner.BotsGroup.EnemyLastSeenTimeReal <= 0f ||
+                Time.time - owner.BotsGroup.EnemyLastSeenTimeReal > TemporaryCombatAggressionGroupEnemySeconds)
+            {
+                return false;
+            }
+
+            foreach (IPlayer enemy in owner.BotsGroup.Enemies.Keys)
+            {
+                if (IsLiveEnemyPlayer(enemy))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasSquadmateCombatSignal(BotOwner owner)
+        {
+            BotFollowerPlayer self = BossPlayers.Instance?.GetFollower(owner);
+            pitAIBossPlayer boss = self?.GetBoss();
+            string bossProfileId = boss?.realPlayer?.ProfileId;
+            if (string.IsNullOrEmpty(bossProfileId))
+            {
+                return false;
+            }
+
+            foreach (BotFollowerPlayer follower in BossPlayers.GetFollowersByBoss(bossProfileId))
+            {
+                BotOwner squadmate = follower?.GetBot();
+                if (squadmate == null || squadmate == owner)
+                {
+                    continue;
+                }
+
+                if (HasActiveCombatSignal(squadmate) || HasRecentGroupCombatSignal(squadmate))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsEnemyInfoAlive(EnemyInfo info)
+        {
+            if (info == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(info.ProfileId))
+            {
+                Player alivePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(info.ProfileId);
+                return alivePlayer?.HealthController?.IsAlive == true;
+            }
+
+            return info.Person?.HealthController?.IsAlive == true;
+        }
+
+        private static bool IsLiveEnemyPlayer(IPlayer enemy)
+        {
+            if (enemy == null)
+            {
+                return false;
+            }
+
+            Player player = enemy as Player;
+            if (player?.HealthController?.IsAlive == true)
+            {
+                return true;
+            }
+
+            BotOwner bot = enemy.AIData?.BotOwner;
+            return bot != null &&
+                   !bot.IsDead &&
+                   bot.BotState == EBotState.Active &&
+                   bot.GetPlayer?.HealthController?.IsAlive == true;
         }
 
         public void ClearCommand(string reason = "unspecified")
@@ -1622,6 +1865,8 @@ namespace pitTeam.Components
             _commandUntilTime = 0f;
             _holdPositionShouldCrouch = true;
             _resumeHoldAfterComeCloser = false;
+            _resumeHoldAfterTakeLoot = false;
+            _resumeHoldAfterTakeLootCrouch = false;
             _commandLookPauseUntil = 0f;
             _commandLookOverridePoint = Vector3.zero;
             _commandLookOverrideUntil = 0f;
@@ -1800,6 +2045,7 @@ namespace pitTeam.Components
                 if (owner == null || owner != _bot) return;
 
                 Utils.FollowerMedical.UpdateMedicalHandsWatchdog(owner);
+                UpdateTemporaryCombatAggressionClearDelay();
 
                 if (_teleportGraceUntil > Time.time)
                 {

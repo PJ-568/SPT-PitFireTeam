@@ -16,7 +16,6 @@ namespace pitTeam.BigBrain
         private const float CombatRegroupOrderedDistanceMarksman = 24f;
         private const float CombatRegroupOrderedDistanceFactory = 10f;
         private const float CombatRegroupSameLevelTolerance = 1.75f;
-        private const float BossSectorRadius = 20f;
         private const float RegroupHotContactSeconds = 2.5f;
         private const float RegroupFallbackSpreadMinRadius = 1f;
         private const float RegroupFallbackSpreadMaxRadius = 6f;
@@ -137,6 +136,11 @@ namespace pitTeam.BigBrain
                 return GetArrivedSettleDecision();
             }
 
+            if (ShouldAvoidUrbanDetourRegroup(bossPosition))
+            {
+                return GetArrivedSettleDecision();
+            }
+
             if (TryGetCommittedRegroupMove(goalEnemy, bossPosition, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedMove))
             {
                 return committedMove;
@@ -236,22 +240,16 @@ namespace pitTeam.BigBrain
                     return new AICoreActionEndStruct("regroupReachedWithdrawTarget", true);
                 }
 
-                if (ShouldSettleStalledWithdraw(CombatCommon.GetBossPosition()))
+                if (TryGetStalledWithdrawEnd(CombatCommon.GetBossPosition(), out AICoreActionEndStruct stalledWithdrawEnd))
                 {
                     ClearCurrentTarget();
                     ClearCommittedRegroupMove();
-                    if (arrivedSettleUntil <= 0f)
+                    if (stalledWithdrawEnd.Reason == "regroupWithdrawStalledNearBoss" && arrivedSettleUntil <= 0f)
                     {
                         arrivedSettleUntil = Time.time + RegroupArrivalSettleSeconds;
                     }
 
-                    return new AICoreActionEndStruct("regroupWithdrawStalledNearBoss", true);
-                }
-
-                if (HasBossSectorChanged(CombatCommon.GetBossPosition()))
-                {
-                    ClearCommittedRegroupMove();
-                    return new AICoreActionEndStruct("regroupBossSectorChanged", true);
+                    return stalledWithdrawEnd;
                 }
 
                 if (ShouldReturnMarksmanToSupport(goalEnemy))
@@ -282,12 +280,6 @@ namespace pitTeam.BigBrain
                     ClearCurrentTarget();
                     ClearCommittedRegroupMove();
                     return new AICoreActionEndStruct("regroupReachedRunTarget", true);
-                }
-
-                if (HasBossSectorChanged(CombatCommon.GetBossPosition()))
-                {
-                    ClearCommittedRegroupMove();
-                    return new AICoreActionEndStruct("regroupBossSectorChanged", true);
                 }
 
                 if (ShouldReturnMarksmanToSupport(goalEnemy))
@@ -328,12 +320,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (HasBossSectorChanged(bossPosition))
-            {
-                ClearCurrentTarget();
-                ClearCommittedRegroupMove();
-                return false;
-            }
+            RefreshCommittedRegroupTargetIfBossMoved(goalEnemy, bossPosition);
 
             if (IsWithdrawReason(committedRegroupReason) && !IsHotEnemyContact(goalEnemy))
             {
@@ -356,6 +343,39 @@ namespace pitTeam.BigBrain
 
             decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(committedRegroupAction, committedRegroupReason);
             return true;
+        }
+
+        private void RefreshCommittedRegroupTargetIfBossMoved(EnemyInfo goalEnemy, Vector3 bossPosition)
+        {
+            if (!HasBossSectorChanged(bossPosition))
+            {
+                return;
+            }
+
+            bossSectorAnchor = bossPosition;
+            hasBossSectorAnchor = true;
+
+            if (!IsWithdrawReason(committedRegroupReason))
+            {
+                return;
+            }
+
+            Vector3 previousTarget = currentTarget;
+            RegroupBossDirection bossDirection = GetBossDirectionFromRegroupReason(committedRegroupReason);
+            if (!TryAssignRegroupCover(goalEnemy, bossPosition, bossDirection, out Vector3 targetPosition))
+            {
+                targetPosition = GetFallbackBossDestination(bossPosition);
+            }
+
+            currentTarget = targetPosition;
+            hasTarget = true;
+            UpsertDestinationClaim(currentTarget);
+            BotOwner.GoToSomePointData.SetPoint(currentTarget);
+
+            if ((previousTarget - currentTarget).sqrMagnitude > 1f)
+            {
+                StartWithdrawProgressTracking();
+            }
         }
 
         private void CommitRegroupMove(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
@@ -403,10 +423,10 @@ namespace pitTeam.BigBrain
             nextWithdrawProgressCheckAt = 0f;
         }
 
-        private bool ShouldSettleStalledWithdraw(Vector3 bossPosition)
+        private bool TryGetStalledWithdrawEnd(Vector3 bossPosition, out AICoreActionEndStruct end)
         {
-            if (!IsWithinHotRegroupSettleEnvelope(bossPosition) ||
-                Time.time < nextWithdrawProgressCheckAt)
+            end = default;
+            if (Time.time < nextWithdrawProgressCheckAt)
             {
                 return false;
             }
@@ -434,7 +454,16 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            return Time.time - withdrawStallStartedAt >= RegroupWithdrawStalledSeconds;
+            if (Time.time - withdrawStallStartedAt < RegroupWithdrawStalledSeconds)
+            {
+                return false;
+            }
+
+            string reason = IsWithinHotRegroupSettleEnvelope(bossPosition)
+                ? "regroupWithdrawStalledNearBoss"
+                : "regroupWithdrawStalledRepath";
+            end = new AICoreActionEndStruct(reason, true);
+            return true;
         }
 
         private bool TryGetMedicalInterrupt(
@@ -617,6 +646,16 @@ namespace pitTeam.BigBrain
             };
         }
 
+        private static RegroupBossDirection GetBossDirectionFromRegroupReason(string? reason)
+        {
+            return reason switch
+            {
+                RegroupWithdrawBackwardReason => RegroupBossDirection.Back,
+                RegroupWithdrawSideReason => RegroupBossDirection.Side,
+                _ => RegroupBossDirection.Front,
+            };
+        }
+
         private bool HasReachedBoss(Vector3 bossPosition)
         {
             float verticalDiff = Mathf.Abs(BotOwner.Position.y - bossPosition.y);
@@ -627,6 +666,17 @@ namespace pitTeam.BigBrain
 
             float navDistanceToBoss = Utils.Utils.GetNavDistance(BotOwner.Position, bossPosition);
             return navDistanceToBoss <= GetRegroupCompleteDistance();
+        }
+
+        private bool ShouldAvoidUrbanDetourRegroup(Vector3 bossPosition)
+        {
+            float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
+            if (!TryGetCompletePathDistance(BotOwner.Position, bossPosition, out float pathDistance))
+            {
+                return false;
+            }
+
+            return CombatDistanceConfiguration.Instance.IsUrbanDetourRegroup(directDistance, pathDistance);
         }
 
         private bool IsWithinHotRegroupSettleEnvelope(Vector3 bossPosition)
@@ -708,6 +758,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (ShouldRejectDetourTarget(cover.Position, bossPosition))
+            {
+                return false;
+            }
+
             // A bossward cover is only an intermediate step. Once that step is reached, do not pick
             // the same nearby owned cover again unless it also completes regroup.
             if (!HasReachedBoss(bossPosition) && HasReachedPosition(cover.Position))
@@ -721,6 +776,41 @@ namespace pitTeam.BigBrain
             }
 
             targetPosition = cover.Position;
+            return true;
+        }
+
+        private bool ShouldRejectDetourTarget(Vector3 targetPosition, Vector3 bossPosition)
+        {
+            float directBossDistance = Vector3.Distance(BotOwner.Position, bossPosition);
+            if (!TryGetCompletePathDistance(BotOwner.Position, targetPosition, out float targetPathDistance))
+            {
+                return true;
+            }
+
+            return CombatDistanceConfiguration.Instance.IsUrbanDetourRegroup(directBossDistance, targetPathDistance);
+        }
+
+        private static bool TryGetCompletePathDistance(Vector3 from, Vector3 to, out float distance)
+        {
+            distance = 0f;
+            NavMeshPath path = new NavMeshPath();
+            if (!NavMesh.CalculatePath(from, to, -1, path) || path.status != NavMeshPathStatus.PathComplete)
+            {
+                return false;
+            }
+
+            Vector3[] corners = path.corners;
+            if (corners == null || corners.Length < 2)
+            {
+                distance = Vector3.Distance(from, to);
+                return true;
+            }
+
+            for (int i = 1; i < corners.Length; i++)
+            {
+                distance += Vector3.Distance(corners[i - 1], corners[i]);
+            }
+
             return true;
         }
 
@@ -808,10 +898,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            float sectorRadius = CombatDistanceConfiguration.Instance.IsFactoryMode
-                ? Mathf.Min(BossSectorRadius, CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius() * 0.55f)
-                : BossSectorRadius;
-
+            float sectorRadius = CombatDistanceConfiguration.Instance.GetRegroupBossMoveRefreshDistance();
             return (bossPosition - bossSectorAnchor).sqrMagnitude > sectorRadius * sectorRadius;
         }
 

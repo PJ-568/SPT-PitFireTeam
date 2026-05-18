@@ -1,6 +1,5 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
-using pitTeam.Utils;
 using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
@@ -102,6 +101,11 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            if (StopIfFriendlyInCurrentFireLane(goalEnemy))
+            {
+                return;
+            }
+
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
             EnforceSupportedFirePose(allowCrouch, allowProne);
         }
@@ -133,12 +137,8 @@ namespace pitTeam.BigBrain.Actions
                 return false;
             }
 
-            Vector3 fireOrigin = BotOwner.WeaponRoot != null
-                ? BotOwner.WeaponRoot.position
-                : BotOwner.Position + Vector3.up * 1.2f;
-            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target))
+            if (StopIfFriendlyInCurrentFireLane(goalEnemy))
             {
-                StopCombatShooting();
                 return true;
             }
 
@@ -170,12 +170,8 @@ namespace pitTeam.BigBrain.Actions
             BotOwner.SetPose(1f);
             BotOwner.Steering.LookToPoint(target);
 
-            Vector3 fireOrigin = BotOwner.WeaponRoot != null
-                ? BotOwner.WeaponRoot.position
-                : BotOwner.Position + Vector3.up * 1.2f;
-            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target))
+            if (StopIfFriendlyInCurrentFireLane(goalEnemy))
             {
-                StopCombatShooting();
                 return true;
             }
 
@@ -253,19 +249,15 @@ namespace pitTeam.BigBrain.Actions
             }
 
             Vector3 target = FollowerImmediateFirePolicy.GetLostVisualSuppressTarget(goalEnemy);
-            Vector3 fireOrigin = BotOwner.WeaponRoot != null
-                ? BotOwner.WeaponRoot.position
-                : BotOwner.Position + Vector3.up * 1.2f;
             if (!FollowerImmediateFirePolicy.HasDirectFireLane(BotOwner, target))
             {
                 StopCombatShooting();
                 return true;
             }
 
-            if (FollowerShotSafety.IsFriendlyInShotLane(BotOwner, fireOrigin, target))
+            if (StopIfFriendlyInCurrentFireLane(target))
             {
                 BotOwner.Steering.LookToPoint(target);
-                StopCombatShooting();
                 return true;
             }
 

@@ -1,3 +1,4 @@
+using pitTeam.Server.Constants;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Enums;
@@ -8,7 +9,7 @@ internal static class FriendlyCourierTraderProfile
 {
     public const string CourierTraderIdValue = "67d3a28a3d6f4f7dbd09ed13";
     public const int CourierAid = 1113680;
-    public const string CourierNickname = "SquadDelivery";
+    public const string CourierNickname = "-P|T- Comms";
     public const string CourierLocation = "Friendly Squad Logistics";
     public const string CourierDescription = "Handles item transfers from your squadmates.";
     public const string CourierAvatarFileName = "pitfireteam-courier.png";
@@ -90,7 +91,7 @@ internal static class FriendlyCourierTraderProfile
                 Repair = new TraderRepair
                 {
                     Availability = false,
-                    Currency = "5449016a4bdc2d6f028b456f",
+                    Currency = FriendlyItemTemplateIds.Currency.Roubles,
                     CurrencyCoefficient = 1,
                     ExcludedCategory = [],
                     ExcludedIdList = [],

@@ -64,6 +64,12 @@ public class FriendlyTeammateSocialCallbacks(
 
     public ValueTask<string> MergeProfileView(string url, GetOtherProfileRequest request, MongoId sessionId, string? previousOutput)
     {
+        var body = DeserializeBody<GetOtherProfileResponse>(previousOutput);
+        if (int.TryParse(request.AccountId, out var requestedAid) && body?.Data?.Aid == requestedAid)
+        {
+            return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
+        }
+
         if (!teammateService.TryGetTeammateProfile(sessionId, request.AccountId, out var teammateProfile))
         {
             return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());

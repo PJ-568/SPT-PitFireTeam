@@ -19,14 +19,12 @@ namespace pitTeam.BigBrain.Actions
 
         private const float PathRefreshInterval = 1.5f;
         private const float ArrivalDistance = 0.75f;
-        private const float RunRestoreStableSeconds = 0.45f;
-
         private readonly CombatAttackMovingAction walkFallback;
+        private readonly FallbackRunRestoreGate restoreRunGate = new FallbackRunRestoreGate();
         private MovementMode movementMode;
         private CustomNavigationPoint? targetCover;
         private float nextPathRefreshTime;
         private bool targetPointAssigned;
-        private float canRunStableSince;
 
         public CombatRunToCoverAction(BotOwner botOwner) : base(botOwner)
         {
@@ -37,7 +35,7 @@ namespace pitTeam.BigBrain.Actions
         {
             base.Start();
             movementMode = MovementMode.Run;
-            canRunStableSince = 0f;
+            restoreRunGate.Reset();
             StartRunMode();
         }
 
@@ -96,7 +94,7 @@ namespace pitTeam.BigBrain.Actions
 
             StopRunMode();
             movementMode = MovementMode.Walk;
-            canRunStableSince = 0f;
+            restoreRunGate.Reset();
             walkFallback.Start();
             walkFallback.Update(data);
         }
@@ -110,26 +108,14 @@ namespace pitTeam.BigBrain.Actions
 
             walkFallback.Update(data);
 
-            if (!canRun)
-            {
-                canRunStableSince = 0f;
-                return;
-            }
-
-            if (canRunStableSince <= 0f)
-            {
-                canRunStableSince = Time.time;
-                return;
-            }
-
-            if (Time.time - canRunStableSince < RunRestoreStableSeconds)
+            if (!restoreRunGate.ShouldRestoreToRun(canRun, BotOwner.Memory?.GoalEnemy))
             {
                 return;
             }
 
             walkFallback.Stop();
             movementMode = MovementMode.Run;
-            canRunStableSince = 0f;
+            restoreRunGate.Reset();
             StartRunMode();
             UpdateRun(data);
         }

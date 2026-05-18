@@ -53,16 +53,17 @@ namespace pitTeam.Components
         private List<BotOwner> bossEnemies = new List<BotOwner>();
         private const float TeamStatusGestureDistance = 15f;
         private const float ContactLookDistance = 45f;
+        private const float ContactConeMinDot = 0.45f;
         private const float GestureCommandDistance = 15f;
         private const float HoldGestureDistance = 25f;
         private const float PhraseCommandDistance = 30f;
         private const float StopPhraseDistance = 35f;
         private const float CommandLookOverrideMinSeconds = 1.5f;
         private const float CommandLookOverrideMaxSeconds = 3.5f;
-        private const float ComeWithMeMaxDistance = 25f;
+        private const float ComeWithMeMaxDistance = 30f;
         private const float DefaultGoToDistance = 50f;
         private const float CombatThereMaxDistance = 30f;
-        private const float LookAtFollowerDistance = 27f;
+        private const float LookAtFollowerDistance = 30f;
         private const float RegroupCloseNavDistance = 8f;
         private const float RegroupSameLevelTolerance = 1.75f;
         private const float FriendlyDownVisibilityDistance = 60f;
@@ -172,6 +173,7 @@ namespace pitTeam.Components
                 {
                     // Contact: point followers toward a seen or aimed-at threat and seed enemy memory.
                     ProcessContactCommand(info.PlayerRequester);
+                    return;
                 }
                 else if (info.phrase == EPhraseTrigger.InTheFront ||
                          info.phrase == EPhraseTrigger.LeftFlank ||
@@ -240,7 +242,10 @@ namespace pitTeam.Components
                     ApplyOpenDoorCommand(info.PlayerRequester);
                     return;
                 }
-                else if (info.phrase == EPhraseTrigger.LootGeneric || info.phrase == EPhraseTrigger.LootWeapon)
+                else if (info.phrase == EPhraseTrigger.LootGeneric ||
+                         info.phrase == EPhraseTrigger.LootWeapon ||
+                         info.phrase == EPhraseTrigger.LootKey ||
+                         info.phrase == EPhraseTrigger.LootMoney)
                 {
                     // Loot: closest eligible follower takes the target item.
                     ApplyTakeLootCommand(info.PlayerRequester);
@@ -268,21 +273,11 @@ namespace pitTeam.Components
                 // Commands handled here are consumed before the gesture is forwarded to vanilla receivers.
                 if (info.Gesture == (EInteraction)CustomGestures.OverThere)
                 {
-                    // Over There: gesture-based Contact plus vanilla receiver feedback.
+                    // Over There: gesture-based Contact. Do not forward the contact phrase to
+                    // receivers; commanded acquisition should be silent and go straight to fighting.
                     _ignoreNextThereGestureUntil = Time.time + 0.75f;
                     ProcessContactCommand(info.Player, true);
 
-                    EventInfo overThereInfo = new EventInfo
-                    {
-                        phrase = EPhraseTrigger.OnRepeatedContact,
-                        PlayerRequester = info.Player
-                    };
-
-                    foreach (var item in Followers)
-                    {
-                        if (!CanReactToBossGesture(item, info.Player)) continue;
-                        item?.Receiver?.method_0(overThereInfo);
-                    }
                     return;
                 }
 
@@ -363,6 +358,7 @@ namespace pitTeam.Components
                     }
                 }
             }
+            seenEnemies = FilterContactEnemyCandidates(requester, seenEnemies);
             seenEnemies = PrioritizeContactEnemies(requester, seenEnemies);
             Vector3 lookTarget = GetLookTargetFromDirection(requester, requester.LookDirection);
             int followersProcessed = 0;
@@ -452,6 +448,7 @@ namespace pitTeam.Components
 
                     bool prioritizeAsGoal = prioritizedGoalEnemy != null &&
                                             enemy.ProfileId == prioritizedGoalEnemy.ProfileId;
+                    pitTeam.Patches.FollowerContactPhraseGate.SuppressCommandedContact(follower, enemy.ProfileId, 4f);
                     RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal, true);
                     enemiesInjected++;
                 }
@@ -748,6 +745,50 @@ namespace pitTeam.Components
                 .ToList();
         }
 
+        private List<Player> FilterContactEnemyCandidates(IPlayer requester, List<Player> candidates)
+        {
+            if (requester == null || candidates == null || candidates.Count == 0)
+            {
+                return new List<Player>();
+            }
+
+            Vector3 requesterPosition = requester.Position;
+            Vector3 lookDirection = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+            float scanDistance = pitFireTeam.scanDistance?.Value ?? ContactLookDistance;
+            float scanDistanceSqr = scanDistance * scanDistance;
+
+            List<Player> filtered = new List<Player>();
+            foreach (Player candidate in candidates)
+            {
+                if (candidate == null ||
+                    !IsEligibleBossDirectedContactTarget(requester, candidate))
+                {
+                    continue;
+                }
+
+                Vector3 toCandidate = candidate.Position - requesterPosition;
+                float distanceSqr = toCandidate.sqrMagnitude;
+                if (distanceSqr < 0.01f || distanceSqr > scanDistanceSqr)
+                {
+                    continue;
+                }
+
+                if (Vector3.Dot(lookDirection, toCandidate.normalized) < ContactConeMinDot)
+                {
+                    continue;
+                }
+
+                if (!filtered.Any(enemy => enemy != null && enemy.ProfileId == candidate.ProfileId))
+                {
+                    filtered.Add(candidate);
+                }
+            }
+
+            return filtered;
+        }
+
         private static BotSettingsClass GetOrCreateContactEnemyGroupInfo(BotOwner follower, Player enemy, EnemyInfo trackedEnemy)
         {
             if (follower?.BotsGroup?.Enemies != null &&
@@ -903,7 +944,7 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                if (Vector3.Dot(lookDirection, toCandidate.normalized) < 0.45f)
+                if (Vector3.Dot(lookDirection, toCandidate.normalized) < ContactConeMinDot)
                 {
                     continue;
                 }
@@ -1433,7 +1474,7 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                if (follower.Memory?.HaveEnemy == true)
+                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
                 {
                     continue;
                 }
@@ -1459,7 +1500,7 @@ namespace pitTeam.Components
                 return;
             }
 
-            if (!InteractableObjects.SetTaker(closestFollower))
+            if (!InteractableObjects.SetTaker(closestFollower, lootItem))
             {
                 closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
                 return;
@@ -1524,7 +1565,7 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                if (follower.Memory?.HaveEnemy == true)
+                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
                 {
                     continue;
                 }
@@ -1840,6 +1881,13 @@ namespace pitTeam.Components
             }
 
             bool combatCommand = HasActiveCombatEnemy(closestFollower);
+            if (combatCommand && IsPickedUpFollower(followerData))
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                closestFollower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                return;
+            }
+
             Vector3 commandTarget;
             bool hasTarget = combatCommand
                 ? TryGetGoToCommandTarget(requester, CombatThereMaxDistance, out commandTarget)
@@ -2058,7 +2106,25 @@ namespace pitTeam.Components
 
                 if (hasCombatEnemy)
                 {
+                    if (IsPickedUpFollower(followerData))
+                    {
+                        if (followerData.IsTemporaryCombatAggressionOverrideActive)
+                        {
+                            followerData.ClearTemporaryCombatAggressionOverride();
+                            follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                            follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                        }
+                        else
+                        {
+                            follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                            follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                        }
+
+                        continue;
+                    }
+
                     // GoForward in combat is not a movement ping; it becomes PushEnemy for combat objective routing.
+                    followerData.ClearTemporaryCombatAggressionOverride();
                     followerData.SetPushEnemy(12f);
                     if (followerData.CombatTactic != FollowerCombatTactic.Marksman)
                     {
@@ -2150,7 +2216,9 @@ namespace pitTeam.Components
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
 
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
-                if (followerData == null || followerData.CombatTactic != FollowerCombatTactic.Marksman)
+                if (followerData == null ||
+                    IsPickedUpFollower(followerData) ||
+                    followerData.CombatTactic != FollowerCombatTactic.Marksman)
                 {
                     continue;
                 }
@@ -2481,8 +2549,12 @@ namespace pitTeam.Components
         private static bool HasActiveCombatEnemy(BotOwner follower)
         {
             EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
-            return follower?.Memory?.HaveEnemy == true &&
-                   goalEnemy?.Person?.HealthController?.IsAlive == true;
+            return goalEnemy?.Person?.HealthController?.IsAlive == true;
+        }
+
+        private static bool IsPickedUpFollower(BotFollowerPlayer? followerData)
+        {
+            return followerData != null && !followerData.IsSquadMate;
         }
 
         private BotOwner FindLookedAtFollower(Player requester, float distance)

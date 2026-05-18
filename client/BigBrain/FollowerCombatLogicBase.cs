@@ -171,6 +171,12 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("objectiveNeedSniperOrder", true);
             }
 
+            if (ShouldConsumeRegroupCommand(followerData) &&
+                CanInterruptForRegroupOrder(currentDecision))
+            {
+                return new AICoreActionEndStruct("objectiveRegroupOrder", true);
+            }
+
             // Objective ownership is stateful, not encoded in the action reason. Regroup may emit
             // shared interrupt actions such as heal/dogFight, and those still need to return to regroup.
             return GetCurrentObjective().ShallEndCurrentDecision(currentDecision);
@@ -256,6 +262,20 @@ namespace pitTeam.BigBrain
             return !combatCommon.IsInFight(currentDecision.Action) &&
                    currentDecision.Action != BotLogicDecision.heal &&
                    currentDecision.Action != BotLogicDecision.healStimulators;
+        }
+
+        protected virtual bool CanInterruptForRegroupOrder(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
+        {
+            if (currentDecision.Action == BotLogicDecision.heal ||
+                currentDecision.Action == BotLogicDecision.healStimulators ||
+                currentDecision.Action == BotLogicDecision.dogFight)
+            {
+                return false;
+            }
+
+            return FollowerCombatCommon.IsMovementDecision(currentDecision) ||
+                   !combatCommon.IsInFight(currentDecision.Action);
         }
 
         protected virtual bool ShouldReturnToPrimaryObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
@@ -407,13 +427,13 @@ namespace pitTeam.BigBrain
         private void ActivateRegroupObjective(BotFollowerPlayer followerData)
         {
             followerData.ClearCommand("CombatObjective:ConsumeRegroup");
-            ActivateRegroupObjective();
+            ActivateRegroupObjective(forceReset: true, "activateRegroupOrder");
             followerData.SetCombatRegroupBossAnchor(true);
         }
 
-        private void ActivateRegroupObjective()
+        private void ActivateRegroupObjective(bool forceReset = false, string reason = "activateRegroup")
         {
-            if (currentObjective == CombatObjectiveKind.Regroup)
+            if (currentObjective == CombatObjectiveKind.Regroup && !forceReset)
             {
                 return;
             }
@@ -422,7 +442,7 @@ namespace pitTeam.BigBrain
             // follower's current combat geometry instead of reusing stale bossward targets.
             regroupObjective.Activate();
             currentObjective = CombatObjectiveKind.Regroup;
-            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateRegroup");
+            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), reason);
         }
 
         private void ActivateSuppressionObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)

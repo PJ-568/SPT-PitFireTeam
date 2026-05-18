@@ -40,8 +40,21 @@ public class FriendlyTeammateCallbacks(
 
     public ValueTask<string> SetServerSettings(string url, FriendlyServerSettingsRequest request, MongoId sessionId)
     {
+        string previousMode = settingsService.LoadSettings().LoadoutManagementMode ?? "Simple";
         settingsService.SaveAndApply(request);
+        string nextMode = request?.LoadoutManagementMode ?? "Simple";
+        if (!string.Equals(previousMode, nextMode, StringComparison.OrdinalIgnoreCase))
+        {
+            teammateService.LogLoadoutManagementModeChange(sessionId, previousMode, nextMode);
+            teammateService.SelectDefaultLoadoutForAllTeammates(sessionId, previousMode, nextMode);
+        }
+
         return new ValueTask<string>(httpResponse.NullResponse());
+    }
+
+    public ValueTask<string> GetLostOnDeathSettings(string url, EmptyRequestData _, MongoId sessionId)
+    {
+        return new ValueTask<string>(httpResponse.GetBody(settingsService.GetLostOnDeathSettings()));
     }
 
     public ValueTask<string> GetProfile(string url, GetOtherProfileRequest request, MongoId sessionId)
@@ -111,8 +124,34 @@ public class FriendlyTeammateCallbacks(
     {
         try
         {
-            teammateService.SaveTeammateDefaultEquipment(sessionId, request);
-            return new ValueTask<string>(httpResponse.NullResponse());
+            var response = teammateService.SaveTeammateDefaultEquipment(sessionId, request);
+            return new ValueTask<string>(httpResponse.GetBody(response));
+        }
+        catch (FriendlyTeammateException ex)
+        {
+            return new ValueTask<string>(httpResponse.GetBody<object?>(null, err: BackendErrorCodes.UnknownTradingError, errmsg: ex.Message));
+        }
+    }
+
+    public ValueTask<string> BuyKit(string url, FriendlyTeammateBuyKitRequest request, MongoId sessionId)
+    {
+        try
+        {
+            var response = teammateService.BuyTeammateKit(sessionId, request);
+            return new ValueTask<string>(httpResponse.GetBody(response));
+        }
+        catch (FriendlyTeammateException ex)
+        {
+            return new ValueTask<string>(httpResponse.GetBody<object?>(null, err: BackendErrorCodes.UnknownTradingError, errmsg: ex.Message));
+        }
+    }
+
+    public ValueTask<string> RepairDefaultEquipment(string url, FriendlyTeammateRepairEquipmentRequest request, MongoId sessionId)
+    {
+        try
+        {
+            var response = teammateService.RepairTeammateDefaultEquipment(sessionId, request);
+            return new ValueTask<string>(httpResponse.GetBody(response));
         }
         catch (FriendlyTeammateException ex)
         {

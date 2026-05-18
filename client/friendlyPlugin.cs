@@ -51,11 +51,20 @@ namespace pitTeam
     public enum CustomPhrases
     {
         TeamStatus = 10001,
+        ViewBackpack = 10002,
     }
 
     public enum CustomGestures
     {
         OverThere = 220,
+    }
+
+    public enum LoadoutManagementMode
+    {
+        Simple,
+        Restricted,
+        Immersive,
+        Extreme
     }
 
     public class LanguageOptions
@@ -67,6 +76,7 @@ namespace pitTeam
         public string miscSettings { get; set; }
         public string testSettings { get; set; }
         public string raidSettings { get; set; }
+        public string loadoutManagementSettings { get; set; }
         public string[] equipOptions { get; set; }
         public string[] tacticOptions { get; set; }
 
@@ -79,6 +89,8 @@ namespace pitTeam
         public Dictionary<string, string> tieredPickup { get; set; }
         public Dictionary<string, string> maximumPickup { get; set; }
         public Dictionary<string, string> recruitPickup { get; set; }
+        public Dictionary<string, string> teamEscape { get; set; }
+        public Dictionary<string, string> teamEscapeUseAnyExtract { get; set; }
 
         public Dictionary<string, string> memberTactic { get; set; }
         public Dictionary<string, string> memberEquipment { get; set; }
@@ -88,6 +100,10 @@ namespace pitTeam
         public Dictionary<string, string> memberUniformBottom { get; set; }
 
         public Dictionary<string, string> equipmentLock { get; set; }
+        public Dictionary<string, string> loadoutManagementSimple { get; set; }
+        public Dictionary<string, string> loadoutManagementRestricted { get; set; }
+        public Dictionary<string, string> loadoutManagementImmersive { get; set; }
+        public Dictionary<string, string> loadoutManagementExtreme { get; set; }
         public Dictionary<string, string> npcSendMessage { get; set; }
 
         [JsonProperty("friendlyPMC")]
@@ -132,9 +148,13 @@ namespace pitTeam
         public string[] teamEscaped { get; set; }
         public string[] teamSomeEscaped { get; set; }
         public string[] friendlyEscaped { get; set; }
+        public string[] deathEscapeMessages { get; set; }
+        public Dictionary<string, string> deathEscape { get; set; }
+        public string[] traitorKillMessages { get; set; }
+        public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.6.0")]
+    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.7.1")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -160,12 +180,15 @@ namespace pitTeam
         public static ConfigEntry<bool> tieredPickup;
         public static ConfigEntry<int> maximumPickup;
         public static ConfigEntry<bool> recruitPickup;
+        public static ConfigEntry<bool> teamEscape;
+        public static ConfigEntry<bool> teamEscapeUseAnyExtract;
 
         public static ConfigEntry<bool> pitFireTeamFLAG;
         public static ConfigEntry<bool> badGuy;
 
         public static ConfigEntry<bool> englishBear;
         public static ConfigEntry<bool> pmcArmbands;
+        public static ConfigEntry<LoadoutManagementMode> loadoutManagementMode;
 
         public static ConfigEntry<bool> botPrefetch;
 
@@ -258,6 +281,9 @@ namespace pitTeam
             new AdvAssaultTargetFollowerGuardPatch().Enable();
             new PatrolDataFollowerUpdateGuardPatch().Enable();
             new AvoidDangerFollowerGuardPatch().Enable();
+            new FollowerNightVisionActivatePatch().Enable();
+            new FollowerNightVisionOnPatch().Enable();
+            new FollowerNightVisionOffPatch().Enable();
             new PmcBearCombatLayerSuppressionPatch().Enable();
             new PmcUsecCombatLayerSuppressionPatch().Enable();
             new PmcFlankCombatLayerSuppressionPatch().Enable();
@@ -275,6 +301,11 @@ namespace pitTeam
             new OpenDoorRequestPatch().Enable();
             new FollowerDoorAutoClosePatch().Enable();
             new FollowerBotRequestTakePatch().Enable();
+            new TeammateBackpackInspectionUpdatePatch().Enable();
+            new TeammateBackpackChangedContainerPatch().Enable();
+            new TeammateBackpackObserverStatePatch().Enable();
+            new TeammateBackpackExaminedPatch().Enable();
+            new TeammateBackpackSimpleStashLabelPatch().Enable();
             new FollowerBotReceiverHardAimIgnorePatch().Enable();
             new FollowerBotReceiverTiltIgnorePatch().Enable();
             new FollowerBotReceiverPhraseIgnorePatch().Enable();
@@ -327,6 +358,7 @@ namespace pitTeam
 
             // command/request patches
             new QuickPanelPatch().Enable();
+            new QuickPanelUpdateBackpackInteractionPatch().Enable();
             new GestureMenuPatch().Enable();
             new CreatePhraseGroupPatch().Enable();
             new CreateGesturesPatch().Enable();
@@ -334,14 +366,21 @@ namespace pitTeam
             new CustomPlayerGestureInteractionPatch().Enable();
             new GestureCommandNamePatch().Enable();
             new GestureMenuAvailablePhrasesPatch().Enable();
+            new ViewBackpackQuickPanelTextPatch().Enable();
+            new ViewBackpackQuickPanelItemTextPatch().Enable();
             new EPhraseTriggerPatch().Enable();
             new PlayPhraseOrGesturePatch().Enable();
+            new QuickMumbleStartViewBackpackPatch().Enable();
             new BotReceiverGestureOverridePatch().Enable();
             new RaidStartPatch().Enable();
             new MainMenuControllerPatch().Enable();
             new MainMenuControllerReadyScreenGatePatch().Enable();
             new TarkovApplicationLocalRaidGatePatch().Enable();
             new TarkovApplicationOnlineFallbackPatch().Enable();
+            // Compatibility guard: hideout/trader-scene cleanup can null-ref while
+            // the teammate flow forces the raid into local mode. Keep this narrow
+            // so only that synthetic raid-start unload window is affected.
+            new HideoutGameDisposeSyntheticRaidGuardPatch().Enable();
             new MatchmakerPlayerControllerClassAddMemberPatch().Enable();
             new MatchmakerPlayerControllerClassDisbandGroupPatch().Enable();
             new MatchmakerPlayerControllerClassAbortPatch().Enable();
@@ -388,6 +427,22 @@ namespace pitTeam
             new OtherPlayerProfileScreenPatch().Enable();
             new OtherPlayerProfileScreenClosePatch().Enable();
             new LoadoutEditorUnloadAmmoPatch().Enable();
+            new LoadoutEditorRepairContextInteractionPatch().Enable();
+            new LoadoutEditorRepairExecuteInteractionPatch().Enable();
+            new LoadoutEditorRepairByKitPatch().Enable();
+            new LoadoutEditorRepairByTraderPatch().Enable();
+            new TeammateEquipmentBuildsScreenShowPatch().Enable();
+            new TeammateEquipmentBuildsScreenVisualPatch().Enable();
+            new TeammateEquipmentBuildsScreenSelectionPatch().Enable();
+            new TeammateEquipmentBuildsMissingItemsPatch().Enable();
+            new TeammateEquipmentBuildsScreenBackButtonPatch().Enable();
+            new TeammateEquipmentBuildsScreenAltBackButtonPatch().Enable();
+            new TeammateEquipmentBuildsScreenEscapePatch().Enable();
+            new TeammateEquipmentBuildsScreenClosePatch().Enable();
+            new TeammateEquipmentBuildsScreenBuyButtonPatch().Enable();
+            new TeammateEquipmentBuildsSearchContextPatch().Enable();
+            new TeammateEquipmentBuildsInspectButtonsPatch().Enable();
+            new TeammateEquipmentBuildsListViewPatch().Enable();
 
             // SAIN/Donuts patches
             if (IsSAINInstalled)
@@ -604,16 +659,22 @@ namespace pitTeam
 
             recruitPickup = Config.Bind("", "10 RecruitPickup", true, new ConfigDescription(optionsLang.recruitPickup["Description"], null, CreateConfigAttributes(-1000, false, optionsLang.recruitPickup)));
 
-            npcSendMessage = Config.Bind("", "11 NpcSendMessage", true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, CreateConfigAttributes(-1001, false, optionsLang.npcSendMessage)));
+            teamEscape = Config.Bind("", "10 TeamEscape", true, new ConfigDescription(optionsLang.teamEscape["Description"], null, CreateConfigAttributes(-1001, false, optionsLang.teamEscape)));
 
-            pitFireTeamFLAG = Config.Bind("", "12 PitFireTeam", true, new ConfigDescription(optionsLang.pitFireTeam["Description"], null, CreateConfigAttributes(-1002, false, optionsLang.pitFireTeam)));
+            teamEscapeUseAnyExtract = Config.Bind("", "10 TeamEscapeUseAnyExtract", true, new ConfigDescription(optionsLang.teamEscapeUseAnyExtract["Description"], null, CreateConfigAttributes(-1002, false, optionsLang.teamEscapeUseAnyExtract)));
 
-            badGuy = Config.Bind("", "13 BadGuy", false, new ConfigDescription(optionsLang.badGuy["Description"], null, CreateConfigAttributes(-1003, false, optionsLang.badGuy)));
+            npcSendMessage = Config.Bind("", "11 NpcSendMessage", true, new ConfigDescription(optionsLang.npcSendMessage["Description"], null, CreateConfigAttributes(-1003, false, optionsLang.npcSendMessage)));
 
-            englishBear = Config.Bind("", "14 EnglishBear", true, new ConfigDescription(optionsLang.englishBear["Description"], null, CreateConfigAttributes(-1004, false, optionsLang.englishBear)));
+            pitFireTeamFLAG = Config.Bind("", "12 PitFireTeam", true, new ConfigDescription(optionsLang.pitFireTeam["Description"], null, CreateConfigAttributes(-1004, false, optionsLang.pitFireTeam)));
 
-            pmcArmbands = Config.Bind("", "14 PmcArmbands", true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.pmcArmbands)));
+            badGuy = Config.Bind("", "13 BadGuy", false, new ConfigDescription(optionsLang.badGuy["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.badGuy)));
+
+            englishBear = Config.Bind("", "14 EnglishBear", true, new ConfigDescription(optionsLang.englishBear["Description"], null, CreateConfigAttributes(-1006, false, optionsLang.englishBear)));
+
+            pmcArmbands = Config.Bind("", "14 PmcArmbands", true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, CreateConfigAttributes(-1007, false, optionsLang.pmcArmbands)));
             pmcArmbands.SettingChanged += (_, _) => SyncServerSettings();
+
+            loadoutManagementMode = Config.Bind("", "14 LoadoutManagement", LoadoutManagementMode.Simple, new ConfigDescription("Controls how teammate loadouts are selected, consumed, and preserved.", null, CreateConfigAttributes(-1005, false, optionsLang.loadoutManagementSimple)));
 
             botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
 
@@ -654,15 +715,50 @@ namespace pitTeam
             SyncServerSettings();
         }
 
+        internal static void SyncServerSettingsNow()
+        {
+            SyncServerSettings();
+        }
+
+        internal static Task SyncServerSettingsNowAsync()
+        {
+            return SyncServerSettingsAsync();
+        }
+
+        internal static bool IsFollowerLoadoutLootableMode()
+        {
+            LoadoutManagementMode mode = loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple;
+            return mode == LoadoutManagementMode.Immersive || mode == LoadoutManagementMode.Extreme;
+        }
+
+        internal static bool IsFollowerLoadoutRealTransferMode()
+        {
+            LoadoutManagementMode mode = loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple;
+            return mode == LoadoutManagementMode.Restricted
+                || mode == LoadoutManagementMode.Immersive
+                || mode == LoadoutManagementMode.Extreme;
+        }
+
+        internal static bool IsFollowerLoadoutRealisticMode()
+        {
+            return (loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple) == LoadoutManagementMode.Extreme;
+        }
+
         private static void SyncServerSettings()
+        {
+            _ = SyncServerSettingsAsync();
+        }
+
+        private static Task SyncServerSettingsAsync()
         {
             try
             {
                 string requestBody = JsonConvert.SerializeObject(new
                 {
-                    pmcArmbands = pmcArmbands?.Value ?? true
+                    pmcArmbands = pmcArmbands?.Value ?? true,
+                    loadoutManagementMode = (loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple).ToString()
                 });
-                Task.Run(() =>
+                return Task.Run(() =>
                 {
                     try
                     {
@@ -677,6 +773,7 @@ namespace pitTeam
             catch (Exception ex)
             {
                 Modules.Logger.LogInfo($"Failed to sync pitFireTeam server settings: {ex.Message}");
+                return Task.CompletedTask;
             }
         }
 

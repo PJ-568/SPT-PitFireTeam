@@ -222,7 +222,7 @@ namespace pitTeam.Patches
             public int UpdateTime => _health.UpdateTime ?? 0;
             public HealthEffects BodyPartEffects => default;
             public float CarryingWeightAbsoluteModifier => 0f;
-            public float CarryingWeightRelativeModifier => 0f;
+            public float CarryingWeightRelativeModifier => 1f;
             public ValueStruct Hydration => _snapshot.Hydration;
             public ValueStruct Energy => _snapshot.Energy;
             public ValueStruct Temperature => _snapshot.Temperature;
@@ -283,6 +283,7 @@ namespace pitTeam.Patches
         private const string RenameRoute = "/singleplayer/pitfireteam/teammate/profile/rename";
         private const string LoadoutRoute = "/singleplayer/pitfireteam/teammate/profile/loadout";
         private const string DefaultEquipmentRoute = "/singleplayer/pitfireteam/teammate/profile/default-equipment";
+        private const string RepairEquipmentRoute = "/singleplayer/pitfireteam/teammate/profile/repair-equipment";
         private const string AggressionRoute = "/singleplayer/pitfireteam/teammate/profile/aggression";
         private const string TacticRoute = "/singleplayer/pitfireteam/teammate/profile/tactic";
         private const string DefaultLoadoutId = "000000000000000000000000";
@@ -367,7 +368,9 @@ namespace pitTeam.Patches
         };
 
         public static ResultProfile ViewedProfile { get; set; }
+        public static OtherPlayerProfileScreen ActiveProfileScreen { get; set; }
         public static InventoryController ActiveProfileInventoryController { get; set; }
+        public static GClass3388 ActiveProfileBackendInventoryController { get; set; }
         public static ISession ActiveProfileSession { get; set; }
         public static InventoryPlayerModelWithStatsWindow ActiveProfilePlayerModelWindow { get; set; }
         public static Transform LoadoutSelector { get; set; }
@@ -375,11 +378,14 @@ namespace pitTeam.Patches
         public static DefaultUIButton EditLoadoutButton { get; set; }
         public static Transform EditLoadoutButtonRoot { get; set; }
         public static GameObject LoadoutEditorOverlayRoot { get; set; }
+        public static GameObject LoadoutEditorSaveBeforeRepairOverlayRoot { get; set; }
         public static SimpleStashPanel LoadoutEditorStashPanel { get; set; }
         public static ComplexStashPanel LoadoutEditorEquipmentPanel { get; set; }
         public static Profile LoadoutEditorProfile { get; set; }
         public static InventoryController LoadoutEditorInventoryController { get; set; }
         public static ItemContextAbstractClass LoadoutEditorEquipmentContext { get; set; }
+        public static FlatItemsDataClass[] LoadoutEditorInitialEquipmentItems { get; set; }
+        public static FlatItemsDataClass[] LoadoutEditorInitialStashItems { get; set; }
         public static string ActiveTeammateLoadoutId { get; set; }
         public static string ActiveTeammateLoadoutName { get; set; }
         public static string LoadoutEditorSourceLoadoutId { get; set; }
@@ -407,6 +413,55 @@ namespace pitTeam.Patches
         internal static Action PendingBackOverrideAction { get; set; }
         internal static Action ActiveBackOverrideAction { get; set; }
         private static bool TaskBarDisabledForReturnOverride { get; set; }
+
+        internal static bool IsLoadoutEditorEquipmentContext(ItemContextAbstractClass context)
+        {
+            if (context == null || LoadoutEditorEquipmentContext == null)
+            {
+                return false;
+            }
+
+            ItemContextAbstractClass current = context;
+            while (current != null)
+            {
+                if (ReferenceEquals(current, LoadoutEditorEquipmentContext))
+                {
+                    return true;
+                }
+
+                current = current.ItemContextAbstractClass;
+            }
+
+            return false;
+        }
+
+        internal static bool IsLoadoutEditorEquipmentItem(Item item)
+        {
+            if (item == null || LoadoutEditorProfile?.Inventory?.Equipment == null || LoadoutEditorOverlayRoot == null)
+            {
+                return false;
+            }
+
+            return ReferenceEquals(item, LoadoutEditorProfile.Inventory.Equipment)
+                || LoadoutEditorProfile.Inventory.Equipment
+                    .GetAllItemsFromCollection()
+                    .Any(candidate => ReferenceEquals(candidate, item) || candidate.Id == item.Id);
+        }
+
+        internal static bool TryGetLoadoutEditorEquipmentItem(string itemId, out Item item)
+        {
+            item = null;
+            if (string.IsNullOrWhiteSpace(itemId) || LoadoutEditorProfile?.Inventory?.Equipment == null || LoadoutEditorOverlayRoot == null)
+            {
+                return false;
+            }
+
+            item = LoadoutEditorProfile.Inventory.Equipment
+                .GetAllItemsFromCollection()
+                .FirstOrDefault(candidate => string.Equals(candidate?.Id, itemId, StringComparison.Ordinal));
+            return item != null;
+        }
+
         private static readonly Dictionary<EMenuType, EStateSwitcher> DisabledSettingsTaskBarButton =
             new Dictionary<EMenuType, EStateSwitcher>
             {
@@ -523,7 +578,10 @@ namespace pitTeam.Patches
 
             pitFireTeam.Log.LogInfo($"[UI] Applying teammate profile customization UI for '{profile.AccountId}'.");
             ViewedProfile = profile;
+            TeammateEquipmentBuildsScreenFlow.FinishReturnIfMatches(profile.AccountId);
+            ActiveProfileScreen = __instance;
             ActiveProfileInventoryController = inventoryController;
+            RememberActiveBackendInventoryController(session, inventoryController);
             ActiveProfileSession = session;
             ActiveProfilePlayerModelWindow = playerModelWindow;
             playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
@@ -573,8 +631,13 @@ namespace pitTeam.Patches
             try
             {
                 ConfigureLoadoutPanel(loadoutPanel, clothingSelectionPanel);
-                DisplayLoadoutOptions(profile, inventoryController, session, loadoutPanel, playerModelWindow, options);
+                DisplayLoadoutOptions(__instance, profile, inventoryController, session, loadoutPanel, playerModelWindow, options, replaceLoadoutDropdown: false);
                 ApplyLoadoutPanelLayout(loadoutPanel, clothingSelectionPanel);
+                if (pitFireTeam.IsFollowerLoadoutRealTransferMode())
+                {
+                    ReplaceLoadoutDropdownWithEditButton(__instance, profile, loadoutPanel);
+                }
+
                 CreateAggressionSliderRow(__instance, clone, parent, profile, options);
                 CreateEditLoadoutButton(__instance, clone, parent, profile, 2);
                 CreateEditNameButton(__instance, clone, parent, profile, 3);
@@ -1077,10 +1140,24 @@ namespace pitTeam.Patches
             button.name = "pitFireTeam_EditLoadoutButton";
             button.gameObject.SetActive(true);
             button.Interactable = true;
-            button.SetRawText(GetSocialUiText("EditLoadout", "Edit Loadout"), 18);
+            bool realTransferMode = pitFireTeam.IsFollowerLoadoutRealTransferMode();
+            button.SetRawText(
+                realTransferMode
+                    ? GetSocialUiText("BuyGearLoadout", "KIT LOADOUTS")
+                    : GetSocialUiText("EditLoadout", "EDIT LOADOUT"),
+                18);
             HideProfileButtonIconContainer(button);
             button.OnClick.RemoveAllListeners();
-            button.OnClick.AddListener(() => ShowLoadoutEditorOverlay(screen, profile));
+            button.OnClick.AddListener(() =>
+            {
+                if (realTransferMode)
+                {
+                    TeammateEquipmentBuildsScreenFlow.Open(profile, session: ActiveProfileSession, inventoryController: ActiveProfileInventoryController);
+                    return;
+                }
+
+                ShowLoadoutEditorOverlay(screen, profile);
+            });
 
             if (button.transform is RectTransform buttonRect && buttonTemplate.transform is RectTransform templateRect)
             {
@@ -1094,6 +1171,11 @@ namespace pitTeam.Patches
 
             EditLoadoutButtonRoot = rowClone;
             EditLoadoutButton = button;
+        }
+
+        internal static IHealthController CreateProfileHealthController(Profile.ProfileHealthClass health)
+        {
+            return new ProfileSkillsHealthController(health ?? new Profile.ProfileHealthClass());
         }
 
         private static Vector2 GetProfileControlRowOffset(RectTransform reference, int rowOffset)
@@ -1163,7 +1245,7 @@ namespace pitTeam.Patches
             DisableMenuTaskBarForReturnOverride();
         }
 
-        private static void DisableMenuTaskBarForReturnOverride()
+        internal static void DisableMenuTaskBarForReturnOverride()
         {
             if (TaskBarDisabledForReturnOverride)
             {
@@ -1237,6 +1319,7 @@ namespace pitTeam.Patches
         {
             playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
             ViewedProfile = null;
+            ActiveProfileScreen = null;
             ActiveProfileInventoryController = null;
             ActiveProfileSession = null;
             ActiveProfilePlayerModelWindow = null;
@@ -1383,7 +1466,12 @@ namespace pitTeam.Patches
             Action callback = OtherPlayerProfileScreenPatch.ActiveBackOverrideAction;
             OtherPlayerProfileScreenPatch.ActiveBackOverrideAction = null;
             OtherPlayerProfileScreenPatch.PendingBackOverrideAction = null;
-            OtherPlayerProfileScreenPatch.RestoreMenuTaskBarForReturnOverride();
+            bool transitioningToBuildsScreen = TeammateEquipmentBuildsScreenFlow.ConsumeProfileTransition(callback);
+            if (!transitioningToBuildsScreen)
+            {
+                TeammateEquipmentBuildsScreenFlow.ClearIfNotOpeningOrReturning();
+                OtherPlayerProfileScreenPatch.RestoreMenuTaskBarForReturnOverride();
+            }
 
             InventoryPlayerModelWithStatsWindow playerModelWindow =
                 AccessTools.Field(typeof(OtherPlayerProfileScreen), "_playerModelWithStatsWindow")?.GetValue(__instance)
@@ -1395,6 +1483,7 @@ namespace pitTeam.Patches
 
             OtherPlayerProfileScreenPatch.CloseLoadoutEditorOverlay();
             OtherPlayerProfileScreenPatch.ViewedProfile = null;
+            OtherPlayerProfileScreenPatch.ActiveProfileScreen = null;
             OtherPlayerProfileScreenPatch.ActiveProfileInventoryController = null;
             OtherPlayerProfileScreenPatch.ActiveProfileSession = null;
             OtherPlayerProfileScreenPatch.ActiveProfilePlayerModelWindow = null;
@@ -1474,7 +1563,7 @@ namespace pitTeam.Patches
                 OtherPlayerProfileScreenPatch.SkillsPanelHost = null;
             }
 
-            if (callback == null)
+            if (transitioningToBuildsScreen || callback == null)
             {
                 return;
             }
