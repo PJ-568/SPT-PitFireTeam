@@ -134,8 +134,11 @@ namespace pitTeam.Modules
                     RouteThreatSnapshot routeThreat = alive
                         ? CalculateRouteEnemyAveragePower(boss, bot.Position, extract)
                         : RouteThreatSnapshot.Empty;
+                    RouteThreatSnapshot fightThreat = alive
+                        ? CalculateCurrentFightEnemyAveragePower(boss, squadmates, bot, deathPosition)
+                        : RouteThreatSnapshot.Empty;
                     float chance = alive
-                        ? CalculateChance(extract.Distance, aliveCount, readiness, routeThreat.AveragePower)
+                        ? CalculateChance(extract.Distance, aliveCount, readiness, routeThreat.AveragePower, fightThreat)
                         : 0f;
                     bool escaped = alive && UnityEngine.Random.value <= chance;
                     string aid = bot.Profile?.AccountId ?? string.Empty;
@@ -151,7 +154,7 @@ namespace pitTeam.Modules
                         Distance = extract.Distance,
                         HealthRatio = readiness.HealthRatio,
                         EquipmentPower = readiness.EquipmentPower,
-                        EnemyAveragePower = routeThreat.AveragePower,
+                        EnemyAveragePower = Mathf.Max(routeThreat.AveragePower, fightThreat.AveragePower),
                         AliveSquadmates = aliveCount,
                         HasSecureMeds = readiness.HasSecureMeds,
                         EquipmentItems = null,
@@ -171,7 +174,8 @@ namespace pitTeam.Modules
                         $"[DeathEscape] Roll follower='{bot.Profile?.Nickname ?? "Squadmate"}' alive={alive} " +
                         $"escaped={escaped} chance={chance:P0} health={readiness.HealthRatio:P0} " +
                         $"gear={readiness.EquipmentPower:0.0} routeEnemies={routeThreat.Count} " +
-                        $"routeEnemyAvgPower={routeThreat.AveragePower:0.0} secureMeds={readiness.HasSecureMeds}");
+                        $"routeEnemyAvgPower={routeThreat.AveragePower:0.0} fightEnemies={fightThreat.Count} " +
+                        $"fightEnemyAvgPower={fightThreat.AveragePower:0.0} secureMeds={readiness.HasSecureMeds}");
                 }
 
                 AddMissingFallenSquadmateOutcomes(entries, deathPosition);
@@ -205,7 +209,12 @@ namespace pitTeam.Modules
             }
         }
 
-        private static float CalculateChance(float extractDistance, int aliveCount, FollowerReadiness readiness, float enemyAveragePower)
+        private static float CalculateChance(
+            float extractDistance,
+            int aliveCount,
+            FollowerReadiness readiness,
+            float enemyAveragePower,
+            RouteThreatSnapshot currentFightThreat)
         {
             float distanceScore = CalculateDistanceScore(extractDistance);
             float squadScore = Mathf.Clamp01(aliveCount / 3f);
@@ -237,6 +246,8 @@ namespace pitTeam.Modules
                 chance *= 0.25f;
             }
 
+            chance *= CalculateCurrentFightSurvivalMultiplier(aliveCount, readiness, currentFightThreat);
+
             return Mathf.Clamp(chance, MinChance, MaxChance);
         }
 
@@ -259,6 +270,37 @@ namespace pitTeam.Modules
 
             float ratio = Mathf.Clamp(followerPower / enemyAveragePower, 0.25f, 1.25f);
             return Mathf.InverseLerp(0.25f, 1.25f, ratio);
+        }
+
+        private static float CalculateCurrentFightSurvivalMultiplier(
+            int aliveCount,
+            FollowerReadiness readiness,
+            RouteThreatSnapshot currentFightThreat)
+        {
+            if (currentFightThreat.Count <= 0 || currentFightThreat.AveragePower <= 0.01f)
+            {
+                return 1f;
+            }
+
+            float squadScore = aliveCount == 1
+                ? 0.35f
+                : aliveCount == 2
+                    ? 0.70f
+                    : Mathf.Clamp01(aliveCount / 3f);
+            float equipmentScore = CalculateEquipmentScore(readiness.EquipmentPower, currentFightThreat.AveragePower);
+            float enemyCountPressure = Mathf.Clamp01((currentFightThreat.Count - aliveCount) / 4f);
+
+            // Player death does not immediately mean followers are free to run. If the squad was
+            // actively fighting a boss group, first estimate whether this follower survives the
+            // fight long enough to disengage, then apply the normal route escape chance.
+            float fightSurvival =
+                0.35f +
+                0.25f * readiness.HealthRatio +
+                0.25f * equipmentScore +
+                0.15f * squadScore -
+                0.15f * enemyCountPressure;
+
+            return Mathf.Clamp(fightSurvival, 0.25f, 0.95f);
         }
 
         private static FollowerReadiness SnapshotReadiness(BotOwner bot)
@@ -642,6 +684,12 @@ namespace pitTeam.Modules
             public bool IsEquipmentSlotLost(EquipmentSlot slot)
             {
                 string key = slot.ToString();
+                if (slot == EquipmentSlot.Pockets)
+                {
+                    return Equipment.TryGetValue("PocketItems", out bool pocketItemsLost) && pocketItemsLost ||
+                           Equipment.TryGetValue(key, out bool pocketsLost) && pocketsLost;
+                }
+
                 return Equipment.TryGetValue(key, out bool lost) && lost;
             }
         }

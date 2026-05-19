@@ -316,7 +316,36 @@ namespace pitTeam.Modules
                 }
 
                 Item item = equipment.GetSlot(slot)?.ContainedItem;
-                if (item == null || IsNonRecoverableDeathEscapeItem(item) || IsTrackedLootItem(item, trackedLootIds))
+                if (item == null)
+                {
+                    continue;
+                }
+
+                if (slot == EquipmentSlot.Pockets)
+                {
+                    // Pockets are a permanent equipment container. Never recover/mail the
+                    // container itself; only recover its contents when SPT says pocket items
+                    // are lost on death.
+                    foreach (Item containedItem in GetRecoverableGridContents(item, trackedLootIds))
+                    {
+                        yield return new RecoverableGearCandidate(
+                            containedItem.CloneItemWithSameId(),
+                            owner.Position,
+                            ownerId,
+                            ownerName,
+                            isPlayer,
+                            slot,
+                            GetContainerContentPriority(slot),
+                            sequence++,
+                            false,
+                            IsBackpackItem(containedItem),
+                            false);
+                    }
+
+                    continue;
+                }
+
+                if (IsNonRecoverableDeathEscapeItem(item) || IsTrackedLootItem(item, trackedLootIds))
                 {
                     continue;
                 }
@@ -352,7 +381,7 @@ namespace pitTeam.Modules
                     slot == EquipmentSlot.Backpack,
                     slot == EquipmentSlot.Backpack);
 
-                if (slot == EquipmentSlot.TacticalVest || slot == EquipmentSlot.Backpack || slot == EquipmentSlot.Pockets)
+                if (slot == EquipmentSlot.TacticalVest || slot == EquipmentSlot.Backpack)
                 {
                     foreach (Item containedItem in GetRecoverableGridContents(item, trackedLootIds))
                     {

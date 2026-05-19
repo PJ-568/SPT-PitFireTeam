@@ -80,10 +80,11 @@ Current probability inputs:
 - surviving squadmate count
 - follower health ratio
 - follower equipment power
+- average enemy equipment power in the current fight at player death
 - average enemy equipment power along the route to extract
 - secure-container meds
 
-The result is clamped between the configured minimum and maximum chance in code.
+The roll is two-stage when a current fight is detected: first estimate whether the follower survives/disengages from the active fight, then apply the normal route escape estimate. The final result is clamped between the configured minimum and maximum chance in code.
 
 ## Extract And Distance
 
@@ -131,6 +132,19 @@ Unknown roles fall back by name:
 
 - role name starting with `boss` gets a boss multiplier
 - role name starting with `follower` gets a follower multiplier
+
+## Current Fight Threat
+
+Current-fight threat is calculated separately from route threat so enemies being fought at player death still matter even when the chosen extract is away from the fight.
+
+The fight pass considers:
+
+- enemies in the boss/group enemy list
+- enemies in follower goal/enemy memory
+- enemies whose current goal target is the player or a squadmate
+- only living hostile AI near the player death position or escaping follower
+
+This uses the same equipment-power and boss/follower role multipliers as route threat. If no current fight enemies are found, this stage has no penalty.
 - everything else uses raw equipment power
 
 ## Fallen Squadmate Snapshot
@@ -220,6 +234,8 @@ Backpacks keep the previous capacity-first behavior. Player and fallen-teammate 
 ## Player Gear
 
 Player gear recovery applies in every loadout-management mode. An escaped squadmate must be within the recovery radius of the player's death position to carry captured player death gear. Fallen teammate gear also keeps its separate nearby-death snapshot rule, so already-dead squadmates must have died close enough to the player death position to be recoverable.
+
+Pocket recovery follows SPT's `lostondeath` `PocketItems` setting. The permanent `Pockets` container is never returned, but its contents are recoverable when pocket items would be lost on death.
 
 - `Simple`
 - `Restricted`

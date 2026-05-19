@@ -257,7 +257,7 @@ namespace pitTeam.Patches
             }
         }
 
-        private async Task<bool> ActivateBotFollower(BotCreator botCreator, Profile profile, spawnPosition position, BotZone zone, bool shallBeGroup, Func<BotOwner, BotZone, BotsGroup> GroupAction, Action<BotOwner> OnActivate, CancellationToken token)
+        private async Task<bool> ActivateBotAtPosition(BotCreator botCreator, Profile profile, spawnPosition position, BotZone zone, bool shallBeGroup, Func<BotOwner, BotZone, BotsGroup> GroupAction, Action<BotOwner> OnActivate, CancellationToken token)
         {
 
             try
@@ -266,7 +266,7 @@ namespace pitTeam.Patches
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogError("Failed to activate bot follower");
+                Modules.Logger.LogError("Failed to activate bot at debug position");
                 Modules.Logger.LogError(ex);
 
                 return false;
@@ -275,6 +275,114 @@ namespace pitTeam.Patches
             await Task.Yield();
 
             return true;
+        }
+
+        private static int ScoreDebugSpawnProfile(Profile candidate, EPlayerSide expectedSide, WildSpawnType expectedRole)
+        {
+            if (candidate == null) return int.MinValue;
+
+            int score = 0;
+            if (candidate.Info != null)
+            {
+                if (candidate.Info.Side == expectedSide) score += 1000;
+                if (candidate.Info.Settings != null)
+                {
+                    if (candidate.Info.Settings.Role == expectedRole) score += 1000;
+                    if (candidate.Info.Settings.BotDifficulty == BotDifficulty.hard) score += 150;
+                    if (candidate.Info.Settings.BotDifficulty == BotDifficulty.normal) score += 75;
+                }
+
+                score += Mathf.Clamp(candidate.Info.Level, 0, 100);
+            }
+
+            return score;
+        }
+
+        private static Profile PickBestDebugSpawnProfile(Profile[] loadedProfiles, EPlayerSide expectedSide, WildSpawnType expectedRole, string logPrefix)
+        {
+            if (loadedProfiles == null || loadedProfiles.Length == 0)
+            {
+                return null;
+            }
+
+            Profile best = null;
+            int bestScore = int.MinValue;
+            foreach (Profile p in loadedProfiles)
+            {
+                if (p == null) continue;
+                int score = ScoreDebugSpawnProfile(p, expectedSide, expectedRole);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = p;
+                }
+            }
+
+            if (best != null)
+            {
+                Modules.Logger.LogInfo(
+                    $"{logPrefix} selected profile: nick={best.Nickname}, side={best.Info?.Side}, " +
+                    $"role={best.Info?.Settings?.Role}, diff={best.Info?.Settings?.BotDifficulty}, lvl={best.Info?.Level}, score={bestScore}");
+            }
+
+            return best;
+        }
+
+        private static async Task<Profile> GenerateDebugSpawnProfile(
+            BotCreator botCreator,
+            IProfileData profileData,
+            EPlayerSide expectedSide,
+            WildSpawnType expectedRole,
+            bool multiPickPmc,
+            CancelToken token,
+            string logPrefix)
+        {
+            BotCreationDataClass generationData = BotCreationDataClass.CreateWithoutProfile(profileData);
+
+            object profileCreator = AccessTools.Field(typeof(BotCreator), "Ginterface21_0")?.GetValue(botCreator);
+            BotsPresets presets = profileCreator as BotsPresets;
+            IBackEndSession session = null;
+            if (presets?.ISession != null)
+            {
+                session = presets.ISession as IBackEndSession;
+            }
+
+            if (session != null)
+            {
+                int requestCount = multiPickPmc ? 4 : 1;
+                List<WaveInfoClass> waves = profileData.PrepareToLoadBackend(requestCount)?.ToList() ?? new List<WaveInfoClass>();
+                if (waves.Count > 0 && presets != null)
+                {
+                    List<WaveInfoClass> delayed;
+                    waves = presets.method_3(waves, out delayed);
+                }
+
+                Profile[] loadedProfiles = await session.LoadBots(waves);
+                Profile loadedProfile = PickBestDebugSpawnProfile(loadedProfiles, expectedSide, expectedRole, logPrefix);
+                if (loadedProfile != null)
+                {
+                    await Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(
+                        PoolManagerClass.PoolsCategory.Raid,
+                        PoolManagerClass.AssemblyType.Local,
+                        loadedProfile.GetAllPrefabPaths(false).ToArray<ResourceKey>(),
+                        JobPriorityClass.General,
+                        null,
+                        PoolManagerClass.DefaultCancellationToken
+                    );
+
+                    generationData.AddProfile(loadedProfile);
+                }
+            }
+            else
+            {
+                Profile generatedProfile = await botCreator.GenerateProfile(generationData, token.GetCancelToken(), true);
+                if (generatedProfile != null)
+                {
+                    generationData.AddProfile(generatedProfile);
+                }
+            }
+
+            return generationData?.Profiles?.FirstOrDefault(p => p != null);
         }
 
         /** Fetch Follower Profile data along with custom appearance from server */
@@ -741,7 +849,7 @@ namespace pitTeam.Patches
                     });
                     // activate the boss bot
                     BossPlayers.ShallBeFollower(profile.ProfileId);
-                    await ActivateBotFollower(
+                    await ActivateBotAtPosition(
                         botCreator,
                         profile,
                         new spawnPosition(position, closestCorePoint.Id, false),
@@ -972,7 +1080,7 @@ namespace pitTeam.Patches
                 BossPlayers.ShallBeFollower(profile.ProfileId);
                 try
                 {
-                    await ActivateBotFollower(
+                    await ActivateBotAtPosition(
                         botCreator,
                         profile,
                         new spawnPosition(position, botsData.GetPosition().CorePointId, false),
@@ -1027,106 +1135,6 @@ namespace pitTeam.Patches
                 ShallBeGroup = new ShallBeGroupParams(true, false, Mathf.Max(2, player.Followers.Count + 2))
             };
 
-            int ScoreDebugSpawnProfile(Profile candidate, EPlayerSide expectedSide, WildSpawnType expectedRole)
-            {
-                if (candidate == null) return int.MinValue;
-
-                int score = 0;
-                if (candidate.Info != null)
-                {
-                    if (candidate.Info.Side == expectedSide) score += 1000;
-                    if (candidate.Info.Settings != null)
-                    {
-                        if (candidate.Info.Settings.Role == expectedRole) score += 1000;
-                        if (candidate.Info.Settings.BotDifficulty == BotDifficulty.hard) score += 150;
-                    }
-
-                    score += Mathf.Clamp(candidate.Info.Level, 0, 100);
-                }
-
-                return score;
-            }
-
-            Profile PickBestDebugSpawnProfile(Profile[] loadedProfiles, EPlayerSide expectedSide, WildSpawnType expectedRole)
-            {
-                if (loadedProfiles == null || loadedProfiles.Length == 0)
-                {
-                    return null;
-                }
-
-                Profile best = null;
-                int bestScore = int.MinValue;
-                foreach (Profile p in loadedProfiles)
-                {
-                    if (p == null) continue;
-                    int score = ScoreDebugSpawnProfile(p, expectedSide, expectedRole);
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        best = p;
-                    }
-                }
-
-                if (best != null)
-                {
-                    Modules.Logger.LogInfo(
-                        $"SpawnDebugFollower selected profile: nick={best.Nickname}, side={best.Info?.Side}, " +
-                        $"role={best.Info?.Settings?.Role}, diff={best.Info?.Settings?.BotDifficulty}, lvl={best.Info?.Level}, score={bestScore}");
-                }
-
-                return best;
-            }
-
-            async Task<Profile> GenerateOneProfile(IProfileData profileData, EPlayerSide expectedSide, WildSpawnType expectedRole, bool multiPickPmc)
-            {
-                BotCreationDataClass generationData = BotCreationDataClass.CreateWithoutProfile(profileData);
-
-                object profileCreator = AccessTools.Field(typeof(BotCreator), "Ginterface21_0")?.GetValue(botCreator);
-                BotsPresets presets = profileCreator as BotsPresets;
-                IBackEndSession session = null;
-                if (presets?.ISession != null)
-                {
-                    session = presets.ISession as IBackEndSession;
-                }
-
-                if (session != null)
-                {
-                    int requestCount = multiPickPmc ? 4 : 1;
-                    List<WaveInfoClass> waves = profileData.PrepareToLoadBackend(requestCount)?.ToList() ?? new List<WaveInfoClass>();
-                    if (waves.Count > 0 && presets != null)
-                    {
-                        List<WaveInfoClass> delayed;
-                        waves = presets.method_3(waves, out delayed);
-                    }
-
-                    Profile[] loadedProfiles = await session.LoadBots(waves);
-                    Profile loadedProfile = PickBestDebugSpawnProfile(loadedProfiles, expectedSide, expectedRole);
-                    if (loadedProfile != null)
-                    {
-                        await Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(
-                            PoolManagerClass.PoolsCategory.Raid,
-                            PoolManagerClass.AssemblyType.Local,
-                            loadedProfile.GetAllPrefabPaths(false).ToArray<ResourceKey>(),
-                            JobPriorityClass.General,
-                            null,
-                            PoolManagerClass.DefaultCancellationToken
-                        );
-
-                        generationData.AddProfile(loadedProfile);
-                    }
-                }
-                else
-                {
-                    Profile generatedProfile = await botCreator.GenerateProfile(generationData, token.GetCancelToken(), true);
-                    if (generatedProfile != null)
-                    {
-                        generationData.AddProfile(generatedProfile);
-                    }
-                }
-
-                return generationData?.Profiles?.FirstOrDefault(p => p != null);
-            }
-
             IProfileData data = new IProfileData(spawnSide, role, BotDifficulty.hard, spawnSide == EPlayerSide.Savage ? 5f : 0f, spawnParams);
             BotCreationDataClass botsData = BotCreationDataClass.CreateWithoutProfile(data);
             Profile profile = null;
@@ -1134,7 +1142,7 @@ namespace pitTeam.Patches
             try
             {
                 bool multiPickPmc = spawnSide == EPlayerSide.Bear || spawnSide == EPlayerSide.Usec;
-                profile = await GenerateOneProfile(data, spawnSide, role, multiPickPmc);
+                profile = await GenerateDebugSpawnProfile(botCreator, data, spawnSide, role, multiPickPmc, token, "SpawnDebugFollower");
             }
             catch (Exception ex)
             {
@@ -1147,7 +1155,7 @@ namespace pitTeam.Patches
                 try
                 {
                     IProfileData safeData = new IProfileData(EPlayerSide.Savage, WildSpawnType.assault, BotDifficulty.normal, 0f, spawnParams);
-                    profile = await GenerateOneProfile(safeData, EPlayerSide.Savage, WildSpawnType.assault, false);
+                    profile = await GenerateDebugSpawnProfile(botCreator, safeData, EPlayerSide.Savage, WildSpawnType.assault, false, token, "SpawnDebugFollower");
                     if (profile != null)
                     {
                         Modules.Logger.LogInfo("SpawnDebugFollower used safe fallback profile (Savage/assault)");
@@ -1221,7 +1229,7 @@ namespace pitTeam.Patches
             bool activated = false;
             try
             {
-                activated = await ActivateBotFollower(
+                activated = await ActivateBotAtPosition(
                     botCreator,
                     profile,
                     new spawnPosition(position, botsData.GetPosition().CorePointId, false),
@@ -1235,6 +1243,119 @@ namespace pitTeam.Patches
             catch
             {
                 // Keep old behavior of bubbling exception to caller while preserving spawn counter consistency.
+                botSpawnerClass.InSpawnProcess = Mathf.Max(0, botSpawnerClass.InSpawnProcess - 1);
+                throw;
+            }
+
+            if (!activated)
+            {
+                botSpawnerClass.InSpawnProcess = Mathf.Max(0, botSpawnerClass.InSpawnProcess - 1);
+                onFailure?.Invoke("bot activation failed");
+                return false;
+            }
+
+            return true;
+        }
+
+        public async Task<bool> SpawnDebugScavEnemy(Vector3 position, Action<string> onFailure = null)
+        {
+            if (Controller == null || Controller.BotSpawner == null)
+            {
+                onFailure?.Invoke("bots controller/spawner not ready");
+                return false;
+            }
+
+            CancelToken token = new CancelToken();
+            BotSpawner botSpawnerClass = Controller.BotSpawner;
+            BotCreator botCreator = botSpawnerClass.BotCreator as BotCreator;
+            if (botCreator == null)
+            {
+                onFailure?.Invoke("bot creator is null");
+                return false;
+            }
+
+            BotZone zone = botSpawnerClass.GetClosestZone(position, out _);
+            if (zone == null)
+            {
+                onFailure?.Invoke("no bot zone found near target");
+                return false;
+            }
+
+            AICorePoint closestCorePoint = GetClosestCorePoint(Controller, position);
+            if (closestCorePoint == null)
+            {
+                onFailure?.Invoke("no valid AI core point found near target");
+                return false;
+            }
+
+            BotSpawnParams spawnParams = new BotSpawnParams();
+            IProfileData data = new IProfileData(EPlayerSide.Savage, WildSpawnType.assault, BotDifficulty.normal, 0f, spawnParams);
+            BotCreationDataClass botsData = BotCreationDataClass.CreateWithoutProfile(data);
+            Profile profile = null;
+
+            try
+            {
+                profile = await GenerateDebugSpawnProfile(botCreator, data, EPlayerSide.Savage, WildSpawnType.assault, false, token, "SpawnDebugScav");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("SpawnDebugScav profile generation failed");
+                Modules.Logger.LogError(ex);
+            }
+
+            if (profile == null)
+            {
+                onFailure?.Invoke("game profile generation returned no valid scav profile");
+                return false;
+            }
+
+            profile.Info.Side = EPlayerSide.Savage;
+            if (profile.Info.Settings != null)
+            {
+                profile.Info.Settings.Role = WildSpawnType.assault;
+                profile.Info.Settings.BotDifficulty = BotDifficulty.normal;
+            }
+
+            botsData.AddProfile(profile);
+            botsData.AddPosition(position, closestCorePoint.Id);
+
+            Func<BotOwner, BotZone, BotsGroup> groupAction = (BotOwner bot, BotZone botZone) =>
+                botSpawnerClass.GetGroupAndSetEnemies(bot, botZone);
+
+            Action<BotOwner> onActivate = owner =>
+            {
+                Stopwatch stopWatch = new Stopwatch();
+                stopWatch.Start();
+
+                if (owner.Side != EPlayerSide.Savage)
+                {
+                    owner.GetPlayer.Profile.Info.Side = EPlayerSide.Savage;
+                }
+
+                botSpawnerClass.method_11(owner, botsData, spawned =>
+                {
+                    Modules.Logger.LogInfo(
+                        $"SpawnDebugScav spawned {spawned.Profile?.Nickname ?? "scav"} at {position}");
+                }, false, stopWatch);
+            };
+
+            botSpawnerClass.InSpawnProcess++;
+            bool activated = false;
+            try
+            {
+                activated = await ActivateBotAtPosition(
+                    botCreator,
+                    profile,
+                    new spawnPosition(position, closestCorePoint.Id, false),
+                    zone,
+                    false,
+                    groupAction,
+                    onActivate,
+                    token.GetCancelToken()
+                );
+            }
+            catch
+            {
                 botSpawnerClass.InSpawnProcess = Mathf.Max(0, botSpawnerClass.InSpawnProcess - 1);
                 throw;
             }
