@@ -533,7 +533,12 @@ namespace pitTeam.Modules
                 {
                     haveEnemy = bot.Memory?.HaveEnemy == true,
                     underFire = bot.Memory?.IsUnderFire == true,
-                    inCover = bot.Memory?.IsInCover == true
+                    inCover = bot.Memory?.IsInCover == true,
+                    damagedRecently = FollowerCombatCommon.WasHitRecently(bot, 0.5f) ||
+                                      FollowerAwareness.WasRecentlyDamaged(bot),
+                    threatenedRecently = FollowerAwareness.WasRecentlyThreatened(bot),
+                    hitRecently = FollowerCombatCommon.WasHitRecently(bot, 0.5f) ||
+                                  FollowerAwareness.WasRecentlyHit(bot)
                 },
                 command = followerData != null && command != FollowerCommandType.None
                     ? new
@@ -595,6 +600,9 @@ namespace pitTeam.Modules
                     haveEnemy = bot.Memory?.HaveEnemy == true,
                     underFire = bot.Memory?.IsUnderFire == true,
                     inCover = bot.Memory?.IsInCover == true,
+                    damagedRecently = FollowerCombatCommon.WasHitRecently(bot, 0.5f) ||
+                                      FollowerAwareness.WasRecentlyDamaged(bot),
+                    threatenedRecently = FollowerAwareness.WasRecentlyThreatened(bot),
                     hitRecently = FollowerCombatCommon.WasHitRecently(bot, 0.5f) ||
                                   FollowerAwareness.WasRecentlyHit(bot)
                 },

@@ -28,6 +28,7 @@ namespace pitTeam.BigBrain
         private const float AutoSuppressRetryCooldownSeconds = 3.5f;
         private const float AllyPushSupportMaxStraightDistance = 45f;
         private const float AllyPushSupportMaxNavDistance = 65f;
+        private const float HardRecoveryCloseThreatDistance = 10f;
 
         private enum CoverIntentKind
         {
@@ -144,6 +145,12 @@ namespace pitTeam.BigBrain
             if (TryGetHealDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> healDecision))
             {
                 return healDecision;
+            }
+
+            if (!ShouldPrioritizeRecoveryBeforeSupport(goalEnemy) &&
+                TryGetAllySupportDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> earlyAllySupportDecision))
+            {
+                return earlyAllySupportDecision;
             }
 
             // When exposed, under fire, or hurt, switch to recovery behavior before honoring
@@ -299,6 +306,16 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        private bool ShouldPrioritizeRecoveryBeforeSupport(EnemyInfo goalEnemy)
+        {
+            return botOwner.Memory.IsUnderFire ||
+                   FollowerCombatCommon.WasHitRecently(botOwner, 1f) ||
+                   FollowerAwareness.WasRecentlyDamaged(botOwner) ||
+                   combatCommon.IsFollowerCriticallyWounded() ||
+                   combatCommon.HasUrgentHealWork() ||
+                   combatCommon.IsEnemyActivelyThreateningMe(goalEnemy, HardRecoveryCloseThreatDistance, 0.75f);
+        }
+
         private bool ShouldDeferExposedImmediateFireForRecovery(EnemyInfo? goalEnemy)
         {
             if (botOwner.Memory.IsInCover)
@@ -308,7 +325,7 @@ namespace pitTeam.BigBrain
 
             bool damagePressure =
                 FollowerCombatCommon.WasHitRecently(botOwner, 1f) ||
-                FollowerAwareness.WasRecentlyHit(botOwner) ||
+                FollowerAwareness.WasRecentlyDamaged(botOwner) ||
                 combatCommon.IsFollowerCriticallyWounded() ||
                 combatCommon.HasUrgentHealWork();
             if (!damagePressure)
@@ -877,7 +894,7 @@ namespace pitTeam.BigBrain
             bool needCover =
                 botOwner.Memory.IsUnderFire ||
                 FollowerCombatCommon.WasHitRecently(botOwner, 1f) ||
-                FollowerAwareness.WasRecentlyHit(botOwner) ||
+                FollowerAwareness.WasRecentlyDamaged(botOwner) ||
                 combatCommon.IsFollowerCriticallyWounded() ||
                 combatCommon.IsEnemyActivelyThreateningMe(goalEnemy, 18f, 0.75f);
 
@@ -1043,7 +1060,7 @@ namespace pitTeam.BigBrain
             bool recentHitPressure =
                 botOwner.Memory.IsUnderFire ||
                 FollowerCombatCommon.WasHitRecently(botOwner, 1f) ||
-                FollowerAwareness.WasRecentlyHit(botOwner);
+                FollowerAwareness.WasRecentlyDamaged(botOwner);
             if (!recentHitPressure)
             {
                 return false;
@@ -1397,7 +1414,7 @@ namespace pitTeam.BigBrain
 
                 if (goalEnemy != null &&
                     (FollowerCombatCommon.WasHitRecently(botOwner, 0.75f) ||
-                     FollowerAwareness.WasRecentlyHit(botOwner)))
+                     FollowerAwareness.WasRecentlyDamaged(botOwner)))
                 {
                     combatCommon.ClearCommittedCover();
                     return new AICoreActionEndStruct("hitBreakHold", true);
@@ -1462,7 +1479,7 @@ namespace pitTeam.BigBrain
 
             if (botOwner.Memory.IsUnderFire ||
                 FollowerCombatCommon.WasHitRecently(botOwner, 0.75f) ||
-                FollowerAwareness.WasRecentlyHit(botOwner))
+                FollowerAwareness.WasRecentlyDamaged(botOwner))
             {
                 combatCommon.ClearCommittedPosition();
                 combatCommon.ClearCommittedCover();

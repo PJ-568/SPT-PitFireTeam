@@ -96,6 +96,7 @@
 		"EditLoadoutSubtitle": "Edit cloned items for {0}. Changes here do not touch the real stash yet.",
 		"EditLoadoutSubtitleReal": "Edit staged gear for {0}. Saving moves items between your stash and this teammate.",
 		"LoadoutEditorSaveBeforeRepair": "Please save your teammate inventory first to be able to repair.",
+		"LoadoutEditorSaveFailed": "Failed to save teammate inventory.",
 		"PlayerStash": "Player Stash",
 		"PlayerStashPlaceholder": "Failed to load cloned stash view.\n{0}",
 		"BotInventory": "Follower Inventory",
