@@ -4,6 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>pitFireTeam.Server</AssemblyName>
     <RootNamespace>pitTeam.Server</RootNamespace>
+    <Version>0.7.2</Version>
     <OutputType>Library</OutputType>
     <SptReferenceConfiguration Condition="'$(SptReferenceConfiguration)' == ''">Debug</SptReferenceConfiguration>
   </PropertyGroup>

@@ -154,7 +154,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.7.2")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.7.2")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -631,7 +631,6 @@ namespace pitTeam
             savedConfigValues = new Dictionary<ConfigDefinition, string>();
 
             var orphanedEntries = AccessTools.Property(typeof(ConfigFile), "OrphanedEntries").GetValue(Config) as Dictionary<ConfigDefinition, string>;
-
             orphanedEntries.ExecuteForEach(it =>
             {
                 savedConfigValues.Add(it.Key, it.Value);
@@ -707,7 +706,6 @@ namespace pitTeam
             battleRecorderEnabled = Config.Bind("Miscellaneous", "27 BattleRecorder", false, new ConfigDescription(optionsLang.battleRecorder["Description"], null, CreateConfigAttributes(-9998, showBattleRecorderSettings, optionsLang.battleRecorder)));
 
             battleRecorderSnapshotIntervalMs = Config.Bind("Miscellaneous", "28 BattleRecorderSnapshotIntervalMs", 200, new ConfigDescription(optionsLang.battleRecorderSnapshotIntervalMs["Description"], new AcceptableValueRange<int>(50, 1000), CreateConfigAttributes(-9999, showBattleRecorderSettings, optionsLang.battleRecorderSnapshotIntervalMs)));
-
 
 
             Config.SaveOnConfigSet = true;

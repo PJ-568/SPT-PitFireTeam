@@ -16,15 +16,15 @@ namespace pitTeam.Server;
 
 public record PitFireTeamServerMetadata : AbstractModMetadata
 {
-    public override string ModGuid { get; init; } = "xyz.pit.fireteam.server";
-    public override string Name { get; init; } = "pitFireTeam.Server";
-    public override string Author { get; init; } = "pit";
+    public override string ModGuid { get; init; } = "xyz.pit.fireteam";
+    public override string Name { get; init; } = "PitFireTeam";
+    public override string Author { get; init; } = "PitAlex";
     public override List<string>? Contributors { get; init; }
     public override Version Version { get; init; } = new("0.7.2");
     public override Range SptVersion { get; init; } = new("~4.0.0");
     public override List<string>? Incompatibilities { get; init; }
     public override Dictionary<string, Range>? ModDependencies { get; init; }
-    public override string? Url { get; init; }
+    public override string? Url { get; init; } = "https://github.com/pitAlex/SPT-PitFireTeam";
     public override bool? IsBundleMod { get; init; }
     public override string License { get; init; } = "MIT";
 }
@@ -43,7 +43,7 @@ public class PitFireTeamServerPlugin(
         EnsureCourierTraderLocales();
         EnsureCourierAvatarIsServed();
         settingsService.ApplyPersistedSettings();
-        logger.Info("pitFireTeam.Server loaded");
+        logger.Info("PitFireTeam loaded");
         return Task.CompletedTask;
     }
 
