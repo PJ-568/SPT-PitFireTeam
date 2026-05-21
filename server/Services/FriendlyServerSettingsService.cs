@@ -76,6 +76,7 @@ public class FriendlyServerSettingsService(
                 ["Eyewear"] = equipment.Eyewear,
                 ["TacticalVest"] = equipment.TacticalVest,
                 ["PocketItems"] = equipment.PocketItems,
+                ["Pockets"] = equipment.PocketItems,
                 ["Backpack"] = equipment.Backpack,
                 ["Holster"] = equipment.Holster,
                 ["FirstPrimaryWeapon"] = equipment.FirstPrimaryWeapon,

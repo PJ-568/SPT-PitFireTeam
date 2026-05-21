@@ -1119,7 +1119,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            EnemyInfo? enemyInfo = Enemy.MakeEnemy(botOwner, enemyPlayer, EBotEnemyCause.checkAddTODO);
+            EnemyInfo? enemyInfo = Enemy.MakeEnemy(botOwner, enemyPlayer, EBotEnemyCause.checkAddTODO, "combatSetGoalEnemy");
             if (enemyInfo == null)
             {
                 return false;

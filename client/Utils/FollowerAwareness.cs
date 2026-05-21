@@ -7,9 +7,13 @@ namespace pitTeam.Utils
 {
     internal static class FollowerAwareness
     {
+        private const float ProtectedImpactMinCoverThickness = 0.75f;
+        private const float BulletAwarenessOriginHeight = 1.2f;
+
         private sealed class State
         {
-            public float GotShotUntil;
+            public float DamagedUntil;
+            public float ThreatenedUntil;
             public bool HasThreatLookPoint;
             public Vector3 ThreatLookPoint;
             public float LastSoundTime;
@@ -22,15 +26,28 @@ namespace pitTeam.Utils
 
         public static bool WasRecentlyHit(BotOwner bot)
         {
+            return WasRecentlyDamaged(bot) || WasRecentlyThreatened(bot);
+        }
+
+        public static bool WasRecentlyDamaged(BotOwner bot)
+        {
             var state = GetState(bot);
-            return state != null && state.GotShotUntil > Time.time;
+            return state != null && state.DamagedUntil > Time.time;
+        }
+
+        public static bool WasRecentlyThreatened(BotOwner bot)
+        {
+            var state = GetState(bot);
+            return state != null && state.ThreatenedUntil > Time.time;
         }
 
         public static bool TryGetRecentThreatLookPoint(BotOwner bot, out Vector3 lookPoint)
         {
             lookPoint = Vector3.zero;
             var state = GetState(bot);
-            if (state == null || !state.HasThreatLookPoint || state.GotShotUntil <= Time.time)
+            if (state == null ||
+                !state.HasThreatLookPoint ||
+                Mathf.Max(state.DamagedUntil, state.ThreatenedUntil) <= Time.time)
             {
                 return false;
             }
@@ -79,13 +96,15 @@ namespace pitTeam.Utils
             if (lookPoint != Vector3.zero)
             {
                 RegisterThreatLookPoint(bot, lookPoint, 3f);
+                RegisterDamage(bot, 3f);
             }
             else
             {
                 var state = GetState(bot);
                 if (state != null)
                 {
-                    state.GotShotUntil = Time.time + 3f;
+                    state.DamagedUntil = Time.time + 3f;
+                    state.ThreatenedUntil = Time.time + 3f;
                 }
             }
         }
@@ -219,7 +238,6 @@ namespace pitTeam.Utils
                 }
             }
 
-            state.NextBulletReactionAt = Time.time + 1f;
             Vector3 impact = impactPoint ?? bullet.HitPoint;
             if (impact == Vector3.zero)
             {
@@ -232,6 +250,12 @@ namespace pitTeam.Utils
                 return;
             }
 
+            if (IsImpactProtectedByHardCover(bot, impact))
+            {
+                return;
+            }
+
+            state.NextBulletReactionAt = Time.time + 1f;
             float dispersion = distanceSqr / CombatDistanceConfiguration.Instance.GetBulletImpactDispersionSqr(); ;
             Vector3 random = Random.onUnitSphere;
             random.y = 0f;
@@ -259,9 +283,47 @@ namespace pitTeam.Utils
                 return;
             }
 
-            state.GotShotUntil = Time.time + duration;
+            state.ThreatenedUntil = Time.time + duration;
             state.ThreatLookPoint = lookPoint;
             state.HasThreatLookPoint = true;
+        }
+
+        private static void RegisterDamage(BotOwner bot, float duration)
+        {
+            var state = GetState(bot);
+            if (state == null)
+            {
+                return;
+            }
+
+            state.DamagedUntil = Time.time + duration;
+        }
+
+        private static bool IsImpactProtectedByHardCover(BotOwner bot, Vector3 impact)
+        {
+            Vector3 origin = GetBulletAwarenessOrigin(bot);
+            Vector3 toImpact = impact - origin;
+            float distance = toImpact.magnitude;
+            if (distance <= 0.25f)
+            {
+                return false;
+            }
+
+            if (!Physics.Linecast(origin, impact, out RaycastHit hit, LayerMaskClass.HighPolyWithTerrainMask))
+            {
+                return false;
+            }
+
+            // If the first hard hit is well before the bullet impact, the bullet struck the far
+            // side of cover. That is not a near miss at the follower's feet.
+            return (impact - hit.point).magnitude >= ProtectedImpactMinCoverThickness;
+        }
+
+        private static Vector3 GetBulletAwarenessOrigin(BotOwner bot)
+        {
+            Vector3 origin = bot.GetPlayer?.Transform?.position ?? bot.Position;
+            origin.y += BulletAwarenessOriginHeight;
+            return origin;
         }
 
         private static Vector3 BuildLookPoint(BotOwner bot, Vector3 sourceWorldPos, float distance)
@@ -283,7 +345,7 @@ namespace pitTeam.Utils
                 return false;
             }
 
-            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
+            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy, source: "awarenessCloseThreat");
             enemyInfo?.SetVisible(true);
             return enemyInfo != null;
         }
@@ -291,7 +353,7 @@ namespace pitTeam.Utils
         private static bool TryAcquireVisibleHostileOfBossGroup(BotOwner bot, Player enemy)
         {
             if (bot == null || enemy == null) return false;
-            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
+            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy, source: "awarenessVisibleHostileBossGroup");
             enemyInfo?.SetVisible(true);
             return enemyInfo != null;
         }

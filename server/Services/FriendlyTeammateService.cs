@@ -848,6 +848,12 @@ public class FriendlyTeammateService(
             throw new FriendlyTeammateException("Missing player stash items for real teammate equipment save");
         }
 
+        replacementEquipmentItems = PruneSubmittedEquipmentToRootTree(replacementEquipmentItems, out int prunedEquipmentItems);
+        if (prunedEquipmentItems > 0)
+        {
+            logger.Warning($"Pruned {prunedEquipmentItems} foreign/orphan items from submitted teammate equipment before real commit validation.");
+        }
+
         var playerPmc = GetPlayerProfile(sessionId);
         playerPmc.Inventory ??= new BotBaseInventory { Items = [] };
         playerPmc.Inventory.Items ??= [];
@@ -872,8 +878,16 @@ public class FriendlyTeammateService(
 
         // Validate the staged final state before mutating either profile. This prevents partial transfer
         // corruption and lets the catch block restore both inventories if persistence fails later.
-        ValidateRealCommitItemSet(replacementEquipmentItems, allowedMovedItemIds, "teammate equipment");
-        ValidateRealCommitItemSet(replacementStashItems, allowedMovedItemIds, "player stash");
+        ValidateRealCommitItemSet(
+            replacementEquipmentItems,
+            allowedMovedItemIds,
+            "teammate equipment",
+            allowGeneratedSlotDescendants: true);
+        ValidateRealCommitItemSet(
+            replacementStashItems,
+            allowedMovedItemIds,
+            "player stash",
+            allowGeneratedSlotDescendants: true);
         ValidateNoRealCommitOverlap(replacementEquipmentItems, replacementStashItems, playerStashRootId);
         ValidateNoEquippedPlayerItemCommit(playerPmc, replacementEquipmentItems, currentPlayerStashIds);
 
@@ -1090,6 +1104,7 @@ public class FriendlyTeammateService(
 
             // Client has already rolled the result using live raid state. Server only persists the
             // teammate profile state and builds a message summary for the player.
+            ApplyFollowerRaidOutcomeStats(teammate, entry.Escaped);
             ApplyDeathEscapeOutcome(teammate, entry);
 
             // Immersive/Realistic surviving Default loadouts keep the in-raid state. This is where
@@ -1744,15 +1759,70 @@ public class FriendlyTeammateService(
         }
     }
 
-    private static void ValidateRealCommitItemSet(List<Item> items, HashSet<string> allowedItemIds, string setName)
+    private static List<Item> PruneSubmittedEquipmentToRootTree(List<Item> items, out int prunedCount)
+    {
+        prunedCount = 0;
+        if (items == null || items.Count == 0)
+        {
+            return [];
+        }
+
+        string rootId = items[0].Id.ToString();
+        var keepIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootId };
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var item in items)
+            {
+                if (item?.Id == null
+                    || string.IsNullOrWhiteSpace(item.ParentId)
+                    || !keepIds.Contains(item.ParentId)
+                    || !keepIds.Add(item.Id.ToString()))
+                {
+                    continue;
+                }
+
+                changed = true;
+            }
+        }
+        while (changed);
+
+        var pruned = items
+            .Where(item => item?.Id != null && keepIds.Contains(item.Id.ToString()))
+            .ToList();
+
+        prunedCount = items.Count - pruned.Count;
+        return pruned;
+    }
+
+    private static void ValidateRealCommitItemSet(
+        List<Item> items,
+        HashSet<string> allowedItemIds,
+        string setName,
+        bool allowGeneratedSlotDescendants = false)
     {
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var submittedById = items
+            .Where(item => item?.Id != null)
+            .GroupBy(item => item.Id.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
         foreach (var item in items)
         {
             string id = item.Id.ToString();
-            if (!allowedItemIds.Contains(id))
+            bool isAllowed = allowedItemIds.Contains(id);
+            if (!isAllowed
+                && allowGeneratedSlotDescendants
+                && IsGeneratedSlotDescendantOfAllowedItem(item, submittedById, allowedItemIds))
             {
-                throw new FriendlyTeammateException($"Submitted {setName} contains an item that was not available for movement");
+                isAllowed = true;
+            }
+
+            if (!isAllowed)
+            {
+                throw new FriendlyTeammateException(
+                    $"Submitted {setName} contains an item that was not available for movement: id={id}, tpl={item.Template}, parent={item.ParentId}, slot={item.SlotId}");
             }
 
             if (!seenIds.Add(id))
@@ -1760,6 +1830,48 @@ public class FriendlyTeammateService(
                 throw new FriendlyTeammateException($"Submitted {setName} contains duplicate item ids");
             }
         }
+    }
+
+    private static bool IsGeneratedSlotDescendantOfAllowedItem(
+        Item item,
+        Dictionary<string, Item> submittedById,
+        HashSet<string> allowedItemIds)
+    {
+        // EFT and item mods can materialize non-lootable slot children while the editor reconstructs an
+        // owned weapon/armor tree or while the user loads ammo into a stash weapon during the staged edit.
+        // Those children do not exist in the saved JSON yet, but they are still part of an already-owned
+        // parent item. Grid/location items remain blocked unless their own id came from the player stash or
+        // teammate inventory; cartridge/chamber slots are the only generated children allowed with location.
+        bool isGeneratedAmmoSlot = string.Equals(item?.SlotId, "cartridges", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item?.SlotId, "patron_in_weapon", StringComparison.OrdinalIgnoreCase);
+
+        if (item == null
+            || (item.Location != null && !isGeneratedAmmoSlot)
+            || string.IsNullOrWhiteSpace(item.ParentId)
+            || string.IsNullOrWhiteSpace(item.SlotId)
+            || string.Equals(item.SlotId, "main", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item.SlotId, "hideout", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string? parentId = item.ParentId;
+        while (!string.IsNullOrWhiteSpace(parentId))
+        {
+            if (allowedItemIds.Contains(parentId))
+            {
+                return true;
+            }
+
+            if (!submittedById.TryGetValue(parentId, out Item? parent))
+            {
+                return false;
+            }
+
+            parentId = parent.ParentId;
+        }
+
+        return false;
     }
 
     private static void ValidateNoRealCommitOverlap(
@@ -2261,8 +2373,8 @@ public class FriendlyTeammateService(
         teammate.Info.BannedUntil = playerPmc.Info?.BannedUntil;
         teammate.Info.RegistrationDate = GetCurrentUnixTimestampSeconds();
         teammate.Achievements = playerPmc.Achievements;
-        teammate.Stats.Eft.TotalInGameTime = playerPmc.Stats?.Eft?.TotalInGameTime ?? teammate.Stats.Eft.TotalInGameTime ?? 0;
-        teammate.Stats.Eft.OverallCounters = playerPmc.Stats?.Eft?.OverallCounters ?? teammate.Stats.Eft.OverallCounters;
+        teammate.Stats.Eft.TotalInGameTime = 0;
+        teammate.Stats.Eft.OverallCounters = new OverallCounters { Items = [] };
     }
 
     private static void NormalizeTeammateSkillsForCreation(BotBase teammate, PmcData playerPmc)
@@ -2391,6 +2503,8 @@ public class FriendlyTeammateService(
             RecalculateTeammateLevel(teammate);
         }
 
+        ApplyFollowerLifetimeProgress(teammate, progressEntry);
+
         if (progressEntry.Skills == null || progressEntry.Skills.Count == 0)
         {
             return;
@@ -2422,6 +2536,85 @@ public class FriendlyTeammateService(
         }
 
         teammate.Skills.Common = commonSkills;
+    }
+
+    private static void ApplyFollowerLifetimeProgress(BotBase teammate, FriendlyTeammateFollowerProgressRequest progressEntry)
+    {
+        if (progressEntry.KillCount > 0)
+        {
+            AddOverallCounter(teammate, progressEntry.KillCount, "Kills");
+        }
+
+        if (progressEntry.RaidSeconds > 0)
+        {
+            EnsureTeammateEftStats(teammate);
+            teammate.Stats!.Eft!.TotalInGameTime = (teammate.Stats.Eft.TotalInGameTime ?? 0) + progressEntry.RaidSeconds;
+            AddOverallCounter(teammate, progressEntry.RaidSeconds, "LifeTime", "Pmc");
+        }
+    }
+
+    private static void ApplyFollowerRaidOutcomeStats(BotBase teammate, bool escaped)
+    {
+        AddOverallCounter(teammate, 1, "Sessions", "Pmc");
+        if (escaped)
+        {
+            AddOverallCounter(teammate, 1, "ExitStatus", "Survived", "Pmc");
+            return;
+        }
+
+        AddOverallCounter(teammate, 1, "Deaths");
+    }
+
+    private static void AddOverallCounter(BotBase teammate, double value, params string[] key)
+    {
+        if (value <= 0 || key == null || key.Length == 0)
+        {
+            return;
+        }
+
+        EnsureTeammateEftStats(teammate);
+        var counters = teammate.Stats!.Eft!.OverallCounters!;
+        counters.Items ??= [];
+
+        var existing = counters.Items.FirstOrDefault(counter => CounterKeyMatches(counter?.Key, key));
+        if (existing != null)
+        {
+            existing.Value = (existing.Value ?? 0) + value;
+            return;
+        }
+
+        counters.Items.Add(new CounterKeyValue
+        {
+            Key = new HashSet<string>(key, StringComparer.Ordinal),
+            Value = value,
+        });
+    }
+
+    private static bool CounterKeyMatches(HashSet<string>? existingKey, string[] expectedKey)
+    {
+        if (existingKey == null || existingKey.Count != expectedKey.Length)
+        {
+            return false;
+        }
+
+        foreach (var keyPart in expectedKey)
+        {
+            if (!existingKey.Contains(keyPart))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void EnsureTeammateEftStats(BotBase teammate)
+    {
+        teammate.Stats ??= new Stats();
+        teammate.Stats.Eft ??= new EftStats();
+        teammate.Stats.Eft.OverallCounters ??= new OverallCounters { Items = [] };
+        teammate.Stats.Eft.OverallCounters.Items ??= [];
+        teammate.Stats.Eft.TotalInGameTime ??= 0;
     }
 
     private static void ApplyDeathEscapeOutcome(BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)

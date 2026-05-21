@@ -2,6 +2,7 @@ using Comfort.Common;
 using EFT;
 using pitTeam.Components;
 using pitTeam.Modules;
+using pitTeam.Utils;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System;
@@ -294,6 +295,8 @@ namespace pitTeam.Patches
         [PatchPostfix]
         private static void PatchPostfix(BotsGroup __instance, IPlayer person, EBotEnemyCause cause, bool __result)
         {
+            BattleRecorder.RecordGroupAddEnemyResult(__instance, person, cause, __result);
+
             if (__result && __instance is BotsGroupPlayer)
             {
                 Utils.Enemy.ForceIgnoreUntilAggressionOff(__instance);
@@ -521,6 +524,183 @@ namespace pitTeam.Patches
             }
 
             return true;
+        }
+    }
+
+    internal class PmcFriendlyFireRetaliationBridgePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(
+                typeof(BotsController),
+                "method_12",
+                new[] { typeof(DamageInfoStruct), typeof(Player) });
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(DamageInfoStruct damageInfo, Player target)
+        {
+            try
+            {
+                // Same-side friendly systems can prevent normal group retaliation from spreading.
+                // When the player boss or one of our followers directly damages a non-follower PMC,
+                // restore the expected relation: the damaged PMC's group is now hostile to that attacker.
+                IPlayer attacker = damageInfo.Player?.iPlayer;
+                if (attacker == null || target == null || !target.IsAI)
+                {
+                    return;
+                }
+
+                bool attackerIsBoss = BossPlayers.IsPlayerBoss(attacker.ProfileId);
+                bool attackerIsFollower = BossPlayers.IsFollowerProfileId(attacker.ProfileId);
+                if (!attackerIsBoss && !attackerIsFollower)
+                {
+                    return;
+                }
+
+                BotOwner targetBot = target.AIData?.BotOwner;
+                BotsGroup targetGroup = targetBot?.BotsGroup;
+                if (targetBot == null || targetGroup == null || BossPlayers.IsFollower(targetBot))
+                {
+                    return;
+                }
+
+                if (!IsPmc(target.Side) || targetGroup is BotsGroupPlayer)
+                {
+                    return;
+                }
+
+                bool addedAttacker = targetGroup.AddEnemy(attacker, EBotEnemyCause.AddEnemyToAllGroupsInBotZone);
+                RetaliationBridgeResult attackerResult = PromoteGroupMembersToAttacker(targetGroup, attacker);
+
+                pitAIBossPlayer boss = attackerIsBoss
+                    ? BossPlayers.GetBoss(attacker.ProfileId)
+                    : BossPlayers.GetFollowerByProfileId(attacker.ProfileId)?.GetBoss();
+
+                bool addedBoss = false;
+                int promotedBoss = 0;
+                int lootingInterruptedBoss = 0;
+                if (attackerIsFollower && boss?.realPlayer != null)
+                {
+                    addedBoss = targetGroup.AddEnemy(boss.realPlayer, EBotEnemyCause.AddEnemyToAllGroupsInBotZone);
+                    RetaliationBridgeResult bossResult = PromoteGroupMembersToAttacker(targetGroup, boss.realPlayer);
+                    promotedBoss = bossResult.Promoted;
+                    lootingInterruptedBoss = bossResult.LootingInterrupted;
+                }
+
+                BattleRecorder.RecordDirectDamageRetaliationBridge(
+                    targetGroup,
+                    attacker,
+                    targetBot,
+                    addedAttacker,
+                    attackerResult.Promoted,
+                    addedBoss,
+                    promotedBoss,
+                    attackerResult.LootingInterrupted,
+                    lootingInterruptedBoss);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[RetaliationBridge] direct damage retaliation bridge failed.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static bool IsPmc(EPlayerSide side)
+        {
+            return side == EPlayerSide.Bear || side == EPlayerSide.Usec;
+        }
+
+        private struct RetaliationBridgeResult
+        {
+            public int Promoted;
+            public int LootingInterrupted;
+        }
+
+        private static RetaliationBridgeResult PromoteGroupMembersToAttacker(BotsGroup group, IPlayer attacker)
+        {
+            RetaliationBridgeResult result = default;
+            if (group == null || attacker == null)
+            {
+                return result;
+            }
+
+            for (int i = 0; i < group.MembersCount; i++)
+            {
+                BotOwner member = group.Member(i);
+                if (member == null || member.IsDead || member.GetPlayer == null)
+                {
+                    continue;
+                }
+
+                if (BossPlayers.IsFollower(member))
+                {
+                    continue;
+                }
+
+                if (LootingBotsInterop.PreventBotFromLooting(member, 180f))
+                {
+                    result.LootingInterrupted++;
+                }
+
+                // AddEnemy updates group relations, but some members can remain in peaceful memory/layer
+                // state until they personally see or are hit by the attacker. Give each group member the
+                // already-registered enemy info so combat systems have a real GoalEnemy to evaluate.
+                if (member.Memory?.HaveEnemy == true && member.Memory.GoalEnemy != null)
+                {
+                    continue;
+                }
+
+                if (!TryGetOrCreateEnemyInfo(member, group, attacker, out EnemyInfo info))
+                {
+                    continue;
+                }
+
+                member.Memory.IsPeace = false;
+                info.IgnoreUntilAggression = false;
+                member.Memory.GoalEnemy = info;
+                result.Promoted++;
+            }
+
+            return result;
+        }
+
+        private static bool TryGetOrCreateEnemyInfo(BotOwner member, BotsGroup group, IPlayer attacker, out EnemyInfo info)
+        {
+            info = null;
+            if (member == null || group == null || attacker == null)
+            {
+                return false;
+            }
+
+            if (member.EnemiesController?.EnemyInfos != null &&
+                member.EnemiesController.EnemyInfos.TryGetValue(attacker, out info) &&
+                info != null)
+            {
+                return true;
+            }
+
+            if (!group.Enemies.TryGetValue(attacker, out BotSettingsClass settings) || settings == null)
+            {
+                return false;
+            }
+
+            member.Memory?.AddEnemy(attacker, settings, false);
+
+            if (member.EnemiesController?.EnemyInfos != null &&
+                member.EnemiesController.EnemyInfos.TryGetValue(attacker, out info) &&
+                info != null)
+            {
+                return true;
+            }
+
+            if (member.Memory?.GoalEnemy?.ProfileId == attacker.ProfileId)
+            {
+                info = member.Memory.GoalEnemy;
+                return info != null;
+            }
+
+            return false;
         }
     }
 }

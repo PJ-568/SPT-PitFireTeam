@@ -403,6 +403,8 @@ namespace pitTeam.Modules
                     {
                         Aid = pr.AccountId,
                         BotExperienceSession = Math.Round(pr.EftStats.SessionCounters.GetAllInt(new object[] { CounterTag.ExpKill }) + (boss.realPlayer.Profile.EftStats.SessionCounters.GetAllInt(new object[] { CounterTag.Exp }) * GetLevelFactor(bossLevel, botLevel))),
+                        KillCount = pr.EftStats.SessionCounters.GetAllInt(new object[] { CounterTag.Kills }),
+                        RaidSeconds = GetFollowerRaidSeconds(item.GetBot()),
                         Skills = skills
                     });
                 }
@@ -426,6 +428,24 @@ namespace pitTeam.Modules
                     Candidates = recruitCandidates
                 }.ToJson(_defaultJsonConverters);
                 PostRaidRequestAsync("/singleplayer/pitfireteam/recruitpickup", recruitJson, "recruit pickup");
+            }
+        }
+
+        private static int GetFollowerRaidSeconds(BotOwner bot)
+        {
+            try
+            {
+                float bornTime = bot?.BotPersonalStats?.BornTime ?? 0f;
+                if (bornTime <= 0f)
+                {
+                    return 0;
+                }
+
+                return Math.Max(0, (int)Math.Round(UnityEngine.Time.time - bornTime));
+            }
+            catch
+            {
+                return 0;
             }
         }
 

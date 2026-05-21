@@ -172,7 +172,7 @@ namespace pitTeam.Components
                 else if (info.phrase == EPhraseTrigger.OnRepeatedContact)
                 {
                     // Contact: point followers toward a seen or aimed-at threat and seed enemy memory.
-                    ProcessContactCommand(info.PlayerRequester);
+                    ProcessContactCommand(info.PlayerRequester, source: "contactPhrase");
                     return;
                 }
                 else if (info.phrase == EPhraseTrigger.InTheFront ||
@@ -276,7 +276,7 @@ namespace pitTeam.Components
                     // Over There: gesture-based Contact. Do not forward the contact phrase to
                     // receivers; commanded acquisition should be silent and go straight to fighting.
                     _ignoreNextThereGestureUntil = Time.time + 0.75f;
-                    ProcessContactCommand(info.Player, true);
+                    ProcessContactCommand(info.Player, true, "overThereGesture");
 
                     return;
                 }
@@ -329,7 +329,7 @@ namespace pitTeam.Components
             }
         }
 
-        private void ProcessContactCommand(IPlayer requester, bool requireGestureVisibility = false)
+        private void ProcessContactCommand(IPlayer requester, bool requireGestureVisibility = false, string source = "contactCommand")
         {
             if (requester == null) return;
 
@@ -449,7 +449,7 @@ namespace pitTeam.Components
                     bool prioritizeAsGoal = prioritizedGoalEnemy != null &&
                                             enemy.ProfileId == prioritizedGoalEnemy.ProfileId;
                     pitTeam.Patches.FollowerContactPhraseGate.SuppressCommandedContact(follower, enemy.ProfileId, 4f);
-                    RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal, true);
+                    RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal, true, source);
                     enemiesInjected++;
                 }
             }
@@ -507,7 +507,7 @@ namespace pitTeam.Components
             return HasRecentCombatSupportCue() || WasShootingRecentlyForSupport();
         }
 
-        private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy, bool prioritizeAsGoal, bool allowGoalPromotion)
+        private void RegisterContactEnemyForFollower(BotOwner follower, Player enemy, bool prioritizeAsGoal, bool allowGoalPromotion, string source = "bossDirectedContact")
         {
             EEnemyPartVisibleType visibleType = CanFollowerSeeEnemyForContact(follower, enemy)
                 ? EEnemyPartVisibleType.Visible
@@ -531,7 +531,7 @@ namespace pitTeam.Components
             // Contact is an explicit combat cue from boss; force an EnemyInfo to exist now
             // instead of waiting for later controller reconciliation.
             follower.Memory.IsPeace = false;
-            EnemyInfo? trackedEnemy = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO);
+            EnemyInfo? trackedEnemy = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO, source);
             if (trackedEnemy != null)
             {
                 BotSettingsClass botSettings = GetOrCreateContactEnemyGroupInfo(follower, enemy, trackedEnemy);
@@ -2209,7 +2209,7 @@ namespace pitTeam.Components
             if (requester == null) return;
 
             // Seed fresh contact first, then let marksman combat convert it into a firing-position move.
-            ProcessContactCommand(requester);
+            ProcessContactCommand(requester, source: "needSniperContact");
 
             foreach (BotOwner follower in Followers)
             {
@@ -2433,7 +2433,7 @@ namespace pitTeam.Components
                     }
                 }
 
-                RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal: true, allowGoalPromotion: true);
+                RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal: true, allowGoalPromotion: true, source: "suppressContact");
                 return follower.Memory?.GoalEnemy?.Person?.HealthController?.IsAlive == true;
             }
 
@@ -2859,7 +2859,7 @@ namespace pitTeam.Components
 
                 // Only refill idle followers with no current goal. Do not replace or refresh an
                 // existing GoalEnemy here; the follower's own combat state owns that.
-                RegisterContactEnemyForFollower(follower, enemyPlayer, false, true);
+                RegisterContactEnemyForFollower(follower, enemyPlayer, false, true, "groupEnemySync");
             }
         }
 

@@ -309,8 +309,11 @@ Useful for:
 - pinning enemies behind cover
 - helping another teammate reposition
 - supporting a push
+- forcing fire through bushes or foliage when bots hesitate to shoot
 
 Marksmen generally ignore suppression because their role is precision support, not volume fire.
+
+Bushes and dense foliage can make bots hesitate to shoot, especially when SAIN is installed. If a teammate has enemy contact but will not fire through a bush, order **Suppress**. Suppression targets the enemy's known location and can make Riflemen shoot through the foliage; this often wounds or kills the hidden enemy even when normal aimed fire is being delayed.
 
 #### Need Sniper
 
@@ -393,6 +396,8 @@ If the teammate dies, the carried loot is lost.
 
 ## Loadout Management
 
+Found in My Squad → Settings
+
 ![Loadout Management](https://iili.io/BpKDP4I.md.png)
 
 - **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
@@ -400,7 +405,7 @@ If the teammate dies, the carried loot is lost.
 - **Immersive** — Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted.
 - **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 
-Switching away from **Simple** also changes profile customization. The saved-loadout dropdown is replaced by **Kit Loadouts**, where saved player equipment builds can be priced, purchased, or equipped using selected stash items. Dogtags are never purchased as part of a kit, and secure containers are only included in **Realistic** mode.
+Switching away from **Simple** also changes profile customization. The saved-loadout dropdown is replaced by **Kit Loadouts**, where saved player equipment builds can be priced, purchased, or equipped using selected stash items. Secure containers are only included in **Realistic** mode.
 
 ## Upcoming
 
@@ -414,8 +419,6 @@ The following are planned features in reaching a release version (1.0.0)
 
 **Planned features:**
 
-- When loadout management is set to immersive, post player raid survival will take into consideration player's equipment as well as nearby fallen teammates in regards to what will be returned should the rest make it out alive.
-- Posibility to check teammate backpack during raid.
 - Adding a third teammate tactic.
 - Porting over grenade launcher support from the old plugin.
 - Being able to play with Scav teammates.
@@ -433,7 +436,7 @@ The mod changes bot grouping, teammate ownership, commands, and combat routing. 
 - SAIN can interfere with teleportation, teleporting the bot back to previous location. You may need to trigger teleportation multiple times for it to stick.
 - Teammates can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix.
 - Teammates may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
-- Bushes are cursed with SAIN. You teammates can stand in a bush and not shoot while having visibility of the enemy.
+- Bushes are cursed with SAIN. Teammates can hesitate or refuse to shoot through bushes even when they know where the enemy is. Use **Suppress** with Riflemen to force fire at the enemy location through foliage.
 - If you have problems with My Squad screen and are not on English lanuage, switch to it, to see if that works. If so, post the issue along with the language that you originally tried.
 
 If a teammate appears stuck, try Attention or teleportation before assuming the raid is unrecoverable.

@@ -825,22 +825,35 @@ namespace pitTeam.Patches
             {
                 pitFireTeam.Log.LogError("[UI] Failed to commit teammate loadout editor changes.");
                 pitFireTeam.Log.LogError(ex);
+                NotificationManagerClass.DisplayWarningNotification(
+                    ex.Message ?? GetSocialUiText("LoadoutEditorSaveFailed", "Failed to save teammate inventory."),
+                    ENotificationDurationType.Default);
             }
         }
 
         private static async Task SaveLoadoutEditorPresetAsync(ResultProfile profile)
         {
             if (profile == null
-                || ActiveProfileSession?.EquipmentBuildsStorage == null
                 || LoadoutEditorProfile?.Inventory?.Equipment == null
                 || ItemUiContext.Instance == null)
             {
+                NotificationManagerClass.DisplayWarningNotification(
+                    GetSocialUiText("LoadoutEditorSaveFailed", "Failed to save teammate inventory."),
+                    ENotificationDurationType.Default);
                 return;
             }
 
             if (IsDefaultLoadoutEditorSelection())
             {
                 await SaveLoadoutEditorDefaultEquipmentAsync(profile);
+                return;
+            }
+
+            if (ActiveProfileSession?.EquipmentBuildsStorage == null)
+            {
+                NotificationManagerClass.DisplayWarningNotification(
+                    GetSocialUiText("LoadoutEditorSaveFailed", "Failed to save teammate inventory."),
+                    ENotificationDurationType.Default);
                 return;
             }
 

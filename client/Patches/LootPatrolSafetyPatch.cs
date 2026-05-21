@@ -8,6 +8,377 @@ using System.Reflection;
 
 namespace pitTeam.Patches
 {
+    // SAIN can know a propagated hostile enemy while vanilla BigBrain is still running a peaceful layer
+    // such as Looting or PatrolFollower. In that state the bot looks "hostile" in memory but never lets
+    // SAIN's combat layer take control. This helper only intervenes for non-followers that are already
+    // hostile to the player boss or one of our followers.
+    internal static class HostilePeacefulLayerInterrupt
+    {
+        private static readonly Dictionary<Type, Func<object, BotOwner>> BotOwnerGetters = new Dictionary<Type, Func<object, BotOwner>>();
+
+        public static void ForceEndActiveLayer(
+            AICoreLayerClass<BotLogicDecision> layer,
+            BotOwner botOwner,
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision,
+            string reason)
+        {
+            if (layer == null || botOwner == null)
+            {
+                return;
+            }
+
+            EndStatefulNonCombatAction(botOwner, currentDecision);
+            layer.Action_0?.Invoke(new AICoreActionEndStruct(reason, true));
+        }
+
+        public static bool ShouldSuppressLayerUse(AICoreLayerClass<BotLogicDecision> layer)
+        {
+            if (layer == null)
+            {
+                return false;
+            }
+
+            return !IsCombatLayer(layer) && HasHostileBossOrFollowerEnemy(GetBotOwner(layer));
+        }
+
+        public static bool HasHostileBossOrFollowerEnemy(BotOwner botOwner)
+        {
+            if (botOwner == null || botOwner.IsDead || botOwner.BotState != EBotState.Active)
+            {
+                return false;
+            }
+
+            if (BossPlayers.IsFollower(botOwner))
+            {
+                return false;
+            }
+
+            BotMemoryClass memory = botOwner.Memory;
+            if (memory == null || (!memory.HaveEnemy && memory.IsPeace && !memory.IsUnderFire))
+            {
+                return false;
+            }
+
+            EnemyInfo goalEnemy = botOwner.Memory?.GoalEnemy;
+            if (IsLiveBossOrFollower(goalEnemy?.Person))
+            {
+                return true;
+            }
+
+            BotsGroup group = botOwner.BotsGroup;
+            if (group?.Enemies == null)
+            {
+                return false;
+            }
+
+            foreach (IPlayer enemy in group.Enemies.Keys)
+            {
+                if (IsLiveBossOrFollower(enemy))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static void WakeHostileBot(BotOwner botOwner)
+        {
+            if (botOwner == null)
+            {
+                return;
+            }
+
+            try
+            {
+                // SAIN's combat layer uses BotOwner.IsBotActive(), which returns false while vanilla
+                // standby is paused/goToSave. Waking standby here is narrower than touching SAIN state.
+                BotStandBy standBy = botOwner.StandBy;
+                if (standBy != null &&
+                    standBy.StandByType != BotStandByType.none &&
+                    standBy.StandByType != BotStandByType.active)
+                {
+                    standBy.Activate();
+                }
+            }
+            catch
+            {
+                // Standby state is best-effort. If activation fails, leave the vanilla bot state untouched.
+            }
+        }
+
+        public static BotOwner GetBotOwner(object layer)
+        {
+            Type type = layer.GetType();
+            if (!BotOwnerGetters.TryGetValue(type, out Func<object, BotOwner> getter))
+            {
+                getter = LootPatrolActiveLayerListPatch.BuildBotOwnerGetter(type);
+                BotOwnerGetters[type] = getter;
+            }
+
+            return getter?.Invoke(layer);
+        }
+
+        private static bool IsLiveBossOrFollower(IPlayer player)
+        {
+            if (player == null || player.HealthController?.IsAlive != true || string.IsNullOrEmpty(player.ProfileId))
+            {
+                return false;
+            }
+
+            return BossPlayers.IsPlayerBoss(player.ProfileId) ||
+                   BossPlayers.IsFollowerProfileId(player.ProfileId);
+        }
+
+        private static bool IsCombatLayer(AICoreLayerClass<BotLogicDecision> layer)
+        {
+            string name = SafeName(layer);
+            return name.IndexOf("Combat", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void EndStatefulNonCombatAction(BotOwner botOwner, AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
+        {
+            if (botOwner == null)
+            {
+                return;
+            }
+
+            switch (currentDecision.Action)
+            {
+                case BotLogicDecision.simplePatrol:
+                case BotLogicDecision.followerPatrol:
+                case BotLogicDecision.alternativePatrol:
+                case BotLogicDecision.goToLootPointNode:
+                case BotLogicDecision.goToPoint:
+                case BotLogicDecision.goToCoverPointTactical:
+                case BotLogicDecision.botTakeItem:
+                case BotLogicDecision.deadBody:
+                    try
+                    {
+                        botOwner.BotRun?.EndMove();
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup only. The layer handoff itself is the important part.
+                    }
+
+                    try
+                    {
+                        botOwner.PatrollingData?.LootData?.StopLootCluster();
+                    }
+                    catch
+                    {
+                        // Loot/patrol internals are not guaranteed to be initialized for every layer.
+                    }
+                    break;
+            }
+        }
+
+        public static string SafeName(AICoreLayerClass<BotLogicDecision> layer)
+        {
+            try
+            {
+                return layer.Name() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+    }
+
+    internal class HostileNonCombatActiveLayerFilterPatch : ModulePatch
+    {
+        private static FieldInfo _activeLayerListField;
+        private static PropertyInfo _activeLayerProperty;
+        private static bool _resolved;
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(AICoreStrategyAbstractClass<BotLogicDecision>), "Update");
+        }
+
+        [PatchPrefix]
+        [HarmonyPriority(Priority.First)]
+        private static void PatchPrefix(
+            object __instance,
+            AICoreActionResultStruct<BotLogicDecision, GClass26> prevResult,
+            ref FilterState __state)
+        {
+            try
+            {
+                if (__instance == null)
+                {
+                    return;
+                }
+
+                Resolve(__instance.GetType());
+                if (_activeLayerListField == null)
+                {
+                    return;
+                }
+
+                List<AICoreLayerClass<BotLogicDecision>> activeLayerList =
+                    _activeLayerListField.GetValue(__instance) as List<AICoreLayerClass<BotLogicDecision>>;
+                if (activeLayerList == null || activeLayerList.Count == 0)
+                {
+                    return;
+                }
+
+                BotOwner botOwner = GetAnyBotOwner(activeLayerList);
+                if (!HostilePeacefulLayerInterrupt.HasHostileBossOrFollowerEnemy(botOwner))
+                {
+                    return;
+                }
+
+                HostilePeacefulLayerInterrupt.WakeHostileBot(botOwner);
+
+                // AICoreStrategyAbstractClass.Update selects the first active layer from List_0.
+                // For this single update, hide peaceful layers so an already-hostile bot can fall
+                // through to SAIN/vanilla combat. The finalizer restores the list immediately after.
+                AICoreLayerClass<BotLogicDecision> activeLayer =
+                    _activeLayerProperty?.GetValue(__instance, null) as AICoreLayerClass<BotLogicDecision>;
+                FilterState state = null;
+                for (int i = activeLayerList.Count - 1; i >= 0; i--)
+                {
+                    AICoreLayerClass<BotLogicDecision> layer = activeLayerList[i];
+                    if (layer == null || !HostilePeacefulLayerInterrupt.ShouldSuppressLayerUse(layer))
+                    {
+                        continue;
+                    }
+
+                    state ??= new FilterState(activeLayerList);
+                    state.Removed.Add(new RemovedLayer(i, layer));
+                    activeLayerList.RemoveAt(i);
+
+                    if (ReferenceEquals(layer, activeLayer))
+                    {
+                        HostilePeacefulLayerInterrupt.ForceEndActiveLayer(
+                            layer,
+                            botOwner,
+                            prevResult,
+                            "pitFireTeamHostileEnemy");
+                    }
+                }
+
+                __state = state;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("HostileNonCombatActiveLayerFilterPatch prefix failed");
+                Logger.LogError(ex);
+            }
+        }
+
+        [PatchFinalizer]
+        private static Exception PatchFinalizer(Exception __exception, FilterState __state)
+        {
+            try
+            {
+                __state?.Restore();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("HostileNonCombatActiveLayerFilterPatch restore failed");
+                Logger.LogError(ex);
+            }
+
+            return __exception;
+        }
+
+        private static void Resolve(Type strategyType)
+        {
+            if (_resolved) return;
+            _resolved = true;
+
+            for (Type type = strategyType; type != null; type = type.BaseType)
+            {
+                if (_activeLayerListField == null)
+                {
+                    _activeLayerListField = AccessTools.Field(type, "List_0");
+                    if (_activeLayerListField == null)
+                    {
+                        foreach (FieldInfo field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                        {
+                            if (field.FieldType == typeof(List<AICoreLayerClass<BotLogicDecision>>))
+                            {
+                                _activeLayerListField = field;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (_activeLayerProperty == null)
+                {
+                    foreach (PropertyInfo property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                    {
+                        if (property.PropertyType == typeof(AICoreLayerClass<BotLogicDecision>))
+                        {
+                            _activeLayerProperty = property;
+                            break;
+                        }
+                    }
+                }
+
+                if (_activeLayerListField != null && _activeLayerProperty != null)
+                {
+                    break;
+                }
+            }
+        }
+
+        private static BotOwner GetAnyBotOwner(List<AICoreLayerClass<BotLogicDecision>> activeLayerList)
+        {
+            for (int i = 0; i < activeLayerList.Count; i++)
+            {
+                BotOwner botOwner = HostilePeacefulLayerInterrupt.GetBotOwner(activeLayerList[i]);
+                if (botOwner != null)
+                {
+                    return botOwner;
+                }
+            }
+
+            return null;
+        }
+
+        private sealed class FilterState
+        {
+            private readonly List<AICoreLayerClass<BotLogicDecision>> _list;
+
+            public FilterState(List<AICoreLayerClass<BotLogicDecision>> list)
+            {
+                _list = list;
+            }
+
+            public List<RemovedLayer> Removed { get; } = new List<RemovedLayer>();
+
+            public void Restore()
+            {
+                for (int i = Removed.Count - 1; i >= 0; i--)
+                {
+                    RemovedLayer removed = Removed[i];
+                    int index = Math.Max(0, Math.Min(removed.Index, _list.Count));
+                    if (!_list.Contains(removed.Layer))
+                    {
+                        _list.Insert(index, removed.Layer);
+                    }
+                }
+            }
+        }
+
+        private readonly struct RemovedLayer
+        {
+            public RemovedLayer(int index, AICoreLayerClass<BotLogicDecision> layer)
+            {
+                Index = index;
+                Layer = layer;
+            }
+
+            public int Index { get; }
+            public AICoreLayerClass<BotLogicDecision> Layer { get; }
+        }
+    }
 
     // BigBrain scans active layers every update. Ensure crashed vanilla LootPatrol layer is removed from that list first.
     internal class LootPatrolActiveLayerListPatch : ModulePatch

@@ -5,9 +5,11 @@ using pitTeam;
 using pitTeam.Modules;
 using HarmonyLib;
 using System;
+using System.Collections;
 using System.Linq;
 using System.Reflection;
 using pitTeam.BigBrain;
+using Unity.Collections;
 using UnityEngine;
 
 namespace pitTeam.Patches
@@ -34,7 +36,16 @@ namespace pitTeam.Patches
         private static Type? sainMoverClass = null;
         private static Type? selfActionDecisionClassType = null;
         private static Type? sainShootDataType = null;
+        private static Type? sainVisionRaycastJobType = null;
         private static PropertyInfo? sainPlayerComponentPlayerProperty = null;
+        private static FieldInfo? sainVisionRaycastEnemiesField = null;
+        private static FieldInfo? sainVisionRaycastColliderTypesField = null;
+        private static FieldInfo? sainVisionRaycastCastPointsField = null;
+        private const float FollowerCloseFoliageMaskDistance = 10f;
+        private static readonly QueryParameters sainDefaultLosParams = new QueryParameters(LayerMaskClass.HighPolyWithTerrainNoGrassMask);
+        private static readonly QueryParameters sainDefaultVisionParams = new QueryParameters(LayerMaskClass.AI);
+        private static readonly QueryParameters sainDefaultShootParams = new QueryParameters(LayerMaskClass.HighPolyWithTerrainMaskAI);
+        private static readonly QueryParameters sainCloseFollowerParams = new QueryParameters(LayerMaskClass.HighPolyWithTerrainMask);
         public static void PatchSAINIfInstalled(Harmony harmony)
         {
             if (!pitFireTeam.IsSAINInstalled) return;
@@ -99,6 +110,7 @@ namespace pitTeam.Patches
             PatchFollowerWeaponSelectionGuard(harmony);
             PatchSainTalkPrefixesForFollowers(harmony);
             PatchSainPlayerVoiceLineForFollowers(harmony);
+            PatchFollowerCloseFoliageVision(harmony);
 
 
             if (squadType != null && SAINEnableClass != null)
@@ -110,6 +122,32 @@ namespace pitTeam.Patches
                 }
                 Modules.Logger.LogInfo("SAIN Patched");
             }
+        }
+
+        private static void PatchFollowerCloseFoliageVision(Harmony harmony)
+        {
+            sainVisionRaycastJobType ??= Type.GetType("SAIN.Components.VisionRaycastJob, SAIN");
+            MethodInfo? createCommands = sainVisionRaycastJobType != null
+                ? AccessTools.Method(sainVisionRaycastJobType, "CreateCommands")
+                : null;
+            if (createCommands == null)
+            {
+                return;
+            }
+
+            sainVisionRaycastEnemiesField ??= AccessTools.Field(sainVisionRaycastJobType, "_enemies");
+            sainVisionRaycastColliderTypesField ??= AccessTools.Field(sainVisionRaycastJobType, "_colliderTypes");
+            sainVisionRaycastCastPointsField ??= AccessTools.Field(sainVisionRaycastJobType, "_castPoints");
+            if (sainVisionRaycastEnemiesField == null ||
+                sainVisionRaycastColliderTypesField == null ||
+                sainVisionRaycastCastPointsField == null)
+            {
+                return;
+            }
+
+            harmony.Patch(
+                createCommands,
+                prefix: new HarmonyMethod(typeof(SAINPatch).GetMethod(nameof(CreateFollowerAwareSainVisionRaycastCommands), BindingFlags.NonPublic | BindingFlags.Static)));
         }
 
         private static void PatchFollowerCombatPatrolStanceWithoutAddon(Harmony harmony)
@@ -300,6 +338,137 @@ namespace pitTeam.Patches
             }
 
             return true;
+        }
+
+        [HarmonyPrefix]
+        private static bool CreateFollowerAwareSainVisionRaycastCommands(
+            object __instance,
+            NativeArray<RaycastCommand> raycastCommands,
+            int enemyCount,
+            int partCount)
+        {
+            try
+            {
+                if (sainVisionRaycastEnemiesField?.GetValue(__instance) is not IList enemies ||
+                    sainVisionRaycastColliderTypesField?.GetValue(__instance) is not IList colliderTypes ||
+                    sainVisionRaycastCastPointsField?.GetValue(__instance) is not IList castPoints)
+                {
+                    return true;
+                }
+
+                colliderTypes.Clear();
+                castPoints.Clear();
+
+                int commands = 0;
+                const float minDist = 0.01f;
+                const float padding = 0.05f;
+
+                for (int i = 0; i < enemyCount; i++)
+                {
+                    object? enemy = enemies[i];
+                    object? bot = GetMemberValue(enemy, "Bot");
+                    BotOwner? botOwner = GetMemberValue(bot, "BotOwner") as BotOwner;
+                    object? botTransform = GetMemberValue(bot, "Transform");
+                    if (bot == null ||
+                        botTransform == null ||
+                        !TryGetVectorMember(botTransform, "EyePosition", out Vector3 eyePosition))
+                    {
+                        return true;
+                    }
+
+                    object? weaponData = GetMemberValue(botTransform, "WeaponData");
+                    if (!TryGetVectorMember(weaponData, "FirePort", out Vector3 weaponFirePort))
+                    {
+                        weaponFirePort = eyePosition;
+                    }
+
+                    object? vision = GetMemberValue(enemy, "Vision");
+                    object? enemyParts = GetMemberValue(vision, "EnemyParts");
+                    if (GetMemberValue(enemyParts, "PartsArray") is not Array parts)
+                    {
+                        return true;
+                    }
+
+                    bool follower = botOwner != null && BossPlayers.IsFollower(botOwner);
+                    for (int j = 0; j < partCount; j++)
+                    {
+                        object? part = parts.GetValue(j);
+                        MethodInfo? getRaycast = part != null ? AccessTools.Method(part.GetType(), "GetRaycast") : null;
+                        object? raycastData = getRaycast?.Invoke(part, null);
+                        if (raycastData == null ||
+                            !TryGetVectorMember(raycastData, "CastPoint", out Vector3 castPoint))
+                        {
+                            return true;
+                        }
+
+                        object? colliderType = GetMemberValue(raycastData, "ColliderType");
+                        if (colliderType == null)
+                        {
+                            return true;
+                        }
+
+                        colliderTypes.Add(colliderType);
+                        castPoints.Add(castPoint);
+
+                        Vector3 eyeVec = castPoint - eyePosition;
+                        float eyeMag = eyeVec.magnitude;
+                        Vector3 eyeDir = eyeMag > 1e-6f ? eyeVec / eyeMag : Vector3.forward;
+                        float eyeDist = Mathf.Max(eyeMag, minDist);
+
+                        Vector3 weaponVec = castPoint - weaponFirePort;
+                        float weaponMag = weaponVec.magnitude;
+                        Vector3 weaponDir = weaponMag > 1e-6f ? weaponVec / weaponMag : Vector3.forward;
+                        float weaponDist = Mathf.Max(eyeMag, minDist);
+
+                        bool closeFollowerCheck = follower && eyeMag <= FollowerCloseFoliageMaskDistance;
+                        QueryParameters losParams = closeFollowerCheck ? sainCloseFollowerParams : sainDefaultLosParams;
+                        QueryParameters visionParams = closeFollowerCheck ? sainCloseFollowerParams : sainDefaultVisionParams;
+                        QueryParameters shootParams = closeFollowerCheck ? sainCloseFollowerParams : sainDefaultShootParams;
+
+                        raycastCommands[commands++] = new RaycastCommand(eyePosition, eyeDir, losParams, eyeDist + padding);
+                        raycastCommands[commands++] = new RaycastCommand(eyePosition, eyeDir, visionParams, eyeDist + padding);
+                        raycastCommands[commands++] = new RaycastCommand(weaponFirePort, weaponDir, shootParams, weaponDist + padding);
+                    }
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static object? GetMemberValue(object? instance, string name)
+        {
+            if (instance == null)
+            {
+                return null;
+            }
+
+            Type type = instance.GetType();
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            PropertyInfo? property = type.GetProperty(name, flags);
+            if (property != null)
+            {
+                return property.GetValue(instance);
+            }
+
+            FieldInfo? field = type.GetField(name, flags);
+            return field?.GetValue(instance);
+        }
+
+        private static bool TryGetVectorMember(object? instance, string name, out Vector3 value)
+        {
+            object? member = GetMemberValue(instance, name);
+            if (member is Vector3 vector)
+            {
+                value = vector;
+                return true;
+            }
+
+            value = default;
+            return false;
         }
 
         [HarmonyPrefix]

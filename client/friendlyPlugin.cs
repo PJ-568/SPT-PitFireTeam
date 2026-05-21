@@ -154,7 +154,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "pitFireTeam", "0.7.1")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.7.2")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -267,6 +267,7 @@ namespace pitTeam
             new BotGroupUsecEnemyPatch().Enable();
             new BotGroupCalcGoalPatch().Enable();
             new BotControllerEnemyPropagationSafetyPatch().Enable();
+            new PmcFriendlyFireRetaliationBridgePatch().Enable();
 
             new BotMemoryDamagePatch().Enable();
             new FollowerGoalEnemyClearRetentionPatch().Enable();
@@ -278,6 +279,8 @@ namespace pitTeam
             new SessionLoadBotsEnglishVoicePatch().Enable();
             new LootPatrolActiveLayerListPatch().Enable();
             new LootPatrolDecisionBypassPatch().Enable();
+            if (IsSAINInstalled)
+                new HostileNonCombatActiveLayerFilterPatch().Enable();
             new AdvAssaultTargetFollowerGuardPatch().Enable();
             new PatrolDataFollowerUpdateGuardPatch().Enable();
             new AvoidDangerFollowerGuardPatch().Enable();
@@ -631,7 +634,6 @@ namespace pitTeam
             savedConfigValues = new Dictionary<ConfigDefinition, string>();
 
             var orphanedEntries = AccessTools.Property(typeof(ConfigFile), "OrphanedEntries").GetValue(Config) as Dictionary<ConfigDefinition, string>;
-
             orphanedEntries.ExecuteForEach(it =>
             {
                 savedConfigValues.Add(it.Key, it.Value);
@@ -707,7 +709,6 @@ namespace pitTeam
             battleRecorderEnabled = Config.Bind("Miscellaneous", "27 BattleRecorder", false, new ConfigDescription(optionsLang.battleRecorder["Description"], null, CreateConfigAttributes(-9998, showBattleRecorderSettings, optionsLang.battleRecorder)));
 
             battleRecorderSnapshotIntervalMs = Config.Bind("Miscellaneous", "28 BattleRecorderSnapshotIntervalMs", 200, new ConfigDescription(optionsLang.battleRecorderSnapshotIntervalMs["Description"], new AcceptableValueRange<int>(50, 1000), CreateConfigAttributes(-9999, showBattleRecorderSettings, optionsLang.battleRecorderSnapshotIntervalMs)));
-
 
 
             Config.SaveOnConfigSet = true;
@@ -917,7 +918,7 @@ namespace pitTeam
                     ?? AccessTools.TypeByName("ConsoleScreen");
                 if (consoleType == null)
                 {
-                    Modules.Logger.LogError("ConsoleScreen type not found; fs_spawnfollower not registered.");
+                    Modules.Logger.LogError("ConsoleScreen type not found; debug spawn commands not registered.");
                     return;
                 }
 
@@ -930,7 +931,7 @@ namespace pitTeam
                 }
                 if (processor == null)
                 {
-                    Modules.Logger.LogError("ConsoleScreen.Processor not found; fs_spawnfollower not registered.");
+                    Modules.Logger.LogError("ConsoleScreen.Processor not found; debug spawn commands not registered.");
                     return;
                 }
 
@@ -962,27 +963,66 @@ namespace pitTeam
 
                 if (registerWithDescription != null)
                 {
-                    registerWithDescription.Invoke(
+                    RegisterDebugConsoleCommand(
                         processor,
-                        new object[] { "fs_spawnfollower", (Action)SpawnFollowerConsoleCommand, "Spawn a follower bot near the player" });
+                        registerWithDescription,
+                        "fs_spawnfollower",
+                        SpawnFollowerConsoleCommand,
+                        "Spawn a follower bot near the player");
+                    RegisterDebugConsoleCommand(
+                        processor,
+                        registerWithDescription,
+                        "fs_spawnscav",
+                        SpawnScavConsoleCommand,
+                        "Spawn a scav enemy at the point you are looking at");
                     Modules.Logger.LogInfo("Registered console command: fs_spawnfollower");
+                    Modules.Logger.LogInfo("Registered console command: fs_spawnscav");
                     return;
                 }
 
                 if (registerSimple != null)
                 {
-                    registerSimple.Invoke(processor, new object[] { "fs_spawnfollower", (Action)SpawnFollowerConsoleCommand });
+                    RegisterDebugConsoleCommand(
+                        processor,
+                        registerSimple,
+                        "fs_spawnfollower",
+                        SpawnFollowerConsoleCommand,
+                        null);
+                    RegisterDebugConsoleCommand(
+                        processor,
+                        registerSimple,
+                        "fs_spawnscav",
+                        SpawnScavConsoleCommand,
+                        null);
                     Modules.Logger.LogInfo("Registered console command: fs_spawnfollower");
+                    Modules.Logger.LogInfo("Registered console command: fs_spawnscav");
                     return;
                 }
 
-                Modules.Logger.LogError("RegisterCommand overload not found; fs_spawnfollower not registered.");
+                Modules.Logger.LogError("RegisterCommand overload not found; debug spawn commands not registered.");
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogError("Failed to register fs_spawnfollower console command");
+                Modules.Logger.LogError("Failed to register debug spawn console commands");
                 Modules.Logger.LogError(ex);
             }
+        }
+
+        private static void RegisterDebugConsoleCommand(
+            object processor,
+            MethodInfo registerMethod,
+            string command,
+            Action action,
+            string description)
+        {
+            ParameterInfo[] parameters = registerMethod.GetParameters();
+            if (parameters.Length == 3)
+            {
+                registerMethod.Invoke(processor, new object[] { command, action, description ?? string.Empty });
+                return;
+            }
+
+            registerMethod.Invoke(processor, new object[] { command, action });
         }
 
         private static void SpawnFollowerConsoleCommand()
@@ -1053,6 +1093,111 @@ namespace pitTeam
                 DebugConsoleLog($"fs_spawnfollower: exception: {ex.Message}", true);
                 Modules.Logger.LogError(ex);
             }
+        }
+
+        private static void SpawnScavConsoleCommand()
+        {
+            _ = SpawnScavConsoleCommandAsync();
+        }
+
+        private static async Task SpawnScavConsoleCommandAsync()
+        {
+            if (!Singleton<AbstractGame>.Instantiated || Singleton<GameWorld>.Instance == null || GamePlayerOwner.MyPlayer == null)
+            {
+                DebugConsoleLog("fs_spawnscav: this command can only be used in-raid.", true);
+                return;
+            }
+
+            if (BotsControllerPatch.Instance == null || BotsControllerPatch.Controller == null)
+            {
+                DebugConsoleLog("fs_spawnscav: bots controller is not ready.", true);
+                return;
+            }
+
+            Player player = GamePlayerOwner.MyPlayer;
+            if (!TryGetDebugScavSpawnPoint(player, out Vector3 spawnPoint, out string failureReason))
+            {
+                DebugConsoleLog($"fs_spawnscav: no valid spawn point ({failureReason}).", true);
+                return;
+            }
+
+            try
+            {
+                string spawnFailureReason = null;
+                bool result = await BotsControllerPatch.Instance.SpawnDebugScavEnemy(
+                    spawnPoint,
+                    reason => spawnFailureReason = reason);
+
+                if (result)
+                {
+                    DebugConsoleLog($"fs_spawnscav: spawn requested at {FormatVector(spawnPoint)}.", false);
+                }
+                else
+                {
+                    string details = string.IsNullOrEmpty(spawnFailureReason) ? "unknown reason" : spawnFailureReason;
+                    DebugConsoleLog($"fs_spawnscav: spawn request failed ({details}).", true);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugConsoleLog($"fs_spawnscav: exception: {ex.Message}", true);
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static bool TryGetDebugScavSpawnPoint(Player player, out Vector3 spawnPoint, out string failureReason)
+        {
+            const float maxRayDistance = 150f;
+            const float fallbackForwardDistance = 25f;
+            float[] sampleRadii = { 1.5f, 3f, 6f, 10f };
+
+            spawnPoint = Vector3.zero;
+            failureReason = string.Empty;
+            if (player == null)
+            {
+                failureReason = "player null";
+                return false;
+            }
+
+            Vector3 rayOrigin = player.PlayerBones?.WeaponRoot?.position ?? (player.Position + Vector3.up * 1.5f);
+            Vector3 rayDirection = player.LookDirection.sqrMagnitude > 0.001f
+                ? player.LookDirection.normalized
+                : player.Transform.forward;
+
+            Vector3 rawTarget;
+            if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit, maxRayDistance, LayerMaskClass.HighPolyWithTerrainMask))
+            {
+                rawTarget = hit.point;
+            }
+            else
+            {
+                Vector3 flatDirection = rayDirection;
+                flatDirection.y = 0f;
+                if (flatDirection.sqrMagnitude <= 0.001f)
+                {
+                    flatDirection = player.Transform.forward;
+                    flatDirection.y = 0f;
+                }
+
+                rawTarget = player.Position + flatDirection.normalized * fallbackForwardDistance;
+            }
+
+            foreach (float radius in sampleRadii)
+            {
+                if (NavMesh.SamplePosition(rawTarget, out NavMeshHit navHit, radius, NavMesh.AllAreas))
+                {
+                    spawnPoint = navHit.position;
+                    return true;
+                }
+            }
+
+            failureReason = "look target is not near navmesh";
+            return false;
+        }
+
+        private static string FormatVector(Vector3 value)
+        {
+            return $"{value.x:0.0},{value.y:0.0},{value.z:0.0}";
         }
 
         private static void DebugConsoleLog(string message, bool isError)

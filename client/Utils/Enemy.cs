@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace pitTeam.Utils
@@ -287,7 +288,12 @@ namespace pitTeam.Utils
         }
 
 
-        public static EnemyInfo? MakeEnemy(BotOwner bot, Player enemy, EBotEnemyCause cause = EBotEnemyCause.addPlayerToBoss)
+        public static EnemyInfo? MakeEnemy(
+            BotOwner bot,
+            Player enemy,
+            EBotEnemyCause cause = EBotEnemyCause.addPlayerToBoss,
+            string? source = null,
+            [CallerMemberName] string caller = "")
         {
             if (bot == null || enemy == null) return null;
 
@@ -313,6 +319,14 @@ namespace pitTeam.Utils
                 }
             }
 
+            string acquisitionSource = string.IsNullOrWhiteSpace(source) ? caller : source;
+            bool hadGoalEnemyBefore = bot.Memory?.GoalEnemy != null;
+            string? previousGoalEnemyProfileId = bot.Memory?.GoalEnemy?.ProfileId;
+            bool hadEnemyInfoBefore = bot.EnemiesController?.EnemyInfos?.ContainsKey(enemy) == true;
+            bool hadGroupEnemyBefore = bot.BotsGroup?.Enemies?.ContainsKey(enemy) == true;
+            bool retriedWithCheckAdd = false;
+            bool forcedMemoryAdd = false;
+
             BotSettingsClass groupInfo;
             bot.BotsGroup.Enemies.TryGetValue(enemy, out groupInfo);
 
@@ -325,6 +339,7 @@ namespace pitTeam.Utils
                 // Retry with checkAddTODO so BotsGroup can still mark enemy/neutrals/allies correctly.
                 if (groupInfo == null && cause != EBotEnemyCause.checkAddTODO)
                 {
+                    retriedWithCheckAdd = true;
                     bot.BotsGroup.AddEnemy(enemy, EBotEnemyCause.checkAddTODO);
                     bot.BotsGroup.Enemies.TryGetValue(enemy, out groupInfo);
                 }
@@ -332,6 +347,7 @@ namespace pitTeam.Utils
 
             if (groupInfo == null)
             {
+                forcedMemoryAdd = true;
                 groupInfo = new BotSettingsClass(enemy, bot.BotsGroup, cause);
 
                 bot.Memory.AddEnemy(enemy, groupInfo, false);
@@ -351,6 +367,18 @@ namespace pitTeam.Utils
 
             info.IgnoreUntilAggression = false;
             RepairPersonalMemory(info, enemy.Transform.position, info.IsVisible || info.CanShoot || info.HaveSeen);
+            BattleRecorder.RecordEnemyAcquired(
+                bot,
+                enemy,
+                info,
+                cause,
+                acquisitionSource,
+                hadGroupEnemyBefore,
+                hadEnemyInfoBefore,
+                hadGoalEnemyBefore,
+                previousGoalEnemyProfileId,
+                retriedWithCheckAdd,
+                forcedMemoryAdd);
 
             return info;
 
