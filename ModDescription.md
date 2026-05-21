@@ -396,6 +396,8 @@ If the teammate dies, the carried loot is lost.
 
 ## Loadout Management
 
+Found in My Squad → Settings
+
 ![Loadout Management](https://iili.io/BpKDP4I.md.png)
 
 - **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
@@ -403,7 +405,7 @@ If the teammate dies, the carried loot is lost.
 - **Immersive** — Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted.
 - **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 
-Switching away from **Simple** also changes profile customization. The saved-loadout dropdown is replaced by **Kit Loadouts**, where saved player equipment builds can be priced, purchased, or equipped using selected stash items. Dogtags are never purchased as part of a kit, and secure containers are only included in **Realistic** mode.
+Switching away from **Simple** also changes profile customization. The saved-loadout dropdown is replaced by **Kit Loadouts**, where saved player equipment builds can be priced, purchased, or equipped using selected stash items. Secure containers are only included in **Realistic** mode.
 
 ## Upcoming
 
@@ -417,8 +419,6 @@ The following are planned features in reaching a release version (1.0.0)
 
 **Planned features:**
 
-- When loadout management is set to immersive, post player raid survival will take into consideration player's equipment as well as nearby fallen teammates in regards to what will be returned should the rest make it out alive.
-- Posibility to check teammate backpack during raid.
 - Adding a third teammate tactic.
 - Porting over grenade launcher support from the old plugin.
 - Being able to play with Scav teammates.
