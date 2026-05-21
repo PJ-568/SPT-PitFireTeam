@@ -310,7 +310,7 @@ namespace pitTeam.Patches
                         if (canAcquire)
                         {
                             if (!reportEnemy) bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.Visible, bot);
-                            EnemyInfo info = Utils.Enemy.MakeEnemy(bot, __instance);
+                            EnemyInfo info = Utils.Enemy.MakeEnemy(bot, __instance, source: "hearingVoiceCloseVisible");
                             info?.SetVisible(true);
                             reportEnemy = true;
                             Trace(bot, $"Voice react close result turn=false autoAcquire={info != null} dist={effectiveDistance:F1} followerLos={followerHasLosToSpeaker}");

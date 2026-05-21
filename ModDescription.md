@@ -309,8 +309,11 @@ Useful for:
 - pinning enemies behind cover
 - helping another teammate reposition
 - supporting a push
+- forcing fire through bushes or foliage when bots hesitate to shoot
 
 Marksmen generally ignore suppression because their role is precision support, not volume fire.
+
+Bushes and dense foliage can make bots hesitate to shoot, especially when SAIN is installed. If a teammate has enemy contact but will not fire through a bush, order **Suppress**. Suppression targets the enemy's known location and can make Riflemen shoot through the foliage; this often wounds or kills the hidden enemy even when normal aimed fire is being delayed.
 
 #### Need Sniper
 
@@ -433,7 +436,7 @@ The mod changes bot grouping, teammate ownership, commands, and combat routing. 
 - SAIN can interfere with teleportation, teleporting the bot back to previous location. You may need to trigger teleportation multiple times for it to stick.
 - Teammates can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix.
 - Teammates may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
-- Bushes are cursed with SAIN. You teammates can stand in a bush and not shoot while having visibility of the enemy.
+- Bushes are cursed with SAIN. Teammates can hesitate or refuse to shoot through bushes even when they know where the enemy is. Use **Suppress** with Riflemen to force fire at the enemy location through foliage.
 - If you have problems with My Squad screen and are not on English lanuage, switch to it, to see if that works. If so, post the issue along with the language that you originally tried.
 
 If a teammate appears stuck, try Attention or teleportation before assuming the raid is unrecoverable.

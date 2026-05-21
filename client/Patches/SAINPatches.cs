@@ -447,13 +447,14 @@ namespace pitTeam.Patches
             }
 
             Type type = instance.GetType();
-            PropertyInfo? property = AccessTools.Property(type, name);
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            PropertyInfo? property = type.GetProperty(name, flags);
             if (property != null)
             {
                 return property.GetValue(instance);
             }
 
-            FieldInfo? field = AccessTools.Field(type, name);
+            FieldInfo? field = type.GetField(name, flags);
             return field?.GetValue(instance);
         }
 

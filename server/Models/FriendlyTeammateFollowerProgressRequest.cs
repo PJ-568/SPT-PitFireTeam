@@ -14,6 +14,10 @@ public record FriendlyTeammateFollowerProgressRequest
 
     public double BotExperienceSession { get; set; }
 
+    public int KillCount { get; set; }
+
+    public int RaidSeconds { get; set; }
+
     public List<FriendlyTeammateSkillProgressRequest> Skills { get; set; } = [];
 }
 

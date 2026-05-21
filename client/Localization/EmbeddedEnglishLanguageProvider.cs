@@ -111,7 +111,7 @@ namespace pitTeam.Localization
                     "Followers will send message at the end of the raid based on conditions such as if all made it out or if you picked up a follower and kept him alive. Return items messages are excluded"),
                 pitFireTeam = Entry(
                     "Friendly PMC Side",
-                    "Should PMC Bots of the same side always be friendly to each other"),
+                    "Should PMC Bots of the same side always be friendly to each other. Turn this off would let the normal game aggro system decide if same side bots will be friendly to you or not."),
                 badGuy = Entry(
                     "Bad Guy",
                     "Should the player be hostile to all PMC bots, regardless of faction"),

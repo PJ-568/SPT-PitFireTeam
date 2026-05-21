@@ -173,6 +173,8 @@ Current pickup radius:
 
 Current recovery priority:
 
+Backpack shells have a special capacity-first pre-pass before the ordered recovery pass below. This lets an escaped squadmate use a recovered backpack's empty grids as extra carrier space for later gear. Backpack contents are still treated as separate low-priority candidates; recovering a backpack shell does not automatically recover everything inside it.
+
 1. first primary weapon
 2. armor or armored tactical vest
 3. helmet

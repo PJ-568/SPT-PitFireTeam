@@ -93,11 +93,13 @@ namespace pitTeam.Modules
                 return;
             }
 
-            EnemyInfo info = Enemy.MakeEnemy(owner, firstVisible);
+            EnemyInfo info = Enemy.MakeEnemy(owner, firstVisible, source: "calcGoalForwardScan");
             if (info == null)
             {
                 return;
             }
+
+            PromoteGoalEnemy(owner, info);
 
             owner.BotFollower.BossToFollow?.Followers?.ForEach(follower =>
             {
@@ -111,8 +113,27 @@ namespace pitTeam.Modules
                     return;
                 }
 
-                Enemy.MakeEnemy(follower, firstVisible);
+                EnemyInfo? followerInfo = Enemy.MakeEnemy(follower, firstVisible, source: "calcGoalForwardScanPropagate");
+                PromoteGoalEnemy(follower, followerInfo);
             });
+        }
+
+        private static void PromoteGoalEnemy(BotOwner follower, EnemyInfo? info)
+        {
+            if (follower?.Memory == null || info == null)
+            {
+                return;
+            }
+
+            if (follower.Memory.GoalEnemy == null ||
+                !follower.Memory.HaveEnemy ||
+                follower.Memory.GoalEnemy.Person?.HealthController?.IsAlive != true)
+            {
+                follower.Memory.IsPeace = false;
+                info.IgnoreUntilAggression = false;
+                follower.Memory.GoalEnemy = info;
+                FollowerContactEnemyRetention.RegisterCurrentGoal(follower, prioritized: false);
+            }
         }
 
         public static bool CandidateHasBossOrFollowerAsEnemy(BotOwner owner, Player candidate)

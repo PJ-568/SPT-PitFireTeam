@@ -267,6 +267,7 @@ namespace pitTeam
             new BotGroupUsecEnemyPatch().Enable();
             new BotGroupCalcGoalPatch().Enable();
             new BotControllerEnemyPropagationSafetyPatch().Enable();
+            new PmcFriendlyFireRetaliationBridgePatch().Enable();
 
             new BotMemoryDamagePatch().Enable();
             new FollowerGoalEnemyClearRetentionPatch().Enable();
@@ -278,6 +279,8 @@ namespace pitTeam
             new SessionLoadBotsEnglishVoicePatch().Enable();
             new LootPatrolActiveLayerListPatch().Enable();
             new LootPatrolDecisionBypassPatch().Enable();
+            if (IsSAINInstalled)
+                new HostileNonCombatActiveLayerFilterPatch().Enable();
             new AdvAssaultTargetFollowerGuardPatch().Enable();
             new PatrolDataFollowerUpdateGuardPatch().Enable();
             new AvoidDangerFollowerGuardPatch().Enable();

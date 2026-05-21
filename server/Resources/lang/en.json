@@ -36,7 +36,7 @@
 	"loadoutManagementImmersive": { "Name": "Immersive", "Description": "Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted." },
 	"loadoutManagementExtreme": { "Name": "Realistic", "Description": "Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself." },
 	"npcSendMessage": { "Name": "Raid End Messages", "Description": "Followers will send message at the end of the raid based on conditions such as if all made it out or if you picked up a follower and kept him alive. Return items messages are excluded" },
-	"friendlyPMC": { "Name": "Friendly PMC Side", "Description": "Should PMC Bots of the same side always be friendly to each other" },
+	"friendlyPMC": { "Name": "Friendly PMC Side", "Description": "Should PMC Bots of the same side always be friendly to each other. Turn this off would let the normal game aggro system decide if same side bots will be friendly to you or not." },
 	"badGuy": { "Name": "Bad Guy", "Description": "Should the player be hostile to all PMC bots, regardless of faction" },
 	"PmcArmbands": { "Name": "PMC Faction Arm Bands", "Description": "Should PMC bots have armbands (red for BEARs, blue for USECs)." },
 	"englishBear": { "Name": "BEARs speak English", "Description": "Should BEAR bots speak English only" },
