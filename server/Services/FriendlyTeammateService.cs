@@ -72,11 +72,22 @@ public class FriendlyTeammateService(
         nameof(EquipmentSlots.Holster),
     ];
 
+    private static readonly HashSet<string> LoadedAmmoSlotIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cartridges",
+    };
+
     private static readonly HashSet<string> SurgicalKitTemplateIds =
     [
         FriendlyItemTemplateIds.Medical.Surv12SurgicalKit,
         FriendlyItemTemplateIds.Medical.CmsSurgicalKit,
     ];
+
+    private sealed class AvailableAmmoStack(Item item, int remaining)
+    {
+        public Item Item { get; } = item;
+        public int Remaining { get; set; } = remaining;
+    }
 
     public SearchFriendResponse CreateTeammate(MongoId sessionId, FriendlyTeammateCreateRequest request)
     {
@@ -1043,6 +1054,8 @@ public class FriendlyTeammateService(
             EnsureFollowerHasSecureContainerSupplies(clone);
         }
 
+        RefillFollowerMagazinesFromInventoryAmmo(clone);
+
         return clone;
     }
 
@@ -1842,8 +1855,7 @@ public class FriendlyTeammateService(
         // Those children do not exist in the saved JSON yet, but they are still part of an already-owned
         // parent item. Grid/location items remain blocked unless their own id came from the player stash or
         // teammate inventory; cartridge/chamber slots are the only generated children allowed with location.
-        bool isGeneratedAmmoSlot = string.Equals(item?.SlotId, "cartridges", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(item?.SlotId, "patron_in_weapon", StringComparison.OrdinalIgnoreCase);
+        bool isGeneratedAmmoSlot = IsLoadedAmmoSlotId(item?.SlotId);
 
         if (item == null
             || (item.Location != null && !isGeneratedAmmoSlot)
@@ -1872,6 +1884,13 @@ public class FriendlyTeammateService(
         }
 
         return false;
+    }
+
+    private static bool IsLoadedAmmoSlotId(string? slotId)
+    {
+        return !string.IsNullOrWhiteSpace(slotId)
+            && (LoadedAmmoSlotIds.Contains(slotId)
+                || slotId.StartsWith("patron_in_weapon", StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ValidateNoRealCommitOverlap(
@@ -2030,6 +2049,205 @@ public class FriendlyTeammateService(
                     SpawnedInSession = false,
                 },
             });
+        }
+    }
+
+    private void RefillFollowerMagazinesFromInventoryAmmo(BotBase profile)
+    {
+        var inventoryItems = profile.Inventory?.Items;
+        if (inventoryItems == null || inventoryItems.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var availableAmmo = GetAvailableLooseAmmoStacks(inventoryItems);
+            if (availableAmmo.Count == 0)
+            {
+                return;
+            }
+
+            int filledRounds = 0;
+            foreach (var magazine in inventoryItems.ToList())
+            {
+                if (magazine?.Id == null || !itemHelper.IsOfBaseclass(magazine.Template, BaseClasses.MAGAZINE))
+                {
+                    continue;
+                }
+
+                filledRounds += RefillMagazineFromAmmoStacks(inventoryItems, magazine, availableAmmo);
+            }
+
+            RemoveItemTreesById(
+                inventoryItems,
+                availableAmmo
+                    .Where(stack => stack.Remaining <= 0)
+                    .Select(stack => stack.Item.Id.ToString()));
+
+            foreach (var stack in availableAmmo.Where(stack => stack.Remaining > 0))
+            {
+                stack.Item.Upd ??= new Upd();
+                stack.Item.Upd.StackObjectsCount = stack.Remaining;
+            }
+
+            if (filledRounds > 0)
+            {
+                logger.Debug($"Refilled {filledRounds} follower magazine rounds from carried ammo for teammate '{profile.Aid}'.");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Skipped follower magazine spawn refill for teammate '{profile.Aid}': {ex.Message}");
+        }
+    }
+
+    private List<AvailableAmmoStack> GetAvailableLooseAmmoStacks(List<Item> inventoryItems)
+    {
+        var result = new List<AvailableAmmoStack>();
+        foreach (var item in inventoryItems)
+        {
+            if (item?.Id == null
+                || item.Template.IsEmpty
+                || string.IsNullOrWhiteSpace(item.SlotId)
+                || IsLoadedAmmoSlotId(item.SlotId)
+                || !itemHelper.IsOfBaseclass(item.Template, BaseClasses.AMMO))
+            {
+                continue;
+            }
+
+            int count = GetItemStackCount(item);
+            if (count > 0)
+            {
+                result.Add(new AvailableAmmoStack(item, count));
+            }
+        }
+
+        return result;
+    }
+
+    private int RefillMagazineFromAmmoStacks(List<Item> inventoryItems, Item magazine, List<AvailableAmmoStack> availableAmmo)
+    {
+        var magTemplateResult = itemHelper.GetItem(magazine.Template);
+        var magTemplate = magTemplateResult.Key ? magTemplateResult.Value : null;
+        var allowedAmmoTemplates = magTemplate?.Properties?.Cartridges?
+            .SelectMany(slot => slot.Properties?.Filters ?? [])
+            .SelectMany(filter => filter.Filter ?? [])
+            .ToHashSet();
+        int? maxCount = (int?)magTemplate?.Properties?.Cartridges?.FirstOrDefault()?.MaxCount;
+        if (allowedAmmoTemplates == null || allowedAmmoTemplates.Count == 0 || maxCount is null or <= 0)
+        {
+            return 0;
+        }
+
+        string magazineId = magazine.Id.ToString();
+        int currentCount = inventoryItems
+            .Where(item => item?.ParentId == magazineId && string.Equals(item.SlotId, "cartridges", StringComparison.OrdinalIgnoreCase))
+            .Sum(GetItemStackCount);
+        int deficit = maxCount.Value - currentCount;
+        if (deficit <= 0)
+        {
+            return 0;
+        }
+
+        var existingAmmoTemplates = inventoryItems
+            .Where(item => item?.ParentId == magazineId && string.Equals(item.SlotId, "cartridges", StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.Template)
+            .ToHashSet();
+
+        int filled = 0;
+        while (deficit > 0)
+        {
+            var ammoStack = availableAmmo
+                .Where(stack => stack.Remaining > 0 && allowedAmmoTemplates.Contains(stack.Item.Template))
+                .OrderByDescending(stack => existingAmmoTemplates.Contains(stack.Item.Template))
+                .FirstOrDefault();
+            if (ammoStack == null)
+            {
+                break;
+            }
+
+            int roundsToMove = Math.Min(deficit, ammoStack.Remaining);
+            int roundsAdded = AddCartridgesToMagazine(inventoryItems, magazine, ammoStack.Item.Template, roundsToMove);
+            if (roundsAdded <= 0)
+            {
+                break;
+            }
+
+            ammoStack.Remaining -= roundsAdded;
+            filled += roundsAdded;
+            deficit -= roundsAdded;
+            existingAmmoTemplates.Add(ammoStack.Item.Template);
+        }
+
+        NormalizeMagazineCartridgeLocations(inventoryItems, magazineId);
+        return filled;
+    }
+
+    private int AddCartridgesToMagazine(List<Item> inventoryItems, Item magazine, MongoId ammoTemplate, int roundsToAdd)
+    {
+        if (roundsToAdd <= 0)
+        {
+            return 0;
+        }
+
+        int maxStackSize = itemHelper.GetItem(ammoTemplate).Value?.Properties?.StackMaxSize ?? 1;
+        maxStackSize = Math.Max(1, maxStackSize);
+        string magazineId = magazine.Id.ToString();
+        int remaining = roundsToAdd;
+
+        foreach (var existingCartridge in inventoryItems
+                     .Where(item => item?.ParentId == magazineId
+                         && string.Equals(item.SlotId, "cartridges", StringComparison.OrdinalIgnoreCase)
+                         && item.Template == ammoTemplate)
+                     .ToList())
+        {
+            int currentCount = GetItemStackCount(existingCartridge);
+            int room = maxStackSize - currentCount;
+            if (room <= 0)
+            {
+                continue;
+            }
+
+            int moved = Math.Min(room, remaining);
+            existingCartridge.Upd ??= new Upd();
+            existingCartridge.Upd.StackObjectsCount = currentCount + moved;
+            remaining -= moved;
+            if (remaining <= 0)
+            {
+                return roundsToAdd;
+            }
+        }
+
+        while (remaining > 0)
+        {
+            int moved = Math.Min(maxStackSize, remaining);
+            inventoryItems.Add(itemHelper.CreateCartridges(magazine.Id, ammoTemplate, moved, 0));
+            remaining -= moved;
+        }
+
+        return roundsToAdd;
+    }
+
+    private static void NormalizeMagazineCartridgeLocations(List<Item> inventoryItems, string magazineId)
+    {
+        var cartridges = inventoryItems
+            .Where(item => item?.ParentId == magazineId && string.Equals(item.SlotId, "cartridges", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (cartridges.Count == 0)
+        {
+            return;
+        }
+
+        if (cartridges.Count == 1)
+        {
+            cartridges[0].Location = null;
+            return;
+        }
+
+        for (var i = 0; i < cartridges.Count; i++)
+        {
+            cartridges[i].Location = i;
         }
     }
 

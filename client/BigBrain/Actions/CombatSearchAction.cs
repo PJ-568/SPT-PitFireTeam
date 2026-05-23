@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using pitTeam.BigBrain;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -22,9 +23,31 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            if (TryStopForPointBlankContact())
+            {
+                return;
+            }
+
             baseLogic.UpdateNodeByBrain(GetRawData(data));
             EnsureSearchMove();
             LookSimple();
+        }
+
+        private bool TryStopForPointBlankContact()
+        {
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (!FollowerCombatCommon.IsPointBlankContactWithoutHardSeparation(BotOwner, goalEnemy))
+            {
+                return false;
+            }
+
+            BotOwner.Mover.Stop();
+            SetCombatSprint(false);
+            BotOwner.SetTargetMoveSpeed(1f);
+            BotOwner.SetPose(0.75f);
+            BotOwner.Steering.LookToPoint(goalEnemy!.GetBodyPartPosition());
+            StopCombatShooting();
+            return true;
         }
 
         private void EnsureSearchMove()
@@ -66,6 +89,10 @@ namespace pitTeam.BigBrain.Actions
                     if (IsCornerLookAlignedWithThreat(cornerDirection, dest - botPos))
                     {
                         baseLogic.BotObserveDataClass.SetVectorToLook(cornerDirection);
+                    }
+                    else
+                    {
+                        baseLogic.BotObserveDataClass.SetVectorToLook(dest - botPos);
                     }
                 }
                 else

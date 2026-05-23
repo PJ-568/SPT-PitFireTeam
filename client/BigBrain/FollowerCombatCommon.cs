@@ -44,7 +44,11 @@ namespace pitTeam.BigBrain
         private const float FireSupportPathEnemyMinDistance = 12f;
         private const float DogFightOutOfRangeCooldownSeconds = 1.25f;
         private const float PointBlankRetreatBlockDistance = 8f;
+        private const float PointBlankContactDogFightDistance = 3f;
+        private const float PointBlankContactMaxAnchorDistance = 4.5f;
         private const float CloseVisibleThreatBreakDistance = 18f;
+        private const float CloseVisibleDogFightStartDistance = 15f;
+        private const float CloseVisibleDogFightEndDistance = 15f;
         private const float CloseThreatDogFightDistance = 8f;
         private const float CloseThreatAdvanceBreakDistance = 18f;
         private const float CloseThreatRecentSeenSeconds = 0.75f;
@@ -4098,6 +4102,12 @@ namespace pitTeam.BigBrain
             bool hasLiveVisibleDogFightContact = goalEnemy.IsVisible && goalEnemy.CanShoot;
             if (!hasLiveVisibleDogFightContact)
             {
+                if (IsPointBlankContactWithoutHardSeparation(botOwner, goalEnemy))
+                {
+                    SetDogFightState(BotDogFightStatus.dogFight);
+                    return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "pointBlankContactDogFight");
+                }
+
                 if (!IsEnemyActivelyThreateningMe(goalEnemy, CloseThreatDogFightDistance, CloseThreatRecentSeenSeconds))
                 {
                     ClearDogFightState();
@@ -4114,6 +4124,12 @@ namespace pitTeam.BigBrain
             {
                 SetDogFightState(BotDogFightStatus.shootFromPlace);
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "cdgCooldownFire");
+            }
+
+            if (ShouldUseCloseVisibleDogFight(goalEnemy, dogFightState))
+            {
+                SetDogFightState(BotDogFightStatus.dogFight);
+                return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, "closeVisibleDogFight");
             }
 
             if (dogFightState == BotDogFightStatus.dogFight)
@@ -4157,10 +4173,47 @@ namespace pitTeam.BigBrain
             return null;
         }
 
+        public bool TryPrepareCloseVisibleDogFightDecision(EnemyInfo? goalEnemy, string reason)
+        {
+            if (!ShouldUseCloseVisibleDogFight(goalEnemy, botOwner.DogFight?.DogFightState ?? BotDogFightStatus.none))
+            {
+                return false;
+            }
+
+            SetDogFightState(BotDogFightStatus.dogFight);
+            SetInitialDecision(new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, reason));
+            return true;
+        }
+
+        public bool TryPreparePointBlankDogFightDecision(EnemyInfo? goalEnemy, string reason)
+        {
+            if (!IsPointBlankContactWithoutHardSeparation(botOwner, goalEnemy))
+            {
+                return false;
+            }
+
+            SetDogFightState(BotDogFightStatus.dogFight);
+            SetInitialDecision(new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.dogFight, reason));
+            return true;
+        }
+
         private bool CanUseDogFightNow(EnemyInfo goalEnemy)
         {
             return goalEnemy.Distance <= botOwner.Settings.FileSettings.Mind.DOG_FIGHT_OUT ||
                    botOwner.Memory.BotCurrentCoverInfo.UseDogFight(botOwner.Settings.FileSettings.Cover.DOG_FIGHT_AFTER_LEAVE);
+        }
+
+        private static bool ShouldUseCloseVisibleDogFight(EnemyInfo? goalEnemy, BotDogFightStatus dogFightState)
+        {
+            if (goalEnemy == null || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            float maxDistance = dogFightState == BotDogFightStatus.dogFight
+                ? CloseVisibleDogFightEndDistance
+                : CloseVisibleDogFightStartDistance;
+            return goalEnemy.Distance <= maxDistance;
         }
 
         private void SetDogFightState(BotDogFightStatus state)
@@ -6404,6 +6457,82 @@ namespace pitTeam.BigBrain
             return goalEnemy.IsVisible ||
                    Time.time - goalEnemy.PersonalSeenTime <= recentSeenWindow ||
                    Time.time - goalEnemy.PersonalLastSeenTime <= recentSeenWindow;
+        }
+
+        internal static bool IsPointBlankContactWithoutHardSeparation(BotOwner? botOwner, EnemyInfo? goalEnemy)
+        {
+            if (botOwner == null ||
+                !HasActiveCombatEnemy(botOwner, goalEnemy) ||
+                goalEnemy == null ||
+                goalEnemy.Distance > PointBlankContactDogFightDistance)
+            {
+                return false;
+            }
+
+            Vector3 enemyAnchor = GetEnemyCurrentPosition(goalEnemy);
+            if (!IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            if ((enemyAnchor - botOwner.Position).sqrMagnitude >
+                PointBlankContactMaxAnchorDistance * PointBlankContactMaxAnchorDistance)
+            {
+                return false;
+            }
+
+            Vector3 weaponOrigin = botOwner.WeaponRoot != null
+                ? botOwner.WeaponRoot.position
+                : botOwner.Position + Vector3.up * 1.25f;
+            Vector3 bodyOrigin = botOwner.Position + Vector3.up * 1.25f;
+
+            Vector3 bodyTarget = GetPointBlankBodyTarget(goalEnemy, enemyAnchor);
+            Vector3 headTarget = enemyAnchor + Vector3.up * 1.55f;
+            Vector3 chestTarget = enemyAnchor + Vector3.up * 1.05f;
+
+            return HasNoHardObstruction(weaponOrigin, bodyTarget) ||
+                   HasNoHardObstruction(weaponOrigin, chestTarget) ||
+                   HasNoHardObstruction(bodyOrigin, bodyTarget) ||
+                   HasNoHardObstruction(bodyOrigin, headTarget);
+        }
+
+        private static Vector3 GetPointBlankBodyTarget(EnemyInfo goalEnemy, Vector3 fallbackAnchor)
+        {
+            try
+            {
+                Vector3 bodyPart = goalEnemy.GetBodyPartPosition();
+                if (IsFinite(bodyPart) && bodyPart.sqrMagnitude > 0.01f)
+                {
+                    return bodyPart;
+                }
+            }
+            catch
+            {
+            }
+
+            return fallbackAnchor + Vector3.up * 1.1f;
+        }
+
+        private static bool HasNoHardObstruction(Vector3 origin, Vector3 target)
+        {
+            if (!IsFinite(origin) || !IsFinite(target))
+            {
+                return false;
+            }
+
+            Vector3 direction = target - origin;
+            float distance = direction.magnitude;
+            if (distance <= 0.05f)
+            {
+                return true;
+            }
+
+            if (!Physics.Raycast(origin, direction / distance, out RaycastHit hit, distance, LayerMaskClass.HighPolyWithTerrainMask))
+            {
+                return true;
+            }
+
+            return hit.collider != null && IsSoftFoliageCollider(hit.collider);
         }
 
         /// <summary>

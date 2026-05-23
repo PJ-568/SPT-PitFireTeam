@@ -53,7 +53,7 @@ namespace pitTeam.Patches
             overlayRect.SetAsLastSibling();
 
             Image backdrop = overlayRoot.GetComponent<Image>();
-            backdrop.color = new Color(0f, 0f, 0f, 0.2f);
+            backdrop.color = new Color(0f, 0f, 0f, 0.55f);
             backdrop.raycastTarget = true;
 
             GameObject panel = new GameObject("pitFireTeam_LoadoutEditorPanel", typeof(RectTransform), typeof(Image));
@@ -67,7 +67,7 @@ namespace pitTeam.Patches
             panelRect.localScale = Vector3.one;
 
             Image panelImage = panel.GetComponent<Image>();
-            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.985f);
+            panelImage.color = new Color(0f, 0f, 0f, 0.86f);
             panelImage.raycastTarget = true;
 
             GameObject header = new GameObject("pitFireTeam_LoadoutEditorHeader", typeof(RectTransform), typeof(Image));
@@ -80,8 +80,10 @@ namespace pitTeam.Patches
             headerRect.offsetMax = Vector2.zero;
 
             Image headerImage = header.GetComponent<Image>();
-            headerImage.color = new Color(0.06f, 0.06f, 0.06f, 1f);
+            headerImage.color = new Color(0.055f, 0.055f, 0.055f, 0.95f);
             headerImage.raycastTarget = true;
+            AddLoadoutEditorHeaderDivider(header.transform, "TopDivider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -1f), Vector2.zero);
+            AddLoadoutEditorHeaderDivider(header.transform, "BottomDivider", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 1f));
 
             LoadoutEditorHeaderDragHandle dragHandle = header.AddComponent<LoadoutEditorHeaderDragHandle>();
             dragHandle.Target = panelRect;
@@ -92,7 +94,7 @@ namespace pitTeam.Patches
                 new Vector2(18f, 0f),
                 new Vector2(-54f, 0f),
                 TextAlignmentOptions.MidlineLeft,
-                GetSocialUiText("EditLoadoutTitle", "Edit Loadout").ToUpperInvariant(),
+                GetLoadoutEditorTitle(profile),
                 20f,
                 new Color(0.87f, 0.87f, 0.84f, 1f));
 
@@ -194,7 +196,7 @@ namespace pitTeam.Patches
             sectionRect.localScale = Vector3.one;
 
             Image sectionImage = section.GetComponent<Image>();
-            sectionImage.color = new Color(0.09f, 0.09f, 0.09f, 1f);
+            sectionImage.color = new Color(0f, 0f, 0f, 0.46f);
             sectionImage.raycastTarget = true;
 
             GameObject contentRoot = new GameObject($"{name}_Content", typeof(RectTransform));
@@ -206,6 +208,47 @@ namespace pitTeam.Patches
             contentRect.offsetMax = new Vector2(-8f, -10f);
             contentRect.localScale = Vector3.one;
             return contentRect;
+        }
+
+        private static void AddLoadoutEditorHeaderDivider(
+            Transform parent,
+            string name,
+            Vector2 anchorMin,
+            Vector2 anchorMax,
+            Vector2 offsetMin,
+            Vector2 offsetMax)
+        {
+            GameObject dividerObject = new GameObject(name, typeof(RectTransform), typeof(Image));
+            dividerObject.transform.SetParent(parent, false);
+            RectTransform rect = dividerObject.GetComponent<RectTransform>();
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.offsetMin = offsetMin;
+            rect.offsetMax = offsetMax;
+
+            Image image = dividerObject.GetComponent<Image>();
+            image.color = new Color(0.72f, 0.68f, 0.58f, 0.18f);
+            image.raycastTarget = false;
+        }
+
+        private static string GetLoadoutEditorTitle(ResultProfile profile)
+        {
+            string displayName = GetLoadoutEditorTitleTargetName(profile);
+            string titleFormat = GetSocialUiText("EditLoadoutTitleWithName", "Edit Loadout : {0}");
+            return string.Format(titleFormat, displayName);
+        }
+
+        private static string GetLoadoutEditorTitleTargetName(ResultProfile profile)
+        {
+            bool simpleMode = !pitFireTeam.IsFollowerLoadoutRealTransferMode();
+            if (simpleMode
+                && !IsDefaultLoadoutEditorSelection()
+                && !string.IsNullOrWhiteSpace(LoadoutEditorSourceLoadoutName))
+            {
+                return LoadoutEditorSourceLoadoutName;
+            }
+
+            return profile?.Info?.Nickname ?? "teammate";
         }
 
         private static void CreateLoadoutEditorFallbackText(Transform parent, string name, string body)

@@ -115,53 +115,38 @@ namespace pitTeam.Modules
             }
         }
 
-        public static void SendDeathEscapeFollowerStoredItems(IEnumerable<BotOwner> squadBots, IEnumerable<BotOwner> escapedBots)
-        {
-            if (Instance == null || squadBots == null || escapedBots == null || Instance._toSendItems == null)
-            {
-                return;
-            }
-
-            try
-            {
-                // Player-death cleanup is special: once at least one squadmate makes it out, the
-                // squad recovers all tracked follower loot, even if the original carrier died.
-                // Normal player-extract cleanup still only gathers from living followers.
-                if (!escapedBots.Any())
-                {
-                    return;
-                }
-
-                Instance._toSendItems.Clear();
-                List<string> gathered = new List<string>();
-
-                foreach (BotOwner bot in squadBots)
-                {
-                    if (bot == null)
-                    {
-                        continue;
-                    }
-
-                    Instance.GatherStoredItemsFromBot(bot, gathered);
-                }
-
-                if (Instance._toSendItems.Count == 0)
-                {
-                    return;
-                }
-
-                Instance.SendCurrentStoredItems();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("Failed to send escaped follower stored loot");
-                Logger.LogError(ex);
-            }
-        }
-
         public static void SendDeathEscapeRecoveredGear(IEnumerable<Item> recoveredItems)
         {
             SendReturnItems(recoveredItems, null, "recovered death-escape gear");
+        }
+
+        public static List<Item> GetTrackedReturnItemRoots(BotOwner bot)
+        {
+            List<Item> roots = new List<Item>();
+            if (bot?.GetPlayer?.InventoryController == null)
+            {
+                return roots;
+            }
+
+            List<string>? storedItems = GetStoredItems(bot.ProfileId);
+            if (storedItems == null || storedItems.Count == 0)
+            {
+                return roots;
+            }
+
+            foreach (string stored in storedItems)
+            {
+                Item item = FindStoredReturnItem(bot.GetPlayer.InventoryController, stored);
+                if (item != null)
+                {
+                    roots.Add(item);
+                }
+            }
+
+            // Tracked loot can contain tracked children, for example backpack -> rig -> item.
+            // Return/carry simulation must see only the outer recoverable root or it will
+            // duplicate nested contents when the mail payload is flattened.
+            return RemoveNestedReturnRoots(roots).ToList();
         }
 
         private void GatherStoredItemsFromBot(BotOwner bot, List<string> gathered)
@@ -197,22 +182,6 @@ namespace pitTeam.Modules
                 _toSendItems.Add(item.CloneItem());
                 gathered.Add(stored);
             }
-        }
-
-        private bool SendCurrentStoredItems()
-        {
-            if (!EnableBackendItemReturn || _toSendItems == null)
-            {
-                return false;
-            }
-
-            Dictionary<string, object>? member = null;
-            if (_followersWithLoot != null && _followersWithLoot.Count > 0)
-            {
-                member = _followersWithLoot.Values.FirstOrDefault();
-            }
-
-            return SendReturnItems(_toSendItems, member, "post-raid returned follower items");
         }
 
         private static Item? FindStoredReturnItem(InventoryController inventoryController, string itemId)
