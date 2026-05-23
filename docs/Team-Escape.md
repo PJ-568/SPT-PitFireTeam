@@ -10,7 +10,7 @@ The feature exists for the specific case where the player dies before raid end. 
 
 - escaped squadmates are marked alive in their teammate profile
 - lost squadmates stay dead for roster/spawn logic
-- player-given tracked follower loot can still be returned if at least one squadmate escapes
+- player-given tracked follower loot can still be returned if an escaped squadmate has room after higher-priority death gear
 - recoverable player gear can be carried out by escaped squadmates and returned by mail
 - in `Immersive` and `Realistic` / internal `Extreme`, fallen teammate gear can also be carried out and returned by mail
 - recovered death gear is not kept in escaped teammate inventories
@@ -26,7 +26,7 @@ Related docs:
 
 The escape system runs when the player boss dies and `BossPlayers.KillPlayerBoss(...)` tears down the active boss/follower relationship.
 
-The `Team Escape` raid setting controls whether this system runs at all. It is enabled by default. If disabled, player death skips escape rolls, tracked follower loot return, and death-gear recovery.
+The `Team Escape` raid setting controls whether this system runs at all. It is enabled by default. If disabled, player death skips escape rolls, tracked follower loot recovery, and death-gear recovery.
 
 Authoritative client files:
 
@@ -169,7 +169,7 @@ If yes, the item is mailed to the player. The recovered item is removed from the
 
 Current pickup radius:
 
-- `50m` from carrier to fallen/death gear position
+- `70m` from carrier to fallen/death gear position
 
 Current recovery priority:
 
@@ -185,7 +185,8 @@ Backpack shells have a special capacity-first pre-pass before the ordered recove
 8. backpack
 9. pocket contents
 10. backpack contents
-10. remaining recoverable gear
+11. remaining recoverable gear
+12. tracked follower loot the player gave to or ordered followers to pick up
 
 Armor and tactical vest recovery is container-aware:
 
@@ -193,7 +194,7 @@ Armor and tactical vest recovery is container-aware:
 - if a tactical vest is recovered, its non-tracked grid contents ride with it
 - tactical vest contents are only tried as separate low-priority items if the vest itself was not recovered
 - recovered container-tree descendants are tracked defensively so vest contents cannot be mailed both inside the vest and as loose duplicates
-- tracked follower-loot items are stripped from recovered vest snapshots so they stay on the tracked-loot return path
+- tracked follower-loot items are stripped from recovered vest snapshots so they stay in the final tracked-loot recovery pass
 
 The simulation can use empty live slots on escaped teammates:
 
@@ -282,7 +283,10 @@ Tracked loot means items the follower picked up for the player through pitFireTe
 When the player dies:
 
 - if no squadmate escapes, tracked follower loot is not returned
-- if at least one squadmate escapes, tracked follower loot can be returned even if the original carrier did not escape
+- tracked follower loot is removed from escaped carrier snapshots before weight/space is calculated, so it cannot block player gear
+- escaped squadmates first try to recover player gear, then eligible fallen teammate gear, then tracked follower loot
+- tracked follower loot is returned only if an escaped squadmate can still carry it under the same slot, backpack, distance, and weight rules
+- tracked follower loot can be returned even if the original carrier did not escape, provided an escaped squadmate is close enough and has capacity
 
 This behavior only applies to the player-death escape situation. If the player extracts alive, a follower dying with loot before player extraction does not count as escaped loot.
 

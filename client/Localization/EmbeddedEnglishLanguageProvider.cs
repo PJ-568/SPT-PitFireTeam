@@ -214,6 +214,7 @@ namespace pitTeam.Localization
                     ["CurrencyRoubles"] = "{0:N0} RUB",
                     ["UnknownItem"] = "Unknown item",
                     ["EditLoadoutTitle"] = "Edit Loadout",
+                    ["EditLoadoutTitleWithName"] = "Edit Loadout : {0}",
                     ["EditLoadoutSubtitle"] = "Edit cloned items for {0}. Changes here do not touch the real stash yet.",
                     ["EditLoadoutSubtitleReal"] = "Edit staged gear for {0}. Saving moves items between your stash and this teammate.",
                     ["PlayerStash"] = "Player Stash",

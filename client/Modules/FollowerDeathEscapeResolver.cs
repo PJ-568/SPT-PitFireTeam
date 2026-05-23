@@ -113,6 +113,8 @@ namespace pitTeam.Modules
                     trackedLootIds,
                     deathPosition,
                     lostOnDeathRules);
+                List<RecoverableGearCandidate> trackedLootSnapshot = CreateTrackedLootRecoverySnapshot(
+                    squadmates.Select(follower => follower.GetBot()));
 
                 Logger.LogInfo(
                     $"[DeathEscape] Resolving follower escape rolls. squadmates={squadmates.Count} alive={aliveCount} " +
@@ -184,17 +186,8 @@ namespace pitTeam.Modules
                     entries,
                     entryBotsByAid,
                     escapedBots,
-                    deathGearSnapshot);
-
-                // The normal loot-return path runs after the boss/follower link is removed on player death.
-                // Send tracked loot now, but only for followers that won their escape roll.
-                if (escapedBots.Count > 0)
-                {
-                    Logger.LogInfo($"[DeathEscape] Sending escaped follower loot for {escapedBots.Count} follower(s).");
-                    InteractableObjects.SendDeathEscapeFollowerStoredItems(
-                        aliveSquadmates.Select(follower => follower.GetBot()),
-                        escapedBots);
-                }
+                    deathGearSnapshot,
+                    trackedLootSnapshot);
 
                 SendOutcomes(entries);
             }
@@ -556,7 +549,8 @@ namespace pitTeam.Modules
                 bool useAsRecoveryCapacity,
                 bool countsAsBackpackCarry,
                 bool ignoreCarryWeight = false,
-                string coveredByItemId = null)
+                string coveredByItemId = null,
+                bool cloneReturnWithNewIds = false)
             {
                 Item = item;
                 Position = position;
@@ -570,6 +564,7 @@ namespace pitTeam.Modules
                 CountsAsBackpackCarry = countsAsBackpackCarry;
                 IgnoreCarryWeight = ignoreCarryWeight;
                 CoveredByItemId = coveredByItemId;
+                CloneReturnWithNewIds = cloneReturnWithNewIds;
             }
 
             public Item Item { get; }
@@ -585,6 +580,7 @@ namespace pitTeam.Modules
             public bool CountsAsBackpackCarry { get; }
             public bool IgnoreCarryWeight { get; }
             public string CoveredByItemId { get; }
+            public bool CloneReturnWithNewIds { get; }
 
             public RecoverableGearCandidate WithSequence(int sequence)
             {
@@ -600,7 +596,8 @@ namespace pitTeam.Modules
                     UseAsRecoveryCapacity,
                     CountsAsBackpackCarry,
                     IgnoreCarryWeight,
-                    CoveredByItemId);
+                    CoveredByItemId,
+                    CloneReturnWithNewIds);
             }
         }
 

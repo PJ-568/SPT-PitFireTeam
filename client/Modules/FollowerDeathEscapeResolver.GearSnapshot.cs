@@ -286,6 +286,82 @@ namespace pitTeam.Modules
             return snapshot;
         }
 
+        private static List<RecoverableGearCandidate> CreateTrackedLootRecoverySnapshot(IEnumerable<BotOwner> squadBots)
+        {
+            List<RecoverableGearCandidate> snapshot = new List<RecoverableGearCandidate>();
+            HashSet<string> seenItemIds = new HashSet<string>(StringComparer.Ordinal);
+            int sequence = 0;
+
+            foreach (BotOwner bot in squadBots ?? Enumerable.Empty<BotOwner>())
+            {
+                InventoryEquipment equipment = bot?.GetPlayer?.InventoryController?.Inventory?.Equipment;
+                if (equipment == null)
+                {
+                    continue;
+                }
+
+                string ownerId = bot.Profile?.AccountId ?? bot.ProfileId ?? string.Empty;
+                string ownerName = bot.Profile?.Nickname ?? "Squadmate";
+                foreach (Item trackedItem in InteractableObjects.GetTrackedReturnItemRoots(bot))
+                {
+                    if (trackedItem == null || !seenItemIds.Add(trackedItem.Id))
+                    {
+                        continue;
+                    }
+
+                    EquipmentSlot sourceSlot = ResolveEquipmentSlotForItem(equipment, trackedItem);
+                    Item clone = trackedItem.CloneItemWithSameId();
+                    snapshot.Add(new RecoverableGearCandidate(
+                        clone,
+                        bot.Position,
+                        ownerId,
+                        ownerName,
+                        false,
+                        sourceSlot,
+                        GetDeathGearItemPriority(sourceSlot, clone),
+                        sequence++,
+                        false,
+                        IsBackpackItem(clone),
+                        false,
+                        null,
+                        true));
+                }
+            }
+
+            Logger.LogInfo($"[DeathEscape] Captured {snapshot.Count} tracked follower-loot item(s) for last-priority escape recovery.");
+            return snapshot;
+        }
+
+        private static EquipmentSlot ResolveEquipmentSlotForItem(InventoryEquipment equipment, Item item)
+        {
+            if (equipment == null || item == null)
+            {
+                return EquipmentSlot.Backpack;
+            }
+
+            foreach (EquipmentSlot slot in RecoverableGearSlots)
+            {
+                Item root = equipment.GetSlot(slot)?.ContainedItem;
+                if (root == null)
+                {
+                    continue;
+                }
+
+                if (string.Equals(root.Id, item.Id, StringComparison.Ordinal))
+                {
+                    return slot;
+                }
+
+                if (root is CompoundItem compound &&
+                    compound.GetAllItems().Any(child => child != null && string.Equals(child.Id, item.Id, StringComparison.Ordinal)))
+                {
+                    return slot;
+                }
+            }
+
+            return EquipmentSlot.Backpack;
+        }
+
         private static IEnumerable<RecoverableGearCandidate> GetRecoverableTopLevelGear(
             Player owner,
             HashSet<string> trackedLootIds,

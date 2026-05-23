@@ -1097,6 +1097,7 @@ namespace pitTeam.Components
 
         public void SetHoldPosition(float duration, bool crouch = true)
         {
+            ClearVanillaRequestState(null, nameof(SetHoldPosition));
             _activeCommand = FollowerCommandType.HoldPosition;
             _commandUntilTime = float.PositiveInfinity;
             _commandTarget = Vector3.zero;
@@ -1281,6 +1282,7 @@ namespace pitTeam.Components
 
         public void SetTemporaryCombatAggressionOverride(float aggression)
         {
+            ClearVanillaRequestState(null, nameof(SetTemporaryCombatAggressionOverride));
             _temporaryCombatAggressionOverride = Mathf.Clamp(aggression, 0f, 100f);
             _temporaryCombatAggressionOverrideActive = true;
             _temporaryCombatAggressionClearAfter = 0f;
@@ -1689,6 +1691,41 @@ namespace pitTeam.Components
 
             // With fixed SAIN/addon target, fail closed if bridge is unavailable.
             return false;
+        }
+
+        public bool HasCombatHandoffSignal()
+        {
+            return !IsSafelyOutOfCombat(_bot);
+        }
+
+        public void ClearVanillaRequestState(Player requester = null, string reason = "unspecified")
+        {
+            try
+            {
+                if (_bot == null)
+                {
+                    return;
+                }
+
+                if (_bot.BotRequestController?.CurRequest != null)
+                {
+                    _bot.BotRequestController.CurRequest.Complete();
+                    _bot.BotRequestController.CurRequest = null;
+                }
+
+                Player requesterPlayer = requester ?? GetBoss()?.realPlayer;
+                if (requesterPlayer != null)
+                {
+                    _bot.BotsGroup?.RequestsController?.RemoveAllRequestByRequester(requesterPlayer);
+                }
+
+                _bot.BotRequestController?.ResetTimer();
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"[Follower Command] Failed to clear vanilla request state for {_bot?.Profile?.Nickname} reason={reason}");
+                Modules.Logger.LogError(ex);
+            }
         }
 
         private static bool IsSafelyOutOfCombat(BotOwner owner)

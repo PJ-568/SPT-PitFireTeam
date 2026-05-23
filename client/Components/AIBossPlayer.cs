@@ -254,7 +254,8 @@ namespace pitTeam.Components
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
                 {
                     // Follow Me / Cooperation: normal follow mode and command cleanup.
-                    ClearFollowerCommands();
+                    ClearFollowerCommands(info.PlayerRequester);
+                    return;
                 }
             }
 
@@ -335,8 +336,16 @@ namespace pitTeam.Components
 
             _lastCombatSupportCueAt = Time.time;
 
-            InteractableObjects.CheckSeenEnemies(Player());
-            List<Player> seenEnemies = InteractableObjects.GetSeenEnemies();
+            List<Player> seenEnemies = new List<Player>();
+            try
+            {
+                InteractableObjects.CheckSeenEnemies(Player());
+                seenEnemies = InteractableObjects.GetSeenEnemies();
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"Contact command legacy seen-enemy scan failed; falling back to direct visibility scan. {ex}");
+            }
             if (seenEnemies == null || seenEnemies.Count == 0)
             {
                 seenEnemies = GetBossVisibleEnemiesForContact(requester);
@@ -1257,16 +1266,12 @@ namespace pitTeam.Components
                     bool applied = false;
                     if (!lookedFollower.IsDead &&
                         lookedFollower.BotState == EBotState.Active &&
-                        !lookedFollower.Memory.HaveEnemy &&
                         CanReactToBossGesture(lookedFollower, requesterPlayer, HoldGestureDistance))
                     {
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
-                            // Gesture hold becomes a persistent HoldPosition command with crouch enabled.
-                            lookedFollowerData.SetHoldPosition(float.PositiveInfinity);
-                            lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
-                            applied = true;
+                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, crouch: true, source: "HoldGesture");
                         }
                     }
 
@@ -1280,16 +1285,13 @@ namespace pitTeam.Components
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
-                if (follower.Memory.HaveEnemy) continue;
                 if ((follower.Position - requester.Position).sqrMagnitude > HoldGestureDistance * HoldGestureDistance) continue;
                 if (!CanReactToBossGesture(follower, requester, HoldGestureDistance)) continue;
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                // Broadcast hold path: nearby visible followers without enemies receive the same hold state.
-                followerData.SetHoldPosition(float.PositiveInfinity);
-                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                ApplyHoldIntent(follower, followerData, crouch: true, source: "HoldGesture");
             }
         }
 
@@ -1306,15 +1308,12 @@ namespace pitTeam.Components
                     bool applied = false;
                     if (!lookedFollower.IsDead &&
                         lookedFollower.BotState == EBotState.Active &&
-                        !lookedFollower.Memory.HaveEnemy &&
                         CanReactToBossPhrase(lookedFollower, requesterPlayer, StopPhraseDistance))
                     {
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
-                            lookedFollowerData.SetHoldPosition(float.PositiveInfinity, crouch: false);
-                            lookedFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
-                            applied = true;
+                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, crouch: false, source: "StopPhrase");
                         }
                     }
 
@@ -1328,16 +1327,47 @@ namespace pitTeam.Components
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
-                if (follower.Memory.HaveEnemy) continue;
                 if (!CanReactToBossPhrase(follower, requester, StopPhraseDistance)) continue;
 
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                // Phrase stop can broadcast farther than gesture hold and does not force crouch.
-                followerData.SetHoldPosition(float.PositiveInfinity, crouch: false);
-                follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+                ApplyHoldIntent(follower, followerData, crouch: false, source: "StopPhrase");
             }
+        }
+
+        private static bool ApplyHoldIntent(BotOwner follower, BotFollowerPlayer followerData, bool crouch, string source)
+        {
+            if (follower == null || followerData == null)
+            {
+                return false;
+            }
+
+            bool combatContext =
+                follower.Memory?.HaveEnemy == true ||
+                HasActiveCombatEnemy(follower) ||
+                followerData.HasCombatHandoffSignal();
+            if (combatContext)
+            {
+                if (followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
+                    command == FollowerCommandType.PushEnemy)
+                {
+                    followerData.ClearCommand($"{source}:combatHoldReplacePush");
+                }
+
+                // Request-layer HoldPosition is intentionally blocked while combat/handoff signals
+                // are still active. Route gesture/Stop hold intent through the same temporary
+                // low-aggression path as the Hold Position phrase so combat remains the owner.
+                followerData.SetTemporaryCombatAggressionOverride(0f);
+            }
+            else
+            {
+                followerData.ClearTemporaryCombatAggressionOverride();
+                followerData.SetHoldPosition(float.PositiveInfinity, crouch);
+            }
+
+            follower.Gesture.TryGestus(EInteraction.OkGesture, false);
+            return true;
         }
 
         private void ApplyRegroupCommand(IPlayer requester)
@@ -1610,16 +1640,19 @@ namespace pitTeam.Components
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
         }
 
-        private void ClearFollowerCommands()
+        private void ClearFollowerCommands(IPlayer requester = null)
         {
+            Player requesterPlayer = requester as Player;
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                followerData.SetCanPatrol(false);
+                followerData.ClearVanillaRequestState(requesterPlayer, "ClearFollowerCommands");
+                followerData.ClearTemporaryCombatAggressionOverride();
                 followerData.ClearCommand("ClearFollowerCommands");
+                followerData.SetCanPatrol(false);
             }
         }
 

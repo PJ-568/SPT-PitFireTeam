@@ -129,8 +129,25 @@ namespace pitTeam.BigBrain
 
         public override bool IsCurrentActionEnding()
         {
-            return !IsActive();
+            if (!IsActive())
+            {
+                return true;
+            }
+
+            int gestureCommandLogicId = GetGestureCommandLogicId();
+            if (gestureCommandLogicId < 0)
+            {
+                return true;
+            }
+
+            return BotOwner?.Brain?.Agent?.LastResult().Action != (BotLogicDecision)gestureCommandLogicId;
         }
 
+        private static int GetGestureCommandLogicId()
+        {
+            return BrainManager.CustomLogicsReadOnly.TryGetValue(typeof(GestureCommandAction), out int logicId)
+                ? logicId
+                : -1;
+        }
     }
 }

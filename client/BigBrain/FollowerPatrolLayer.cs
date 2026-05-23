@@ -151,6 +151,11 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            if (HasRequestLayerCommand(followerData))
+            {
+                return false;
+            }
+
             if (!followerData.IsReadyForPatrolAfterCombat())
             {
                 return false;
@@ -162,6 +167,19 @@ namespace pitTeam.BigBrain
             }
 
             return true;
+        }
+
+        private static bool HasRequestLayerCommand(BotFollowerPlayer followerData)
+        {
+            if (followerData == null ||
+                !followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _))
+            {
+                return false;
+            }
+
+            return command != FollowerCommandType.PushEnemy &&
+                   command != FollowerCommandType.SuppressEnemy &&
+                   command != FollowerCommandType.NeedSniper;
         }
 
         private bool HasVisibleKnownEnemy()

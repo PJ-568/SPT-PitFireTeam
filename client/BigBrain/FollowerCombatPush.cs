@@ -659,6 +659,13 @@ namespace pitTeam.BigBrain
             }
 
             if (combatCommon.TryGetCommittedPushDecision(goalEnemy, out committedPush) &&
+                combatCommon.TryPreparePointBlankDogFightDecision(goalEnemy, "pushPointBlankContactDogFight"))
+            {
+                reason = "pushPointBlankContact";
+                return true;
+            }
+
+            if (combatCommon.TryGetCommittedPushDecision(goalEnemy, out committedPush) &&
                 combatCommon.ShouldBreakCommittedPushForVisibility(
                     goalEnemy,
                     committedPush,
@@ -798,6 +805,11 @@ namespace pitTeam.BigBrain
 
         private void PreparePushVisibilityFireDecision(EnemyInfo goalEnemy)
         {
+            if (combatCommon.TryPrepareCloseVisibleDogFightDecision(goalEnemy, "pushVisibleDogFight"))
+            {
+                return;
+            }
+
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 combatCommon.SetInitialDecision(new AICoreActionResultStruct<BotLogicDecision, GClass26>(

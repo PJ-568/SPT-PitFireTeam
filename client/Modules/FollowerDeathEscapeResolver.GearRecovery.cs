@@ -16,7 +16,8 @@ namespace pitTeam.Modules
             List<FollowerDeathEscapeOutcomeEntry> entries,
             Dictionary<string, BotOwner> entryBotsByAid,
             List<BotOwner> escapedBots,
-            List<RecoverableGearCandidate> deathGearSnapshot)
+            List<RecoverableGearCandidate> deathGearSnapshot,
+            List<RecoverableGearCandidate> trackedLootSnapshot)
         {
             if (entries == null || entries.Count == 0 || escapedBots == null || escapedBots.Count == 0)
             {
@@ -38,6 +39,11 @@ namespace pitTeam.Modules
                     InventoryEquipment equipmentClone = CloneFollowerEquipment(bot);
                     if (equipmentClone != null)
                     {
+                        // Player-given/tracked loot is intentionally dropped from the carrier
+                        // before calculating space and weight. Survivors first try to carry
+                        // player/fallen gear, then pick this tracked loot back up only if room
+                        // remains after higher-priority recovery.
+                        StripTrackedLootFromCarrierEquipment(equipmentClone, bot);
                         escapedEquipment[entry.Aid] = equipmentClone;
                         carrierStates[entry.Aid] = new RecoveryCarrierState(
                             equipmentClone,
@@ -70,6 +76,7 @@ namespace pitTeam.Modules
                     $"[DeathEscape] Death gear recovery start. teammateGearRecovery={recoverTeammateGear} " +
                     $"escapedCarriers={escapedBots.Count} equipmentSnapshots={escapedEquipment.Count} " +
                     $"snapshotItems={deathGearSnapshot.Count} candidateItems={recoverableCandidates.Count} " +
+                    $"trackedLootItems={trackedLootSnapshot?.Count ?? 0} " +
                     $"pickupRadius={DeathGearRecoveryDistance:0}m weightLimit=walk-drain-threshold");
 
                 // Backpack shells are packed before priority items so they can add container
@@ -83,7 +90,7 @@ namespace pitTeam.Modules
                     if (TryRecoverDeathGearCandidate(candidate, escapedBots, carrierStates, stats))
                     {
                         recovered++;
-                        gearToReturn.Add(candidate.Item.CloneItemWithSameId());
+                        gearToReturn.Add(CloneRecoveredItemForMail(candidate));
                         recoveredGearIds.Add(candidate.Item.Id);
                     }
                 }
@@ -116,7 +123,20 @@ namespace pitTeam.Modules
                         RemoveAlreadyMailedCoveredItems(candidate.Item, gearToReturn, recoveredGearIds);
                         TrackRecoveredContainerTree(candidate.Item, candidate.Slot, coveredByRecoveredTreeIds);
                         recovered++;
-                        gearToReturn.Add(candidate.Item.CloneItemWithSameId());
+                        gearToReturn.Add(CloneRecoveredItemForMail(candidate));
+                        recoveredGearIds.Add(candidate.Item.Id);
+                    }
+                }
+
+                // Tracked follower loot has the lowest priority in player-death escape. It was
+                // removed from carrier snapshots above, so it cannot block player gear. Anything
+                // that still fits after death gear is recovered gets mailed back; the rest is lost.
+                foreach (RecoverableGearCandidate candidate in trackedLootSnapshot ?? new List<RecoverableGearCandidate>())
+                {
+                    if (TryRecoverDeathGearCandidate(candidate, escapedBots, carrierStates, stats))
+                    {
+                        recovered++;
+                        gearToReturn.Add(CloneRecoveredItemForMail(candidate));
                         recoveredGearIds.Add(candidate.Item.Id);
                     }
                 }
@@ -279,6 +299,26 @@ namespace pitTeam.Modules
             }
         }
 
+        private static void StripTrackedLootFromCarrierEquipment(InventoryEquipment equipment, BotOwner bot)
+        {
+            if (equipment == null || bot == null)
+            {
+                return;
+            }
+
+            HashSet<string> trackedRootIds = new HashSet<string>(
+                InteractableObjects.GetTrackedReturnItemRoots(bot)
+                    .Where(item => item != null)
+                    .Select(item => item.Id),
+                StringComparer.Ordinal);
+            if (trackedRootIds.Count == 0)
+            {
+                return;
+            }
+
+            RemoveItemTreesFromEquipment(equipment, trackedRootIds, "tracked follower loot");
+        }
+
         private static void RemoveRecoveredDeathGearFromEscapedEquipment(
             IEnumerable<InventoryEquipment> escapedEquipment,
             HashSet<string> recoveredGearIds)
@@ -290,24 +330,29 @@ namespace pitTeam.Modules
 
             foreach (InventoryEquipment equipment in escapedEquipment)
             {
-                if (equipment == null)
-                {
-                    continue;
-                }
+                RemoveItemTreesFromEquipment(equipment, recoveredGearIds, "mailed death gear");
+            }
+        }
 
-                foreach (Item item in equipment.GetAllItems()
-                             .Where(item => item != null && recoveredGearIds.Contains(item.Id))
-                             .ToList())
+        private static void RemoveItemTreesFromEquipment(InventoryEquipment equipment, HashSet<string> itemIds, string context)
+        {
+            if (equipment == null || itemIds == null || itemIds.Count == 0)
+            {
+                return;
+            }
+
+            foreach (Item item in equipment.GetAllItems()
+                         .Where(item => item != null && itemIds.Contains(item.Id))
+                         .ToList())
+            {
+                try
                 {
-                    try
-                    {
-                        item.Parent?.Remove(item, false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError($"[DeathEscape] Failed to strip mailed death gear '{item.Id}' from escaped teammate equipment snapshot.");
-                        Logger.LogError(ex);
-                    }
+                    item.Parent?.Remove(item, false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"[DeathEscape] Failed to strip {context} '{item.Id}' from escaped teammate equipment snapshot.");
+                    Logger.LogError(ex);
                 }
             }
         }
@@ -658,6 +703,13 @@ namespace pitTeam.Modules
             Item item = candidate.Item;
             string itemName = item?.ShortName?.Localized(null) ?? item?.Name ?? item?.Id ?? "unknown";
             return $"{itemName}/{candidate.Slot}";
+        }
+
+        private static Item CloneRecoveredItemForMail(RecoverableGearCandidate candidate)
+        {
+            return candidate.CloneReturnWithNewIds
+                ? candidate.Item.CloneItem()
+                : candidate.Item.CloneItemWithSameId();
         }
 
         private static FlatItemsDataClass[] SerializeFollowerEquipment(BotOwner bot)

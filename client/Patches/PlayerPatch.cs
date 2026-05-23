@@ -41,7 +41,15 @@ namespace pitTeam.Patches
             pitAIBossPlayer? boss = BossPlayers.GetBoss(player.ProfileId);
             if (boss != null)
             {
-                InteractableObjects.CheckSeenEnemies(boss.Player());
+                try
+                {
+                    InteractableObjects.CheckSeenEnemies(boss.Player());
+                }
+                catch (Exception ex)
+                {
+                    pitTeam.Modules.Logger.LogError($"Over There legacy seen-enemy scan failed; continuing with boss gesture command. {ex}");
+                }
+
                 boss.GestusShown(new GestureData
                 {
                     Gesture = (EInteraction)CustomGestures.OverThere,
@@ -269,6 +277,7 @@ namespace pitTeam.Patches
                 }
 
                 int killCount = sessionCounters.GetInt(SessionCounterTypesAbstractClass.Kills);
+                sessionCounters.AddInt(1, SessionCounterTypesAbstractClass.Kills);
                 float streakMultiplier = (float)experienceSettings.Kill.GetKillingBonusPercent(killCount) / 100f;
                 int bodyPartBonus = (int)(baseKillExperience * headshotMultiplier);
                 int streakBonus = (int)(baseKillExperience * streakMultiplier);
