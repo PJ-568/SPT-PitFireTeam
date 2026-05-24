@@ -280,7 +280,9 @@ namespace pitTeam.BigBrain
 
                     if (distanceToEnemy >= Utils.Enemy.EnemyDistance.Mid)
                     {
-                        CustomNavigationPoint? approachPoint = combatCommon.GetApproachableCover(true);
+                        CustomNavigationPoint? approachPoint = combatCommon.GetApproachableCover(
+                            true,
+                            avoidBossFireLane: !pushOrdered);
                         if (TryCreateApproachCoverDecision(approachPoint, out AICoreActionResultStruct<BotLogicDecision, GClass26> approachDecision))
                         {
                             return approachDecision;
@@ -319,7 +321,9 @@ namespace pitTeam.BigBrain
                     return CreatePushDecision(BotLogicDecision.goToEnemy);
                 }
 
-                CustomNavigationPoint? blindApproach = combatCommon.GetApproachableCover(distanceToEnemy > Utils.Enemy.EnemyDistance.Mid);
+                CustomNavigationPoint? blindApproach = combatCommon.GetApproachableCover(
+                    distanceToEnemy > Utils.Enemy.EnemyDistance.Mid,
+                    avoidBossFireLane: !pushOrdered);
                 if (TryCreateApproachCoverDecision(blindApproach, out AICoreActionResultStruct<BotLogicDecision, GClass26> blindApproachDecision))
                 {
                     return blindApproachDecision;
@@ -349,7 +353,10 @@ namespace pitTeam.BigBrain
                 Vector3 enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
                 Vector3 centerPosition = (botOwner.Position + enemyAnchor) * 0.5f;
                 float radius = distanceToEnemy >= Utils.Enemy.EnemyDistance.Mid ? 120f : 40f;
-                CustomNavigationPoint? shootCover = combatCommon.GetClosestShootCover(centerPosition, radius);
+                CustomNavigationPoint? shootCover = combatCommon.GetClosestShootCover(
+                    centerPosition,
+                    radius,
+                    avoidBossFireLane: true);
                 if (TryCreateApproachCoverDecision(shootCover, out AICoreActionResultStruct<BotLogicDecision, GClass26> shootCoverDecision))
                 {
                     return shootCoverDecision;
@@ -388,7 +395,9 @@ namespace pitTeam.BigBrain
                 }
             }
 
-            CustomNavigationPoint? approachCover = combatCommon.GetApproachableCover(distanceToEnemy > Utils.Enemy.EnemyDistance.Mid);
+            CustomNavigationPoint? approachCover = combatCommon.GetApproachableCover(
+                distanceToEnemy > Utils.Enemy.EnemyDistance.Mid,
+                avoidBossFireLane: !pushOrdered);
             if (TryCreateApproachCoverDecision(approachCover, out decision))
             {
                 return true;
@@ -541,8 +550,10 @@ namespace pitTeam.BigBrain
             }
 
             CustomNavigationPoint? cover = goalEnemy.IsVisible
-                ? combatCommon.GetApproachableCover(true)
-                : combatCommon.GetApproachableCover(distanceToEnemy > Utils.Enemy.EnemyDistance.Mid);
+                ? combatCommon.GetApproachableCover(true, avoidBossFireLane: true)
+                : combatCommon.GetApproachableCover(
+                    distanceToEnemy > Utils.Enemy.EnemyDistance.Mid,
+                    avoidBossFireLane: true);
 
             return TryCreateApproachCoverDecision(cover, out decision);
         }
@@ -589,7 +600,8 @@ namespace pitTeam.BigBrain
                 160f,
                 inbetween: false,
                 maxDistanceFromBot: 120f,
-                avoidCrossingEnemyFront: true);
+                avoidCrossingEnemyFront: true,
+                avoidBossFireLane: true);
 
             if (combatCommon.TryCommitSelectedCombatCover(goalEnemy, shootCover, "push.marksmanShootCover"))
             {

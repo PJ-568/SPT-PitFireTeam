@@ -89,6 +89,7 @@ namespace pitTeam.BigBrain
         private float nextReloadCheckAt = 0f;
         private float nextMagazineFillCheckAt = 0f;
         private readonly HashSet<EquipmentSlot> reloadSlotsTried = new HashSet<EquipmentSlot>();
+        private EquipmentSlot? forcedTopOffSlot = null;
         private float nextHealWorkRefreshAt = 0f;
         private bool stoppedForHealDecision = false;
         private bool sawEnemyDuringCurrentCycle = false;
@@ -522,6 +523,7 @@ namespace pitTeam.BigBrain
             triedFillMagazines = false;
             reloadingInProgress = false;
             reloadSlotsTried.Clear();
+            forcedTopOffSlot = null;
             nextReloadCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
             nextMagazineFillCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
         }
@@ -549,6 +551,11 @@ namespace pitTeam.BigBrain
             {
                 reloadSlotsTried.Add(selector.LastEquipmentSlot);
                 reloadingInProgress = TryForceReloadCurrentWeaponOutOfCombat();
+                if (forcedTopOffSlot == selector.LastEquipmentSlot)
+                {
+                    forcedTopOffSlot = null;
+                }
+
                 nextReloadCheckAt = Time.time + OutOfCombatReloadActionCooldown;
                 nextMagazineFillCheckAt = Time.time + OutOfCombatReloadActionCooldown;
                 return;
@@ -565,6 +572,7 @@ namespace pitTeam.BigBrain
 
             if (TrySelectNextWeaponToTopOff(selector))
             {
+                triedFillMagazines = false;
                 nextReloadCheckAt = Time.time + OutOfCombatReloadWeaponSwitchCooldown;
                 nextMagazineFillCheckAt = Time.time + OutOfCombatReloadActionCooldown;
                 return;
@@ -597,20 +605,23 @@ namespace pitTeam.BigBrain
 
             float reloadThreshold = BotOwner.Settings?.FileSettings?.Boss?.PERCENT_BULLET_TO_RELOAD ?? 0.6f;
             float currentRatio = (float)reload.BulletCount / maxBulletCount;
-            if (currentRatio >= reloadThreshold)
+            bool forceTopOffCurrentSlot =
+                forcedTopOffSlot.HasValue &&
+                BotOwner.WeaponManager.Selector?.LastEquipmentSlot == forcedTopOffSlot.Value;
+
+            if (!forceTopOffCurrentSlot && currentRatio >= reloadThreshold)
             {
                 return false;
             }
 
-            // For external-magazine weapons, only reload if there is actually a better magazine available.
-            // This avoids pointless swap attempts when the current mag is already the best one the bot has.
+            // For external-magazine weapons, only reload-swap if there is actually a better magazine available.
+            // Loose-ammo top-off is handled by TryFillMagazines before this branch runs.
             if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
             {
-                return true;
+                return FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(BotOwner, currentWeapon);
             }
 
-            MagazineItemClass? bestMagazine = reload.GetMagazineForReload(currentWeapon);
-            return bestMagazine != null && bestMagazine.Count > currentWeapon.GetCurrentMagazineCount();
+            return FollowerOutOfCombatReloadPolicy.HasBetterMagazine(BotOwner, currentWeapon);
         }
 
         private bool TryForceReloadCurrentWeaponOutOfCombat()
@@ -687,13 +698,20 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            return slot switch
+            bool switched = slot switch
             {
                 EquipmentSlot.FirstPrimaryWeapon => selector.ChangeToMain(),
                 EquipmentSlot.SecondPrimaryWeapon => selector.TryChangeToSlot(EquipmentSlot.SecondPrimaryWeapon, false),
                 EquipmentSlot.Holster => selector.TryChangeToSlot(EquipmentSlot.Holster, false),
                 _ => false,
             };
+
+            if (switched)
+            {
+                forcedTopOffSlot = slot;
+            }
+
+            return switched;
         }
 
         private bool ShouldReloadWeaponInSlot(EquipmentSlot slot)
@@ -710,7 +728,8 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            return weapon.GetCurrentMagazineCount() < magazine.MaxCount;
+            return weapon.GetCurrentMagazineCount() < magazine.MaxCount &&
+                   FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(BotOwner, weapon);
         }
 
         private Weapon? GetWeaponInSlot(EquipmentSlot slot)
@@ -721,6 +740,117 @@ namespace pitTeam.BigBrain
             }
 
             return BotOwner.GetPlayer.InventoryController.Inventory.Equipment.GetSlot(slot)?.ContainedItem as Weapon;
+        }
+    }
+
+    internal static class FollowerOutOfCombatReloadPolicy
+    {
+        public static bool CanTopOffWeapon(BotOwner botOwner, Weapon weapon)
+        {
+            if (botOwner?.GetPlayer?.InventoryController == null || weapon == null)
+            {
+                return false;
+            }
+
+            if (HasBetterMagazine(botOwner, weapon))
+            {
+                return true;
+            }
+
+            MagazineItemClass? currentMagazine = weapon.GetCurrentMagazine();
+            int currentCount = GetCurrentLoadedCount(weapon);
+            int maxCount = GetCurrentCapacity(weapon, currentMagazine);
+            if (maxCount <= 0 || currentCount >= maxCount)
+            {
+                return false;
+            }
+
+            return HasCompatibleLooseAmmo(botOwner, weapon, currentMagazine);
+        }
+
+        public static bool HasBetterMagazine(BotOwner botOwner, Weapon weapon)
+        {
+            if (botOwner?.GetPlayer?.InventoryController == null || weapon == null)
+            {
+                return false;
+            }
+
+            Slot magazineSlot = weapon.GetMagazineSlot();
+            if (magazineSlot == null)
+            {
+                return false;
+            }
+
+            int currentCount = weapon.GetCurrentMagazineCount();
+            List<MagazineItemClass> magazines = new List<MagazineItemClass>();
+            botOwner.GetPlayer.InventoryController.GetReachableItemsOfTypeNonAlloc<MagazineItemClass>(magazines, null);
+            foreach (MagazineItemClass magazine in magazines)
+            {
+                if (magazine == null || magazine.Count <= currentCount)
+                {
+                    continue;
+                }
+
+                if (InteractionsHandlerClass.CheckMoveIgnoringTargetItem(
+                        magazine,
+                        magazineSlot,
+                        botOwner.GetPlayer.InventoryController).Succeeded)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasCompatibleLooseAmmo(BotOwner botOwner, Weapon weapon, MagazineItemClass? currentMagazine)
+        {
+            if (botOwner?.GetPlayer?.InventoryController == null || weapon == null)
+            {
+                return false;
+            }
+
+            Slot? chamber = weapon.HasChambers && weapon.Chambers?.Length > 0
+                ? weapon.Chambers[0]
+                : null;
+            if (chamber == null && currentMagazine == null)
+            {
+                return false;
+            }
+
+            List<AmmoItemClass> ammos = new List<AmmoItemClass>();
+            botOwner.GetPlayer.InventoryController.GetAcceptableItemsNonAlloc<AmmoItemClass>(
+                BotReload.AvailableEquipmentSlots,
+                ammos,
+                ammo =>
+                    ammo != null &&
+                    ammo.StackObjectsCount > 0 &&
+                    ((chamber != null && chamber.CanAccept(ammo)) ||
+                     currentMagazine?.Cartridges?.Filters?.CheckItemFilter(ammo) == true) &&
+                    ammo.CheckAction(null).Succeeded,
+                null);
+
+            return ammos.Count > 0;
+        }
+
+        private static int GetCurrentLoadedCount(Weapon weapon)
+        {
+            if (weapon.ReloadMode == Weapon.EReloadMode.OnlyBarrel)
+            {
+                return weapon.ChamberAmmoCount;
+            }
+
+            return weapon.GetCurrentMagazineCount();
+        }
+
+        private static int GetCurrentCapacity(Weapon weapon, MagazineItemClass? currentMagazine)
+        {
+            if (weapon.ReloadMode == Weapon.EReloadMode.OnlyBarrel && weapon.Chambers != null)
+            {
+                return weapon.Chambers.Length;
+            }
+
+            return currentMagazine?.MaxCount ?? weapon.GetMaxMagazineCount();
         }
     }
 

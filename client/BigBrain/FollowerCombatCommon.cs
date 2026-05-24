@@ -41,6 +41,11 @@ namespace pitTeam.BigBrain
         private const float HealCoverMinNavDistance = 2f;
         private const float HealCoverMinEnemyDistanceGain = -2f;
         private const float EnemyFrontCrossGuardMaxDistance = 35f;
+        private const float BossFireLaneCandidateRadius = 0.9f;
+        private const float BossFireLanePathRadius = 1.1f;
+        private const float BossFireLaneStartPadding = 0.75f;
+        private const float BossFireLaneEndPadding = 2f;
+        private const float BossFireLaneSoftPenalty = 24f;
         private const float FireSupportPathEnemyMinDistance = 12f;
         private const float DogFightOutOfRangeCooldownSeconds = 1.25f;
         private const float PointBlankRetreatBlockDistance = 8f;
@@ -1346,7 +1351,8 @@ namespace pitTeam.BigBrain
             EnemyInfo goalEnemy,
             bool requireShootLane,
             float bossCoverSearchRadius,
-            out string reason)
+            out string reason,
+            bool avoidBossFireLane = false)
         {
             reason = requireShootLane ? "shootCover" : "safeCover";
 
@@ -1362,7 +1368,9 @@ namespace pitTeam.BigBrain
             }
 
             CustomNavigationPoint? cover = null;
-            if (requireShootLane && IsCoverUsable(PointToShoot))
+            if (requireShootLane &&
+                IsCoverUsable(PointToShoot) &&
+                (!avoidBossFireLane || !IsBossFireLaneMovementRisk(PointToShoot.Position, goalEnemy, includePath: true)))
             {
                 cover = PointToShoot;
                 reason = "shootCover";
@@ -1371,11 +1379,20 @@ namespace pitTeam.BigBrain
             if (cover == null &&
                 TryAssignRetreatAttackCover(goalEnemy, requireShootLane, GetCombatCoverMaxDistanceSqr(), false))
             {
-                cover = botOwner.Memory.CurCustomCoverPoint;
-                reason = requireShootLane ? "retreatShootCover" : "retreatSafeCover";
+                CustomNavigationPoint? retreatCover = botOwner.Memory.CurCustomCoverPoint;
+                if (!avoidBossFireLane ||
+                    retreatCover == null ||
+                    !IsBossFireLaneMovementRisk(retreatCover.Position, goalEnemy, includePath: true))
+                {
+                    cover = retreatCover;
+                    reason = requireShootLane ? "retreatShootCover" : "retreatSafeCover";
+                }
             }
 
-            if (cover == null && !requireShootLane && IsCoverUsable(PointToShoot))
+            if (cover == null &&
+                !requireShootLane &&
+                IsCoverUsable(PointToShoot) &&
+                (!avoidBossFireLane || !IsBossFireLaneMovementRisk(PointToShoot.Position, goalEnemy, includePath: true)))
             {
                 cover = PointToShoot;
                 reason = "safeCover";
@@ -1383,8 +1400,13 @@ namespace pitTeam.BigBrain
 
             if (cover == null && TryFindBossCover(goalEnemy, bossCoverSearchRadius, out CustomNavigationPoint? bossCover))
             {
-                cover = bossCover;
-                reason = "bossCover";
+                if (!avoidBossFireLane ||
+                    bossCover == null ||
+                    !IsBossFireLaneMovementRisk(bossCover.Position, goalEnemy, includePath: true))
+                {
+                    cover = bossCover;
+                    reason = "bossCover";
+                }
             }
 
             return TryCommitSelectedCombatCover(goalEnemy, cover, reason);
@@ -1400,7 +1422,8 @@ namespace pitTeam.BigBrain
             out string committedReason,
             bool preferPointToShoot = true,
             bool preferInbetween = false,
-            bool enforceMarksmanPositionPolicy = false)
+            bool enforceMarksmanPositionPolicy = false,
+            bool avoidBossFireLane = false)
         {
             committedReason = reason;
             if (HasCommittedCover())
@@ -1414,13 +1437,16 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            CustomNavigationPoint? cover = preferPointToShoot && IsCoverUsable(PointToShoot)
+            CustomNavigationPoint? cover = preferPointToShoot &&
+                                           IsCoverUsable(PointToShoot) &&
+                                           (!avoidBossFireLane || !IsBossFireLaneMovementRisk(PointToShoot.Position, goalEnemy, includePath: true))
                 ? PointToShoot
                 : null;
 
             cover ??= preferInbetween
-                ? GetApproachableCover(inbetween: true) ?? GetApproachableCover()
-                : GetApproachableCover();
+                ? GetApproachableCover(inbetween: true, avoidBossFireLane: avoidBossFireLane) ??
+                  GetApproachableCover(avoidBossFireLane: avoidBossFireLane)
+                : GetApproachableCover(avoidBossFireLane: avoidBossFireLane);
 
             if (enforceMarksmanPositionPolicy &&
                 cover != null &&
@@ -2741,21 +2767,26 @@ namespace pitTeam.BigBrain
             float maxDistance = 150f,
             bool inbetween = false,
             float? maxDistanceFromBot = null,
-            bool avoidCrossingEnemyFront = false)
+            bool avoidCrossingEnemyFront = false,
+            bool avoidBossFireLane = false)
         {
-            if (nextClosestShootCoverCheckTime > Time.time)
-            {
-                return cachedClosestShootCover;
-            }
-
-            nextClosestShootCoverCheckTime = Time.time + 1f;
-
             ShootPointClass shootPointClass = botOwner.CurrentEnemyTargetPosition(true);
             if (shootPointClass == null)
             {
                 cachedClosestShootCover = null;
                 return null;
             }
+
+            bool cachedCoverCrossesBossLane =
+                avoidBossFireLane &&
+                cachedClosestShootCover != null &&
+                IsBossFireLaneMovementRisk(cachedClosestShootCover.Position, shootPointClass.Point, includePath: true);
+            if (nextClosestShootCoverCheckTime > Time.time && !cachedCoverCrossesBossLane)
+            {
+                return cachedClosestShootCover;
+            }
+
+            nextClosestShootCoverCheckTime = Time.time + 1f;
 
             CoverSearchType searchType = SetCoverTacticAndGetSearchType(
                 BotsGroup.BotCurrentTactic.Attack,
@@ -2765,41 +2796,55 @@ namespace pitTeam.BigBrain
             float? maxDistanceFromBotSqr = maxDistanceFromBot.HasValue
                 ? maxDistanceFromBot.Value * maxDistanceFromBot.Value
                 : null;
-            cachedClosestShootCover = Covers.GetClosestCoverPoint(
+            Func<CustomNavigationPoint, bool> eligibility = point =>
+            {
+                if (point == null || point.IsSpotted || !point.IsFreeById(botOwner.Id))
+                {
+                    return false;
+                }
+
+                if (maxDistanceFromBotSqr.HasValue &&
+                    (point.Position - botOwner.Position).sqrMagnitude > maxDistanceFromBotSqr.Value)
+                {
+                    return false;
+                }
+
+                if (inbetween && !Covers.IsPointBetween(point.Position, botOwner.Position, centerPosition))
+                {
+                    return false;
+                }
+
+                if ((point.Position - shootPointClass.Point).sqrMagnitude >= weaponShootDistMaxSqr)
+                {
+                    return false;
+                }
+
+                if (avoidCrossingEnemyFront &&
+                    ShouldAvoidCoverBecauseCrossesEnemyFront(point.Position, shootPointClass.Point))
+                {
+                    return false;
+                }
+
+                return Utils.Utils.CanShootToTarget(shootPointClass, point, botOwner.LookSensor.Mask, false);
+            };
+
+            CustomNavigationPoint? cover = null;
+            if (avoidBossFireLane)
+            {
+                cover = Covers.GetClosestCoverPoint(
+                    botOwner,
+                    centerPosition,
+                    maxDistance,
+                    point => eligibility(point) &&
+                             !IsBossFireLaneMovementRisk(point.Position, shootPointClass.Point, includePath: true),
+                    searchType);
+            }
+
+            cachedClosestShootCover = cover ?? Covers.GetClosestCoverPoint(
                 botOwner,
                 centerPosition,
                 maxDistance,
-                point =>
-                {
-                    if (point == null || point.IsSpotted || !point.IsFreeById(botOwner.Id))
-                    {
-                        return false;
-                    }
-
-                    if (maxDistanceFromBotSqr.HasValue &&
-                        (point.Position - botOwner.Position).sqrMagnitude > maxDistanceFromBotSqr.Value)
-                    {
-                        return false;
-                    }
-
-                    if (inbetween && !Covers.IsPointBetween(point.Position, botOwner.Position, centerPosition))
-                    {
-                        return false;
-                    }
-
-                    if ((point.Position - shootPointClass.Point).sqrMagnitude >= weaponShootDistMaxSqr)
-                    {
-                        return false;
-                    }
-
-                    if (avoidCrossingEnemyFront &&
-                        ShouldAvoidCoverBecauseCrossesEnemyFront(point.Position, shootPointClass.Point))
-                    {
-                        return false;
-                    }
-
-                    return Utils.Utils.CanShootToTarget(shootPointClass, point, botOwner.LookSensor.Mask, false);
-                },
+                eligibility,
                 searchType);
 
             if (cachedClosestShootCover != null)
@@ -2815,9 +2860,9 @@ namespace pitTeam.BigBrain
         /// Old-plugin equivalent of GetApproachablePoint/GetApproachableCover.
         /// Picks a shooting cover around the midpoint between bot and enemy.
         /// </summary>
-        public CustomNavigationPoint? GetApproachableCover(bool inbetween = false)
+        public CustomNavigationPoint? GetApproachableCover(bool inbetween = false, bool avoidBossFireLane = false)
         {
-            if (nextApproachableCoverCheckTime > Time.time)
+            if (nextApproachableCoverCheckTime > Time.time && !avoidBossFireLane)
             {
                 return cachedClosestShootCover;
             }
@@ -2837,14 +2882,19 @@ namespace pitTeam.BigBrain
                 : goalEnemy.CurrPosition;
 
             Vector3 midpoint = (botOwner.Position + enemyPosition) * 0.5f;
-            return GetClosestShootCover(midpoint, 120f, inbetween, avoidCrossingEnemyFront: true);
+            return GetClosestShootCover(
+                midpoint,
+                120f,
+                inbetween,
+                avoidCrossingEnemyFront: true,
+                avoidBossFireLane: avoidBossFireLane);
         }
 
-        public CustomNavigationPoint? GetWeakEnemyPushCover()
+        public CustomNavigationPoint? GetWeakEnemyPushCover(bool avoidBossFireLane = false)
         {
             float maxDistance = GetWeakEnemyPushMaxDistance();
             float maxDistanceSqr = maxDistance * maxDistance;
-            CustomNavigationPoint? approachCover = GetApproachableCover(maxDistance);
+            CustomNavigationPoint? approachCover = GetApproachableCover(maxDistance, avoidBossFireLane: avoidBossFireLane);
             if (approachCover == null)
             {
                 return null;
@@ -2855,9 +2905,9 @@ namespace pitTeam.BigBrain
                 : null;
         }
 
-        private CustomNavigationPoint? GetApproachableCover(float maxDistance, bool inbetween = false)
+        private CustomNavigationPoint? GetApproachableCover(float maxDistance, bool inbetween = false, bool avoidBossFireLane = false)
         {
-            if (nextApproachableCoverCheckTime > Time.time)
+            if (nextApproachableCoverCheckTime > Time.time && !avoidBossFireLane)
             {
                 return cachedClosestShootCover != null &&
                        (cachedClosestShootCover.Position - botOwner.Position).sqrMagnitude <= maxDistance * maxDistance
@@ -2885,7 +2935,8 @@ namespace pitTeam.BigBrain
                 maxDistance,
                 inbetween,
                 maxDistanceFromBot: maxDistance,
-                avoidCrossingEnemyFront: true);
+                avoidCrossingEnemyFront: true,
+                avoidBossFireLane: avoidBossFireLane);
         }
 
         private bool ShouldAvoidCoverBecauseCrossesEnemyFront(Vector3 coverPosition, Vector3 enemyPosition)
@@ -2929,6 +2980,68 @@ namespace pitTeam.BigBrain
             return enemyDistToPath < 7f;
         }
 
+        public bool IsBossFireLaneMovementRisk(Vector3 destination, EnemyInfo goalEnemy, bool includePath)
+        {
+            return IsBossFireLaneMovementRisk(destination, GetEnemyAnchor(goalEnemy), includePath);
+        }
+
+        public bool IsBossFireLaneMovementRisk(Vector3 destination, Vector3 enemyAnchor, bool includePath)
+        {
+            if (!IsFinite(destination) ||
+                !IsFinite(enemyAnchor) ||
+                FollowerCombatAnchor.IsCombatIndependent(botOwner))
+            {
+                return false;
+            }
+
+            Vector3 bossPosition = GetRealBossPosition();
+            if (!IsFinite(bossPosition))
+            {
+                return false;
+            }
+
+            Vector3 bossToEnemy = enemyAnchor - bossPosition;
+            bossToEnemy.y = 0f;
+            if (bossToEnemy.sqrMagnitude < 4f)
+            {
+                return false;
+            }
+
+            bool botStartsInLane = IsPointInsideBossFireLane(botOwner.Position, bossPosition, enemyAnchor, BossFireLanePathRadius);
+            if (IsPointInsideBossFireLane(destination, bossPosition, enemyAnchor, BossFireLaneCandidateRadius))
+            {
+                return true;
+            }
+
+            return includePath &&
+                   !botStartsInLane &&
+                   DistanceSegmentToSegmentXZ(botOwner.Position, destination, bossPosition, enemyAnchor) <= BossFireLanePathRadius;
+        }
+
+        private static bool IsPointInsideBossFireLane(Vector3 point, Vector3 bossPosition, Vector3 enemyAnchor, float radius)
+        {
+            Vector3 lane = enemyAnchor - bossPosition;
+            lane.y = 0f;
+            float laneLength = lane.magnitude;
+            if (laneLength < 0.01f)
+            {
+                return false;
+            }
+
+            Vector3 direction = lane / laneLength;
+            Vector3 bossToPoint = point - bossPosition;
+            bossToPoint.y = 0f;
+            float forward = Vector3.Dot(bossToPoint, direction);
+            if (forward < -BossFireLaneStartPadding || forward > laneLength + BossFireLaneEndPadding)
+            {
+                return false;
+            }
+
+            Vector3 closest = bossPosition + direction * forward;
+            closest.y = point.y;
+            return (point - closest).sqrMagnitude <= radius * radius;
+        }
+
         private static float DistancePointToSegmentXZ(Vector3 point, Vector3 segmentStart, Vector3 segmentEnd)
         {
             Vector2 p = new Vector2(point.x, point.z);
@@ -2945,6 +3058,44 @@ namespace pitTeam.BigBrain
             float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / abLenSqr);
             Vector2 closest = a + ab * t;
             return Vector2.Distance(p, closest);
+        }
+
+        private static float DistanceSegmentToSegmentXZ(Vector3 startA, Vector3 endA, Vector3 startB, Vector3 endB)
+        {
+            if (SegmentsIntersectXZ(startA, endA, startB, endB))
+            {
+                return 0f;
+            }
+
+            return Mathf.Min(
+                Mathf.Min(DistancePointToSegmentXZ(startA, startB, endB), DistancePointToSegmentXZ(endA, startB, endB)),
+                Mathf.Min(DistancePointToSegmentXZ(startB, startA, endA), DistancePointToSegmentXZ(endB, startA, endA)));
+        }
+
+        private static bool SegmentsIntersectXZ(Vector3 startA, Vector3 endA, Vector3 startB, Vector3 endB)
+        {
+            Vector2 a = new Vector2(startA.x, startA.z);
+            Vector2 b = new Vector2(endA.x, endA.z);
+            Vector2 c = new Vector2(startB.x, startB.z);
+            Vector2 d = new Vector2(endB.x, endB.z);
+
+            float Cross(Vector2 left, Vector2 right)
+            {
+                return left.x * right.y - left.y * right.x;
+            }
+
+            Vector2 ab = b - a;
+            Vector2 cd = d - c;
+            float denominator = Cross(ab, cd);
+            if (Mathf.Abs(denominator) < 0.0001f)
+            {
+                return false;
+            }
+
+            Vector2 ac = c - a;
+            float t = Cross(ac, cd) / denominator;
+            float u = Cross(ac, ab) / denominator;
+            return t >= 0f && t <= 1f && u >= 0f && u <= 1f;
         }
 
         private float GetWeakEnemyPushMaxDistance()
@@ -3123,10 +3274,20 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            CustomNavigationPoint? cover = FindPushSupportCover(goalEnemy, pushOwnerPosition, enemyPosition, requireEnemyShootLane: true);
+            CustomNavigationPoint? cover = FindPushSupportCover(
+                goalEnemy,
+                pushOwnerPosition,
+                enemyPosition,
+                requireEnemyShootLane: true,
+                avoidBossFireLane: true);
             if (cover == null)
             {
-                cover = FindPushSupportCover(goalEnemy, pushOwnerPosition, watchedDestination, requireEnemyShootLane: false);
+                cover = FindPushSupportCover(
+                    goalEnemy,
+                    pushOwnerPosition,
+                    watchedDestination,
+                    requireEnemyShootLane: false,
+                    avoidBossFireLane: true);
                 committedReason += ".watchDestination";
             }
             else
@@ -3144,7 +3305,8 @@ namespace pitTeam.BigBrain
                 reason + ".fallbackFirePosition",
                 out committedReason,
                 preferPointToShoot: true,
-                preferInbetween: true);
+                preferInbetween: true,
+                avoidBossFireLane: true);
         }
 
         private CustomNavigationPoint? FindPushSupportCover(
@@ -3152,7 +3314,8 @@ namespace pitTeam.BigBrain
             Vector3 pushOwnerPosition,
             Vector3 targetPosition,
             bool requireEnemyShootLane,
-            bool keepBehindBoss = false)
+            bool keepBehindBoss = false,
+            bool avoidBossFireLane = false)
         {
             if (!IsFinite(targetPosition))
             {
@@ -3167,42 +3330,61 @@ namespace pitTeam.BigBrain
                 CoverShootType.shoot,
                 CoverSearchIntent.Attack);
 
-            return Covers.GetClosestCoverPoint(
+            bool IsEligible(CustomNavigationPoint point, bool rejectBossFireLane)
+            {
+                if (!IsCoverUsable(point))
+                {
+                    return false;
+                }
+
+                if (!IsTeamSearchSupportPosition(point.Position, pushOwnerPosition, enemyAnchor))
+                {
+                    return false;
+                }
+
+                if (rejectBossFireLane &&
+                    IsBossFireLaneMovementRisk(point.Position, enemyAnchor, includePath: true))
+                {
+                    return false;
+                }
+
+                if (requireEnemyShootLane &&
+                    IsFinite(enemyAnchor) &&
+                    !point.CanIHideFromPos(0f, true, false, enemyAnchor))
+                {
+                    return false;
+                }
+
+                if (keepBehindBoss &&
+                    !IsSupportPositionBehindBossLine(point.Position, pushOwnerPosition, enemyAnchor))
+                {
+                    return false;
+                }
+
+                if (!IsCoverSafeFromAlternateThreats(point, goalEnemy.ProfileId, strict: keepBehindBoss))
+                {
+                    return false;
+                }
+
+                return Utils.Utils.CanShootToTarget(targetPoint, point, mask, false);
+            }
+
+            CustomNavigationPoint? cover = null;
+            if (avoidBossFireLane)
+            {
+                cover = Covers.GetClosestCoverPoint(
+                    botOwner,
+                    botOwner.Position,
+                    60f,
+                    point => IsEligible(point, rejectBossFireLane: true),
+                    searchType);
+            }
+
+            return cover ?? Covers.GetClosestCoverPoint(
                 botOwner,
                 botOwner.Position,
                 60f,
-                point =>
-                {
-                    if (!IsCoverUsable(point))
-                    {
-                        return false;
-                    }
-
-                    if (!IsTeamSearchSupportPosition(point.Position, pushOwnerPosition, enemyAnchor))
-                    {
-                        return false;
-                    }
-
-                    if (requireEnemyShootLane &&
-                        IsFinite(enemyAnchor) &&
-                        !point.CanIHideFromPos(0f, true, false, enemyAnchor))
-                    {
-                        return false;
-                    }
-
-                    if (keepBehindBoss &&
-                        !IsSupportPositionBehindBossLine(point.Position, pushOwnerPosition, enemyAnchor))
-                    {
-                        return false;
-                    }
-
-                    if (!IsCoverSafeFromAlternateThreats(point, goalEnemy.ProfileId, strict: keepBehindBoss))
-                    {
-                        return false;
-                    }
-
-                    return Utils.Utils.CanShootToTarget(targetPoint, point, mask, false);
-                },
+                point => IsEligible(point, rejectBossFireLane: false),
                 searchType);
         }
 
@@ -3268,7 +3450,10 @@ namespace pitTeam.BigBrain
 
                 float selfDistance = Vector3.Distance(botOwner.Position, hit.position);
                 float ownerDistance = Vector3.Distance(pushOwnerPosition, hit.position);
-                float score = selfDistance + ownerDistance * 0.35f;
+                float lanePenalty = IsBossFireLaneMovementRisk(hit.position, enemyAnchor, includePath: true)
+                    ? BossFireLaneSoftPenalty
+                    : 0f;
+                float score = selfDistance + ownerDistance * 0.35f + lanePenalty;
                 if (score < bestScore)
                 {
                     supportPoint = hit.position;
@@ -3770,7 +3955,10 @@ namespace pitTeam.BigBrain
                 }
 
                 float bossDistance = IsFinite(bossPosition) ? Vector3.Distance(candidate, bossPosition) : 0f;
-                float score = navDistance + bossDistance * 0.35f;
+                float lanePenalty = IsBossFireLaneMovementRisk(candidate, enemyAnchor, includePath: true)
+                    ? BossFireLaneSoftPenalty
+                    : 0f;
+                float score = navDistance + bossDistance * 0.35f + lanePenalty;
                 if (score < bestScore)
                 {
                     supportPoint = candidate;
@@ -5491,7 +5679,10 @@ namespace pitTeam.BigBrain
             return GetEnemyAnchor(goalEnemy);
         }
 
-        public AICoreActionResultStruct<BotLogicDecision, GClass26>? EnemyCoverSearch(string reason = "enemySearch", bool weakEnemy = false)
+        public AICoreActionResultStruct<BotLogicDecision, GClass26>? EnemyCoverSearch(
+            string reason = "enemySearch",
+            bool weakEnemy = false,
+            bool avoidBossFireLane = false)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
@@ -5504,8 +5695,8 @@ namespace pitTeam.BigBrain
 
             // Prefer an approach cover with a clear shot from a nearby tactical point.
             CustomNavigationPoint? approachCover = weakEnemy
-                ? GetWeakEnemyPushCover()
-                : GetApproachableCover();
+                ? GetWeakEnemyPushCover(avoidBossFireLane)
+                : GetApproachableCover(avoidBossFireLane: avoidBossFireLane);
 
             if (approachCover != null)
             {
@@ -5560,7 +5751,7 @@ namespace pitTeam.BigBrain
             Enemy.EnemyDistance distance = Enemy.Distance(goalEnemy);
             if (distance <= Enemy.EnemyDistance.Close)
             {
-                if (EnemyCoverSearch(reason, weakEnemy) is AICoreActionResultStruct<BotLogicDecision, GClass26> tacticalSearchResult)
+                if (EnemyCoverSearch(reason, weakEnemy, avoidBossFireLane: !pushOrdered) is AICoreActionResultStruct<BotLogicDecision, GClass26> tacticalSearchResult)
                 {
                     return tacticalSearchResult;
                 }
@@ -5594,7 +5785,7 @@ namespace pitTeam.BigBrain
 
             if (distance <= Enemy.EnemyDistance.Mid)
             {
-                if (EnemyCoverSearch($"{reason}.walk", weakEnemy) is AICoreActionResultStruct<BotLogicDecision, GClass26> walkCoverResult)
+                if (EnemyCoverSearch($"{reason}.walk", weakEnemy, avoidBossFireLane: !pushOrdered) is AICoreActionResultStruct<BotLogicDecision, GClass26> walkCoverResult)
                 {
                     return walkCoverResult;
                 }

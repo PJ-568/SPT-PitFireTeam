@@ -199,13 +199,7 @@ namespace pitTeam.Patches
                 return false;
             }
 
-            if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
-            {
-                return true;
-            }
-
-            MagazineItemClass bestMagazine = reload.GetMagazineForReload(currentWeapon);
-            return bestMagazine != null && bestMagazine.Count > currentCount;
+            return FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(botOwner, currentWeapon);
         }
     }
 
