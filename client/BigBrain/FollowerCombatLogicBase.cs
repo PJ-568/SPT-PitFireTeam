@@ -45,6 +45,8 @@ namespace pitTeam.BigBrain
 
         public bool HasActiveOrPendingHealWork() => combatCommon.HasActiveOrPendingHealWork();
 
+        public bool HasImmediateExplosiveDanger() => combatCommon.HasImmediateExplosiveDanger();
+
         public AICoreActionResultStruct<BotLogicDecision, GClass26> GetMedicalDecision()
         {
             combatCommon.RepairGoalEnemyMemory();

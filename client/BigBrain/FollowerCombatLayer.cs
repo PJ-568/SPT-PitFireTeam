@@ -259,6 +259,18 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            if (!isHealingAction &&
+                IsMovementOrPushDecision(currentDecision.Value.Action) &&
+                combatLogic.HasImmediateExplosiveDanger())
+            {
+                BattleRecorder.RecordDecisionEnd(
+                    BotOwner,
+                    currentDecision.Value,
+                    new AICoreActionEndStruct("explosiveDanger", true),
+                    combatLogic.GetCurrentObjectiveName());
+                return true;
+            }
+
             // The concrete logic decides end conditions; it may delegate to shared common logic.
             AICoreActionEndStruct endResult = combatLogic.ShallEndCurrentDecision(currentDecision.Value);
             if (endResult.Value)
@@ -274,6 +286,18 @@ namespace pitTeam.BigBrain
             }
 
             return endResult.Value;
+        }
+
+        private static bool IsMovementOrPushDecision(BotLogicDecision action)
+        {
+            return action == BotLogicDecision.runToCover ||
+                   action == BotLogicDecision.goToPoint ||
+                   action == BotLogicDecision.goToPointTactical ||
+                   action == BotLogicDecision.attackMoving ||
+                   action == BotLogicDecision.attackMovingWithSuppress ||
+                   action == BotLogicDecision.runToEnemy ||
+                   action == BotLogicDecision.goToEnemy ||
+                   action == (BotLogicDecision)CustomBotDecisions.attackRetreat;
         }
 
         private void ArmLingerIfNeeded()

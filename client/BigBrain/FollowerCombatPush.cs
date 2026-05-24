@@ -649,6 +649,12 @@ namespace pitTeam.BigBrain
         {
             reason = string.Empty;
 
+            if (combatCommon.HasImmediateExplosiveDanger())
+            {
+                reason = "pushExplosiveDanger";
+                return true;
+            }
+
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy) &&
                 !combatCommon.TryRestoreCommittedPushEnemy(out goalEnemy))
             {

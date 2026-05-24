@@ -594,6 +594,11 @@ namespace pitTeam.BigBrain
             AICoreActionResultStruct<BotLogicDecision, GClass26> decision,
             bool hasActivePushOrder)
         {
+            if (HasImmediateExplosiveDanger())
+            {
+                return true;
+            }
+
             if (botOwner.Memory.IsUnderFire ||
                 WasHitRecently(botOwner, 0.5f) ||
                 FollowerAwareness.WasRecentlyHit(botOwner))
@@ -619,6 +624,24 @@ namespace pitTeam.BigBrain
 
             return decision.Action == BotLogicDecision.runToEnemy &&
                    !CanSprintForCombatMovement();
+        }
+
+        public bool HasImmediateExplosiveDanger()
+        {
+            if (botOwner == null)
+            {
+                return false;
+            }
+
+            if (botOwner.BewareGrenade?.ShallRunAway() == true ||
+                botOwner.BewareBTR?.ShallRunAway() == true)
+            {
+                return true;
+            }
+
+            BotLogicDecision currentDecision = botOwner.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            return currentDecision == BotLogicDecision.runAwayGrenade ||
+                   currentDecision == BotLogicDecision.runAwayBTR;
         }
 
         private bool HasCommittedMovementArrived(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
