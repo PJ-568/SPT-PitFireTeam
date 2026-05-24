@@ -568,10 +568,7 @@ namespace pitTeam.Patches
                 BotOwner botOwner = _botOwnerGetter?.Invoke(__instance);
                 if (botOwner == null)
                 {
-                    __result = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
-                        default,
-                        "pitFireTeam_skipLootPatrol_no_owner");
-                    return false;
+                    return true;
                 }
 
                 if (!IsConfirmedFollower(botOwner)) return true;

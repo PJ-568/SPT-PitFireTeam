@@ -345,7 +345,7 @@ namespace pitTeam.Utils
                 return false;
             }
 
-            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy, source: "awarenessCloseThreat");
+            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
             enemyInfo?.SetVisible(true);
             return enemyInfo != null;
         }
@@ -353,7 +353,7 @@ namespace pitTeam.Utils
         private static bool TryAcquireVisibleHostileOfBossGroup(BotOwner bot, Player enemy)
         {
             if (bot == null || enemy == null) return false;
-            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy, source: "awarenessVisibleHostileBossGroup");
+            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
             enemyInfo?.SetVisible(true);
             return enemyInfo != null;
         }

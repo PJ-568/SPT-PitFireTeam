@@ -23,7 +23,7 @@ namespace pitTeam.Patches
         private static bool PatchPrefix(BotsGroup __instance, ref bool __result, IPlayer player)
         {
             // fix Usecs turning hostile because of UsecRaidRemainKills
-            if (player.Profile.Info.Side == EPlayerSide.Usec)
+            if (player?.Profile?.Info?.Side == EPlayerSide.Usec)
             {
                 __result = false;
                 return false;
@@ -133,6 +133,7 @@ namespace pitTeam.Patches
         private static bool PatchPrefix(BotsGroup __instance, ref bool __result, IPlayer person, EBotEnemyCause cause)
         {
             if (person == null || (person.IsAI && person.AIData?.BotOwner?.GetPlayer == null)) return true;
+            if (person.Profile?.Info == null) return true;
             if (cause == EBotEnemyCause.addPlayerToBoss) return true;
 
 
@@ -295,8 +296,6 @@ namespace pitTeam.Patches
         [PatchPostfix]
         private static void PatchPostfix(BotsGroup __instance, IPlayer person, EBotEnemyCause cause, bool __result)
         {
-            BattleRecorder.RecordGroupAddEnemyResult(__instance, person, cause, __result);
-
             if (__result && __instance is BotsGroupPlayer)
             {
                 Utils.Enemy.ForceIgnoreUntilAggressionOff(__instance);
@@ -319,7 +318,7 @@ namespace pitTeam.Patches
                 var mem = __instance.Member(i);
                 // ignore BTR 
                 if (
-                    mem.Profile.Info.Settings.Role == WildSpawnType.shooterBTR
+                    mem?.Profile?.Info?.Settings?.Role == WildSpawnType.shooterBTR
                 )
                 {
                     isFriend = true;
@@ -347,7 +346,8 @@ namespace pitTeam.Patches
                 for (int i = 0; i < __instance.MembersCount; i++)
                 {
                     var mem = __instance.Member(i);
-                    if (mem != null && IsRogueFriendlyType(mem.Profile.Info.Settings.Role))
+                    WildSpawnType? memberRole = mem?.Profile?.Info?.Settings?.Role;
+                    if (memberRole.HasValue && IsRogueFriendlyType(memberRole.Value))
                     {
                         isFriendly = true;
                         break;
@@ -570,34 +570,18 @@ namespace pitTeam.Patches
                     return;
                 }
 
-                bool addedAttacker = targetGroup.AddEnemy(attacker, EBotEnemyCause.AddEnemyToAllGroupsInBotZone);
-                RetaliationBridgeResult attackerResult = PromoteGroupMembersToAttacker(targetGroup, attacker);
+                targetGroup.AddEnemy(attacker, EBotEnemyCause.AddEnemyToAllGroupsInBotZone);
+                PromoteGroupMembersToAttacker(targetGroup, attacker);
 
                 pitAIBossPlayer boss = attackerIsBoss
                     ? BossPlayers.GetBoss(attacker.ProfileId)
                     : BossPlayers.GetFollowerByProfileId(attacker.ProfileId)?.GetBoss();
 
-                bool addedBoss = false;
-                int promotedBoss = 0;
-                int lootingInterruptedBoss = 0;
                 if (attackerIsFollower && boss?.realPlayer != null)
                 {
-                    addedBoss = targetGroup.AddEnemy(boss.realPlayer, EBotEnemyCause.AddEnemyToAllGroupsInBotZone);
-                    RetaliationBridgeResult bossResult = PromoteGroupMembersToAttacker(targetGroup, boss.realPlayer);
-                    promotedBoss = bossResult.Promoted;
-                    lootingInterruptedBoss = bossResult.LootingInterrupted;
+                    targetGroup.AddEnemy(boss.realPlayer, EBotEnemyCause.AddEnemyToAllGroupsInBotZone);
+                    PromoteGroupMembersToAttacker(targetGroup, boss.realPlayer);
                 }
-
-                BattleRecorder.RecordDirectDamageRetaliationBridge(
-                    targetGroup,
-                    attacker,
-                    targetBot,
-                    addedAttacker,
-                    attackerResult.Promoted,
-                    addedBoss,
-                    promotedBoss,
-                    attackerResult.LootingInterrupted,
-                    lootingInterruptedBoss);
             }
             catch (Exception ex)
             {
@@ -611,24 +595,21 @@ namespace pitTeam.Patches
             return side == EPlayerSide.Bear || side == EPlayerSide.Usec;
         }
 
-        private struct RetaliationBridgeResult
+        private static void PromoteGroupMembersToAttacker(BotsGroup group, IPlayer attacker)
         {
-            public int Promoted;
-            public int LootingInterrupted;
-        }
-
-        private static RetaliationBridgeResult PromoteGroupMembersToAttacker(BotsGroup group, IPlayer attacker)
-        {
-            RetaliationBridgeResult result = default;
             if (group == null || attacker == null)
             {
-                return result;
+                return;
             }
 
             for (int i = 0; i < group.MembersCount; i++)
             {
                 BotOwner member = group.Member(i);
-                if (member == null || member.IsDead || member.GetPlayer == null)
+                if (member == null ||
+                    member.IsDead ||
+                    member.GetPlayer == null ||
+                    member.Memory == null ||
+                    member.EnemiesController == null)
                 {
                     continue;
                 }
@@ -638,10 +619,7 @@ namespace pitTeam.Patches
                     continue;
                 }
 
-                if (LootingBotsInterop.PreventBotFromLooting(member, 180f))
-                {
-                    result.LootingInterrupted++;
-                }
+                LootingBotsInterop.PreventBotFromLooting(member, 180f);
 
                 // AddEnemy updates group relations, but some members can remain in peaceful memory/layer
                 // state until they personally see or are hit by the attacker. Give each group member the
@@ -659,10 +637,7 @@ namespace pitTeam.Patches
                 member.Memory.IsPeace = false;
                 info.IgnoreUntilAggression = false;
                 member.Memory.GoalEnemy = info;
-                result.Promoted++;
             }
-
-            return result;
         }
 
         private static bool TryGetOrCreateEnemyInfo(BotOwner member, BotsGroup group, IPlayer attacker, out EnemyInfo info)
@@ -680,7 +655,10 @@ namespace pitTeam.Patches
                 return true;
             }
 
-            if (!group.Enemies.TryGetValue(attacker, out BotSettingsClass settings) || settings == null)
+            if (group.Enemies == null ||
+                !group.Enemies.TryGetValue(attacker, out BotSettingsClass settings) ||
+                settings == null ||
+                member.Memory == null)
             {
                 return false;
             }
