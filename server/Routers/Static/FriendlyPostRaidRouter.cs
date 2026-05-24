@@ -28,6 +28,10 @@ public class FriendlyPostRaidRouter(JsonUtil jsonUtil, FriendlyPostRaidCallbacks
                 "/singleplayer/pitfireteam/postraid/kill-message",
                 async (url, info, sessionId, output) => await callbacks.RecordKillMessage(url, info, sessionId)
             ),
+            new RouteAction<FriendlyPostRaidProtectedItemsRequest>(
+                "/singleplayer/pitfireteam/postraid/protected-items",
+                async (url, info, sessionId, output) => await callbacks.RegisterProtectedItems(url, info, sessionId)
+            ),
             new RouteAction<EndLocalRaidRequestData>(
                 "/client/match/local/end",
                 async (url, info, sessionId, output) => await callbacks.EndLocalRaid(url, info, sessionId, output)

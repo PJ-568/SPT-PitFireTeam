@@ -201,6 +201,39 @@ public class FriendlyTeammateService(
             .ToList();
     }
 
+    public HashSet<string> GetProtectedTeammateItemIdsForExtraction(MongoId sessionId)
+    {
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (IsImmersiveLikeLoadoutManagementMode(mode))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        HashSet<string> itemIds = new(StringComparer.OrdinalIgnoreCase);
+        foreach (BotBase teammate in LoadTeammates(sessionId))
+        {
+            List<Item>? items = teammate.Inventory?.Items;
+            if (items == null || items.Count == 0)
+            {
+                continue;
+            }
+
+            string? equipmentRootId = teammate.Inventory?.Equipment?.ToString();
+            foreach (Item item in items)
+            {
+                if (item?.Id == null ||
+                    string.Equals(item.Id.ToString(), equipmentRootId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                itemIds.Add(item.Id.ToString());
+            }
+        }
+
+        return itemIds;
+    }
+
     public void LogLoadoutManagementModeChange(MongoId sessionId, string previousMode, string nextMode)
     {
         logger.Info($"Loadout management mode changed for session '{sessionId}' from '{previousMode}' to '{nextMode}'.");

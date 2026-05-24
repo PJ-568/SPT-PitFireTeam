@@ -37,7 +37,10 @@ namespace pitTeam.Patches
 
             if (isBotEquipment)
             {
-                __result = !pitFireTeam.IsFollowerLoadoutLootableMode();
+                // Teammate gear is physically lootable in every loadout-management mode.
+                // Simple/Restricted anti-farming is enforced later by stripping protected
+                // teammate item IDs from the extracted PMC profile.
+                __result = false;
                 return false;
             }
 
@@ -73,7 +76,9 @@ namespace pitTeam.Patches
 
             if (isBotEquipment)
             {
-                __result = pitFireTeam.IsFollowerLoadoutLootableMode();
+                // Allow the player to detach teammate weapon/armor mods in raid. In protected
+                // modes those item IDs are non-retainable and removed on extraction instead.
+                __result = true;
                 return false;
             }
             // let original run
@@ -112,15 +117,9 @@ namespace pitTeam.Patches
                     if (isBotEquipment) break;
                 }
 
-                if (!isBotEquipment || pitFireTeam.IsFollowerLoadoutLootableMode()) return true;
+                if (!isBotEquipment) return true;
 
-                __result = new KeyValuePair<EModLockedState, ModSlotViewTP>(EModLockedState.RaidLock, new ModSlotViewTP
-                {
-                    Error = "<color=red>" + "Raid lock".Localized(null) + "</color>",
-                    ItemName = itemName
-                });
-
-                return false;
+                return true;
             }
 
             return true;
