@@ -127,6 +127,12 @@ namespace pitTeam.BigBrain
             // held briefly, and then re-evaluated instead of churned every tick.
             combatCommon.ValidateCommittedCover();
 
+            if (combatCommon.TryGetReloadRetreatDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> reloadRetreatDecision))
+            {
+                combatCommon.ClearInitialDecision();
+                return reloadRetreatDecision;
+            }
+
             if (TryGetImmediateFightDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> fightDecision))
             {
                 return fightDecision;
@@ -233,14 +239,14 @@ namespace pitTeam.BigBrain
                 return allySupportDecision;
             }
 
-            if (TryGetAutonomousSuppressDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> autoSuppressDecision))
-            {
-                return autoSuppressDecision;
-            }
-
             if (combatCommon.TryActivateFollowerGrenade(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> grenadeDecision))
             {
                 return grenadeDecision;
+            }
+
+            if (TryGetAutonomousSuppressDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> autoSuppressDecision))
+            {
+                return autoSuppressDecision;
             }
 
             // Resolve visible-but-not-immediate contact: take a firing cover or hand off to pressure.

@@ -177,6 +177,12 @@ namespace pitTeam.BigBrain
             CombatCommon.RefreshShootCover();
             CombatCommon.ValidateCommittedCover();
 
+            if (CombatCommon.TryGetReloadRetreatDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> reloadRetreat))
+            {
+                CombatCommon.ClearInitialDecision();
+                return reloadRetreat;
+            }
+
             // Close-quarter handling is marksman policy: secondary weapon and compact movement,
             // while explicit support orders are owned by separate combat objectives.
             if (!ShouldDeferCloseAutoToNearbyRifleman(goalEnemy) &&

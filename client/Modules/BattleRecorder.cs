@@ -383,7 +383,12 @@ namespace pitTeam.Modules
             });
         }
 
-        public static void RecordGrenadeEvent(BotOwner bot, string action, string reason, bool? completed = null)
+        public static void RecordGrenadeEvent(
+            BotOwner bot,
+            string action,
+            string reason,
+            bool? completed = null,
+            EnemyInfo? goalEnemy = null)
         {
             if (!CanRecordBot(bot))
             {
@@ -391,17 +396,14 @@ namespace pitTeam.Modules
             }
 
             RecorderFollowerState state = GetOrCreateState(bot);
-            if (!IsBotInRecordedCombat(bot, state))
-            {
-                return;
-            }
 
             WriteEventInternal("grenadeEvent", bot, new
             {
                 action,
                 reason,
                 completed,
-                state = CreateRecorderStatePayload(state)
+                state = CreateRecorderStatePayload(state),
+                context = CreateGrenadeContext(bot, goalEnemy)
             });
         }
 
@@ -626,6 +628,54 @@ namespace pitTeam.Modules
                 canShoot = goalEnemy.CanShoot,
                 personalSeenTime = SanitizeFloat(goalEnemy.PersonalSeenTime),
                 personalLastSeenTime = SanitizeFloat(goalEnemy.PersonalLastSeenTime)
+            };
+        }
+
+        private static object CreateGrenadeContext(BotOwner bot, EnemyInfo? goalEnemy)
+        {
+            BotGrenadeController? grenades = bot.WeaponManager?.Grenades;
+            BotRequest? request = bot.BotRequestController?.CurRequest;
+            float now = Time.time;
+
+            return new
+            {
+                enemy = CreateTransitionEnemyContext(goalEnemy ?? bot.Memory?.GoalEnemy),
+                pressure = new
+                {
+                    underFire = bot.Memory?.IsUnderFire == true,
+                    hitRecently05 = FollowerCombatCommon.WasHitRecently(bot, 0.5f) ||
+                                    FollowerAwareness.WasRecentlyHit(bot),
+                    hitRecently2 = FollowerCombatCommon.WasHitRecently(bot, 2f),
+                    threatenedRecently = FollowerAwareness.WasRecentlyThreatened(bot)
+                },
+                position = new
+                {
+                    inCover = bot.Memory?.IsInCover == true,
+                    hasCoverPoint = bot.Memory?.CurCustomCoverPoint != null,
+                    hasPath = bot.Mover?.HasPathAndNoComplete == true,
+                    sprinting = bot.Mover?.Sprinting == true,
+                    bossDistance = CreateTransitionBossContext(bot)
+                },
+                actionState = new
+                {
+                    dogFight = bot.DogFight?.DogFightState.ToString(),
+                    request = request?.BotRequestType.ToString(),
+                    medicineUsing = bot.Medecine?.Using == true,
+                    suppressGrenadeActive = bot.SuppressGrenade != null && !bot.SuppressGrenade.Complete
+                },
+                throwState = new
+                {
+                    runtimeGateAllowed = FollowerGrenadeRuntimeGate.IsThrowAllowed(bot),
+                    controllerPresent = grenades != null,
+                    selectedGrenadePresent = grenades?.Grenade != null,
+                    haveGrenade = grenades?.HaveGrenade,
+                    haveFrag = grenades?.HaveGrenadeOfType(ThrowWeapType.frag_grenade),
+                    haveStun = grenades?.HaveGrenadeOfType(ThrowWeapType.stun_grenade),
+                    haveSmoke = grenades?.HaveGrenadeOfType(ThrowWeapType.smoke_grenade),
+                    throwingNow = grenades?.ThrowindNow,
+                    readyToThrow = grenades?.ReadyToThrow,
+                    firstSeenAge = goalEnemy != null ? SanitizeFloat(now - goalEnemy.FirstTimeSeen) : null
+                }
             };
         }
 
