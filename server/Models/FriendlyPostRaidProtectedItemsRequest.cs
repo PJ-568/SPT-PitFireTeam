@@ -1,0 +1,13 @@
+using System.Text.Json.Serialization;
+using SPTarkov.Server.Core.Models.Utils;
+
+namespace pitTeam.Server.Models;
+
+public record FriendlyPostRaidProtectedItemsRequest : IRequestData
+{
+    [JsonPropertyName("itemIds")]
+    public List<string>? ItemIds { get; set; }
+
+    [JsonPropertyName("context")]
+    public string? Context { get; set; }
+}

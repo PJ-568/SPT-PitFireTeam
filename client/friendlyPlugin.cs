@@ -154,7 +154,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.7.3")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.7.4")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -337,6 +337,7 @@ namespace pitTeam
             new FollowerWeaponSelectorManualUpdatePatch().Enable();
             new FollowerSupportNoAmmoMainSwitchPolicyPatch().Enable();
             new FollowerHoldLingerReloadSuppressPatch().Enable();
+            new FollowerShootFromPlaceCrouchPatch().Enable();
             new FollowerGrenadeAvailabilityPatch().Enable();
             new FollowerGrenadeCooldownPatch().Enable();
             new FollowerGrenadeThrowFinishPatch().Enable();
@@ -345,6 +346,8 @@ namespace pitTeam
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();
             new PlayerSayPatch().Enable();
+            new PlayerVoicePhraseAvailabilityInitPatch().Enable();
+            new PlayerVoicePhraseAvailabilityReplacePatch().Enable();
             new PlayerKilledPatch().Enable();
             new PlayerShotPatch().Enable();
             new AddTeammateBackButtonPatch().Enable();

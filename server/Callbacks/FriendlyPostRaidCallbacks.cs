@@ -39,8 +39,15 @@ public class FriendlyPostRaidCallbacks(
         return new ValueTask<string>(httpResponse.NullResponse());
     }
 
+    public ValueTask<string> RegisterProtectedItems(string url, FriendlyPostRaidProtectedItemsRequest request, MongoId sessionId)
+    {
+        postRaidService.RegisterProtectedRaidItems(sessionId, request);
+        return new ValueTask<string>(httpResponse.NullResponse());
+    }
+
     public ValueTask<string> EndLocalRaid(string url, EndLocalRaidRequestData request, MongoId sessionId, string? output)
     {
+        postRaidService.RemoveProtectedTeammateItemsFromExtractedProfile(sessionId, request);
         postRaidService.HandleEndLocalRaidKillMessages(sessionId, request);
         return new ValueTask<string>(output ?? httpResponse.NullResponse());
     }

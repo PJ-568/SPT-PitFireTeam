@@ -40,6 +40,7 @@ namespace pitTeam.Modules
 
         private bool _isBossDead = false;
         private static readonly bool EnableBackendItemReturn = true;
+        private const string ProtectedRaidItemsRoute = "/singleplayer/pitfireteam/postraid/protected-items";
 
         private List<Player>? _enemiesSeen;
         private Player? _closestEnemySeen;
@@ -321,9 +322,9 @@ namespace pitTeam.Modules
             }
 
             ids.Add(item.Id);
-            if (item is CompoundItem compound)
+            try
             {
-                foreach (Item child in compound.GetAllItems())
+                foreach (Item child in item.GetAllItems())
                 {
                     if (child != null)
                     {
@@ -331,8 +332,66 @@ namespace pitTeam.Modules
                     }
                 }
             }
+            catch
+            {
+                ids.Add(item.Id);
+            }
 
             return ids;
+        }
+
+        // In Simple/Restricted modes teammate gear is lootable during the raid for interaction
+        // parity, but those exact item ids must not survive player extraction. The server also
+        // derives saved teammate gear from profile JSON; this client route covers live-only
+        // movement such as gear handed through the teammate backpack inspection flow.
+        private static void RegisterProtectedRaidItemIds(
+            IEnumerable<string> itemIds,
+            string context,
+            bool synchronous = false)
+        {
+            if (pitFireTeam.IsFollowerLoadoutLootableMode())
+            {
+                return;
+            }
+
+            string[] ids = itemIds?
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray() ?? Array.Empty<string>();
+            if (ids.Length == 0)
+            {
+                return;
+            }
+
+            string json = JsonConvert.SerializeObject(new
+            {
+                itemIds = ids,
+                context
+            });
+
+            void Send()
+            {
+                try
+                {
+                    RequestHandler.PostJson(ProtectedRaidItemsRoute, json);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"Failed to register protected teammate raid item ids. context='{context}'");
+                    Logger.LogError(ex);
+                }
+            }
+
+            if (synchronous)
+            {
+                Send();
+                return;
+            }
+
+            // Spawn equipment is registered early in the raid, so this can be asynchronous.
+            // Player-handed items use synchronous registration at the call site to avoid an
+            // extraction race if the player leaves immediately after moving the item.
+            Task.Run(Send);
         }
 
         private static bool SendReturnItems(
@@ -852,6 +911,11 @@ namespace pitTeam.Modules
             {
                 list.Add(item.Id);
             }
+
+            RegisterProtectedRaidItemIds(
+                treeIds,
+                "follower handled item",
+                synchronous: true);
         }
 
         public static void RemoveStoredItem(string bot, string itemId)
@@ -1047,21 +1111,6 @@ namespace pitTeam.Modules
         }
 
 
-        private static void ModEquipmentStore(Slot slot, List<string> items)
-        {
-            if (slot.ContainedItem != null)
-            {
-                items.Add(slot.ContainedItem.Id);
-
-                if (slot.ContainedItem is Mod mod)
-                {
-                    foreach (Slot modSlot in mod.Slots)
-                    {
-                        if (modSlot.ContainedItem != null) ModEquipmentStore(modSlot, items);
-                    }
-                }
-            }
-        }
         public static void StoreEquipment(Profile profile)
         {
             if (Instance == null || Instance._followersEquipment == null)
@@ -1071,13 +1120,11 @@ namespace pitTeam.Modules
 
             if (!Instance._followersEquipment.ContainsKey(profile.ProfileId))
             {
-                List<string> items = new List<string>();
+                HashSet<string> items = new HashSet<string>(StringComparer.Ordinal);
                 foreach (EquipmentSlot slotType in Enum.GetValues(typeof(EquipmentSlot)))
                 {
                     if (
                         slotType == EquipmentSlot.Dogtag ||
-                        slotType == EquipmentSlot.SecuredContainer ||
-                        slotType == EquipmentSlot.Pockets ||
                         slotType == EquipmentSlot.ArmBand ||
                         slotType == EquipmentSlot.Scabbard
                     ) continue;
@@ -1090,61 +1137,19 @@ namespace pitTeam.Modules
 
                     if (contained != null)
                     {
-                        if (!pitFireTeam.IsFollowerLoadoutLootableMode())
-                        {
-                            try
-                            {
-                                FieldInfo? componentsField = AccessTools.Field(typeof(Item), "Components");
-                                List<IItemComponent>? components = componentsField?.GetValue(contained) as List<IItemComponent>;
-                                if (components != null)
-                                {
-                                    components.Add(new UnlootableComponent(contained, contained.Template));
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.LogError("Could not make item unlootable");
-                                Logger.LogError(ex.ToString());
-                            }
-                        }
-
-                        if (slotType == EquipmentSlot.Backpack) items.Add(contained.Id);
-                        else
-                        {
-                            items.Add(contained.Id);
-                            if (contained is Weapon weapon)
-                            {
-                                foreach (Slot slot in weapon.Slots)
-                                {
-                                    if (slot.Locked) continue;
-                                    if (slot.ContainedItem != null && !(slot.ContainedItem is MagazineItemClass) && !(slot.ContainedItem is AmmoItemClass))
-                                    {
-                                        ModEquipmentStore(slot, items);
-                                    }
-                                }
-                            }
-                            else if (slotType == EquipmentSlot.Headwear || slotType == EquipmentSlot.TacticalVest || slotType == EquipmentSlot.ArmorVest)
-                            {
-                                if (contained is CompoundItem compoundItem)
-                                {
-                                    foreach (Slot slot in compoundItem.Slots)
-                                    {
-                                        if (slot.Locked) continue;
-
-                                        if (slot.ContainedItem != null && !contained.IsUnremovable)
-                                        {
-                                            items.Add(slot.ContainedItem.Id);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        items.UnionWith(GetItemTreeIds(contained));
                     }
                 }
 
                 if (items.Count > 0)
                 {
-                    Instance._followersEquipment.Add(profile.ProfileId, items);
+                    List<string> protectedItems = items.ToList();
+                    Instance._followersEquipment.Add(profile.ProfileId, protectedItems);
+                    // Register the full nested gear graph, not just roots. Weapon mods, armor
+                    // plates, and nested containers can be detached from the teammate later.
+                    RegisterProtectedRaidItemIds(
+                        protectedItems,
+                        $"teammate spawn equipment {profile.ProfileId}");
                 }
             }
         }

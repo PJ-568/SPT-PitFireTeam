@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using pitTeam.Utils;
 using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
@@ -15,13 +16,11 @@ namespace pitTeam.BigBrain.Actions
     {
         private const float MinEnemyDistanceForProne = 80f;
         private const float SameSpotMaxDistanceSqr = 0.75f * 0.75f;
-        private const float StandingPoseThreshold = 0.85f;
-        private const float CrouchFireProbeHeight = 1.0f;
         private const float ProneFireProbeHeight = 0.35f;
-        private const float CloseImmediateFireDistance = 18f;
-        private const float CloseImmediateFireAngle = 18f;
-        private const float CloseThreatAimCorrectionDistance = 18f;
-        private const float CloseThreatFireAngle = 18f;
+        private const float CloseImmediateFireDistance = 25f;
+        private const float CloseImmediateFireAngle = 3f;
+        private const float CloseThreatAimCorrectionDistance = 25f;
+        private const float CloseThreatFireAngle = 4f;
         private readonly GClass276 baseLogic;
         private float aimAlignStartedAt;
         private Vector3 startPosition;
@@ -51,7 +50,6 @@ namespace pitTeam.BigBrain.Actions
             // First decide which fire poses are physically usable from this exact spot. The vanilla
             // node may crouch or prone by itself, but followers should not stay in a pose that has
             // no real shot lane, especially when cover/vegetation blocks the lower weapon origin.
-            bool allowCrouch = CanUseFirePose(goalEnemy, CrouchFireProbeHeight);
             bool allowProne = goalEnemy != null &&
                               goalEnemy.Distance >= MinEnemyDistanceForProne &&
                               CanUseFirePose(goalEnemy, ProneFireProbeHeight);
@@ -63,18 +61,6 @@ namespace pitTeam.BigBrain.Actions
             }
 
             string? reason = GetReason(data) ?? BotOwner.Brain?.Agent?.LastResult().Reason;
-
-            // Immediate fire is a survival branch, so force a standing lane if crouch/prone would
-            // delay or obstruct the shot. Otherwise only stand up when the current crouch lane is bad.
-            if (string.Equals(reason, "visibleImmediateShoot", System.StringComparison.Ordinal) &&
-                (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true || BotOwner.Mover.TargetPose < StandingPoseThreshold))
-            {
-                BotOwner.SetPose(1f);
-            }
-            else if (!allowCrouch && BotOwner.Mover.TargetPose < StandingPoseThreshold)
-            {
-                BotOwner.SetPose(1f);
-            }
 
             // Highest priority override: close enemy looking at the follower. In this case the
             // dangerous failure mode is pressing the trigger while the body/weapon is still angled
@@ -107,7 +93,7 @@ namespace pitTeam.BigBrain.Actions
             }
 
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
-            EnforceSupportedFirePose(allowCrouch, allowProne);
+            EnforceSupportedFirePose(allowProne);
         }
 
         /// <summary>
@@ -134,7 +120,8 @@ namespace pitTeam.BigBrain.Actions
 
             if (CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) > CloseImmediateFireAngle)
             {
-                return false;
+                StopCombatShooting();
+                return true;
             }
 
             if (StopIfFriendlyInCurrentFireLane(goalEnemy))
@@ -190,17 +177,11 @@ namespace pitTeam.BigBrain.Actions
         /// Keep the final pose consistent with the lane probes after vanilla has updated. This is a
         /// cleanup pass because the underlying EFT node can still request crouch/prone internally.
         /// </summary>
-        private void EnforceSupportedFirePose(bool allowCrouch, bool allowProne)
+        private void EnforceSupportedFirePose(bool allowProne)
         {
             if (!allowProne && BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true)
             {
                 BotOwner.BotLay.GetUp(false);
-                return;
-            }
-
-            if (!allowCrouch && BotOwner.Mover.TargetPose < StandingPoseThreshold)
-            {
-                BotOwner.SetPose(1f);
             }
         }
 
@@ -223,8 +204,7 @@ namespace pitTeam.BigBrain.Actions
 
             ShootPointClass shootPoint = BotOwner.CurrentEnemyTargetPosition(false) ??
                                          new ShootPointClass(goalEnemy.GetBodyPartPosition(), 1f);
-            Vector3 fireOrigin = BotOwner.Position + Vector3.up * probeHeight;
-            return Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, BotOwner.LookSensor.Mask, false);
+            return FollowerShootPoseSafety.HasReliablePoseLane(BotOwner, shootPoint.Point, probeHeight);
         }
 
         /// <summary>

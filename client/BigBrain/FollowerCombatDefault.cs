@@ -127,6 +127,12 @@ namespace pitTeam.BigBrain
             // held briefly, and then re-evaluated instead of churned every tick.
             combatCommon.ValidateCommittedCover();
 
+            if (combatCommon.TryGetReloadRetreatDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> reloadRetreatDecision))
+            {
+                combatCommon.ClearInitialDecision();
+                return reloadRetreatDecision;
+            }
+
             if (TryGetImmediateFightDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> fightDecision))
             {
                 return fightDecision;
@@ -233,14 +239,14 @@ namespace pitTeam.BigBrain
                 return allySupportDecision;
             }
 
-            if (TryGetAutonomousSuppressDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> autoSuppressDecision))
-            {
-                return autoSuppressDecision;
-            }
-
             if (combatCommon.TryActivateFollowerGrenade(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> grenadeDecision))
             {
                 return grenadeDecision;
+            }
+
+            if (TryGetAutonomousSuppressDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> autoSuppressDecision))
+            {
+                return autoSuppressDecision;
             }
 
             // Resolve visible-but-not-immediate contact: take a firing cover or hand off to pressure.
@@ -678,7 +684,7 @@ namespace pitTeam.BigBrain
                 // commit one shooting cover before trading from the open.
                 if (!botOwner.Memory.IsInCover &&
                     combatCommon.ShouldTakeVisibleCover(goalEnemy) &&
-                    TryCommitCombatCover(goalEnemy, requireShootLane: true, out string coverReason))
+                    TryCommitCombatCover(goalEnemy, requireShootLane: true, out string coverReason, avoidBossFireLane: true))
                 {
                     decision = combatCommon.CreateMoveToCommittedCoverDecision(coverReason);
                     return true;
@@ -705,7 +711,7 @@ namespace pitTeam.BigBrain
             }
 
             if (!botOwner.Memory.IsInCover &&
-                TryCommitCombatCover(goalEnemy, requireShootLane: true, out string visibleCoverReason))
+                TryCommitCombatCover(goalEnemy, requireShootLane: true, out string visibleCoverReason, avoidBossFireLane: true))
             {
                 decision = combatCommon.CreateMoveToCommittedCoverDecision(visibleCoverReason);
                 return true;
@@ -1348,13 +1354,18 @@ namespace pitTeam.BigBrain
         /// <summary>
         /// Finds and commits a single cover point for the current threat instead of constantly re-picking.
         /// </summary>
-        private bool TryCommitCombatCover(EnemyInfo goalEnemy, bool requireShootLane, out string reason)
+        private bool TryCommitCombatCover(
+            EnemyInfo goalEnemy,
+            bool requireShootLane,
+            out string reason,
+            bool avoidBossFireLane = false)
         {
             return combatCommon.TryCommitCombatCover(
                 goalEnemy,
                 requireShootLane,
                 CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(),
-                out reason);
+                out reason,
+                avoidBossFireLane);
         }
 
         /// <summary>

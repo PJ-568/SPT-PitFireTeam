@@ -249,6 +249,19 @@ For `Realistic` / internal `Extreme`:
 - no protected meds or ammo are injected
 - the edit-loadout panel shows the secure container slot so the player can add, remove, or change it through the staged `Default` editor
 
+## Protected Extraction Filtering
+
+`Simple` and `Restricted` allow teammate gear to be physically looted in raid so the player can inspect, reorganize, or recover from inventory edge cases without special slot locks. To prevent gear farming, extraction cleanup strips protected teammate item ids from the extracted player profile.
+
+Protected ids come from two sources:
+
+- server fallback: saved teammate equipment in the teammate profile JSON
+- client registration: live teammate equipment and player-owned items temporarily moved through teammate inventory during raid
+
+The cleanup removes the protected item tree, including nested weapon mods, armor plates, rigs, backpacks, and contained items. If a non-protected player-owned child tree is attached under a protected teammate-owned parent, the server tries to move that child tree into the player's equipped backpack. If it cannot fit, it is lost with the protected parent.
+
+Loose ammo is an explicit exception. Ammo can be split or merged into other stacks and magazines, which destroys the original item id lineage. The filter does not strip by ammo template/count because doing so could remove legitimate ammo found elsewhere in the same raid.
+
 ## Death Handling
 
 Current death-loss logic applies only to teammates whose selected loadout is `Default`.
@@ -289,3 +302,5 @@ When an `Immersive` or `Realistic` / internal `Extreme` teammate survives/extrac
 ## Current Gaps
 
 Non-`Simple` custom preset selection remains intentionally hidden so it does not conflict with real item ownership rules. The remaining planned loadout work is the future `KIT LOADOUTS` purchase hardening where consumed stash items can preserve their exact live durability/resource state when they become teammate equipment instead of using the saved build's item state.
+
+Player-owned items handed to a teammate during raid are currently known only to the client at the moment of handoff. The server can derive saved teammate default gear from teammate profiles, but it cannot independently know every player-owned item that was temporarily moved through a live teammate inventory unless the client reports those item ids. The current protected-extraction filter uses a client side registration route for those handled item ids; a later pass should make this ownership/event reporting more explicit and durable instead of treating it as part of the extraction cleanup flow.

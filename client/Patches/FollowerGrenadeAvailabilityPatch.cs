@@ -15,6 +15,7 @@ namespace pitTeam.Patches
 
         [PatchPostfix]
         [HarmonyPriority(Priority.Last)]
+        [HarmonyAfter(new[] { "me.sol.sain" })]
         private static void PatchPostfix(BotGrenadeController __instance, ref bool __result)
         {
             BotOwner bot = __instance?.BotOwner_0;

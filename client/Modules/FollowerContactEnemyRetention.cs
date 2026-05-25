@@ -249,7 +249,7 @@ namespace pitTeam.Modules
                 return true;
             }
 
-            EnemyInfo? info = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO, "contactRetentionRestore");
+            EnemyInfo? info = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO);
             if (info == null)
             {
                 return false;

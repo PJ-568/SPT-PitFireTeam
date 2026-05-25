@@ -25,12 +25,15 @@ public class FriendlyPostRaidService(
     FriendlyTeammateService teammateService,
     TimeUtil timeUtil,
     SaveServer saveServer,
+    InventoryHelper inventoryHelper,
+    ItemHelper itemHelper,
     ISptLogger<FriendlyPostRaidService> logger
 )
 {
     private const string KillMessageKindTraitor = "traitor";
     private const string KillMessageKindJerk = "jerk";
     private static readonly ConcurrentDictionary<string, Dictionary<string, KillMessageRecord>> KillMessageRecords = new();
+    private static readonly ConcurrentDictionary<string, HashSet<string>> ProtectedRaidItemIds = new();
 
     private static readonly string[] ReturnItemsMessages =
     [
@@ -246,6 +249,65 @@ public class FriendlyPostRaidService(
         }
     }
 
+    public void RegisterProtectedRaidItems(MongoId sessionId, FriendlyPostRaidProtectedItemsRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+
+        HashSet<string> protectedIds = ProtectedRaidItemIds.GetOrAdd(
+            sessionId.ToString(),
+            _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        lock (protectedIds)
+        {
+            foreach (string itemId in request.ItemIds ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(itemId))
+                {
+                    protectedIds.Add(itemId);
+                }
+            }
+        }
+    }
+
+    public void RemoveProtectedTeammateItemsFromExtractedProfile(MongoId sessionId, EndLocalRaidRequestData request)
+    {
+        List<Item>? profileItems = request.Results?.Profile?.Inventory?.Items;
+        if (profileItems == null || profileItems.Count == 0)
+        {
+            ProtectedRaidItemIds.TryRemove(sessionId.ToString(), out _);
+            return;
+        }
+
+        string sessionKey = sessionId.ToString();
+        // Server-side profile JSON covers the teammate's saved/default gear. Client-registered
+        // ids cover live-only ownership events the backend cannot infer after raid end.
+        HashSet<string> protectedIds = teammateService.GetProtectedTeammateItemIdsForExtraction(sessionId);
+        if (ProtectedRaidItemIds.TryRemove(sessionKey, out HashSet<string>? registeredIds))
+        {
+            lock (registeredIds)
+            {
+                protectedIds.UnionWith(registeredIds);
+            }
+        }
+
+        if (protectedIds.Count == 0)
+        {
+            return;
+        }
+
+        int requestRemoved = RemoveItemTreesById(profileItems, protectedIds);
+        int savedRemoved = RemoveProtectedItemsFromSavedProfile(sessionId, protectedIds);
+        int removed = requestRemoved + savedRemoved;
+        if (removed > 0)
+        {
+            logger.Info(
+                $"Removed protected teammate item(s) from extracted player inventory: request={requestRemoved}, savedProfile={savedRemoved}.");
+        }
+    }
+
     public void HandleEndLocalRaidKillMessages(MongoId sessionId, EndLocalRaidRequestData request)
     {
         List<Victim> pmcVictims = request.Results?.Profile?.Stats?.Eft?.Victims?
@@ -279,6 +341,254 @@ public class FriendlyPostRaidService(
         }
 
         ClearKillMessageRecords(sessionId);
+    }
+
+    private int RemoveItemTreesById(List<Item> inventoryItems, IEnumerable<string> rootItemIds)
+    {
+        if (inventoryItems.Count == 0)
+        {
+            return 0;
+        }
+
+        HashSet<string> protectedIds = rootItemIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (protectedIds.Count == 0)
+        {
+            return 0;
+        }
+
+        Dictionary<string, Item> byId = inventoryItems
+            .Where(item => item?.Id != null)
+            .GroupBy(item => item.Id.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        // Ammo can be split or merged into another stack, losing the original item id lineage.
+        // Treat loose ammo as an explicit anti-farming exception instead of stripping by template
+        // and risking legitimate raid-found rounds of the same type.
+        int exemptLooseAmmoRoots = protectedIds.RemoveWhere(id => byId.TryGetValue(id, out Item? item) && IsAmmoItem(item));
+        _ = exemptLooseAmmoRoots;
+
+        if (protectedIds.Count == 0)
+        {
+            return 0;
+        }
+
+        HashSet<string> removeIds = BuildRemovalIdClosure(inventoryItems, protectedIds);
+        // If a player-owned mod hangs from a protected teammate-owned parent, try to move that
+        // player-owned child tree into the equipped backpack. If it does not fit, it remains in
+        // removeIds and is lost with the protected parent; anti-farming wins over recovery.
+        SalvageUnprotectedChildrenIntoBackpack(inventoryItems, protectedIds, removeIds);
+
+        return inventoryItems.RemoveAll(item => item?.Id != null && removeIds.Contains(item.Id.ToString()));
+    }
+
+    private bool IsAmmoItem(Item? item)
+    {
+        return item?.Template != null
+            && !item.Template.IsEmpty
+            && itemHelper.IsOfBaseclass(item.Template, BaseClasses.AMMO);
+    }
+
+    private static HashSet<string> BuildRemovalIdClosure(List<Item> inventoryItems, HashSet<string> rootItemIds)
+    {
+        HashSet<string> removeIds = new(rootItemIds, StringComparer.OrdinalIgnoreCase);
+        bool foundChild = true;
+        while (foundChild)
+        {
+            foundChild = false;
+            foreach (Item item in inventoryItems)
+            {
+                if (item?.Id == null ||
+                    string.IsNullOrWhiteSpace(item.ParentId) ||
+                    !removeIds.Contains(item.ParentId))
+                {
+                    continue;
+                }
+
+                foundChild |= removeIds.Add(item.Id.ToString());
+            }
+        }
+
+        return removeIds;
+    }
+
+    private int SalvageUnprotectedChildrenIntoBackpack(
+        List<Item> inventoryItems,
+        HashSet<string> protectedIds,
+        HashSet<string> removeIds)
+    {
+        if (inventoryItems.Count == 0 || protectedIds.Count == 0 || removeIds.Count == 0)
+        {
+            return 0;
+        }
+
+        Item? backpack = FindPlayerBackpack(inventoryItems);
+        if (backpack?.Id == null || removeIds.Contains(backpack.Id.ToString()))
+        {
+            return 0;
+        }
+
+        Dictionary<string, Item> byId = inventoryItems
+            .Where(item => item?.Id != null)
+            .GroupBy(item => item.Id.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<Item>> byParent = inventoryItems
+            .Where(item => item?.Id != null && !string.IsNullOrWhiteSpace(item.ParentId))
+            .GroupBy(item => item.ParentId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        int salvaged = 0;
+        foreach (Item candidate in inventoryItems.ToList())
+        {
+            if (candidate?.Id == null ||
+                string.IsNullOrWhiteSpace(candidate.ParentId) ||
+                protectedIds.Contains(candidate.Id.ToString()) ||
+                !removeIds.Contains(candidate.Id.ToString()) ||
+                !removeIds.Contains(candidate.ParentId) ||
+                HasUnprotectedRemovedAncestor(candidate, byId, protectedIds, removeIds))
+            {
+                continue;
+            }
+
+            // Candidate is the highest non-protected item under a protected chain. Its children
+            // move together so linked mod trees stay coherent when possible.
+            List<Item> candidateTree = BuildSalvageTree(candidate, byParent, protectedIds);
+            if (candidateTree.Count == 0)
+            {
+                continue;
+            }
+
+            if (!TryPlaceItemTreeInBackpack(inventoryItems, backpack, candidateTree, removeIds))
+            {
+                continue;
+            }
+
+            foreach (Item salvagedItem in candidateTree)
+            {
+                if (salvagedItem?.Id != null)
+                {
+                    removeIds.Remove(salvagedItem.Id.ToString());
+                }
+            }
+
+            salvaged++;
+        }
+
+        return salvaged;
+    }
+
+    private static Item? FindPlayerBackpack(List<Item> inventoryItems)
+    {
+        Dictionary<string, Item> byId = inventoryItems
+            .Where(item => item?.Id != null)
+            .GroupBy(item => item.Id.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        return inventoryItems.FirstOrDefault(item =>
+            item?.Id != null &&
+            string.Equals(item.SlotId, nameof(EquipmentSlots.Backpack), StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(item.ParentId) &&
+            byId.TryGetValue(item.ParentId, out Item? parent) &&
+            string.IsNullOrWhiteSpace(parent.ParentId));
+    }
+
+    private static bool HasUnprotectedRemovedAncestor(
+        Item item,
+        Dictionary<string, Item> byId,
+        HashSet<string> protectedIds,
+        HashSet<string> removeIds)
+    {
+        string? parentId = item.ParentId;
+        HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase);
+        while (!string.IsNullOrWhiteSpace(parentId) && removeIds.Contains(parentId) && visited.Add(parentId))
+        {
+            if (!protectedIds.Contains(parentId))
+            {
+                return true;
+            }
+
+            parentId = byId.TryGetValue(parentId, out Item? parent) ? parent.ParentId : null;
+        }
+
+        return false;
+    }
+
+    private static List<Item> BuildSalvageTree(
+        Item root,
+        Dictionary<string, List<Item>> byParent,
+        HashSet<string> protectedIds)
+    {
+        List<Item> tree = [];
+        Queue<Item> queue = new();
+        queue.Enqueue(root);
+
+        while (queue.Count > 0)
+        {
+            Item item = queue.Dequeue();
+            if (item?.Id == null || protectedIds.Contains(item.Id.ToString()))
+            {
+                continue;
+            }
+
+            tree.Add(item);
+            if (!byParent.TryGetValue(item.Id.ToString(), out List<Item>? children))
+            {
+                continue;
+            }
+
+            foreach (Item child in children)
+            {
+                queue.Enqueue(child);
+            }
+        }
+
+        return tree;
+    }
+
+    private bool TryPlaceItemTreeInBackpack(
+        List<Item> inventoryItems,
+        Item backpack,
+        List<Item> itemTree,
+        HashSet<string> removeIds)
+    {
+        try
+        {
+            if (backpack?.Id == null || itemTree.Count == 0)
+            {
+                return false;
+            }
+
+            int[,] blankMap = inventoryHelper.GetContainerSlotMap(backpack.Template);
+            int horizontal = blankMap.GetLength(1);
+            int vertical = blankMap.GetLength(0);
+            List<Item> inventoryAfterProtectedRemoval = inventoryItems
+                .Where(item => item?.Id != null && !removeIds.Contains(item.Id.ToString()))
+                .ToList();
+            int[,] backpackMap = inventoryHelper.GetContainerMap(horizontal, vertical, inventoryAfterProtectedRemoval, backpack.Id);
+            var placement = inventoryHelper.PlaceItemInContainer(backpackMap, itemTree, backpack.Id.ToString(), "main");
+            return placement.Success.GetValueOrDefault(false);
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to salvage teammate-linked child item '{itemTree.FirstOrDefault()?.Id}' into backpack: {ex.Message}");
+            return false;
+        }
+    }
+
+    private int RemoveProtectedItemsFromSavedProfile(MongoId sessionId, HashSet<string> protectedIds)
+    {
+        try
+        {
+            SptProfile profile = saveServer.GetProfile(sessionId);
+            List<Item>? savedItems = profile?.CharacterData?.PmcData?.Inventory?.Items;
+            return savedItems == null ? 0 : RemoveItemTreesById(savedItems, protectedIds);
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to strip protected teammate item(s) from saved profile fallback: {ex.Message}");
+            return 0;
+        }
     }
 
     public void HandleDeathEscapeSummary(MongoId sessionId, FriendlyTeammateDeathEscapeSummary summary)

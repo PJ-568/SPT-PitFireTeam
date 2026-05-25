@@ -91,7 +91,7 @@ namespace pitTeam.Modules
                 FollowerGrenadeCooldowns.CancelPending(bot);
             }
 
-            BattleRecorder.RecordGrenadeEvent(bot, "finish", completed ? "completed" : "canceled", completed);
+            //BattleRecorder.RecordGrenadeEvent(bot, "finish", completed ? "completed" : "canceled", completed);
             RefreshFollowerGroup(bot);
         }
 
@@ -103,7 +103,7 @@ namespace pitTeam.Modules
             }
 
             ReleasedThrowByProfileId.Add(bot.ProfileId);
-            BattleRecorder.RecordGrenadeEvent(bot, "released", "throwReleased");
+            //BattleRecorder.RecordGrenadeEvent(bot, "released", "throwReleased");
         }
 
         public static bool ConsumeThrowReleased(BotOwner bot)

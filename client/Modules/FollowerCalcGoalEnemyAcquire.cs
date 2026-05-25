@@ -93,7 +93,7 @@ namespace pitTeam.Modules
                 return;
             }
 
-            EnemyInfo info = Enemy.MakeEnemy(owner, firstVisible, source: "calcGoalForwardScan");
+            EnemyInfo info = Enemy.MakeEnemy(owner, firstVisible);
             if (info == null)
             {
                 return;
@@ -113,7 +113,7 @@ namespace pitTeam.Modules
                     return;
                 }
 
-                EnemyInfo? followerInfo = Enemy.MakeEnemy(follower, firstVisible, source: "calcGoalForwardScanPropagate");
+                EnemyInfo? followerInfo = Enemy.MakeEnemy(follower, firstVisible);
                 PromoteGoalEnemy(follower, followerInfo);
             });
         }
