@@ -287,6 +287,8 @@ The default equipment snapshot is then overwritten with that stripped equipment.
 
 This makes a dead default-loadout teammate unable to regain full gear just by reusing the same saved `Default`, while still preserving bot identity slots that are not supposed to be lost.
 
+If the player also dies in the same raid, already-dead teammates are still sent to the server as lost outcomes. This gear-loss persistence is not distance-gated by the player death location and does not depend on the `Team Escape` setting; that setting only controls escape rolls for teammates still alive when the player dies.
+
 ## Escape Handling
 
 Current escape-state persistence applies only to teammates whose selected loadout is `Default`.

@@ -37,6 +37,10 @@ public class FriendlyPostRaidRouter(JsonUtil jsonUtil, FriendlyPostRaidCallbacks
                 async (url, info, sessionId, output) => await callbacks.EndLocalRaid(url, info, sessionId, output)
             ),
             new RouteAction<FriendlyTeammateDeathEscapeRequest>(
+                "/singleplayer/pitfireteam/teammate/raid-outcomes",
+                async (url, info, sessionId, output) => await callbacks.RaidOutcomes(url, info, sessionId)
+            ),
+            new RouteAction<FriendlyTeammateDeathEscapeRequest>(
                 "/singleplayer/pitfireteam/teammate/death-escape",
                 async (url, info, sessionId, output) => await callbacks.DeathEscape(url, info, sessionId)
             ),

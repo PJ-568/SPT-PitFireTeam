@@ -65,6 +65,12 @@ public class FriendlyTeammateService(
     private const int RelativeLevelDelta = 5;
     private const int SecureContainerAmmoStackCount = 10;
     private const string TeammateGenerationLocation = "factory4_day";
+    private const double DeathEscapeMinChance = 0.05d;
+    private const double DeathEscapeMaxChance = 0.90d;
+    private const double DeathEscapeCloseExtractDistance = 150d;
+    private const double DeathEscapeFarExtractDistance = 900d;
+    private static readonly Random DeathEscapeRandom = new();
+    private static readonly object DeathEscapeRandomLock = new();
     private static readonly string[] RequiredRaidWeaponSlots =
     [
         nameof(EquipmentSlots.FirstPrimaryWeapon),
@@ -232,6 +238,48 @@ public class FriendlyTeammateService(
         }
 
         return itemIds;
+    }
+
+    public HashSet<string> GetProtectedSpawnItemIdsForExtraction(BotBase? profile)
+    {
+        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
+        if (IsImmersiveLikeLoadoutManagementMode(mode))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        List<Item>? items = profile?.Inventory?.Items;
+        if (items == null || items.Count == 0)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        string? equipmentRootId = profile?.Inventory?.Equipment?.ToString();
+        if (string.IsNullOrWhiteSpace(equipmentRootId))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        HashSet<string> protectedIds = new(StringComparer.OrdinalIgnoreCase);
+        foreach (Item rootItem in items.Where(item =>
+                     item?.Id != null &&
+                     string.Equals(item.ParentId, equipmentRootId, StringComparison.OrdinalIgnoreCase) &&
+                     !IsIgnoredSpawnProtectionSlot(item.SlotId)))
+        {
+            protectedIds.UnionWith(GetItemTreeIds(items, rootItem.Id.ToString()));
+        }
+
+        return protectedIds;
+    }
+
+    private static bool IsIgnoredSpawnProtectionSlot(string? slotId)
+    {
+        return !string.IsNullOrWhiteSpace(slotId)
+            && (slotId.Contains("Dogtag", StringComparison.OrdinalIgnoreCase)
+                || slotId.Contains("SpecialSlot", StringComparison.OrdinalIgnoreCase)
+                || slotId.Contains("ArmBand", StringComparison.OrdinalIgnoreCase)
+                || slotId.Contains("Armband", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(slotId, nameof(EquipmentSlots.Scabbard), StringComparison.OrdinalIgnoreCase));
     }
 
     public void LogLoadoutManagementModeChange(MongoId sessionId, string previousMode, string nextMode)
@@ -1148,8 +1196,8 @@ public class FriendlyTeammateService(
                 continue;
             }
 
-            // Client has already rolled the result using live raid state. Server only persists the
-            // teammate profile state and builds a message summary for the player.
+            // Escape rolls are server-owned by the time outcomes are persisted. Client-provided
+            // live raid state is only input data for ResolveRaidOutcomes().
             ApplyFollowerRaidOutcomeStats(teammate, entry.Escaped);
             ApplyDeathEscapeOutcome(teammate, entry);
 
@@ -1164,6 +1212,168 @@ public class FriendlyTeammateService(
         }
 
         return summary;
+    }
+
+    public FriendlyTeammateRaidOutcomeResponse ResolveRaidOutcomes(IEnumerable<FriendlyTeammateDeathEscapeEntry>? entries)
+    {
+        var response = new FriendlyTeammateRaidOutcomeResponse();
+        if (entries == null)
+        {
+            return response;
+        }
+
+        foreach (var entry in entries)
+        {
+            if (entry == null)
+            {
+                continue;
+            }
+
+            var resolved = CloneRaidOutcomeEntry(entry);
+            if (resolved.RollEscape)
+            {
+                resolved.Chance = CalculateDeathEscapeChance(resolved);
+                resolved.Escaped = RollDeathEscape(resolved.Chance);
+                logger.Info(
+                    $"Resolved teammate raid escape roll for '{resolved.Nickname ?? resolved.Aid}': escaped={resolved.Escaped}, chance={resolved.Chance:P0}, health={resolved.HealthRatio:P0}, gear={resolved.EquipmentPower:0.0}, routeEnemyAvg={resolved.RouteEnemyAveragePower:0.0}, fightEnemyAvg={resolved.CurrentFightEnemyAveragePower:0.0}.");
+            }
+
+            response.Entries.Add(resolved);
+        }
+
+        return response;
+    }
+
+    private static FriendlyTeammateDeathEscapeEntry CloneRaidOutcomeEntry(FriendlyTeammateDeathEscapeEntry entry)
+    {
+        return new FriendlyTeammateDeathEscapeEntry
+        {
+            Aid = entry.Aid,
+            ProfileId = entry.ProfileId,
+            Nickname = entry.Nickname,
+            Escaped = entry.Escaped,
+            RollEscape = entry.RollEscape,
+            Chance = entry.Chance,
+            ExtractName = entry.ExtractName,
+            Distance = entry.Distance,
+            HealthRatio = entry.HealthRatio,
+            EquipmentPower = entry.EquipmentPower,
+            EnemyAveragePower = entry.EnemyAveragePower,
+            RouteEnemyAveragePower = entry.RouteEnemyAveragePower,
+            CurrentFightEnemyAveragePower = entry.CurrentFightEnemyAveragePower,
+            RouteEnemyCount = entry.RouteEnemyCount,
+            CurrentFightEnemyCount = entry.CurrentFightEnemyCount,
+            AliveSquadmates = entry.AliveSquadmates,
+            HasSecureMeds = entry.HasSecureMeds,
+            VitalsDestroyed = entry.VitalsDestroyed,
+            EquipmentItems = entry.EquipmentItems,
+            TrackedItemIds = entry.TrackedItemIds,
+        };
+    }
+
+    private static double CalculateDeathEscapeChance(FriendlyTeammateDeathEscapeEntry entry)
+    {
+        double distanceScore = CalculateDeathEscapeDistanceScore(entry.Distance);
+        double squadScore = Math.Clamp(entry.AliveSquadmates / 3d, 0d, 1d);
+        if (entry.AliveSquadmates == 1)
+        {
+            squadScore = 0.35d;
+        }
+        else if (entry.AliveSquadmates == 2)
+        {
+            squadScore = 0.70d;
+        }
+
+        double routeEnemyAveragePower = entry.RouteEnemyAveragePower > 0d
+            ? entry.RouteEnemyAveragePower
+            : entry.EnemyAveragePower;
+        double fightEnemyAveragePower = entry.CurrentFightEnemyAveragePower;
+        double equipmentScore = CalculateDeathEscapeEquipmentScore(entry.EquipmentPower, routeEnemyAveragePower);
+        double medScore = entry.HasSecureMeds ? 1d : 0d;
+
+        double chance =
+            0.20d +
+            0.25d * distanceScore +
+            0.25d * Math.Clamp(entry.HealthRatio, 0d, 1d) +
+            0.20d * equipmentScore +
+            0.15d * squadScore +
+            0.10d * medScore;
+
+        if (entry.VitalsDestroyed)
+        {
+            chance *= 0.25d;
+        }
+
+        chance *= CalculateCurrentFightSurvivalMultiplier(
+            entry.AliveSquadmates,
+            entry.HealthRatio,
+            entry.EquipmentPower,
+            fightEnemyAveragePower,
+            entry.CurrentFightEnemyCount);
+
+        return Math.Clamp(chance, DeathEscapeMinChance, DeathEscapeMaxChance);
+    }
+
+    private static double CalculateDeathEscapeDistanceScore(double distance)
+    {
+        if (distance <= 0d)
+        {
+            return 0.5d;
+        }
+
+        return 1d - Math.Clamp(
+            (distance - DeathEscapeCloseExtractDistance) / (DeathEscapeFarExtractDistance - DeathEscapeCloseExtractDistance),
+            0d,
+            1d);
+    }
+
+    private static double CalculateDeathEscapeEquipmentScore(double followerPower, double enemyAveragePower)
+    {
+        if (enemyAveragePower <= 0.01d)
+        {
+            return 0.75d;
+        }
+
+        double ratio = Math.Clamp(followerPower / enemyAveragePower, 0.25d, 1.25d);
+        return Math.Clamp((ratio - 0.25d) / 1d, 0d, 1d);
+    }
+
+    private static double CalculateCurrentFightSurvivalMultiplier(
+        int aliveCount,
+        double healthRatio,
+        double equipmentPower,
+        double currentFightEnemyAveragePower,
+        int currentFightEnemyCount)
+    {
+        if (currentFightEnemyCount <= 0 || currentFightEnemyAveragePower <= 0.01d)
+        {
+            return 1d;
+        }
+
+        double squadScore = aliveCount == 1
+            ? 0.35d
+            : aliveCount == 2
+                ? 0.70d
+                : Math.Clamp(aliveCount / 3d, 0d, 1d);
+        double equipmentScore = CalculateDeathEscapeEquipmentScore(equipmentPower, currentFightEnemyAveragePower);
+        double enemyCountPressure = Math.Clamp((currentFightEnemyCount - aliveCount) / 4d, 0d, 1d);
+
+        double fightSurvival =
+            0.35d +
+            0.25d * Math.Clamp(healthRatio, 0d, 1d) +
+            0.25d * equipmentScore +
+            0.15d * squadScore -
+            0.15d * enemyCountPressure;
+
+        return Math.Clamp(fightSurvival, 0.25d, 0.95d);
+    }
+
+    private static bool RollDeathEscape(double chance)
+    {
+        lock (DeathEscapeRandomLock)
+        {
+            return DeathEscapeRandom.NextDouble() <= chance;
+        }
     }
 
     private void ApplyImmersiveEscapedDefaultEquipmentState(MongoId sessionId, BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)

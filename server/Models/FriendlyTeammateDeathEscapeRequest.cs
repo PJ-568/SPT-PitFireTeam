@@ -8,6 +8,8 @@ public record FriendlyTeammateDeathEscapeRequest : IRequestData
 {
     public bool Notify { get; set; } = true;
 
+    public bool ResolveOnly { get; set; }
+
     [JsonPropertyName("Entries")]
     public List<FriendlyTeammateDeathEscapeEntry> Entries { get; set; } = [];
 }
@@ -22,6 +24,8 @@ public record FriendlyTeammateDeathEscapeEntry
 
     public bool Escaped { get; set; }
 
+    public bool RollEscape { get; set; }
+
     public double Chance { get; set; }
 
     public string ExtractName { get; set; } = string.Empty;
@@ -34,9 +38,19 @@ public record FriendlyTeammateDeathEscapeEntry
 
     public double EnemyAveragePower { get; set; }
 
+    public double RouteEnemyAveragePower { get; set; }
+
+    public double CurrentFightEnemyAveragePower { get; set; }
+
+    public int RouteEnemyCount { get; set; }
+
+    public int CurrentFightEnemyCount { get; set; }
+
     public int AliveSquadmates { get; set; }
 
     public bool HasSecureMeds { get; set; }
+
+    public bool VitalsDestroyed { get; set; }
 
     public List<Item>? EquipmentItems { get; set; }
 
@@ -50,4 +64,9 @@ public record FriendlyTeammateDeathEscapeSummary
     public List<string> LostNames { get; set; } = [];
 
     public string ExtractName { get; set; } = string.Empty;
+}
+
+public record FriendlyTeammateRaidOutcomeResponse
+{
+    public List<FriendlyTeammateDeathEscapeEntry> Entries { get; set; } = [];
 }

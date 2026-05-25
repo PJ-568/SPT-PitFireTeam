@@ -92,9 +92,15 @@ namespace pitTeam.Modules
             }
         }
 
-        private static void AddMissingFallenSquadmateOutcomes(
-            List<FollowerDeathEscapeOutcomeEntry> entries,
-            Vector3 playerDeathPosition)
+        public static bool HasFallenSquadmateSnapshots()
+        {
+            lock (FallenSnapshotLock)
+            {
+                return FallenSquadmateInfos.Count > 0;
+            }
+        }
+
+        private static void AddMissingFallenSquadmateOutcomes(List<FollowerDeathEscapeOutcomeEntry> entries)
         {
             if (entries == null)
             {
@@ -122,14 +128,15 @@ namespace pitTeam.Modules
                 if (fallen == null ||
                     string.IsNullOrWhiteSpace(fallen.Aid) ||
                     knownIds.Contains(fallen.Aid) ||
-                    (!string.IsNullOrWhiteSpace(fallen.ProfileId) && knownIds.Contains(fallen.ProfileId)) ||
-                    !IsNear(fallen.Position, playerDeathPosition, FallenTeammateSnapshotRadius))
+                    (!string.IsNullOrWhiteSpace(fallen.ProfileId) && knownIds.Contains(fallen.ProfileId)))
                 {
                     continue;
                 }
 
                 // A teammate who died before the player does not get an escape roll, but the server
                 // still needs a lost outcome so Immersive/Realistic can strip their saved gear.
+                // Do not distance-gate this profile outcome. The nearby-radius check belongs to
+                // physical gear recovery only; loadout loss is a raid result, not a carrier range.
                 entries.Add(new FollowerDeathEscapeOutcomeEntry
                 {
                     Aid = fallen.Aid,

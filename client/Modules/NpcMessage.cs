@@ -252,7 +252,7 @@ namespace pitTeam.Modules
             {
                 try
                 {
-                    RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/death-escape", json);
+                    RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/raid-outcomes", json);
                 }
                 catch (Exception ex)
                 {

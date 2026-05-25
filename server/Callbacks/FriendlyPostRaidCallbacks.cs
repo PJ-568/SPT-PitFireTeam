@@ -52,14 +52,32 @@ public class FriendlyPostRaidCallbacks(
         return new ValueTask<string>(output ?? httpResponse.NullResponse());
     }
 
-    public ValueTask<string> DeathEscape(string url, FriendlyTeammateDeathEscapeRequest request, MongoId sessionId)
+    public ValueTask<string> RaidOutcomes(string url, FriendlyTeammateDeathEscapeRequest request, MongoId sessionId)
     {
-        FriendlyTeammateDeathEscapeSummary summary = teammateService.PersistDeathEscapeOutcomes(sessionId, request.Entries);
+        request ??= new FriendlyTeammateDeathEscapeRequest();
+
+        if (request.ResolveOnly)
+        {
+            return new ValueTask<string>(httpResponse.GetBody(teammateService.ResolveRaidOutcomes(request.Entries)));
+        }
+
+        List<FriendlyTeammateDeathEscapeEntry> entries = request.Entries ?? [];
+        if (entries.Any(entry => entry?.RollEscape == true))
+        {
+            entries = teammateService.ResolveRaidOutcomes(entries).Entries;
+        }
+
+        FriendlyTeammateDeathEscapeSummary summary = teammateService.PersistDeathEscapeOutcomes(sessionId, entries);
         if (request.Notify)
         {
             postRaidService.HandleDeathEscapeSummary(sessionId, summary);
         }
 
         return new ValueTask<string>(httpResponse.NullResponse());
+    }
+
+    public ValueTask<string> DeathEscape(string url, FriendlyTeammateDeathEscapeRequest request, MongoId sessionId)
+    {
+        return RaidOutcomes(url, request, sessionId);
     }
 }
