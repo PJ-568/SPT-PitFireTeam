@@ -24,9 +24,9 @@ Related docs:
 
 ## Trigger
 
-The escape system runs when the player boss dies and `BossPlayers.KillPlayerBoss(...)` tears down the active boss/follower relationship.
+The player-death outcome system runs when the player boss dies and `BossPlayers.KillPlayerBoss(...)` tears down the active boss/follower relationship.
 
-The `Team Escape` raid setting controls whether this system runs at all. It is enabled by default. If disabled, player death skips escape rolls, tracked follower loot recovery, and death-gear recovery.
+The `Team Escape` raid setting controls whether surviving teammates roll for escape after player death. It is enabled by default. If disabled, player death skips survivor escape rolls, tracked follower loot recovery, and death-gear recovery. Already-dead teammates are still posted as lost outcomes so `Immersive` / `Realistic` Default gear loss is persisted.
 
 Authoritative client files:
 
@@ -48,7 +48,8 @@ Authoritative server files:
 
 Routes:
 
-- `POST /singleplayer/pitfireteam/teammate/death-escape`
+- `POST /singleplayer/pitfireteam/teammate/raid-outcomes`
+- `POST /singleplayer/pitfireteam/teammate/death-escape` legacy compatibility alias
 - `GET /singleplayer/pitfireteam/lostondeath`
 - `POST /singleplayer/returnitems`
 
@@ -56,7 +57,7 @@ Routes:
 
 The resolver is split into focused partials:
 
-- `FollowerDeathEscapeResolver.cs` owns orchestration: capture shared context, roll each follower, attach fallen outcomes, run recovery, and post outcomes.
+- `FollowerDeathEscapeResolver.cs` owns orchestration: capture shared context, ask the server to roll live follower escape outcomes, attach fallen outcomes, run recovery, and post final outcomes.
 - `FollowerDeathEscapeResolver.RouteThreat.cs` owns route corridor filtering and boss/follower threat multipliers.
 - `FollowerDeathEscapeResolver.GearSnapshot.cs` owns fallen-squadmate snapshots, player-death equipment snapshots, tracked-loot filtering, and SPT `lostondeath` loading.
 - `FollowerDeathEscapeResolver.GearRecovery.cs` owns carrier-space simulation, recovered gear mail-return, and escaped teammate equipment serialization.

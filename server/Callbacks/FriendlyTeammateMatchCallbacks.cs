@@ -14,6 +14,7 @@ namespace pitTeam.Server.Callbacks;
 [Injectable]
 public class FriendlyTeammateMatchCallbacks(
     FriendlyTeammateService teammateService,
+    FriendlyPostRaidService postRaidService,
     HttpResponseUtil httpResponseUtil,
     NotificationSendHelper notificationSendHelper,
     MailSendService mailSendService
@@ -88,6 +89,13 @@ public class FriendlyTeammateMatchCallbacks(
         {
             return new ValueTask<string>(httpResponseUtil.GetBody(Array.Empty<object>()));
         }
+
+        string profileId = teammate?.Id.ToString() ?? request.MemberId ?? "unknown";
+        HashSet<string> protectedSpawnIds = teammateService.GetProtectedSpawnItemIdsForExtraction(teammate);
+        postRaidService.RegisterProtectedRaidItemIds(
+            sessionId,
+            protectedSpawnIds,
+            $"server-generated teammate spawn equipment {profileId}");
 
         return new ValueTask<string>(httpResponseUtil.GetBody(new[] { teammate }));
     }

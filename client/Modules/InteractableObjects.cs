@@ -611,7 +611,7 @@ namespace pitTeam.Modules
                 {
                     try
                     {
-                        RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/death-escape", json);
+                        RequestHandler.PostJson("/singleplayer/pitfireteam/teammate/raid-outcomes", json);
                     }
                     catch (Exception ex)
                     {
@@ -1145,11 +1145,9 @@ namespace pitTeam.Modules
                 {
                     List<string> protectedItems = items.ToList();
                     Instance._followersEquipment.Add(profile.ProfileId, protectedItems);
-                    // Register the full nested gear graph, not just roots. Weapon mods, armor
-                    // plates, and nested containers can be detached from the teammate later.
-                    RegisterProtectedRaidItemIds(
-                        protectedItems,
-                        $"teammate spawn equipment {profile.ProfileId}");
+                    // Keep the spawn kit locally for in-raid item-removal patches. Server-side
+                    // extraction protection is registered when the spawn profile is generated,
+                    // because the backend already owns that prepared equipment graph.
                 }
             }
         }

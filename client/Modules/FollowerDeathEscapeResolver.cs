@@ -19,7 +19,21 @@ namespace pitTeam.Modules
 {
     internal class FollowerDeathEscapeOutcomeRequest
     {
+        public bool Notify { get; set; } = true;
+        public bool ResolveOnly { get; set; }
         public List<FollowerDeathEscapeOutcomeEntry> Entries { get; set; } = new List<FollowerDeathEscapeOutcomeEntry>();
+    }
+
+    internal class FollowerDeathEscapeOutcomeResponse
+    {
+        public List<FollowerDeathEscapeOutcomeEntry> Entries { get; set; } = new List<FollowerDeathEscapeOutcomeEntry>();
+    }
+
+    internal class FollowerDeathEscapeBodyResponse<T>
+    {
+        public int err { get; set; }
+        public string errmsg { get; set; }
+        public T data { get; set; }
     }
 
     internal class FollowerDeathEscapeOutcomeEntry
@@ -28,26 +42,28 @@ namespace pitTeam.Modules
         public string ProfileId { get; set; } = string.Empty;
         public string Nickname { get; set; } = string.Empty;
         public bool Escaped { get; set; }
+        public bool RollEscape { get; set; }
         public float Chance { get; set; }
         public string ExtractName { get; set; } = string.Empty;
         public float Distance { get; set; }
         public float HealthRatio { get; set; }
         public float EquipmentPower { get; set; }
         public float EnemyAveragePower { get; set; }
+        public float RouteEnemyAveragePower { get; set; }
+        public float CurrentFightEnemyAveragePower { get; set; }
+        public int RouteEnemyCount { get; set; }
+        public int CurrentFightEnemyCount { get; set; }
         public int AliveSquadmates { get; set; }
         public bool HasSecureMeds { get; set; }
+        public bool VitalsDestroyed { get; set; }
         public FlatItemsDataClass[] EquipmentItems { get; set; }
         public string[] TrackedItemIds { get; set; }
     }
 
     internal static partial class FollowerDeathEscapeResolver
     {
-        private const string OutcomeRoute = "/singleplayer/pitfireteam/teammate/death-escape";
+        private const string OutcomeRoute = "/singleplayer/pitfireteam/teammate/raid-outcomes";
         private const string LostOnDeathRoute = "/singleplayer/pitfireteam/lostondeath";
-        private const float MinChance = 0.05f;
-        private const float MaxChance = 0.90f;
-        private const float CloseExtractDistance = 150f;
-        private const float FarExtractDistance = 900f;
         private const float DeathGearRecoveryDistance = 70f;
         private const float FallenTeammateSnapshotRadius = 50f;
 
@@ -64,18 +80,21 @@ namespace pitTeam.Modules
 
         public static void ResolveAndSend(pitAIBossPlayer boss, List<BotFollowerPlayer> followers)
         {
-            if (boss == null || followers == null || followers.Count == 0)
+            if (boss == null)
+            {
+                return;
+            }
+
+            followers ??= new List<BotFollowerPlayer>();
+            bool hasFallenSnapshots = HasFallenSquadmateSnapshots();
+            if (followers.Count == 0 && !hasFallenSnapshots)
             {
                 return;
             }
 
             try
             {
-                if (pitFireTeam.teamEscape?.Value != true)
-                {
-                    Logger.LogInfo("[DeathEscape] Player died, but Team Escape is disabled.");
-                    return;
-                }
+                bool teamEscapeEnabled = pitFireTeam.teamEscape?.Value == true;
 
                 // Include all squadmates in the result so already-dead followers appear in the summary,
                 // but only followers still alive at player death get an escape roll.
@@ -96,13 +115,41 @@ namespace pitTeam.Modules
 
                 if (squadmates.Count == 0)
                 {
-                    Logger.LogInfo("[DeathEscape] Player died, but no squadmate followers were available for escape resolution.");
+                    List<FollowerDeathEscapeOutcomeEntry> fallenEntries = new List<FollowerDeathEscapeOutcomeEntry>();
+                    AddMissingFallenSquadmateOutcomes(fallenEntries);
+                    if (fallenEntries.Count > 0)
+                    {
+                        Logger.LogInfo("[DeathEscape] Player died with no live squadmate followers; persisting fallen squadmate loss outcomes.");
+                        SendOutcomes(fallenEntries);
+                    }
+                    else
+                    {
+                        Logger.LogInfo("[DeathEscape] Player died, but no squadmate followers were available for escape resolution.");
+                    }
+
                     return;
                 }
 
                 // Shared context is captured once before follower dismissal and raid cleanup can invalidate
                 // bot ownership, extract objects, or group enemy state.
                 Vector3 deathPosition = boss.realPlayer?.Position ?? boss.Position;
+
+                if (!teamEscapeEnabled)
+                {
+                    // Team Escape controls whether surviving followers get an escape roll after
+                    // player death. It must not suppress lost outcomes for teammates who already
+                    // died, because Immersive/Realistic gear loss is persisted from those outcomes.
+                    Logger.LogInfo("[DeathEscape] Player died, Team Escape is disabled; persisting fallen squadmate loss outcomes only.");
+                    List<FollowerDeathEscapeOutcomeEntry> fallenEntries = new List<FollowerDeathEscapeOutcomeEntry>();
+                    AddMissingFallenSquadmateOutcomes(fallenEntries);
+                    if (fallenEntries.Count > 0)
+                    {
+                        SendOutcomes(fallenEntries);
+                    }
+
+                    return;
+                }
+
                 ExtractSnapshot extract = ChooseExtract(boss, deathPosition);
                 int aliveCount = aliveSquadmates.Count;
                 LostOnDeathRules lostOnDeathRules = LoadLostOnDeathRules();
@@ -123,6 +170,7 @@ namespace pitTeam.Modules
                 List<FollowerDeathEscapeOutcomeEntry> entries = new List<FollowerDeathEscapeOutcomeEntry>();
                 List<BotOwner> escapedBots = new List<BotOwner>();
                 Dictionary<string, BotOwner> entryBotsByAid = new Dictionary<string, BotOwner>(StringComparer.Ordinal);
+                Dictionary<string, BotOwner> liveBotsByAid = new Dictionary<string, BotOwner>(StringComparer.Ordinal);
 
                 // Each follower rolls independently. Squad count and extraction route are shared inputs,
                 // while health, gear power, and secure meds are follower-specific.
@@ -139,48 +187,57 @@ namespace pitTeam.Modules
                     RouteThreatSnapshot fightThreat = alive
                         ? CalculateCurrentFightEnemyAveragePower(boss, squadmates, bot, deathPosition)
                         : RouteThreatSnapshot.Empty;
-                    float chance = alive
-                        ? CalculateChance(extract.Distance, aliveCount, readiness, routeThreat.AveragePower, fightThreat)
-                        : 0f;
-                    bool escaped = alive && UnityEngine.Random.value <= chance;
                     string aid = bot.Profile?.AccountId ?? string.Empty;
+                    if (alive && !string.IsNullOrWhiteSpace(aid))
+                    {
+                        liveBotsByAid[aid] = bot;
+                    }
 
                     entries.Add(new FollowerDeathEscapeOutcomeEntry
                     {
                         Aid = aid,
                         ProfileId = bot.ProfileId ?? string.Empty,
                         Nickname = bot.Profile?.Nickname ?? "Squadmate",
-                        Escaped = escaped,
-                        Chance = chance,
+                        Escaped = false,
+                        RollEscape = alive,
+                        Chance = 0f,
                         ExtractName = extract.Name,
                         Distance = extract.Distance,
                         HealthRatio = readiness.HealthRatio,
                         EquipmentPower = readiness.EquipmentPower,
                         EnemyAveragePower = Mathf.Max(routeThreat.AveragePower, fightThreat.AveragePower),
+                        RouteEnemyAveragePower = routeThreat.AveragePower,
+                        CurrentFightEnemyAveragePower = fightThreat.AveragePower,
+                        RouteEnemyCount = routeThreat.Count,
+                        CurrentFightEnemyCount = fightThreat.Count,
                         AliveSquadmates = aliveCount,
                         HasSecureMeds = readiness.HasSecureMeds,
+                        VitalsDestroyed = readiness.VitalsDestroyed,
                         EquipmentItems = null,
-                        TrackedItemIds = escaped ? GetTrackedFollowerItemIds(bot) : Array.Empty<string>()
+                        TrackedItemIds = alive ? GetTrackedFollowerItemIds(bot) : Array.Empty<string>()
                     });
+                }
 
-                    if (escaped)
+                AddMissingFallenSquadmateOutcomes(entries);
+                entries = ResolveEscapeRollsOnServer(entries);
+
+                foreach (FollowerDeathEscapeOutcomeEntry entry in entries)
+                {
+                    bool serverRolledEscape = entry.RollEscape;
+                    entry.RollEscape = false;
+                    if (entry.Escaped && !string.IsNullOrWhiteSpace(entry.Aid) && liveBotsByAid.TryGetValue(entry.Aid, out BotOwner bot))
                     {
                         escapedBots.Add(bot);
-                        if (!string.IsNullOrWhiteSpace(aid))
-                        {
-                            entryBotsByAid[aid] = bot;
-                        }
+                        entryBotsByAid[entry.Aid] = bot;
                     }
 
                     Logger.LogInfo(
-                        $"[DeathEscape] Roll follower='{bot.Profile?.Nickname ?? "Squadmate"}' alive={alive} " +
-                        $"escaped={escaped} chance={chance:P0} health={readiness.HealthRatio:P0} " +
-                        $"gear={readiness.EquipmentPower:0.0} routeEnemies={routeThreat.Count} " +
-                        $"routeEnemyAvgPower={routeThreat.AveragePower:0.0} fightEnemies={fightThreat.Count} " +
-                        $"fightEnemyAvgPower={fightThreat.AveragePower:0.0} secureMeds={readiness.HasSecureMeds}");
+                        $"[DeathEscape] Server roll follower='{entry.Nickname ?? "Squadmate"}' rollEscape={serverRolledEscape} " +
+                        $"escaped={entry.Escaped} chance={entry.Chance:P0} health={entry.HealthRatio:P0} " +
+                        $"gear={entry.EquipmentPower:0.0} routeEnemies={entry.RouteEnemyCount} " +
+                        $"routeEnemyAvgPower={entry.RouteEnemyAveragePower:0.0} fightEnemies={entry.CurrentFightEnemyCount} " +
+                        $"fightEnemyAvgPower={entry.CurrentFightEnemyAveragePower:0.0} secureMeds={entry.HasSecureMeds}");
                 }
-
-                AddMissingFallenSquadmateOutcomes(entries, deathPosition);
 
                 ApplyDeathGearRecoveryToEscapedEquipment(
                     entries,
@@ -200,100 +257,6 @@ namespace pitTeam.Modules
             {
                 ClearFallenSquadmateSnapshots();
             }
-        }
-
-        private static float CalculateChance(
-            float extractDistance,
-            int aliveCount,
-            FollowerReadiness readiness,
-            float enemyAveragePower,
-            RouteThreatSnapshot currentFightThreat)
-        {
-            float distanceScore = CalculateDistanceScore(extractDistance);
-            float squadScore = Mathf.Clamp01(aliveCount / 3f);
-            if (aliveCount == 1)
-            {
-                squadScore = 0.35f;
-            }
-            else if (aliveCount == 2)
-            {
-                squadScore = 0.70f;
-            }
-
-            float equipmentScore = CalculateEquipmentScore(readiness.EquipmentPower, enemyAveragePower);
-            float medScore = readiness.HasSecureMeds ? 1f : 0f;
-
-            // Weighted survival estimate: route difficulty + follower condition + relative firepower
-            // + group cohesion + secure medical supplies. Keep the final value bounded to avoid
-            // guaranteed outcomes from noisy runtime data.
-            float chance =
-                0.20f +
-                0.25f * distanceScore +
-                0.25f * readiness.HealthRatio +
-                0.20f * equipmentScore +
-                0.15f * squadScore +
-                0.10f * medScore;
-
-            if (readiness.VitalsDestroyed)
-            {
-                chance *= 0.25f;
-            }
-
-            chance *= CalculateCurrentFightSurvivalMultiplier(aliveCount, readiness, currentFightThreat);
-
-            return Mathf.Clamp(chance, MinChance, MaxChance);
-        }
-
-        private static float CalculateDistanceScore(float distance)
-        {
-            if (distance <= 0f)
-            {
-                return 0.5f;
-            }
-
-            return 1f - Mathf.InverseLerp(CloseExtractDistance, FarExtractDistance, distance);
-        }
-
-        private static float CalculateEquipmentScore(float followerPower, float enemyAveragePower)
-        {
-            if (enemyAveragePower <= 0.01f)
-            {
-                return 0.75f;
-            }
-
-            float ratio = Mathf.Clamp(followerPower / enemyAveragePower, 0.25f, 1.25f);
-            return Mathf.InverseLerp(0.25f, 1.25f, ratio);
-        }
-
-        private static float CalculateCurrentFightSurvivalMultiplier(
-            int aliveCount,
-            FollowerReadiness readiness,
-            RouteThreatSnapshot currentFightThreat)
-        {
-            if (currentFightThreat.Count <= 0 || currentFightThreat.AveragePower <= 0.01f)
-            {
-                return 1f;
-            }
-
-            float squadScore = aliveCount == 1
-                ? 0.35f
-                : aliveCount == 2
-                    ? 0.70f
-                    : Mathf.Clamp01(aliveCount / 3f);
-            float equipmentScore = CalculateEquipmentScore(readiness.EquipmentPower, currentFightThreat.AveragePower);
-            float enemyCountPressure = Mathf.Clamp01((currentFightThreat.Count - aliveCount) / 4f);
-
-            // Player death does not immediately mean followers are free to run. If the squad was
-            // actively fighting a boss group, first estimate whether this follower survives the
-            // fight long enough to disengage, then apply the normal route escape chance.
-            float fightSurvival =
-                0.35f +
-                0.25f * readiness.HealthRatio +
-                0.25f * equipmentScore +
-                0.15f * squadScore -
-                0.15f * enemyCountPressure;
-
-            return Mathf.Clamp(fightSurvival, 0.25f, 0.95f);
         }
 
         private static FollowerReadiness SnapshotReadiness(BotOwner bot)
@@ -473,12 +436,12 @@ namespace pitTeam.Modules
                 "[DeathEscape] Posting escape outcomes: " +
                 string.Join(", ", entries.Select(entry => $"{entry.Nickname}={(entry.Escaped ? "escaped" : "lost")}({entry.Chance:P0})")));
 
-            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
-                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
-            var defaultJsonConverters = Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
+            JsonConverter[] defaultJsonConverters = GetDefaultJsonConverters();
 
             string json = new FollowerDeathEscapeOutcomeRequest
             {
+                Notify = true,
+                ResolveOnly = false,
                 Entries = entries
             }.ToJson(defaultJsonConverters);
 
@@ -494,6 +457,39 @@ namespace pitTeam.Modules
                     Logger.LogError(ex);
                 }
             });
+        }
+
+        private static List<FollowerDeathEscapeOutcomeEntry> ResolveEscapeRollsOnServer(List<FollowerDeathEscapeOutcomeEntry> entries)
+        {
+            if (entries == null || entries.All(entry => entry?.RollEscape != true))
+            {
+                return entries ?? new List<FollowerDeathEscapeOutcomeEntry>();
+            }
+
+            JsonConverter[] defaultJsonConverters = GetDefaultJsonConverters();
+            string json = new FollowerDeathEscapeOutcomeRequest
+            {
+                Notify = false,
+                ResolveOnly = true,
+                Entries = entries
+            }.ToJson(defaultJsonConverters);
+
+            string responseJson = RequestHandler.PostJson(OutcomeRoute, json);
+            FollowerDeathEscapeBodyResponse<FollowerDeathEscapeOutcomeResponse> response =
+                JsonConvert.DeserializeObject<FollowerDeathEscapeBodyResponse<FollowerDeathEscapeOutcomeResponse>>(responseJson);
+            if (response == null || response.err != 0)
+            {
+                throw new InvalidOperationException(response?.errmsg ?? "Server failed to resolve teammate raid outcomes.");
+            }
+
+            return response.data?.Entries ?? entries;
+        }
+
+        private static JsonConverter[] GetDefaultJsonConverters()
+        {
+            var converterClass = typeof(AbstractGame).Assembly.GetTypes()
+                .First(t => t.GetField("Converters", BindingFlags.Static | BindingFlags.Public) != null);
+            return Traverse.Create(converterClass).Field<JsonConverter[]>("Converters").Value;
         }
 
 

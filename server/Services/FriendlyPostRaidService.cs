@@ -256,20 +256,33 @@ public class FriendlyPostRaidService(
             return;
         }
 
+        RegisterProtectedRaidItemIds(sessionId, request.ItemIds, request.Context ?? "client registration");
+    }
+
+    public void RegisterProtectedRaidItemIds(MongoId sessionId, IEnumerable<string>? itemIds, string context)
+    {
+        string[] ids = itemIds?
+            .Where(itemId => !string.IsNullOrWhiteSpace(itemId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
+        if (ids.Length == 0)
+        {
+            return;
+        }
+
         HashSet<string> protectedIds = ProtectedRaidItemIds.GetOrAdd(
             sessionId.ToString(),
             _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
         lock (protectedIds)
         {
-            foreach (string itemId in request.ItemIds ?? [])
+            foreach (string itemId in ids)
             {
-                if (!string.IsNullOrWhiteSpace(itemId))
-                {
-                    protectedIds.Add(itemId);
-                }
+                protectedIds.Add(itemId);
             }
         }
+
+        logger.Info($"Registered {ids.Length} protected teammate raid item id(s). context='{context}'.");
     }
 
     public void RemoveProtectedTeammateItemsFromExtractedProfile(MongoId sessionId, EndLocalRaidRequestData request)
@@ -446,6 +459,7 @@ public class FriendlyPostRaidService(
                 protectedIds.Contains(candidate.Id.ToString()) ||
                 !removeIds.Contains(candidate.Id.ToString()) ||
                 !removeIds.Contains(candidate.ParentId) ||
+                IsAmmoItem(candidate) ||
                 HasUnprotectedRemovedAncestor(candidate, byId, protectedIds, removeIds))
             {
                 continue;

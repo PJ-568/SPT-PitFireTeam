@@ -148,16 +148,21 @@ namespace pitTeam.Modules
                         }
                     });
                 });
-                if (followersToRemove.Count > 0)
+                if (followersToRemove.Count > 0 || (died && FollowerDeathEscapeResolver.HasFallenSquadmateSnapshots()))
                 {
                     if (died)
                     {
                         // Player death tears down the boss/follower relationship before normal raid cleanup.
                         // Resolve simulated follower escapes while live bot state is still available.
+                        // Already-dead squadmates may no longer be in boss.Followers, but their
+                        // fallen snapshot still needs to become a lost outcome for gear-loss rules.
                         FollowerDeathEscapeResolver.ResolveAndSend(boss, followersToRemove);
                     }
 
-                    SaveFollowersProgress(died ? followersToRemove.FindAll(fl => fl.IsSquadMate) : followersToRemove);
+                    if (followersToRemove.Count > 0)
+                    {
+                        SaveFollowersProgress(died ? followersToRemove.FindAll(fl => fl.IsSquadMate) : followersToRemove);
+                    }
                 }
 
                 ownersToRemove.ForEach(follower =>
