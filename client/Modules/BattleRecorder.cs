@@ -527,6 +527,9 @@ namespace pitTeam.Modules
                     sprinting = bot.Mover?.Sprinting == true,
                     hasPathTarget = bot.GoToSomePointData?.HaveTarget() == true,
                     reachedTarget = bot.GoToSomePointData?.IsCome() == true,
+                    targetPose = SanitizeFloat(bot.Mover?.TargetPose ?? 0f),
+                    poseLevel = SanitizeFloat(bot.GetPlayer?.MovementContext?.PoseLevel ?? 0f),
+                    prone = bot.GetPlayer?.MovementContext?.IsInPronePose == true,
                     direction = hasMovementDirection ? CreateVector(movementDirection) : null,
                     lookVsMoveAngle = hasMovementDirection ? SanitizeFloat(Vector3.Angle(lookDirection, movementDirection)) : null,
                     lookVsMoveTargetAngle = hasMoveTarget ? SanitizeFloat(Vector3.Angle(lookDirection, moveTargetDirection)) : null

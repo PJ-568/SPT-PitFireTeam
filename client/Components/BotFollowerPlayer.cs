@@ -626,7 +626,7 @@ namespace pitTeam.Components
             settings.FileSettings.Mind.CHANCE_FUCK_YOU_ON_CONTACT_100 = 0;
             settings.FileSettings.Mind.DIST_TO_ENEMY_SPOTTED_ON_HIT = 20;
             settings.FileSettings.Mind.DOG_FIGHT_IN = 3f;
-            settings.FileSettings.Mind.DOG_FIGHT_OUT = 6f;
+            settings.FileSettings.Mind.DOG_FIGHT_OUT = 20f;
             settings.FileSettings.Mind.SHOOT_INSTEAD_DOG_FIGHT = 1f;
             settings.FileSettings.Mind.MIN_DAMAGE_SCARE = 20f;
             settings.FileSettings.Mind.PROTECT_DELTA_HEAL_SEC = 5f;
