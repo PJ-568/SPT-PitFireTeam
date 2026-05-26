@@ -342,6 +342,8 @@ namespace pitTeam
             new FollowerGrenadeCooldownPatch().Enable();
             new FollowerGrenadeThrowFinishPatch().Enable();
             new FollowerGrenadeReleasePatch().Enable();
+            new FollowerEnemyInfoCorrectionPatch().Enable();
+            new FollowerEnemyInfoSetVisibleCorrectionPatch().Enable();
             new BulletImpactPatch().Enable();
             new HearingSensorPatch().Enable();
             new FootstepSoundPatch().Enable();

@@ -86,6 +86,8 @@ namespace pitTeam.BigBrain
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "nullEnemy");
             }
 
+            FollowerEnemyInfoCorrection.CorrectDistanceOnly(BotOwner, goalEnemy);
+
             try
             {
                 BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
@@ -125,6 +127,8 @@ namespace pitTeam.BigBrain
         {
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            FollowerEnemyInfoCorrection.CorrectDistanceOnly(BotOwner, goalEnemy);
+
             if (goalEnemy != null &&
                 HasActiveCombatGestureOrder(followerData) &&
                 FollowerCombatCommon.IsMovementDecision(currentDecision))

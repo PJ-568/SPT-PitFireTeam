@@ -268,7 +268,7 @@ namespace pitTeam.BigBrain
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "coverHold");
             }
 
-            if (goalEnemy.CanShoot)
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "fallbackShoot");
             }
@@ -695,9 +695,14 @@ namespace pitTeam.BigBrain
                     return false;
                 }
 
-                // Otherwise an exposed bot with a visible, shootable enemy stands and fires.
-                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "visibleShoot");
-                return true;
+                // Otherwise an exposed bot with corrected visible, shootable contact stands and fires.
+                if (goalEnemy.CanShoot)
+                {
+                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.shootFromPlace, "visibleShoot");
+                    return true;
+                }
+
+                return false;
             }
 
             // The enemy is seen but cannot be shot from the current spot, so first try to take one
@@ -1933,7 +1938,16 @@ namespace pitTeam.BigBrain
             }
 
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
-            if (followerBossDistance <= CombatDistanceConfiguration.Instance.GetBossRegroupTriggerDistance(botOwner))
+            float regroupTriggerDistance = CombatDistanceConfiguration.Instance.GetBossRegroupTriggerDistance(botOwner);
+            if (followerBossDistance <= regroupTriggerDistance)
+            {
+                return false;
+            }
+
+            if (combatCommon.ShouldDeferAutonomousRegroupAfterRecentFight(
+                    botOwner.Memory.GoalEnemy,
+                    followerBossDistance,
+                    regroupTriggerDistance))
             {
                 return false;
             }

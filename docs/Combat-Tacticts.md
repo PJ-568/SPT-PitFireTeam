@@ -1,6 +1,6 @@
 # Combat Tactics Notes
 
-Last updated: 2026-05-03
+Last updated: 2026-05-26
 
 ## Scope
 
@@ -98,6 +98,7 @@ Autonomous suppression remains separate:
 
 - Default can still choose `autoSuppress.*` as a normal tactical branch.
 - Autonomous suppression is shorter and more conservative than ordered suppression.
+- Point-blank suppression is not allowed to continue just because visibility/shootability is flickering. If the target is within point-blank contact range and there is no confirmed foliage obstruction near the lane, follower suppression clears instead of blind-firing around hard geometry.
 
 ### Need Sniper Order
 
@@ -190,6 +191,7 @@ Explicit command objectives sit above this tactic router in `FollowerCombatLogic
 Important policy:
 
 - Boss-distance regroup does not break active push/help/heal-style commitments.
+- Autonomous boss-distance regroup defers briefly after recent personal contact so a follower can finish or stabilize a local fight before retreating to the boss.
 - Explicit regroup breaks push; explicit push does not break an already running push.
 - Explicit suppression is objective-owned and does not live as a Default-local router branch.
 - Ally support does not break a hold unless the support decision can be prepared first.
@@ -326,8 +328,9 @@ Rifleman aggression:
 Default situational behavior:
 
 - under damage pressure, prefer recovery or suppressive retreat over exposed standing fire
-- if visible and shootable, shoot immediately unless recovery pressure should own the branch
+- if visible and shootable, shoot immediately using the corrected follower `EnemyInfo` senses
 - if visible but not shootable, prefer firing cover or pressure movement
+- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it.
 - if enemy is unseen but recent enough, push/search can continue using retained enemy memory
 - if too far from boss and not protected by push/help/heal, switch to regroup objective
 - if boss is attacked, prepare protection/support before breaking passive holds
@@ -374,6 +377,8 @@ Regroup behavior:
 
 - explicit combat regroup activates the regroup objective
 - explicit push can leave regroup and return to the active tactic objective
+- autonomous boss-distance regroup waits through a short recent-fight grace window when the follower still has fresh personal enemy contact, recent hit/damage pressure, visible contact, or shootable contact
+- extreme separation bypasses that grace so a follower who is very far out of bounds still rejoins
 - hot contact regroup stays combat-active and moves bossward using withdraw-style movement
 - cooled contact regroup runs directly toward boss / sampled boss position
 - regroup may use bossward cover, but reaching that cover is only an intermediate step
@@ -401,6 +406,12 @@ It is intended to compare observed behavior with code behavior:
 - churn and bad transition clusters
 
 Use it to validate whether a bug is tactical routing, action execution, perception, or visual/player interpretation.
+
+Enemy visibility fields in snapshots include the corrected follower-facing `EnemyInfo` values plus validation context. Follower `isVisible`, `canShoot`, and `distance` are normalized after `EnemyInfo.CheckLookEnemy`; combat read paths also refresh distance/direction from the live enemy transform so stale retained enemies do not carry `float.MaxValue` distances into decisions. `isVisible` means direct follower-visible contact rather than sense/green-sense memory, and `canShoot` means a verified fire lane from the follower. `visibleType` is recorded for context, and `reliableShootLane` is a diagnostic hard-lane check for comparing corrected senses against the stricter head/body fire policy.
+
+Sense correction owns general `EnemyInfo` truth. Keep extra checks only when they validate action-local constraints the corrected senses do not express: friendly fire lanes, crouch/prone weapon height, current aim-lane safety, soft foliage/grass suppression lanes, and short recent-contact continuity. Do not add new decision-level "is the visible/canShoot flag really true?" gates unless the correction layer cannot represent that condition.
+
+Performance boundary: correction is a hot path because it runs after follower `EnemyInfo.CheckLookEnemy`. It only performs line probes for plausible visibility candidates: close contacts where foliage matters, raw visible/shootable contacts, raw direct-visible contacts, or contacts that were directly visible on the previous tick. Distant non-visible enemies are demoted using corrected distance without additional raycasts.
 
 ## Implementation Boundaries
 

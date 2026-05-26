@@ -76,6 +76,10 @@ namespace pitTeam.BigBrain
         private const float AutoSuppressMinSeconds = 0.75f;
         private const float AutoSuppressMaxSeconds = 3f;
         private const float OrderedSuppressMinSeconds = 2f;
+        private const float CloseSuppressFoliageProbeRadius = 0.45f;
+        private const float CloseSuppressRecentContactSeconds = 0.6f;
+        private const float AutonomousRegroupRecentFightGraceSeconds = 4f;
+        private const float AutonomousRegroupExtremeDistanceMultiplier = 1.6f;
         private const float SuppressFromMinDistance = 3f;
         private const float SuppressFromSearchRadius = 35f;
         private static readonly string[] DefaultBossObjectiveCoverBreakReasons =
@@ -93,6 +97,7 @@ namespace pitTeam.BigBrain
         private static readonly Dictionary<int, CoverCommitIntent> coverCommitIntents = new Dictionary<int, CoverCommitIntent>();
         private readonly BotOwner botOwner;
         private readonly List<MedsItemClass> stimSearchBuffer = new List<MedsItemClass>();
+        private readonly Collider[] closeSuppressFoliageBuffer = new Collider[8];
 
         // Shared commitment state. Tactics decide why a commitment should break; common only
         // stores the latch, validates basic enemy/arrival state, and hands the latched decision
@@ -3157,6 +3162,49 @@ namespace pitTeam.BigBrain
             return Utils.Utils.GetNavDistance(botOwner.Position, bossPosition);
         }
 
+        public bool ShouldDeferAutonomousRegroupAfterRecentFight(
+            EnemyInfo? goalEnemy,
+            float followerBossDistance,
+            float regroupTriggerDistance)
+        {
+            if (!HasActiveCombatEnemy(goalEnemy) ||
+                goalEnemy == null ||
+                !IsFinite(followerBossDistance) ||
+                !IsFinite(regroupTriggerDistance) ||
+                regroupTriggerDistance <= 0f)
+            {
+                return false;
+            }
+
+            if (IsAutonomousRegroupDistanceExtreme(followerBossDistance, regroupTriggerDistance))
+            {
+                return false;
+            }
+
+            if (goalEnemy.IsVisible || goalEnemy.CanShoot)
+            {
+                return true;
+            }
+
+            if (botOwner.Memory.IsUnderFire ||
+                WasHitRecently(botOwner, 1.5f) ||
+                FollowerAwareness.WasRecentlyDamaged(botOwner))
+            {
+                return true;
+            }
+
+            return Time.time - goalEnemy.PersonalSeenTime <= AutonomousRegroupRecentFightGraceSeconds ||
+                   Time.time - goalEnemy.PersonalLastSeenTime <= AutonomousRegroupRecentFightGraceSeconds;
+        }
+
+        public bool IsAutonomousRegroupDistanceExtreme(float followerBossDistance, float regroupTriggerDistance)
+        {
+            return IsFinite(followerBossDistance) &&
+                   IsFinite(regroupTriggerDistance) &&
+                   regroupTriggerDistance > 0f &&
+                   followerBossDistance >= regroupTriggerDistance * AutonomousRegroupExtremeDistanceMultiplier;
+        }
+
         /// <summary>
         /// Shared boss/follower/enemy spacing snapshot used by combat objective logic.
         /// This lets the higher-level combat tree compare who currently owns the forward line:
@@ -4438,6 +4486,15 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            if (ShouldReloadInPlaceWithoutCover())
+            {
+                TryStartCombatReload();
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.holdPosition,
+                    "reloadNoCover");
+                return true;
+            }
+
             return false;
         }
 
@@ -4503,6 +4560,24 @@ namespace pitTeam.BigBrain
             Weapon? activeWeapon = weaponManager.ShootController?.Item;
             int? magazineCount = activeWeapon?.GetCurrentMagazine()?.Cartridges?.Count;
             return magazineCount.HasValue && magazineCount.Value <= ReloadRetreatMinMagazineAmmo;
+        }
+
+        private bool ShouldReloadInPlaceWithoutCover()
+        {
+            BotWeaponManager? weaponManager = botOwner.WeaponManager;
+            if (weaponManager?.Reload == null)
+            {
+                return false;
+            }
+
+            if (weaponManager.Reload.Reloading || !weaponManager.HaveBullets)
+            {
+                return true;
+            }
+
+            Weapon? activeWeapon = weaponManager.ShootController?.Item;
+            int? magazineCount = activeWeapon?.GetCurrentMagazine()?.Cartridges?.Count;
+            return magazineCount.HasValue && magazineCount.Value <= 0;
         }
 
         private void TryStartCombatReload()
@@ -6539,13 +6614,12 @@ namespace pitTeam.BigBrain
                 goalEnemy != null &&
                 goalEnemy.IsVisible &&
                 goalEnemy.CanShoot &&
-                FollowerImmediateFirePolicy.HasReliableImmediateFireLane(botOwner, goalEnemy) &&
                 Time.time - goalEnemy.PersonalSeenTime < 1.5f;
             bool shootNow = ((goalEnemy != null && goalEnemy.Distance < botOwner.Settings.FileSettings.Shoot.SHOOT_IMMEDIATELY_DIST) ||
                              botOwner.BotsGroup.AnyBodyShootImmediately) &&
                             goalEnemy != null &&
+                            goalEnemy.IsVisible &&
                             goalEnemy.CanShoot &&
-                            FollowerImmediateFirePolicy.HasReliableImmediateFireLane(botOwner, goalEnemy) &&
                             Time.time - goalEnemy.AddTime < 5f;
 
             bool launcherActive = botOwner.WeaponManager.UnderbarrelLauncherController.IsActive;
@@ -7397,23 +7471,7 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("dogFightOutOfRange", true);
             }
 
-            if (goalEnemy == null || !goalEnemy.CanShoot || !goalEnemy.IsVisible)
-            {
-                if (ShouldKeepCloseDogFightThroughVisualFlicker(goalEnemy))
-                {
-                    return Continue();
-                }
-
-                ClearDogFightState();
-                return new AICoreActionEndStruct("dogFightNoValidEnemy", true);
-            }
-
             return Continue();
-        }
-
-        private bool ShouldKeepCloseDogFightThroughVisualFlicker(EnemyInfo? goalEnemy)
-        {
-            return IsEnemyActivelyThreateningMe(goalEnemy, CloseThreatDogFightDistance, 0.6f);
         }
 
         /// <summary>
@@ -7761,7 +7819,8 @@ namespace pitTeam.BigBrain
                 }
             }
 
-            if (ShouldSeekReloadRetreat(goalEnemy))
+            if (ShouldSeekReloadRetreat(goalEnemy) &&
+                TryGetReloadRetreatDecision(goalEnemy, out _))
             {
                 return new AICoreActionEndStruct("reloadRetreatNeeded", true);
             }
@@ -7977,6 +8036,12 @@ namespace pitTeam.BigBrain
             Vector3 fireOrigin = botOwner.WeaponRoot != null
                 ? botOwner.WeaponRoot.position
                 : botOwner.Position + Vector3.up * 1.2f;
+            if (ShouldBreakFollowerSuppressForPointBlankContact(goalEnemy, point.Value, fireOrigin))
+            {
+                followerData?.ClearCommand("SuppressEnemy:pointBlankNonFoliageContact");
+                return new AICoreActionEndStruct("pointBlankNonFoliageContact", true);
+            }
+
             if (FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, fireOrigin, point.Value))
             {
                 if (suppressElapsed < protectedSeconds)
@@ -8005,6 +8070,66 @@ namespace pitTeam.BigBrain
             }
 
             return Continue();
+        }
+
+        private bool ShouldBreakFollowerSuppressForPointBlankContact(
+            EnemyInfo goalEnemy,
+            Vector3 suppressTarget,
+            Vector3 fireOrigin)
+        {
+            if (!IsPointBlankContactWithoutHardSeparation(botOwner, goalEnemy) ||
+                !HasRecentPointBlankContact(goalEnemy))
+            {
+                return false;
+            }
+
+            return !HasConfirmedCloseSuppressFoliage(goalEnemy, suppressTarget, fireOrigin);
+        }
+
+        private static bool HasRecentPointBlankContact(EnemyInfo goalEnemy)
+        {
+            return goalEnemy.IsVisible ||
+                   Time.time - goalEnemy.PersonalSeenTime <= CloseSuppressRecentContactSeconds ||
+                   Time.time - goalEnemy.PersonalLastSeenTime <= CloseSuppressRecentContactSeconds;
+        }
+
+        private bool HasConfirmedCloseSuppressFoliage(
+            EnemyInfo goalEnemy,
+            Vector3 suppressTarget,
+            Vector3 fireOrigin)
+        {
+            LayerMask mask = botOwner.LookSensor?.Mask ?? LayerMaskClass.HighPolyWithTerrainMaskAI;
+            if (IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, mask))
+            {
+                return true;
+            }
+
+            Vector3 enemyAnchor = GetEnemyCurrentPosition(goalEnemy);
+            if (!IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            Vector3 capsuleStart = botOwner.Position + Vector3.up * 0.7f;
+            Vector3 capsuleEnd = enemyAnchor + Vector3.up * 1.25f;
+            int hitCount = Physics.OverlapCapsuleNonAlloc(
+                capsuleStart,
+                capsuleEnd,
+                CloseSuppressFoliageProbeRadius,
+                closeSuppressFoliageBuffer,
+                LayerMaskClass.AI);
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                Collider collider = closeSuppressFoliageBuffer[i];
+                closeSuppressFoliageBuffer[i] = null;
+                if (collider != null && IsSoftFoliageCollider(collider))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static float GetFollowerSuppressProtectedSeconds(bool ordered)
@@ -8569,6 +8694,7 @@ namespace pitTeam.BigBrain
                    string.Equals(reason, "escortNoSafeCover", StringComparison.Ordinal) ||
                    string.Equals(reason, "recoveryCoverHold", StringComparison.Ordinal) ||
                    string.Equals(reason, "bossHoldOpen", StringComparison.Ordinal) ||
+                   string.Equals(reason, "reloadNoCover", StringComparison.Ordinal) ||
                    reason.StartsWith("committedPositionHold", StringComparison.Ordinal) ||
                    reason.StartsWith("committedCoverHold", StringComparison.Ordinal);
         }
@@ -8584,6 +8710,12 @@ namespace pitTeam.BigBrain
             {
                 holdActive = false;
                 return new AICoreActionEndStruct("holdExpired", true);
+            }
+
+            if (string.Equals(reason, "reloadNoCover", StringComparison.Ordinal) &&
+                botOwner.WeaponManager?.Reload?.Reloading == true)
+            {
+                return Continue();
             }
 
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;

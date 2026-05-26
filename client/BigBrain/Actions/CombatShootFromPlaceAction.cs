@@ -7,20 +7,15 @@ namespace pitTeam.BigBrain.Actions
 {
     /// <summary>
     /// Stationary combat fire action used when the decision tree wants the follower to stop moving
-    /// and solve the fight from the current position. The action still delegates normal aiming and
-    /// shooting to EFT's shoot-from-place node, but wraps it with follower-specific safety gates:
-    /// pose/lane validation, close-threat aim correction, recent-contact suppression continuity,
-    /// and friendly shot-lane protection.
+    /// and solve the fight from the current position. The action delegates aiming and shooting to
+    /// EFT's shoot-from-place node, while keeping follower-specific safety gates around supported
+    /// fire poses, recent-contact suppression continuity, and friendly shot-lane protection.
     /// </summary>
     internal sealed class CombatShootFromPlaceAction : FollowerCombatActionBase
     {
         private const float MinEnemyDistanceForProne = 80f;
         private const float SameSpotMaxDistanceSqr = 0.75f * 0.75f;
         private const float ProneFireProbeHeight = 0.35f;
-        private const float CloseImmediateFireDistance = 25f;
-        private const float CloseImmediateFireAngle = 3f;
-        private const float CloseThreatAimCorrectionDistance = 25f;
-        private const float CloseThreatFireAngle = 4f;
         private readonly GClass276 baseLogic;
         private float aimAlignStartedAt;
         private Vector3 startPosition;
@@ -62,14 +57,6 @@ namespace pitTeam.BigBrain.Actions
 
             string? reason = GetReason(data) ?? BotOwner.Brain?.Agent?.LastResult().Reason;
 
-            // Highest priority override: close enemy looking at the follower. In this case the
-            // dangerous failure mode is pressing the trigger while the body/weapon is still angled
-            // away, so this path owns both look correction and trigger gating.
-            if (TryHandleCloseThreatFire(goalEnemy))
-            {
-                return;
-            }
-
             // If an immediate-fire decision briefly loses CanShoot because of foliage or a small
             // visibility flicker, keep a short suppressive shot at the last verified point instead
             // of dropping into movement churn.
@@ -78,11 +65,9 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            // For urgent close-range reasons we may bypass the vanilla node and press the trigger
-            // once aligned. For normal shoot-from-place, wait briefly for aim alignment before
-            // letting the EFT node run so it does not fire while visibly off target.
-            if (!TryForceCloseImmediateFire(reason, goalEnemy) &&
-                WaitForEnemyAimAlignment(ref aimAlignStartedAt))
+            // Wait briefly for aim alignment before letting the EFT node run so it does not fire
+            // while visibly off target.
+            if (WaitForEnemyAimAlignment(ref aimAlignStartedAt))
             {
                 return;
             }
@@ -94,83 +79,6 @@ namespace pitTeam.BigBrain.Actions
 
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
             EnforceSupportedFirePose(allowProne);
-        }
-
-        /// <summary>
-        /// Urgent close-range immediate fire path. This covers cases where the decision tree already
-        /// chose "shoot now" but the vanilla shoot-from-place node hesitates with semi-auto/shotgun
-        /// weapons. It still requires a tight look angle and a friendly-safe lane before pressing fire.
-        /// </summary>
-        private bool TryForceCloseImmediateFire(string? reason, EnemyInfo? goalEnemy)
-        {
-            if (!FollowerImmediateFirePolicy.IsImmediateShootReason(reason) ||
-                goalEnemy == null ||
-                !goalEnemy.IsVisible ||
-                !goalEnemy.CanShoot ||
-                goalEnemy.Distance > CloseImmediateFireDistance)
-            {
-                return false;
-            }
-
-            ShootPointClass? shootPoint = BotOwner.CurrentEnemyTargetPosition(false);
-            Vector3 target = shootPoint?.Point ?? goalEnemy.GetBodyPartPosition();
-            BotOwner.StopMove();
-            BotOwner.SetPose(1f);
-            BotOwner.Steering.LookToPoint(target);
-
-            if (CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) > CloseImmediateFireAngle)
-            {
-                StopCombatShooting();
-                return true;
-            }
-
-            if (StopIfFriendlyInCurrentFireLane(goalEnemy))
-            {
-                return true;
-            }
-
-            BotOwner.ShootData.Shoot();
-            aimAlignStartedAt = 0f;
-            return true;
-        }
-
-        /// <summary>
-        /// Active close-threat correction. When the enemy is close, shootable, and looking at this
-        /// follower, the action stops movement, stands up, looks at the current shoot point, and
-        /// only fires once the look angle is tight enough. If not aligned, it intentionally consumes
-        /// the update and stops shooting instead of falling through to the vanilla node.
-        /// </summary>
-        private bool TryHandleCloseThreatFire(EnemyInfo? goalEnemy)
-        {
-            if (goalEnemy == null ||
-                !goalEnemy.IsVisible ||
-                !goalEnemy.CanShoot ||
-                goalEnemy.Distance > CloseThreatAimCorrectionDistance ||
-                !BotOwner.IsEnemyLookingAtMe(goalEnemy))
-            {
-                return false;
-            }
-
-            ShootPointClass? shootPoint = BotOwner.CurrentEnemyTargetPosition(false);
-            Vector3 target = shootPoint?.Point ?? goalEnemy.GetBodyPartPosition();
-            BotOwner.StopMove();
-            BotOwner.SetPose(1f);
-            BotOwner.Steering.LookToPoint(target);
-
-            if (StopIfFriendlyInCurrentFireLane(goalEnemy))
-            {
-                return true;
-            }
-
-            if (CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) > CloseThreatFireAngle)
-            {
-                StopCombatShooting();
-                return true;
-            }
-
-            BotOwner.ShootData.Shoot();
-            aimAlignStartedAt = 0f;
-            return true;
         }
 
         /// <summary>

@@ -35,7 +35,8 @@ namespace pitTeam.BigBrain
                 goalEnemy == null ||
                 !goalEnemy.IsVisible ||
                 !goalEnemy.CanShoot ||
-                !botOwner.LookSensor.EnoughDistToShoot(out _))
+                !botOwner.LookSensor.EnoughDistToShoot(out _) ||
+                !FollowerEnemyInfoCorrection.TryGetReliableDistance(botOwner, goalEnemy, out float distance))
             {
                 return false;
             }
@@ -53,11 +54,11 @@ namespace pitTeam.BigBrain
             // At point-blank range EFT can legitimately pick arms/legs while bodies overlap.
             // Farther away, requiring head/body prevents one-pixel truck/window cracks from
             // turning into an exposed standing-fire decision.
-            if (goalEnemy.Distance <= 12f)
+            if (distance <= 12f)
             {
                 ShootPointClass? shootPoint = botOwner.CurrentEnemyTargetPosition(true);
                 return shootPoint != null &&
-                       Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, botOwner.LookSensor.Mask, false);
+                       Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, LayerMaskClass.HighPolyWithTerrainMask, false);
             }
 
             return false;
@@ -73,7 +74,7 @@ namespace pitTeam.BigBrain
             return Utils.Utils.CanShootToTarget(
                 new ShootPointClass(target, 1f),
                 GetFireOrigin(botOwner),
-                botOwner.LookSensor.Mask,
+                LayerMaskClass.HighPolyWithTerrainMask,
                 false);
         }
 
@@ -100,7 +101,7 @@ namespace pitTeam.BigBrain
                    Utils.Utils.CanShootToTarget(
                        new ShootPointClass(part.Position, 1f),
                        fireOrigin,
-                       botOwner.LookSensor.Mask,
+                       LayerMaskClass.HighPolyWithTerrainMask,
                        false);
         }
 
