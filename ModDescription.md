@@ -32,6 +32,7 @@ You can manage your teammates from the in-game **My Squad** screen. From there, 
 - **Progression system** - teammates gain raid experience and common-skill progress that persists between raids.
 - **Quest assist** - teammate kills can count toward player kill quests when the kill meets the quest criteria.
 - **Loot management** - teammates who you spawned with can return items after the raid and you can also manage their backpacks while in raid. (See Gameplay Guide > Loot Management)
+- **Fallen teammate gear gathering** - outside combat, a teammate can be ordered to check a body and gather recoverable gear from it, mainly to help collect gear from fallen squadmates.
 - **Post-raid reports** - receive report about if your team made it out with the loot after you died. (See Gameplay Guide > Raid Survival Post Player)
 
 **Compatibility tested with:**
@@ -161,6 +162,7 @@ Commands influence teammate behavior but do not force exact actions. teammates w
 - **Over There Gesture** - gesture-based contact/attention toward the pointed direction.
 - **Open Door** - the closest eligible teammate opens the targeted door.
 - **Loot This** - the closest eligible teammate picks up the targeted loot item.
+- **Check Him / Loot Body** - the closest eligible teammate checks the targeted body and gathers recoverable gear. This is meant as a practical way to collect gear from fallen teammates. It does not do advanced gear management such as swapping the teammate's current weapons, armor, or vest for better equipment.
 
 Saved teammates and recruited allies share the basic follower system once they are following you, but saved teammates have the full squad feature set. Saved teammates keep their customization, loadouts, tactics, aggression, progression, backpack access, and post-raid handling. Recruited allies are temporary raid pickups that use the default combat tactic with moderate aggression, rely on their current bot profile and gear, and have a simpler combat command set: they do not use **Need Sniper**, combat **There**, combat **Open Door**, or combat **Go Forward** push orders. If a recruited ally was told **Hold Position** in combat, **Go Forward** only clears that temporary aggression hold.
 
@@ -389,6 +391,8 @@ A teammate can pick up the item only if they:
 You must successfully extract with that teammate for the loot to be returned after the raid. Only teammates you originally spawned with are able to return carried loot.
 
 If the teammate dies, the carried loot is lost.
+
+**You can also look at a body and use Check Him / Loot Body to have the closest eligible teammate gather recoverable gear from it.** This command is intended to help collect gear from fallen teammates. It uses available carry space and empty compatible slots, but it is not a full equipment-optimization system: teammates will not swap out their current weapons, armor, or vest for better gear.
 
 **You can also inspect a teammate’s backpack by approaching them and using the lower-left interaction prompt. This can only be done while out of combat.**
 

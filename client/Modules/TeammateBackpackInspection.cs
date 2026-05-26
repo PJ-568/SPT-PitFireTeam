@@ -347,12 +347,14 @@ namespace pitTeam.Modules
             // inventory network transaction. Backpack inspection must not overlap that flow.
             if (follower != null &&
                 follower.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
-                command == FollowerCommandType.TakeLootItem)
+                (command == FollowerCommandType.TakeLootItem ||
+                 command == FollowerCommandType.TakeBodyGear))
             {
                 return true;
             }
 
-            if (InteractableObjects.IsTaker(bot))
+            if (InteractableObjects.IsTaker(bot) ||
+                InteractableObjects.IsBodyLootTaker(bot))
             {
                 return true;
             }

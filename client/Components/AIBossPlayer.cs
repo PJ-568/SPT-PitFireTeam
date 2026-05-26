@@ -251,6 +251,13 @@ namespace pitTeam.Components
                     ApplyTakeLootCommand(info.PlayerRequester);
                     return;
                 }
+                else if (info.phrase == EPhraseTrigger.CheckHim ||
+                         info.phrase == EPhraseTrigger.LootBody)
+                {
+                    // Body check: closest eligible follower moves to the corpse and recovers gear as cargo.
+                    ApplyTakeBodyGearCommand(info.PlayerRequester);
+                    return;
+                }
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
                 {
                     // Follow Me / Cooperation: normal follow mode and command cleanup.
@@ -1493,37 +1500,7 @@ namespace pitTeam.Components
                 return;
             }
 
-            BotOwner closestFollower = null;
-            float bestSqrDistance = float.MaxValue;
-            Vector3 lootPos = lootItem.transform.position;
-
-            foreach (BotOwner follower in Followers)
-            {
-                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active)
-                {
-                    continue;
-                }
-
-                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
-                {
-                    continue;
-                }
-
-                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                if (followerData == null)
-                {
-                    continue;
-                }
-
-                float sqrDistance = (follower.Position - lootPos).sqrMagnitude;
-                if (sqrDistance >= bestSqrDistance)
-                {
-                    continue;
-                }
-
-                closestFollower = follower;
-                bestSqrDistance = sqrDistance;
-            }
+            BotOwner closestFollower = FindClosestEligibleInteractionFollower(lootItem.transform.position);
 
             if (closestFollower == null)
             {
@@ -1548,6 +1525,81 @@ namespace pitTeam.Components
             closestFollowerData.SetTakeLootItem(35f);
             closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private void ApplyTakeBodyGearCommand(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return;
+            }
+
+            Corpse corpse = InteractableObjects.GetCurBodyLootTarget();
+            if (corpse == null)
+            {
+                return;
+            }
+
+            BotOwner closestFollower = FindClosestEligibleInteractionFollower(corpse.transform.position);
+            if (closestFollower == null)
+            {
+                return;
+            }
+
+            if (!InteractableObjects.SetBodyLootTaker(closestFollower, corpse))
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                return;
+            }
+
+            BotFollowerPlayer closestFollowerData = BossPlayers.Instance?.GetFollower(closestFollower);
+            if (closestFollowerData == null)
+            {
+                InteractableObjects.RemoveBodyLootTaker(closestFollower);
+                return;
+            }
+
+            // Body looting can take multiple inventory transactions, so reserve the corpse and
+            // let the request action own the approach/interruption/cleanup lifecycle.
+            closestFollowerData.SetTakeBodyGear(75f);
+            closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+            closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private BotOwner FindClosestEligibleInteractionFollower(Vector3 targetPosition)
+        {
+            BotOwner closestFollower = null;
+            float bestSqrDistance = float.MaxValue;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active)
+                {
+                    continue;
+                }
+
+                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
+                {
+                    continue;
+                }
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null)
+                {
+                    continue;
+                }
+
+                float sqrDistance = (follower.Position - targetPosition).sqrMagnitude;
+                if (sqrDistance >= bestSqrDistance)
+                {
+                    continue;
+                }
+
+                closestFollower = follower;
+                bestSqrDistance = sqrDistance;
+            }
+
+            return closestFollower;
         }
 
         private void ApplyOpenDoorCommand(IPlayer requester)
