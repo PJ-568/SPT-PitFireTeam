@@ -180,7 +180,7 @@ namespace pitTeam.BigBrain.Actions
             BotOwner.SetTargetMoveSpeed(1f);
             RefreshProgressState();
             NotMovingCheck(goalEnemy);
-            TryPreferPrimaryAtRange(goalEnemy);
+            TryPreferPrimaryAtRange(goalEnemy, GetReason(data));
 
             BotOwner.SetPose(1f);
             SetCombatSprint(canRun);

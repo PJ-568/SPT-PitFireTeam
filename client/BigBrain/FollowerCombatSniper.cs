@@ -342,6 +342,12 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (CombatCommon.ShouldBlockProactiveAutoPushForWeaponThreat(goalEnemy) ||
+                CombatCommon.ShouldUseCautiousWeaponThreatStyle(goalEnemy))
+            {
+                return false;
+            }
+
             float aggression = CombatCommon.GetAggression01();
             if (aggression <= 0.01f)
             {

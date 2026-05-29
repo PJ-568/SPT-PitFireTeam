@@ -11,6 +11,7 @@ namespace pitTeam.BigBrain
         private const float DistanceCorrectionTolerance = 0.25f;
         private const float CloseFoliageVisibilityDistance = 10f;
         private const float CloseTargetShootFallbackDistance = 12f;
+        private const float StaleVisibleFlagMaxAge = 0.75f;
         [System.ThreadStatic]
         private static int lookCheckDepth;
         [System.ThreadStatic]
@@ -139,6 +140,7 @@ namespace pitTeam.BigBrain
             if (TryGetReliableDistance(botOwner, enemyInfo, out float distance, out Vector3 enemyPosition))
             {
                 CorrectDistanceAndDirection(botOwner, enemyInfo, distance, enemyPosition);
+                ClearStaleVisibleOrShootFlag(enemyInfo);
             }
         }
 
@@ -146,6 +148,17 @@ namespace pitTeam.BigBrain
         {
             return TryGetReliableDistance(botOwner, goalEnemy, out float distance, out _) &&
                    HasVerifiedShootLane(botOwner, goalEnemy, distance);
+        }
+
+        public static bool HasFreshPersonalVisual(EnemyInfo? enemyInfo, float maxAge)
+        {
+            if (enemyInfo == null)
+            {
+                return false;
+            }
+
+            float lastSeenTime = Mathf.Max(enemyInfo.PersonalLastSeenTime, enemyInfo.PersonalSeenTime);
+            return lastSeenTime > 0f && Time.time - lastSeenTime <= maxAge;
         }
 
         private static void CorrectDistanceAndDirection(
@@ -471,6 +484,23 @@ namespace pitTeam.BigBrain
             enemyInfo.IsVisible = false;
             enemyInfo.method_6(EEnemyPartVisibleType.NotVisible);
             enemyInfo.method_3(false);
+        }
+
+        private static void ClearStaleVisibleOrShootFlag(EnemyInfo enemyInfo)
+        {
+            if (!enemyInfo.IsVisible &&
+                !enemyInfo.CanShoot &&
+                enemyInfo.VisibleType != EEnemyPartVisibleType.Visible)
+            {
+                return;
+            }
+
+            if (HasFreshPersonalVisual(enemyInfo, StaleVisibleFlagMaxAge))
+            {
+                return;
+            }
+
+            ForceInvisibleAndUnshootable(enemyInfo);
         }
 
         private static bool IsValidDistance(float value)

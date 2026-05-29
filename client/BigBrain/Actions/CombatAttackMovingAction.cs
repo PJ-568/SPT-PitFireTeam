@@ -41,7 +41,7 @@ namespace pitTeam.BigBrain.Actions
 
             // Attack-moving can run for a while, so keep non-marksman followers on their primary at
             // range and pass the current decision reason into the wrapped node for suppress behavior.
-            TryPreferPrimaryAtRange(goalEnemy);
+            TryPreferPrimaryAtRange(goalEnemy, GetReason(data));
             baseLogic.SetCurrentReason(GetReason(data));
             baseLogic.UpdateNodeByBrain(GetRawData(data));
         }

@@ -4,6 +4,7 @@ using EFT.HealthSystem;
 using EFT.InventoryLogic;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace pitTeam.Utils
@@ -48,9 +49,11 @@ namespace pitTeam.Utils
 
             Player player = bot.GetPlayer;
             RestoreAllBodyPartsToMaximum(player);
+            RemoveBleedingEffects(player);
             if (bot.AIData?.Player != null && bot.AIData.Player != player)
             {
                 RestoreAllBodyPartsToMaximum(bot.AIData.Player);
+                RemoveBleedingEffects(bot.AIData.Player);
             }
 
             RefreshMedicalWork(bot);
@@ -165,6 +168,51 @@ namespace pitTeam.Utils
                 {
                     player.ActiveHealthController.ChangeHealth(part, missingHealth, GClass3051.MedKitUse);
                 }
+            }
+        }
+
+        private static void RemoveBleedingEffects(Player player)
+        {
+            if (player?.ActiveHealthController == null)
+            {
+                return;
+            }
+
+            List<IEffect> bleedingEffects = new List<IEffect>();
+            foreach (IEffect effect in player.ActiveHealthController.GetAllEffects(EBodyPart.Common))
+            {
+                if (effect is GInterface341 &&
+                    effect.State != EEffectState.None &&
+                    effect.State != EEffectState.Removed)
+                {
+                    bleedingEffects.Add(effect);
+                }
+            }
+
+            for (int i = 0; i < bleedingEffects.Count; i++)
+            {
+                ForceRemoveEffect(bleedingEffects[i]);
+            }
+        }
+
+        private static void ForceRemoveEffect(IEffect effect)
+        {
+            if (effect == null)
+            {
+                return;
+            }
+
+            try
+            {
+                MethodInfo? forceRemove = effect.GetType().GetMethod(
+                    "ForceRemove",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                forceRemove?.Invoke(effect, null);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"[Medical] Failed to remove follower bleeding effect {effect.GetType().Name}.");
+                Modules.Logger.LogError(ex);
             }
         }
 
@@ -465,6 +513,11 @@ namespace pitTeam.Utils
         {
             try
             {
+                if (bot?.Medecine == null || bot.GetPlayer == null)
+                {
+                    return;
+                }
+
                 NormalizeSurgeryRecoveredPartsForFirstAid(bot.GetPlayer);
                 if (bot.AIData?.Player != null && bot.AIData.Player != bot.GetPlayer)
                 {
@@ -472,6 +525,7 @@ namespace pitTeam.Utils
                 }
 
                 bot.Medecine.RefreshCurMeds();
+                SelectUsableBleedFirstAid(bot);
                 bot.Medecine.GetDamaged();
                 bot.Medecine.SurgicalKit.FindDamagedPart();
                 bot.Medecine.FirstAid.CheckParts();
@@ -481,6 +535,142 @@ namespace pitTeam.Utils
                 // Medical state can be mid-transition while a vanilla heal node is being cancelled.
                 // Stale flags will refresh on the next tick.
             }
+        }
+
+        private static void SelectUsableBleedFirstAid(BotOwner bot)
+        {
+            BotFirstAidClass firstAid = bot?.Medecine?.FirstAid;
+            Player player = bot?.GetPlayer;
+            if (firstAid == null ||
+                firstAid.Using ||
+                player?.HealthController == null ||
+                !TryGetActiveBleeding(player, out EDamageEffectType bleedingType))
+            {
+                return;
+            }
+
+            MedsItemClass current = firstAid.CurUsingMeds;
+            if (CanTreatDamageEffect(current, bleedingType))
+            {
+                return;
+            }
+
+            MedsItemClass best = FindBestBleedTreatment(firstAid, bleedingType);
+            if (best != null)
+            {
+                firstAid.CurUsingMeds = best;
+                Modules.Logger.LogInfo(
+                    $"[Medical] Selected usable {bleedingType} med for {bot.Profile?.Nickname ?? bot.name}: {best.TemplateId}");
+                return;
+            }
+
+            if (ClaimsDamageEffect(current, bleedingType))
+            {
+                firstAid.CurUsingMeds = null;
+                Modules.Logger.LogInfo(
+                    $"[Medical] Cleared unusable {bleedingType} med for {bot.Profile?.Nickname ?? bot.name}: {current.TemplateId}");
+            }
+        }
+
+        private static bool TryGetActiveBleeding(Player player, out EDamageEffectType bleedingType)
+        {
+            bleedingType = default;
+
+            if (player?.HealthController == null)
+            {
+                return false;
+            }
+
+            if (player.HealthController.FindExistingEffect<GInterface340>(EBodyPart.Common) != null)
+            {
+                bleedingType = EDamageEffectType.HeavyBleeding;
+                return true;
+            }
+
+            if (player.HealthController.FindExistingEffect<GInterface339>(EBodyPart.Common) != null)
+            {
+                bleedingType = EDamageEffectType.LightBleeding;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static MedsItemClass FindBestBleedTreatment(BotFirstAidClass firstAid, EDamageEffectType bleedingType)
+        {
+            MedsItemClass best = null;
+            float bestScore = float.MaxValue;
+
+            for (int i = 0; i < firstAid.List_0.Count; i++)
+            {
+                MedsItemClass med = firstAid.List_0[i];
+                if (!CanTreatDamageEffect(med, bleedingType, out int cost, out MedKitComponent medKit))
+                {
+                    continue;
+                }
+
+                float score = GetBleedTreatmentScore(medKit, cost);
+                if (score < bestScore)
+                {
+                    best = med;
+                    bestScore = score;
+                }
+            }
+
+            return best;
+        }
+
+        private static float GetBleedTreatmentScore(MedKitComponent medKit, int cost)
+        {
+            if (medKit == null)
+            {
+                return 0f;
+            }
+
+            return Mathf.Max(0f, medKit.HpResource - cost) + (medKit.MaxHpResource * 0.01f);
+        }
+
+        private static bool CanTreatDamageEffect(MedsItemClass med, EDamageEffectType bleedingType)
+        {
+            return CanTreatDamageEffect(med, bleedingType, out _, out _);
+        }
+
+        private static bool CanTreatDamageEffect(
+            MedsItemClass med,
+            EDamageEffectType bleedingType,
+            out int cost,
+            out MedKitComponent medKit)
+        {
+            cost = 0;
+            medKit = null;
+
+            if (!TryGetDamageEffectCost(med, bleedingType, out cost))
+            {
+                return false;
+            }
+
+            return !med.TryGetItemComponent<MedKitComponent>(out medKit) ||
+                   medKit.HpResource + Mathf.Epsilon >= cost;
+        }
+
+        private static bool ClaimsDamageEffect(MedsItemClass med, EDamageEffectType bleedingType)
+        {
+            return TryGetDamageEffectCost(med, bleedingType, out _);
+        }
+
+        private static bool TryGetDamageEffectCost(MedsItemClass med, EDamageEffectType bleedingType, out int cost)
+        {
+            cost = 0;
+            if (med == null ||
+                !med.TryGetItemComponent<HealthEffectsComponent>(out HealthEffectsComponent healthEffects) ||
+                healthEffects?.DamageEffects == null ||
+                !healthEffects.DamageEffects.TryGetValue(bleedingType, out GClass1443 effect))
+            {
+                return false;
+            }
+
+            cost = effect?.Cost ?? 0;
+            return true;
         }
 
         private static MedicalHandsWatchState GetWatchState(string profileId)

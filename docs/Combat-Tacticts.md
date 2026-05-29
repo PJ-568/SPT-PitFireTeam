@@ -1,6 +1,6 @@
 # Combat Tactics Notes
 
-Last updated: 2026-05-26
+Last updated: 2026-05-28
 
 ## Scope
 
@@ -70,6 +70,11 @@ Rifleman/default behavior:
 - The selected push is committed as `push.*`, so the bot should finish the chosen push phase unless interrupted by real danger, enemy loss, enemy change, or another explicit command.
 - Ordered push refreshes enemy retention during the committed push so it should not forget the enemy mid-route.
 - If the enemy becomes visible/shootable during direct movement, the push can convert into immediate fire or short suppression rather than churn into unrelated movement.
+- Riflemen with a shotgun first primary can latch a loaded automatic second primary for mid-or-farther fights; once latched it stays through the fight to avoid distance-bucket weapon churn, unless the automatic secondary runs dry with no reload ammo, at which point the fight is locked back to first primary.
+- Automatic-secondary switching is penetration-guarded against the first primary's current ammo: the secondary ammo may trail by up to 15 penetration, matching EFT's armor-resistance penetration window, so small gaps like 35 vs 40 still allow rate of fire to compensate while gaps like 20 vs 40 stay on the primary.
+- Rifleman weapon switching is owned by combat decisions only: if EFT automatically swaps to a support weapon, such as pistol fallback instead of reload, follower combat should not force an immediate primary swap back unless this tactic explicitly made the secondary switch first.
+- Riflemen with a usable grenade launcher in the second primary can use it for suppression decisions: ordered suppress follows the old plugin's boss-order ray scan for hostile player bodies and does not require `EnemyInfo.IsVisible`; autonomous use follows the old plugin's visible-enemy collection and requires multiple visible hostile targets. Launcher targets keep the old safety band (`27m` to `130m`), reject impact points near the boss or followers, require a clean suppress lane or suppress-from point, and emit artillery warnings before firing.
+- Grenade-launcher suppression emits a short squad combat event. While that event is active, other followers do not start or continue autonomous pushes around the same impact area, even if their current enemy identity is different. Explicit player push orders still remain command-owned.
 - Other nearby Riflemen can react to the push event as support instead of starting a duplicate independent push: shoot from current cover, take a support shot, move to push-support cover, or move to a firing point.
 
 Marksman behavior:
@@ -99,6 +104,7 @@ Autonomous suppression remains separate:
 - Default can still choose `autoSuppress.*` as a normal tactical branch.
 - Autonomous suppression is shorter and more conservative than ordered suppression.
 - Point-blank suppression is not allowed to continue just because visibility/shootability is flickering. If the target is within point-blank contact range and there is no confirmed foliage obstruction near the lane, follower suppression clears instead of blind-firing around hard geometry.
+- Ordered/objective suppression can be interrupted after its protected opening burst when the follower needs healing or reload-retreat. The order should create pressure, not pin the follower in place while hurt or empty.
 
 ### Need Sniper Order
 
@@ -217,8 +223,11 @@ Committed push breaks for:
 - under-fire/recent-hit pressure
 - explicit non-push command override
 - run-to-enemy when sprint is impossible or the bot is not actually sprinting
+- unseen push/search routes that become urban NavMesh detours away from the boss
 
 Push enemy retention is refreshed during committed push so a contact/order push does not forget the enemy mid-route.
+
+Automatic unseen search rushes are also gated before activation: if the enemy anchor is far outside the boss regroup envelope, the bot should not sprint into a blind push just because a search route exists. Ordered pushes remain command-owned, but active push movement can still be interrupted if the actual NavMesh route turns into a large urban detour while the enemy is not visible or shootable.
 
 ## Movement And Arrival Holds
 
@@ -307,6 +316,8 @@ Current behavior:
 - Black limb pain during combat can prefer painkiller/stim use when available.
 - Badly injured state can use health-support stims when available.
 - Heal completion refreshes movement penalties without restoring full max health.
+- The explicit force-heal hotkey restores body-part health and clears active light/heavy bleeding effects.
+- First-aid refresh corrects vanilla med selection for active bleeding: if the selected med advertises bleed treatment but lacks enough remaining resource for the bleed-removal cost, followers prefer another usable med instead of looping the depleted one.
 - When retreating to heal but sprint/mobility is poor, recent contact can choose visible fire or suppression instead of walking with no pressure.
 
 Heal-cover exception: arriving at heal cover hands off to healing instead of normal cover hold.
@@ -321,6 +332,10 @@ Rifleman/default tactic is built around two main objectives:
 Rifleman aggression:
 
 - `50%` is the default balanced baseline.
+- Weapon aggression overrides can multiply the saved/effective aggression at combat read time. Current list: SR-2M Veresk uses `0.6x`, so saved `50%` behaves as `30%` while that weapon is active.
+- Ammo penetration affects proactive automatic pushes against PMCs, raiders, bosses, and boss followers. Under `30` pen only allows proactive auto-push at very close range, unless it is early PMC gameplay around player level `22` or lower; bosses/raiders are always treated as high-level. High-capacity armor-wear setups can soften this from blocked to cautious only when the current ammo has at least `26` pen, high armor damage, and a drum-sized rifle/heavy-caliber magazine. `30-38` pen is normal until around player level `28`, then switches to cautious push style unless magazine capacity, caliber, and armor-damage score are high enough to plausibly wear armor down.
+- High-capacity armor-wear logic is conservative: rifle/heavy calibers such as `5.45`, `5.56`, `7.62`, `.300`, `9x39`, and `.366` can benefit from `45+` round mags against PMCs and usually need `60+` against bosses/raiders; small calibers such as `9x19`, `9x21`, `4.6`, and `5.7` need much larger capacity and only normalize against PMCs, not bosses/raiders.
+- Low-capacity weapons below the standard `30`-round rifle baseline can dampen proactive auto-push. Shotguns are handled by their close-range exception, and DMR/sniper-class weapons with a `20`-round magazine are not penalized for capacity, so their proactive push behavior is governed by ammo penetration and actual remaining ammo.
 - Lower values bias toward boss-local cover, support, and regroup.
 - `0%` suppresses proactive push/search pressure and is also the temporary behavior used by the combat `HoldPosition` command.
 - Higher values allow farther and more frequent push/search/pressure decisions when threat checks allow them.
@@ -330,7 +345,9 @@ Default situational behavior:
 - under damage pressure, prefer recovery or suppressive retreat over exposed standing fire
 - if visible and shootable, shoot immediately using the corrected follower `EnemyInfo` senses
 - if visible but not shootable, prefer firing cover or pressure movement
-- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it.
+- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
+- heal-cover movement is sticky against non-visible recent-hit pressure; it only breaks for immediate fire on a true point-blank visible shootable threat.
+- if heal-cover movement reaches its committed cover but EFT has not yet marked the bot in cover and the bot is still under fire, keep the `runToHeal` action alive instead of ending/reselecting it every tick. Existing stall handling can still reject the cover if it remains ineffective.
 - if enemy is unseen but recent enough, push/search can continue using retained enemy memory
 - if too far from boss and not protected by push/help/heal, switch to regroup objective
 - if boss is attacked, prepare protection/support before breaking passive holds
@@ -343,6 +360,8 @@ Marksman is not default with different numbers. It has separate policy but share
 Marksman aggression is tactic-relative:
 
 - `30%` is the default marksman baseline.
+- Weapon aggression overrides still apply at combat read time, after temporary command overrides. SR-2M Veresk currently uses `0.6x`.
+- Marksman close automatic search uses the same ammo penetration push gate as Rifleman. Low-pen weapons do not proactively close on high-armor targets except at very close range, and mid-pen weapons switch to cautious close support after the player reaches later progression.
 - `0%` blocks proactive automatic close-search/auto-search behavior, but does not block defensive automatic secondary use in close-quarter danger.
 - Around `50%` keeps the current marksman support/reposition style but allows more willing close automatic support when conditions are safe.
 - Higher values can make marksman use automatic-weapon offensive search more like Rifleman in distance and threat tolerance.
@@ -407,7 +426,7 @@ It is intended to compare observed behavior with code behavior:
 
 Use it to validate whether a bug is tactical routing, action execution, perception, or visual/player interpretation.
 
-Enemy visibility fields in snapshots include the corrected follower-facing `EnemyInfo` values plus validation context. Follower `isVisible`, `canShoot`, and `distance` are normalized after `EnemyInfo.CheckLookEnemy`; combat read paths also refresh distance/direction from the live enemy transform so stale retained enemies do not carry `float.MaxValue` distances into decisions. `isVisible` means direct follower-visible contact rather than sense/green-sense memory, and `canShoot` means a verified fire lane from the follower. `visibleType` is recorded for context, and `reliableShootLane` is a diagnostic hard-lane check for comparing corrected senses against the stricter head/body fire policy.
+Enemy visibility fields in snapshots include the corrected follower-facing `EnemyInfo` values plus validation context. Follower `isVisible`, `canShoot`, and `distance` are normalized after `EnemyInfo.CheckLookEnemy`; combat read paths also refresh distance/direction from the live enemy transform so stale retained enemies do not carry `float.MaxValue` distances into decisions. Stale `isVisible` / `canShoot` flags are cleared if their personal seen timestamps are not fresh, which prevents old room-to-room contacts from re-entering close visible dogfight. `isVisible` means direct follower-visible contact rather than sense/green-sense memory, and `canShoot` means a verified fire lane from the follower. `visibleType` is recorded for context, and `reliableShootLane` is a diagnostic hard-lane check for comparing corrected senses against the stricter head/body fire policy.
 
 Sense correction owns general `EnemyInfo` truth. Keep extra checks only when they validate action-local constraints the corrected senses do not express: friendly fire lanes, crouch/prone weapon height, current aim-lane safety, soft foliage/grass suppression lanes, and short recent-contact continuity. Do not add new decision-level "is the visible/canShoot flag really true?" gates unless the correction layer cannot represent that condition.
 

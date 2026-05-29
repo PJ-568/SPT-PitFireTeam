@@ -671,7 +671,7 @@ namespace pitTeam.BigBrain
         private bool ShouldAvoidUrbanDetourRegroup(Vector3 bossPosition)
         {
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
-            if (!TryGetCompletePathDistance(BotOwner.Position, bossPosition, out float pathDistance))
+            if (!Utils.Utils.TryGetCompletePathDistance(BotOwner.Position, bossPosition, out float pathDistance))
             {
                 return false;
             }
@@ -782,36 +782,12 @@ namespace pitTeam.BigBrain
         private bool ShouldRejectDetourTarget(Vector3 targetPosition, Vector3 bossPosition)
         {
             float directBossDistance = Vector3.Distance(BotOwner.Position, bossPosition);
-            if (!TryGetCompletePathDistance(BotOwner.Position, targetPosition, out float targetPathDistance))
+            if (!Utils.Utils.TryGetCompletePathDistance(BotOwner.Position, targetPosition, out float targetPathDistance))
             {
                 return true;
             }
 
             return CombatDistanceConfiguration.Instance.IsUrbanDetourRegroup(directBossDistance, targetPathDistance);
-        }
-
-        private static bool TryGetCompletePathDistance(Vector3 from, Vector3 to, out float distance)
-        {
-            distance = 0f;
-            NavMeshPath path = new NavMeshPath();
-            if (!NavMesh.CalculatePath(from, to, -1, path) || path.status != NavMeshPathStatus.PathComplete)
-            {
-                return false;
-            }
-
-            Vector3[] corners = path.corners;
-            if (corners == null || corners.Length < 2)
-            {
-                distance = Vector3.Distance(from, to);
-                return true;
-            }
-
-            for (int i = 1; i < corners.Length; i++)
-            {
-                distance += Vector3.Distance(corners[i - 1], corners[i]);
-            }
-
-            return true;
         }
 
         private bool IsBehindBotRelativeToBoss(Vector3 position, Vector3 bossPosition)

@@ -65,6 +65,15 @@ namespace pitTeam.BigBrain
                 return healDecision.Value;
             }
 
+            if (CombatCommon.TryCreateGrenadeLauncherSuppressDecision(
+                    goalEnemy,
+                    ReasonPrefix,
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> launcherDecision,
+                    ordered: true))
+            {
+                return launcherDecision;
+            }
+
             if (CombatCommon.TryCreateSuppressDecision(
                     goalEnemy,
                     ReasonPrefix,

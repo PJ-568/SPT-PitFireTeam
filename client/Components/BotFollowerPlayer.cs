@@ -1248,13 +1248,18 @@ namespace pitTeam.Components
 
         public void SetSuppressEnemy(float duration)
         {
+            SetSuppressEnemy(duration, Vector3.zero);
+        }
+
+        public void SetSuppressEnemy(float duration, Vector3 orderTarget)
+        {
             if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.SuppressEnemy)
             {
                 ClearCommand($"SetSuppressEnemy:replace({_activeCommand})");
             }
 
             _activeCommand = FollowerCommandType.SuppressEnemy;
-            _commandTarget = Vector3.zero;
+            _commandTarget = orderTarget;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;

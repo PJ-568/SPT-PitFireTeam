@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using EFT.InventoryLogic;
 using pitTeam.Components;
 using pitTeam.Modules;
 using pitTeam.Utils;
@@ -195,7 +196,7 @@ namespace pitTeam.BigBrain.Actions
             return false;
         }
 
-        protected void TryPreferPrimaryAtRange(EnemyInfo? goalEnemy)
+        protected void TryPreferPrimaryAtRange(EnemyInfo? goalEnemy, string? reason = null)
         {
             if (goalEnemy == null)
             {
@@ -203,6 +204,11 @@ namespace pitTeam.BigBrain.Actions
             }
 
             if (BossPlayers.Instance?.GetFollower(BotOwner)?.CombatTactic == FollowerCombatTactic.Marksman)
+            {
+                return;
+            }
+
+            if (ShouldKeepAutomaticSecondaryForPush(reason))
             {
                 return;
             }
@@ -219,7 +225,45 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            if (ShouldRespectVanillaSupportWeaponFallback(selector))
+            {
+                return;
+            }
+
             selector.TryChangeToMain();
+        }
+
+        private bool ShouldRespectVanillaSupportWeaponFallback(BotWeaponSelector selector)
+        {
+            if (selector.LastEquipmentSlot == EquipmentSlot.Holster)
+            {
+                return true;
+            }
+
+            if (selector.LastEquipmentSlot != selector.SupportWeapon)
+            {
+                return false;
+            }
+
+            BotWeaponManager? weaponManager = BotOwner?.WeaponManager;
+            if (weaponManager == null)
+            {
+                return false;
+            }
+
+            if (weaponManager.Reload?.Reloading == true)
+            {
+                return true;
+            }
+
+            return weaponManager.MainWeaponInfo?.BulletCount <= 0;
+        }
+
+        private bool ShouldKeepAutomaticSecondaryForPush(string? reason)
+        {
+            return FollowerCombatCommon.IsSelectedSecondPrimaryOverShotgunPrimary(BotOwner) ||
+                   FollowerCombatCommon.IsAutomaticSecondaryPushReason(reason) &&
+                   FollowerCombatCommon.IsUsingAutomaticSecondaryOverNonAutomaticPrimary(BotOwner);
         }
 
         protected bool WaitForEnemyAimAlignment(ref float startedAt, float maxAngle = 32f, float timeout = 0.12f)

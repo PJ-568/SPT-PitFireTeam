@@ -26,6 +26,7 @@ You can manage your teammates from the in-game **My Squad** screen. From there, 
 
 - **Dedicated squad screen** - manage your roster, customize teammates, and settings from a separate My Squad interface.
 - **Teammate customization** - change teammate name, appearance, voice, tactic, aggression, and loadout.
+- **Weapon-aware combat** - teammate decisions consider weapon role, caliber, magazine capacity, ammo penetration, and secondary weapon options.
 - **Raid group support** - invite teammates into your group manually or use Auto Join to preload selected teammates into your next PMC raid.
 - **teammate commands** - issue combat, movement, attention, loot, and door commands through existing Tarkov phrases and gestures.
 - **Map transitions** - teammates who you spawned with can follow you through map transitions.
@@ -135,7 +136,7 @@ Commands influence teammate behavior but do not force exact actions. teammates w
 - **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns teammates to their saved aggression. Can be applied to an individual teammate by looking at him.
 - **Go Forward** - orders teammates with an enemy to push or pressure that enemy. Outside combat, it can send teammates toward the pointed location. Can be applied to an individual teammate by looking at him.
 - **Stop** - stops teammates out of combat without forcing crouch. If the boss moves too far away, teammates resume normal follow behavior. Can be applied to an individual teammate by looking at him.
-- **Suppress** - orders non-Marksman teammates to suppress the current enemy. The teammate must have a suitable suppress-capable weapon: full-auto or a magazine capacity of at least 25 rounds. If ordered without a suitable weapon, he will say "negative" and continue normal combat decisions.
+- **Suppress** - orders non-Marksman teammates to suppress the current enemy. The teammate must have a suitable suppress-capable weapon: full-auto, a magazine capacity of at least 25 rounds, or a usable grenade launcher. If a follower has a grenade launcher and the shooting lane is safe, he can use it as the suppression method. If ordered without suitable equipment or a safe lane, he will say "negative" and continue normal combat decisions.
 - **On Your Own** - lets teammates spread out and act more independently instead of staying tied to your position. Outside combat, they patrol around you using Patrol Radius. In combat, they fight from their own area or stay near another squadmate instead of constantly trying to return to you.
     - **Regroup** during combat still calls them back to you for that order, but it does not cancel On Your Own. Use **Cover Me** during combat if you want them to start watching your position again. Outside combat, **Cover Me**, **Regroup**, or **Follow Me** returns them to normal follow behavior.
 
@@ -206,6 +207,7 @@ Riflemen:
 - suppress enemies
 - push when aggression and combat conditions allow it
 - regroup more aggressively around the player
+- can adapt pressure based on their current weapon, ammo, and magazine capacity
 
 Best used for:
 
@@ -224,6 +226,7 @@ Marksmen:
 - avoid generic assault pushes
 - reposition for firing opportunities
 - can switch to automatic secondary weapons in close fights
+- are more careful about offensive movement when their current weapon or ammo is poorly suited for the target
 
 Best used for:
 
@@ -233,6 +236,26 @@ Best used for:
 - supporting Rifleman pushes
 
 Do not expect Marksman teammates to rush enemies like Riflemen.
+
+### Weapon and Ammo Awareness
+
+Teammates do not treat every gun the same way. Their combat choices now account for the weapon they are holding, the weapon they can switch to, and the ammunition loaded in that weapon.
+
+This affects:
+
+- how willing they are to push armored enemies
+- whether they prefer cautious pressure instead of an aggressive close
+- whether a Rifleman can provide useful suppression
+- whether a Marksman should stay ranged or use an automatic secondary in a close fight
+- whether a shotgun, low-capacity weapon, or low-penetration caliber is a poor choice for a specific push
+
+Ammo penetration matters most against PMCs, raiders, bosses, and boss followers. Low-penetration ammo makes teammates less willing to proactively push armored targets except at very close range. Mid-penetration ammo is more acceptable early, but becomes less reliable as enemy armor expectations rise. High-capacity rifle or heavy-caliber setups can make armor-wear pressure more reasonable, while small calibers usually need much more capacity to justify the same confidence.
+
+Weapon capacity also matters. A low-capacity weapon may make a teammate less eager to push, while a large magazine can support suppression or armor-wear pressure. Shotguns keep their close-range usefulness, and DMR/sniper-style weapons are not judged like low-capacity assault weapons when used in their intended role.
+
+Secondary weapons can matter. Riflemen can favor an automatic secondary over a shotgun primary for mid-range fights. Marksmen can switch to an automatic secondary when enemies get close, but this does not make them behave like generic Riflemen at all ranges.
+
+Grenade launchers can also be used by Riflemen for suppression when equipped as a usable secondary weapon. They still use safety checks and will not fire if the target area is too close to you or other teammates.
 
 ### Recommended Beginner Setup
 
@@ -313,7 +336,7 @@ Useful for:
 - supporting a push
 - forcing fire through bushes or foliage when bots hesitate to shoot
 
-Marksmen generally ignore suppression because their role is precision support, not volume fire.
+Marksmen generally ignore suppression because their role is precision support, not volume fire. Riflemen need a weapon that can actually support suppression, such as full-auto fire, enough magazine capacity, or a suitable grenade launcher secondary. If a follower has a grenade launcher and the shooting lane is safe, he can use it as the suppression method. If the teammate does not have appropriate equipment or a safe lane, he can reject the order.
 
 Bushes and dense foliage can make bots hesitate to shoot, especially when SAIN is installed. If a teammate has enemy contact but will not fire through a bush, order **Suppress**. Suppression targets the enemy's known location and can make Riflemen shoot through the foliage; this often wounds or kills the hidden enemy even when normal aimed fire is being delayed.
 
@@ -424,7 +447,6 @@ The following are planned features in reaching a release version (1.0.0)
 **Planned features:**
 
 - Adding a third teammate tactic.
-- Porting over grenade launcher support from the old plugin.
 - Being able to play with Scav teammates.
 - Porting the Goons playthrough from the old plugin.
 

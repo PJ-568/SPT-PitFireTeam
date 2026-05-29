@@ -1,5 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using pitTeam.Utils;
+using UnityEngine;
 
 namespace pitTeam.BigBrain.Actions
 {
@@ -10,6 +12,7 @@ namespace pitTeam.BigBrain.Actions
     internal class HealAction : CustomLogic
     {
         private GClass197 baseLogic;
+        private float nextMedicalRefreshAt;
         public HealAction(BotOwner botOwner) : base(botOwner)
         {
             baseLogic = new GClass197(botOwner);
@@ -17,6 +20,12 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            if (BotOwner?.Medecine?.Using != true && Time.time >= nextMedicalRefreshAt)
+            {
+                nextMedicalRefreshAt = Time.time + 0.5f;
+                FollowerMedical.RefreshMedicalWork(BotOwner);
+            }
+
             baseLogic.UpdateNodeByBrain(data);
         }
     }

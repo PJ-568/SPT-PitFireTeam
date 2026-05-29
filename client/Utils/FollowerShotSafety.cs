@@ -116,6 +116,47 @@ namespace pitTeam.Utils
                 AimLaneDistancePadding);
         }
 
+        public static bool IsFriendlyNearImpact(BotOwner shooter, Vector3 impactPosition, float unsafeRadius)
+        {
+            if (unsafeRadius <= 0f ||
+                shooter?.BotFollower?.BossToFollow is not pitAIBossPlayer boss ||
+                boss.realPlayer == null)
+            {
+                return false;
+            }
+
+            float unsafeRadiusSqr = unsafeRadius * unsafeRadius;
+            if (boss.realPlayer.HealthController?.IsAlive == true &&
+                (boss.realPlayer.Position - impactPosition).sqrMagnitude <= unsafeRadiusSqr)
+            {
+                return true;
+            }
+
+            var followers = boss.Followers;
+            if (followers == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < followers.Count; i++)
+            {
+                BotOwner follower = followers[i];
+                if (follower == null || follower == shooter || follower.IsDead)
+                {
+                    continue;
+                }
+
+                Player player = follower.GetPlayer;
+                if (player?.HealthController?.IsAlive == true &&
+                    (player.Position - impactPosition).sqrMagnitude <= unsafeRadiusSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool IsFriendlyInSuppressionLaneCore(BotOwner shooter, Vector3 origin, Vector3 direction, float maxDistance)
         {
             return IsFriendlyInShotLaneCore(

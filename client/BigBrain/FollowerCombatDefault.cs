@@ -29,6 +29,7 @@ namespace pitTeam.BigBrain
         private const float AllyPushSupportMaxStraightDistance = 45f;
         private const float AllyPushSupportMaxNavDistance = 65f;
         private const float HardRecoveryCloseThreatDistance = 10f;
+        private const float AutomaticSecondaryRecentSeenHoldSeconds = 2.25f;
 
         private enum CoverIntentKind
         {
@@ -49,6 +50,9 @@ namespace pitTeam.BigBrain
         private float autoSuppressRetryUntil;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedAllySupportDecision;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedAdvanceDecision;
+        private bool shotgunAutomaticSecondaryLatched;
+        private bool shotgunAutomaticSecondaryDisabledForFight;
+        private bool ownsAutomaticSecondarySwitch;
 
         public FollowerCombatDefault(BotOwner botOwner, FollowerCombatCommon combatCommon)
         {
@@ -71,6 +75,16 @@ namespace pitTeam.BigBrain
             autoSuppressRetryUntil = 0f;
             preparedAllySupportDecision = null;
             preparedAdvanceDecision = null;
+            if (!combatCommon.HasActiveCombatEnemy())
+            {
+                shotgunAutomaticSecondaryLatched = false;
+                shotgunAutomaticSecondaryDisabledForFight = false;
+                if (ownsAutomaticSecondarySwitch &&
+                    combatCommon.TrySwitchBackToPrimaryFromAutomaticSecondary())
+                {
+                    ownsAutomaticSecondarySwitch = false;
+                }
+            }
         }
 
         /// <summary>
@@ -80,6 +94,7 @@ namespace pitTeam.BigBrain
             AICoreActionResultStruct<BotLogicDecision, GClass26>? prevDecision,
             AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
         {
+            ApplyRiflemanWeaponPolicy(nextDecision);
             combatCommon.HandleSharedDecisionChanged(nextDecision);
             combatCommon.HandleCommittedCoverDecisionChanged(nextDecision);
             combatCommon.HandleFollowerSuppressDecisionChanged(nextDecision);
@@ -103,6 +118,141 @@ namespace pitTeam.BigBrain
             if (!IsDecisionCompatibleWithPreparedAdvance(nextDecision))
             {
                 preparedAdvanceDecision = null;
+            }
+        }
+
+        private void ApplyRiflemanWeaponPolicy(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
+        {
+            if (TryApplyShotgunDistanceWeaponPolicy())
+            {
+                return;
+            }
+
+            if (shotgunAutomaticSecondaryDisabledForFight)
+            {
+                TryReleaseOwnedAutomaticSecondary();
+                return;
+            }
+
+            if (FollowerCombatCommon.IsAutomaticSecondaryPushReason(nextDecision.Reason))
+            {
+                if (combatCommon.TrySwitchToAutomaticSecondaryForPush(out bool changedToSecondary) &&
+                    changedToSecondary)
+                {
+                    ownsAutomaticSecondarySwitch = true;
+                }
+
+                return;
+            }
+
+            if (ShouldSwitchBackToPrimaryAfterAutomaticPush())
+            {
+                TryReleaseOwnedAutomaticSecondary();
+            }
+        }
+
+        private bool TryApplyShotgunDistanceWeaponPolicy()
+        {
+            if (shotgunAutomaticSecondaryLatched &&
+                combatCommon.ShouldDisableAutomaticSecondaryForEmptyReload())
+            {
+                shotgunAutomaticSecondaryLatched = false;
+                shotgunAutomaticSecondaryDisabledForFight = true;
+                TryReleaseOwnedAutomaticSecondary();
+                return true;
+            }
+
+            if (shotgunAutomaticSecondaryDisabledForFight)
+            {
+                return false;
+            }
+
+            EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (!shotgunAutomaticSecondaryLatched &&
+                Enemy.Distance(goalEnemy) < Enemy.EnemyDistance.Mid)
+            {
+                return false;
+            }
+
+            if (!shotgunAutomaticSecondaryLatched &&
+                !combatCommon.HasShotgunPrimaryWithLoadedAutomaticSecondary())
+            {
+                return false;
+            }
+
+            bool wasLatched = shotgunAutomaticSecondaryLatched;
+            if (!combatCommon.TrySwitchToAutomaticSecondaryForShotgunDistance(out bool changedToSecondary))
+            {
+                return wasLatched;
+            }
+
+            if (!changedToSecondary && !ownsAutomaticSecondarySwitch && !wasLatched)
+            {
+                return false;
+            }
+
+            shotgunAutomaticSecondaryLatched = true;
+            if (changedToSecondary)
+            {
+                ownsAutomaticSecondarySwitch = true;
+            }
+
+            return true;
+        }
+
+        private bool ShouldSwitchBackToPrimaryAfterAutomaticPush()
+        {
+            if (!ownsAutomaticSecondarySwitch)
+            {
+                return false;
+            }
+
+            if (!combatCommon.IsUsingAutomaticSecondaryOverNonAutomaticPrimary())
+            {
+                ownsAutomaticSecondarySwitch = false;
+                return false;
+            }
+
+            EnemyInfo? goalEnemy = botOwner.Memory?.GoalEnemy;
+            if (goalEnemy == null)
+            {
+                return true;
+            }
+
+            if (goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance())
+            {
+                return false;
+            }
+
+            if (goalEnemy.IsVisible && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            return Time.time - goalEnemy.PersonalSeenTime > AutomaticSecondaryRecentSeenHoldSeconds;
+        }
+
+        private void TryReleaseOwnedAutomaticSecondary()
+        {
+            if (!ownsAutomaticSecondarySwitch)
+            {
+                return;
+            }
+
+            if (!combatCommon.IsUsingAutomaticSecondaryOverNonAutomaticPrimary())
+            {
+                ownsAutomaticSecondarySwitch = false;
+                return;
+            }
+
+            if (combatCommon.TrySwitchBackToPrimaryFromAutomaticSecondary())
+            {
+                ownsAutomaticSecondarySwitch = false;
             }
         }
 
@@ -1346,6 +1496,15 @@ namespace pitTeam.BigBrain
             if (goalEnemy.IsSuppressed() || !goalEnemy.ShallISuppress())
             {
                 return false;
+            }
+
+            if (combatCommon.TryCreateGrenadeLauncherSuppressDecision(
+                    goalEnemy,
+                    "autoSuppress",
+                    out decision,
+                    ordered: false))
+            {
+                return true;
             }
 
             if (combatCommon.TryCreateSuppressDecision(goalEnemy, "autoSuppress", out decision))

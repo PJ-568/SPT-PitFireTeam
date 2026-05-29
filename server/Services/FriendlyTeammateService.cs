@@ -967,6 +967,12 @@ public class FriendlyTeammateService(
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var allowedMovedItemIds = new HashSet<string>(currentPlayerStashIds, StringComparer.OrdinalIgnoreCase);
         allowedMovedItemIds.UnionWith(currentTeammateItemIds);
+        HashSet<string> remappedTeammateItemIds = RemapReplacementEquipmentPlayerEquippedIdCollisions(
+            playerPmc,
+            replacementEquipmentItems,
+            currentPlayerStashIds,
+            currentTeammateItemIds);
+        allowedMovedItemIds.UnionWith(remappedTeammateItemIds);
 
         // Validate the staged final state before mutating either profile. This prevents partial transfer
         // corruption and lets the catch block restore both inventories if persistence fails later.
@@ -1003,7 +1009,7 @@ public class FriendlyTeammateService(
             playerPmc.Inventory.Items.AddRange(cloner.Clone(replacementStashItems) ?? replacementStashItems);
 
             // The teammate stores the committed equipment as its new Default snapshot. Spawn preparation may
-            // still inject mode-specific protected items such as knife/secure-container policy later.
+            // still inject mode-specific protected items such as a fallback knife on the temporary spawn clone.
             teammate.Inventory.Items = mergedEquipment;
             teammate.Inventory.Equipment = teammate.Inventory.Items.First().Id;
 
@@ -1115,18 +1121,20 @@ public class FriendlyTeammateService(
             return false;
         }
 
-        profile = PrepareTeammateForFetch(teammate!, healthMultiplier);
+        profile = PrepareTeammateForFetch(teammate!, healthMultiplier, refillMagazinesForSpawn: true);
         return true;
     }
 
-    private BotBase PrepareTeammateForFetch(BotBase teammate, double? healthMultiplier = null)
+    private BotBase PrepareTeammateForFetch(
+        BotBase teammate,
+        double? healthMultiplier = null,
+        bool refillMagazinesForSpawn = false)
     {
         var clone = cloner.Clone(teammate) ?? teammate;
         // Temporarily disabled: this floor baseline can over-inflate teammate skills.
         // ApplyPmcFollowerSkillBaseline(clone);
         ApplyTemporaryHealthMultiplier(clone, healthMultiplier);
         EnsureFollowerHasPockets(clone);
-        EnsureFollowerHasScabbardKnife(clone);
 
         var mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
         if (!IsExtremeLoadoutManagementMode(mode))
@@ -1135,7 +1143,13 @@ public class FriendlyTeammateService(
             EnsureFollowerHasSecureContainerSupplies(clone);
         }
 
-        RefillFollowerMagazinesFromInventoryAmmo(clone);
+        // Magazine refill mutates item stacks. Keep it strictly on the raid-spawn clone so profile
+        // viewing, invite validation, and loadout editing do not silently change teammate gear.
+        if (refillMagazinesForSpawn)
+        {
+            EnsureFollowerHasScabbardKnife(clone);
+            RefillFollowerMagazinesFromInventoryAmmo(clone);
+        }
 
         return clone;
     }
@@ -2174,9 +2188,67 @@ public class FriendlyTeammateService(
         {
             if (nonStashPlayerItemIds.Contains(item.Id.ToString()))
             {
-                throw new FriendlyTeammateException("Submitted teammate equipment contains an item equipped on the player");
+                throw new FriendlyTeammateException(
+                    $"Submitted teammate equipment contains an item equipped on the player: id={item.Id}, tpl={item.Template}, parent={item.ParentId}, slot={item.SlotId}");
             }
         }
+    }
+
+    private HashSet<string> RemapReplacementEquipmentPlayerEquippedIdCollisions(
+        PmcData playerPmc,
+        List<Item> replacementEquipmentItems,
+        HashSet<string> currentPlayerStashIds,
+        HashSet<string> currentTeammateItemIds)
+    {
+        var remappedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var nonStashPlayerItemIds = (playerPmc.Inventory?.Items ?? [])
+            .Select(item => item.Id.ToString())
+            .Where(id => !currentPlayerStashIds.Contains(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var idMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in replacementEquipmentItems)
+        {
+            if (item?.Id == null)
+            {
+                continue;
+            }
+
+            string id = item.Id.ToString();
+            if (!nonStashPlayerItemIds.Contains(id) || !currentTeammateItemIds.Contains(id))
+            {
+                continue;
+            }
+
+            string newId = new MongoId().ToString();
+            idMap[id] = newId;
+            remappedIds.Add(newId);
+        }
+
+        if (idMap.Count == 0)
+        {
+            return remappedIds;
+        }
+
+        // Some old/legacy defaults can contain generated teammate items whose ids collide with the
+        // player's currently equipped gear. Keep blocking real player-equipped transfers, but re-id
+        // teammate-owned colliders so the save can repair the bad snapshot instead of staying stuck.
+        foreach (var item in replacementEquipmentItems)
+        {
+            if (item?.Id != null && idMap.TryGetValue(item.Id.ToString(), out string? newId))
+            {
+                item.Id = new MongoId(newId);
+            }
+
+            if (!string.IsNullOrWhiteSpace(item?.ParentId)
+                && idMap.TryGetValue(item.ParentId, out string? newParentId))
+            {
+                item.ParentId = newParentId;
+            }
+        }
+
+        logger.Warning($"Remapped {idMap.Count} teammate-owned item id collision(s) with currently equipped player gear during real loadout commit.");
+        return remappedIds;
     }
 
     private static string NormalizeLoadoutManagementMode(string? mode)
@@ -2219,44 +2291,24 @@ public class FriendlyTeammateService(
         }
 
         bool hasGrizzlyInBackpack = HasTemplateInBackpack(profile.Inventory.Items, FriendlyItemTemplateIds.Medical.GrizzlyMedicalKit);
+        bool hasSalewaInBackpack = HasTemplateInBackpack(profile.Inventory.Items, FriendlyItemTemplateIds.Medical.SalewaFirstAidKit);
         bool hasSurgeryKitInBackpack = HasAnyTemplateInBackpack(profile.Inventory.Items, SurgicalKitTemplateIds);
 
         ClearSecureContainerContents(profile.Inventory.Items, secureContainerId);
 
         if (!hasGrizzlyInBackpack)
         {
-            var grizzlyId = new MongoId();
-            profile.Inventory.Items.Add(new Item
-            {
-                Id = grizzlyId,
-                Template = new MongoId(FriendlyItemTemplateIds.Medical.GrizzlyMedicalKit),
-                ParentId = secureContainerId,
-                SlotId = "main",
-                Location = null,
-                Upd = new Upd
-                {
-                    StackObjectsCount = 1,
-                    SpawnedInSession = false,
-                },
-            });
+            AddSecureContainerSupply(profile.Inventory.Items, secureContainerId, FriendlyItemTemplateIds.Medical.GrizzlyMedicalKit);
+        }
+
+        if (!hasSalewaInBackpack)
+        {
+            AddSecureContainerSupply(profile.Inventory.Items, secureContainerId, FriendlyItemTemplateIds.Medical.SalewaFirstAidKit);
         }
 
         if (!hasSurgeryKitInBackpack)
         {
-            var surv12Id = new MongoId();
-            profile.Inventory.Items.Add(new Item
-            {
-                Id = surv12Id,
-                Template = new MongoId(FriendlyItemTemplateIds.Medical.Surv12SurgicalKit),
-                ParentId = secureContainerId,
-                SlotId = "main",
-                Location = null,
-                Upd = new Upd
-                {
-                    StackObjectsCount = 1,
-                    SpawnedInSession = false,
-                },
-            });
+            AddSecureContainerSupply(profile.Inventory.Items, secureContainerId, FriendlyItemTemplateIds.Medical.Surv12SurgicalKit);
         }
 
         var ammoTemplate = FindMainWeaponAmmoTemplate(profile.Inventory.Items.ToList());
@@ -2293,6 +2345,23 @@ public class FriendlyTeammateService(
                 },
             });
         }
+    }
+
+    private static void AddSecureContainerSupply(List<Item> inventoryItems, string secureContainerId, string templateId)
+    {
+        inventoryItems.Add(new Item
+        {
+            Id = new MongoId(),
+            Template = new MongoId(templateId),
+            ParentId = secureContainerId,
+            SlotId = "main",
+            Location = null,
+            Upd = new Upd
+            {
+                StackObjectsCount = 1,
+                SpawnedInSession = false,
+            },
+        });
     }
 
     private void RefillFollowerMagazinesFromInventoryAmmo(BotBase profile)

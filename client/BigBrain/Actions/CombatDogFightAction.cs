@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using pitTeam.Utils;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -69,7 +70,7 @@ namespace pitTeam.BigBrain.Actions
             }
 
             UpdateSainLikeMovement(goalEnemy);
-            BotOwner.SetPose(0.5f);
+            ApplyDogFightPose(goalEnemy);
             BotOwner.Sprint(false, true);
 
             if (goalEnemy == null || !goalEnemy.CanShoot || !goalEnemy.IsVisible)
@@ -172,6 +173,28 @@ namespace pitTeam.BigBrain.Actions
 
             moveStatus = DogFightMoveStatus.None;
             nextMoveUpdateTime = Time.time + MoveUpdateFallbackDelay;
+        }
+
+        private void ApplyDogFightPose(EnemyInfo? goalEnemy)
+        {
+            BotOwner.SetPose(CanUseDogFightCrouch(goalEnemy) ? 0.5f : 1f);
+        }
+
+        private bool CanUseDogFightCrouch(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!BotOwner.LookSensor.EnoughDistToShoot(out _))
+            {
+                return false;
+            }
+
+            ShootPointClass shootPoint = BotOwner.CurrentEnemyTargetPosition(false) ??
+                                         new ShootPointClass(goalEnemy.GetBodyPartPosition(), 1f);
+            return FollowerShootPoseSafety.HasReliableCrouchLane(BotOwner, shootPoint.Point);
         }
 
         private bool TryMoveTowardEnemy(EnemyInfo goalEnemy)

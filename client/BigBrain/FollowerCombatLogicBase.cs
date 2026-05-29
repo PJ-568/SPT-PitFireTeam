@@ -140,7 +140,7 @@ namespace pitTeam.BigBrain
                 goalEnemy != null &&
                 ShouldConsumeSuppressCommand(followerData, goalEnemy))
             {
-                if (!combatCommon.CanCurrentWeaponSuppress())
+                if (!combatCommon.CanCurrentWeaponSuppressOrUseGrenadeLauncher())
                 {
                     followerData?.ClearCommand("CombatObjective:RejectSuppressionWeapon");
                     BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
@@ -459,12 +459,19 @@ namespace pitTeam.BigBrain
                 return;
             }
 
-            if (!combatCommon.CanCurrentWeaponSuppress())
+            if (!combatCommon.CanCurrentWeaponSuppressOrUseGrenadeLauncher())
             {
                 followerData.ClearCommand("CombatObjective:RejectSuppressionWeapon");
                 BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
                 BotOwner.Gesture?.TryGestus(EInteraction.NoGesture, false);
                 return;
+            }
+
+            Vector3 suppressTarget = Vector3.zero;
+            if (followerData.TryPeekActiveCommand(out FollowerCommandType command, out Vector3 target, out _) &&
+                command == FollowerCommandType.SuppressEnemy)
+            {
+                suppressTarget = target;
             }
 
             followerData.ClearCommand("CombatObjective:ConsumeSuppression");
@@ -474,6 +481,8 @@ namespace pitTeam.BigBrain
                 currentObjective = CombatObjectiveKind.Suppression;
                 BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateSuppression");
             }
+
+            combatCommon.SetOrderedSuppressTarget(suppressTarget);
         }
 
         private void ActivateNeedSniperObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)

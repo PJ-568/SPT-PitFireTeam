@@ -277,6 +277,47 @@ namespace pitTeam.Patches
             }
         }
 
+        public static void RefreshLoadedTeammateVisuals(MatchmakerPlayerControllerClass controller)
+        {
+            if (controller?.CurrentPlayer?.Info == null || MainMenuControllerPatch.GroupPlayers == null || MainMenuControllerPatch.GroupPlayers.Count == 0)
+            {
+                return;
+            }
+
+            string currentPlayerAccountId = controller.CurrentPlayer.AccountId;
+            List<string> accountIds = new List<string>();
+            foreach (GroupPlayerViewModelClass player in MainMenuControllerPatch.GroupPlayers)
+            {
+                string accountId = player?.AccountId;
+                if (string.IsNullOrWhiteSpace(accountId)
+                    || string.Equals(accountId, currentPlayerAccountId, StringComparison.Ordinal)
+                    || accountIds.Contains(accountId))
+                {
+                    continue;
+                }
+
+                accountIds.Add(accountId);
+            }
+
+            foreach (string accountId in accountIds)
+            {
+                GroupPlayerViewModelClass refreshed = BuildGroupPlayer(accountId, controller.CurrentPlayer);
+                if (refreshed == null)
+                {
+                    continue;
+                }
+
+                // GroupPlayerViewModelClass carries a full visual snapshot. If the player edits a teammate's
+                // loadout after inviting them, the cached matchmaker entry must be replaced before previews render.
+                ReplaceOrAddPlayer(MainMenuControllerPatch.GroupPlayers, refreshed);
+
+                if (controller.GroupPlayers != null)
+                {
+                    ReplaceOrAddPlayer(controller.GroupPlayers, refreshed);
+                }
+            }
+        }
+
         private static void ReplaceOrAddPlayer(IList<GroupPlayerViewModelClass> players, GroupPlayerViewModelClass teammate)
         {
             if (players == null || teammate == null || string.IsNullOrWhiteSpace(teammate.AccountId))
@@ -946,6 +987,7 @@ namespace pitTeam.Patches
         private static void PatchPrefix(MatchmakerTimeHasCome __instance, ISession session, RaidSettings raidSettings, MatchmakerPlayerControllerClass matchmaker)
         {
             if (!raidSettings.IsPmc) MainMenuControllerPatch.GroupPlayers.Clear();
+            SyntheticTeammateAutoJoinLoader.RefreshLoadedTeammateVisuals(matchmaker);
 
             if (matchmaker?.GroupPlayers?.List_0 == null)
             {
@@ -1086,6 +1128,7 @@ namespace pitTeam.Patches
             {
                 MatchmakerPlayerControllerClass controller = AccessTools.Field(typeof(MatchMakerAcceptScreen), "MatchmakerPlayersController").GetValue(__instance) as MatchmakerPlayerControllerClass;
                 SyntheticTeammateAutoJoinLoader.EnsureLoaded(controller);
+                SyntheticTeammateAutoJoinLoader.RefreshLoadedTeammateVisuals(controller);
 
                 if (!SyntheticTeammateRaidGuard.HasSyntheticTeammates())
                 {

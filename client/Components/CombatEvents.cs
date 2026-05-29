@@ -11,15 +11,22 @@ namespace pitTeam.Components
     {
         private const int DefaultBossSpreadSamples = 12;
         private const float PushEventCooldownSeconds = 2.5f;
+        private const float LauncherSuppressPushBlockMinRadius = 18f;
         private readonly List<Action<PushEvent?>> pushSubscribers = new List<Action<PushEvent?>>();
         private readonly Dictionary<string, DestinationClaim> destinationClaims = new Dictionary<string, DestinationClaim>(StringComparer.Ordinal);
 
         // Squad push trigger. Exactly one follower owns this at a time; other followers may only
         // consume it as support intent, not re-emit their own chained push event.
         private PushEvent? activePush;
+
+        // Launcher suppression is a temporary danger signal: when one follower is about to use
+        // a grenade launcher for suppression, other followers should not autonomously push that
+        // same enemy into the impact area.
+        private LauncherSuppressEvent? activeLauncherSuppress;
         private float nextPushAllowedAt;
 
         public PushEvent? CurrentPush => activePush;
+        public LauncherSuppressEvent? CurrentLauncherSuppress => activeLauncherSuppress;
 
         public IDisposable SubscribePush(Action<PushEvent?> handler)
         {
@@ -44,6 +51,13 @@ namespace pitTeam.Components
             // This is the global event lock. Autonomous push may start one event; ordered player
             // pushes are filtered at the caller and should not arrive here as support triggers.
             if (!IsValidOwner(owner) || string.IsNullOrEmpty(enemyProfileId))
+            {
+                return false;
+            }
+
+            if (TryGetActiveLauncherSuppressFor(owner, out LauncherSuppressEvent suppressEvent) &&
+                (IsNearLauncherSuppressArea(enemyPosition, suppressEvent) ||
+                 IsNearLauncherSuppressArea(destination, suppressEvent)))
             {
                 return false;
             }
@@ -78,6 +92,91 @@ namespace pitTeam.Components
             BattleRecorder.RecordPushEmitted(owner, enemyProfileId, enemyPosition, destination, reason ?? string.Empty, isSearchPush);
             NotifyPushSubscribers();
             return true;
+        }
+
+        public bool TryEmitLauncherSuppress(
+            BotOwner owner,
+            string enemyProfileId,
+            Vector3 target,
+            string reason,
+            float unsafeRadius,
+            float ttlSeconds)
+        {
+            if (!IsValidOwner(owner) || string.IsNullOrEmpty(enemyProfileId) || !IsFinite(target))
+            {
+                return false;
+            }
+
+            if (activeLauncherSuppress.HasValue && !IsLauncherSuppressStillValid(activeLauncherSuppress.Value))
+            {
+                ClearActiveLauncherSuppress("invalidBeforeEmit");
+            }
+
+            activeLauncherSuppress = new LauncherSuppressEvent(
+                owner.ProfileId,
+                owner,
+                enemyProfileId,
+                target,
+                reason ?? string.Empty,
+                Mathf.Max(LauncherSuppressPushBlockMinRadius, unsafeRadius),
+                Time.time,
+                Time.time + Mathf.Max(1f, ttlSeconds));
+            BattleRecorder.RecordGrenadeEvent(owner, "launcherSuppressEmit", reason ?? string.Empty);
+
+            // A launcher shot is about to become the squad's dominant event. Stop any existing
+            // autonomous push so nearby followers do not continue advancing into the impact area.
+            if (activePush.HasValue)
+            {
+                ClearActivePush("launcherSuppress", startCooldown: true);
+            }
+
+            return true;
+        }
+
+        public bool TryReleaseLauncherSuppress(BotOwner owner, string reason)
+        {
+            if (!activeLauncherSuppress.HasValue || !IsOwner(owner, activeLauncherSuppress.Value))
+            {
+                return false;
+            }
+
+            ClearActiveLauncherSuppress(reason);
+            return true;
+        }
+
+        public bool TryGetActiveLauncherSuppressFor(BotOwner listener, out LauncherSuppressEvent suppressEvent)
+        {
+            suppressEvent = default;
+            if (!activeLauncherSuppress.HasValue)
+            {
+                return false;
+            }
+
+            LauncherSuppressEvent currentSuppress = activeLauncherSuppress.Value;
+            if (!IsLauncherSuppressStillValid(currentSuppress))
+            {
+                ClearActiveLauncherSuppress("invalid");
+                return false;
+            }
+
+            if (IsOwner(listener, currentSuppress))
+            {
+                return false;
+            }
+
+            suppressEvent = currentSuppress;
+            return true;
+        }
+
+        public bool IsNearLauncherSuppressArea(Vector3 position, LauncherSuppressEvent suppressEvent)
+        {
+            if (!IsFinite(position) || !IsFinite(suppressEvent.Target))
+            {
+                return false;
+            }
+
+            float radius = Mathf.Max(LauncherSuppressPushBlockMinRadius, suppressEvent.DangerRadius);
+            return (position - suppressEvent.Target).sqrMagnitude <= radius * radius;
         }
 
         public bool TryReleasePush(BotOwner owner, string reason)
@@ -137,13 +236,22 @@ namespace pitTeam.Components
 
         public void Clear()
         {
-            if (activePush == null)
+            if (activePush == null && activeLauncherSuppress == null)
             {
                 ClearDestinationClaims();
                 return;
             }
 
-            ClearActivePush("clear", startCooldown: false);
+            if (activePush.HasValue)
+            {
+                ClearActivePush("clear", startCooldown: false);
+            }
+
+            if (activeLauncherSuppress.HasValue)
+            {
+                ClearActiveLauncherSuppress("clear");
+            }
+
             ClearDestinationClaims();
             BattleRecorder.RecordPushCleared("clear");
         }
@@ -331,6 +439,18 @@ namespace pitTeam.Components
             NotifyPushSubscribers();
         }
 
+        private void ClearActiveLauncherSuppress(string reason)
+        {
+            if (!activeLauncherSuppress.HasValue)
+            {
+                return;
+            }
+
+            LauncherSuppressEvent suppressEvent = activeLauncherSuppress.Value;
+            activeLauncherSuppress = null;
+            BattleRecorder.RecordGrenadeEvent(suppressEvent.Owner, "launcherSuppressRelease", reason);
+        }
+
         private void PruneStaleDestinationClaims()
         {
             if (destinationClaims.Count == 0)
@@ -375,6 +495,14 @@ namespace pitTeam.Components
                    pushEvent.Owner.GetPlayer?.HealthController?.IsAlive == true;
         }
 
+        private static bool IsLauncherSuppressStillValid(LauncherSuppressEvent suppressEvent)
+        {
+            return Time.time <= suppressEvent.ExpiresAt &&
+                   IsValidOwner(suppressEvent.Owner) &&
+                   suppressEvent.Owner.Memory?.GoalEnemy != null &&
+                   suppressEvent.Owner.GetPlayer?.HealthController?.IsAlive == true;
+        }
+
         private static bool IsValidOwner(BotOwner owner)
         {
             return owner != null &&
@@ -386,6 +514,12 @@ namespace pitTeam.Components
         {
             return owner != null &&
                    string.Equals(owner.ProfileId, pushEvent.OwnerProfileId, StringComparison.Ordinal);
+        }
+
+        private static bool IsOwner(BotOwner owner, LauncherSuppressEvent suppressEvent)
+        {
+            return owner != null &&
+                   string.Equals(owner.ProfileId, suppressEvent.OwnerProfileId, StringComparison.Ordinal);
         }
 
         private static float CalculatePathLength(NavMeshPath path)
@@ -445,6 +579,38 @@ namespace pitTeam.Components
             public string Reason { get; }
             public bool IsSearchPush { get; }
             public float EmittedAt { get; }
+        }
+
+        public readonly struct LauncherSuppressEvent
+        {
+            public LauncherSuppressEvent(
+                string ownerProfileId,
+                BotOwner owner,
+                string enemyProfileId,
+                Vector3 target,
+                string reason,
+                float dangerRadius,
+                float emittedAt,
+                float expiresAt)
+            {
+                OwnerProfileId = ownerProfileId;
+                Owner = owner;
+                EnemyProfileId = enemyProfileId;
+                Target = target;
+                Reason = reason;
+                DangerRadius = dangerRadius;
+                EmittedAt = emittedAt;
+                ExpiresAt = expiresAt;
+            }
+
+            public string OwnerProfileId { get; }
+            public BotOwner Owner { get; }
+            public string EnemyProfileId { get; }
+            public Vector3 Target { get; }
+            public string Reason { get; }
+            public float DangerRadius { get; }
+            public float EmittedAt { get; }
+            public float ExpiresAt { get; }
         }
 
         private readonly struct DestinationClaim
