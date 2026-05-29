@@ -1,0 +1,316 @@
+{
+  "baseSettings": "基础设置",
+  "followSettings": "跟随设置",
+  "combatSettings": "战斗设置",
+  "inputSettings": "按键设置",
+  "miscSettings": "杂项",
+  "testSettings": "测试",
+  "raidSettings": "战局设置",
+  "loadoutManagementSettings": "装备管理",
+  "equipOptions": ["默认"],
+  "tacticOptions": ["步枪手", "支援", "精确射手", "突击手", "防守者", "辅助"],
+  "statusSound": {
+    "Name": "敌人位置音量",
+    "Description": "战斗中敌人标记的提示音音量"
+  },
+  "enemyMarker": {
+    "Name": "敌人标记",
+    "Description": "报告状态时显示敌人位置。关闭后敌人标记音效也会禁用"
+  },
+  "scanDistance": {
+    "Name": "最大扫描距离",
+    "Description": "使用「接触」短语时，可识别玩家指示的可见敌人的最大距离"
+  },
+  "patrolRadius": {
+    "Name": "巡逻半径",
+    "Description": "队员围绕玩家巡逻的最大距离"
+  },
+  "followDistance": {
+    "Name": "跟随距离",
+    "Description": "跟随状态下队员与玩家保持的距离"
+  },
+  "regroupRadius": {
+    "Name": "重组半径",
+    "Description": "战斗中队员自动重组的距离。精确射手约为此值的 1.5 倍"
+  },
+  "goToDistance": {
+    "Name": "最大「前往」距离",
+    "Description": "使用「在那里」或「前进」指令时队员的最大移动距离"
+  },
+  "enemyRemember": {
+    "Name": "遗忘敌人时间（秒）",
+    "Description": "队员记住敌人的最长时间。仅在战局开始时生效"
+  },
+  "healthMultiplier": {
+    "Name": "小队生命倍率",
+    "Description": "随你出生的队员的生命倍率。按每个身体部位分别应用"
+  },
+  "pickup": {
+    "Name": "招募",
+    "Description": "启用或禁用在战局中招募同阵营人机的功能"
+  },
+  "tieredPickup": {
+    "Name": "等级招募",
+    "Description": "使用玩家与人机的等级差规则决定是否接受招募请求"
+  },
+  "maximumPickup": {
+    "Name": "最大招募数",
+    "Description": "单次战局中可招募的同阵营非小队人机的最大数量"
+  },
+  "recruitPickup": {
+    "Name": "招募好友申请",
+    "Description": "允许成功撤离的招募队员发送好友请求。使用玩家与人机的等级差规则判定"
+  },
+  "teamEscape": {
+    "Name": "小队撤离",
+    "Description": "允许幸存队员在你阵亡后尝试撤离。成功撤离的队员可归还原本会丢失的装备"
+  },
+  "teamEscapeUseAnyExtract": {
+    "Name": "使用任意撤离点",
+    "Description": "允许小队撤离模拟选择地图上任何可用撤离点。关闭后仅限分配给玩家的撤离路线"
+  },
+  "memberTactic": {
+    "Name": "小队成员 {0} 战术",
+    "Description": "设置小队成员的战斗战术"
+  },
+  "memberEquipment": {
+    "Name": "小队成员 {0} 装备",
+    "Description": "设置小队成员的装备"
+  },
+  "memberName": {
+    "Name": "小队成员 {0} 昵称",
+    "Description": "为此小队成员设置自定义昵称，留空使用默认"
+  },
+  "memberVoice": {
+    "Name": "小队成员 {0} 语音",
+    "Description": "设置此成员使用的语音"
+  },
+  "memberUniformTop": {
+    "Name": "小队成员 {0} 上衣",
+    "Description": "设置此成员的上衣，留空使用默认"
+  },
+  "memberUniformBottom": {
+    "Name": "小队成员 {0} 下装",
+    "Description": "设置此成员的裤子，留空使用默认"
+  },
+  "equipmentLock": {
+    "Name": "锁定小队装备",
+    "Description": "锁定小队成员的装备"
+  },
+  "loadoutManagementSimple": {
+    "Name": "简单",
+    "Description": "以仓库物品为模板自由创建队员装备，不消耗任何物品。队员装备受保护：死亡不会丢失，也不能被搜刮"
+  },
+  "loadoutManagementRestricted": {
+    "Name": "受限",
+    "Description": "队员装备必须使用仓库中的物品或通过装备购买系统购买。装备仍受保护：死亡不会丢失且无法被搜刮"
+  },
+  "loadoutManagementImmersive": {
+    "Name": "沉浸",
+    "Description": "与受限相同，但队员装备行为如同真实战局装备。装备可损坏，阵亡队员会丢失装备，尸体可被搜刮"
+  },
+  "loadoutManagementExtreme": {
+    "Name": "真实",
+    "Description": "与沉浸相同，但队员的安全箱不再自动管理。你需要完全自行配置"
+  },
+  "npcSendMessage": {
+    "Name": "战局结束消息",
+    "Description": "队员会根据战局结果发送消息，例如全员撤离或招募并存活。归还物品消息除外"
+  },
+  "friendlyPMC": {
+    "Name": "PMC 友方阵营",
+    "Description": "同阵营 PMC 人机是否始终对玩家友好。关闭后由游戏原生仇恨系统决定"
+  },
+  "badGuy": {
+    "Name": "恶人",
+    "Description": "玩家是否对所有 PMC 人机敌对，不考虑阵营"
+  },
+  "PmcArmbands": {
+    "Name": "PMC 阵营臂章",
+    "Description": "PMC 人机是否佩戴臂章（BEAR 红色，USEC 蓝色）"
+  },
+  "englishBear": {
+    "Name": "BEAR 说英语",
+    "Description": "BEAR 人机是否只说英语"
+  },
+  "pingSquad": {
+    "Name": "状态报告快捷键",
+    "Description": "状态报告快速短语的备用快捷键"
+  },
+  "pingRadioVolume": {
+    "Name": "报告状态音量",
+    "Description": "触发状态报告时电台音效的音量"
+  },
+  "pingTime": {
+    "Name": "报告状态显示时长",
+    "Description": "队员状态显示的时长（秒）"
+  },
+  "enemyContact": {
+    "Name": "敌情接触快捷键",
+    "Description": "接触快速短语的备用快捷键"
+  },
+  "overThere": { "Name": "那边快捷键", "Description": "那边手势的备用快捷键" },
+  "hideUnsupportedCommands": {
+    "Name": "隐藏不支持的命令",
+    "Description": "隐藏游戏中手势菜单未实际注册命令的短语"
+  },
+  "botTeleport": {
+    "Name": "传送队员",
+    "Description": "将所有队员传送至玩家位置"
+  },
+  "botHeal": {
+    "Name": "治疗队员",
+    "Description": "治疗所有队员并恢复损毁的肢体"
+  },
+  "botPrefetch": {
+    "Name": "预加载队员数据",
+    "Description": "预加载队员数据以减少生成时间。如果遇到队员生成问题，请尝试关闭此选项。注意：这可能会增加生成等待时间"
+  },
+  "botGrenades": { "Name": "队员使用手雷", "Description": "允许队员使用手雷" },
+  "botTalk": {
+    "Name": "队员嘲讽",
+    "Description": "队员在战斗中嘲讽的频率。设为 0 禁用"
+  },
+  "spawnPoint": {
+    "Name": "使用合作出生点",
+    "Description": "与队员一起出生时使用合作出生点"
+  },
+  "battleRecorder": {
+    "Name": "战斗记录器",
+    "Description": "将详细的队员战斗时间线写入专属 JSONL 文件以用于战局分析"
+  },
+  "battleRecorderSnapshotIntervalMs": {
+    "Name": "战斗记录器采样间隔（毫秒）",
+    "Description": "战斗记录器位置采样的时间间隔"
+  },
+  "gestures": {
+    "OverThere": "在那里",
+    "TeamStatus": "状态报告",
+    "ViewBackpack": "查看背包",
+    "OnRepeatedContact": "接触"
+  },
+  "botStatus": {
+    "Dead": "阵亡",
+    "Engaged": "战斗中",
+    "Alerted": "发现敌人",
+    "Heal": "治疗中",
+    "WantToHeal": "需要治疗"
+  },
+  "socialUi": {
+    "AddTeammate": "+ 添加队员",
+    "AddTeammateInProgress": "{0} 已添加到好友列表",
+    "AddTeammateConfirm": "添加队员",
+    "AddTeammateFlowActive": "添加队员界面已打开",
+    "AddTeammateOpenFailed": "无法打开队员创建界面",
+    "AddTeammateCreateFailed": "无法创建队员",
+    "AddTeammateUnsupportedSide": "目前仅支持 PMC 档案添加队员",
+    "Cancel": "取消",
+    "Save": "保存",
+    "Done": "完成",
+    "EnterNickname": "输入玩家昵称",
+    "NicknameTooShort": "昵称太短",
+    "NameCannotBeEmpty": "名称不能为空",
+    "RenameTeammateTitle": "重命名队员",
+    "RenameSave": "保存",
+    "RenameCancel": "取消",
+    "RenameChange": "编辑名称",
+    "RenameFailed": "无法重命名队员",
+    "RenameClose": "x",
+    "EditLoadout": "编辑装备",
+    "BuyGearLoadout": "购买装备",
+    "KitLoadoutsOpenFailed": "无法打开队员装备方案",
+    "KitLoadoutPriceFailed": "无法计算所选队员装备价格",
+    "KitLoadoutPurchaseFailed": "无法购买队员装备",
+    "NotEnoughResourcesKitPrompt": "资源不足，无法购买装备 {0}",
+    "BuyKitTitle": "购买装备",
+    "PurchaseKitPrompt": "是否购买装备 {0}，预计花费 {1}？",
+    "KitCurrentGearDeliveryNotice": "队员当前装备将通过配送服务返还给你",
+    "KitItemsTakenFromStash": "以下物品将从仓库中取出：",
+    "KitItemsPurchased": "以下物品将被购买：",
+    "PurchaseKitAction": "购买",
+    "EquipKitAction": "装备",
+    "UseItemsInStash": "使用仓库中的物品",
+    "CurrencyRoubles": "{0:N0} 卢布",
+    "UnknownItem": "未知物品",
+    "EditLoadoutTitle": "编辑装备",
+    "EditLoadoutTitleWithName": "编辑装备：{0}",
+    "EditLoadoutSubtitle": "为 {0} 编辑克隆物品，更改不会影响真实仓库",
+    "EditLoadoutSubtitleReal": "为 {0} 编辑预配装备，保存后将在仓库与此队员之间移动物品",
+    "LoadoutEditorSaveBeforeRepair": "请先保存队员物品栏以启用修理功能",
+    "LoadoutEditorSaveFailed": "保存队员物品栏失败",
+    "PlayerStash": "玩家仓库",
+    "PlayerStashPlaceholder": "无法加载克隆仓库视图\n{0}",
+    "BotInventory": "队员物品栏",
+    "BotInventoryPlaceholder": "无法加载克隆队员物品栏\n{0}",
+    "SaveEquipmentPresetFailed": "保存装备预设失败",
+    "ProfileTactic": "步枪手",
+    "ProfileTacticMarksman": "精确射手",
+    "ProfileTacticProtector": "保护者",
+    "ProfileAggression": "攻击性",
+    "RemoveTeammateTitle": "移除队员",
+    "RemoveTeammatePrompt": "确定要删除成员 {0} 吗？此操作不可撤销",
+    "RemoveTeammateConfirm": "移除",
+    "SquadControlDeleteTooltip": "删除",
+    "SquadControlInviteToGroup": "邀请入队",
+    "SquadControlViewProfile": "查看档案",
+    "SquadControlAutoJoinOn": "自动加入：开",
+    "SquadControlAutoJoinOff": "自动加入：关",
+    "SquadControlAutoJoinTooltip": "自动加入",
+    "SquadControlInGroupTooltip": "已入队",
+    "SquadControlInviteAcceptedToast": "{0} 加入了队伍",
+    "SquadControlInvitePendingFailedToast": "{0} 未接受队伍邀请",
+    "SquadControlRemovedFromGroupToast": "已将 {0} 移出队伍",
+    "SquadControlRemoveFromGroupFailedToast": "未能将 {0} 移出队伍",
+    "SquadControlAutoJoinEnabledToast": "已为 {0} 启用 PMC 战局自动加入",
+    "SquadControlAutoJoinDisabledToast": "已为 {0} 禁用 PMC 战局自动加入",
+    "SquadControlAutoJoinEnableFailedToast": "未能为 {0} 启用自动加入",
+    "SquadControlAutoJoinDisableFailedToast": "未能为 {0} 禁用自动加入",
+    "SquadControlButton": "我的小队",
+    "SquadControlTitle": "我的小队",
+    "SquadControlRaidSettingsButton": "小队设置",
+    "SquadControlRaidSettingsTitle": "我的小队设置",
+    "SquadControlBack": "返回",
+    "SquadControlClose": "关闭",
+    "SquadControlRosterTab": "成员列表",
+    "SquadControlSettingsTab": "设置",
+    "SquadControlRosterPlayer": "玩家",
+    "SquadControlRosterLeader": "队长",
+    "SquadControlRosterMemberA": "队员 01",
+    "SquadControlRosterMemberB": "队员 02",
+    "SquadControlRosterRole": "小队成员",
+    "SquadControlEmptyRoster": "您还没有创建任何队员，请点击下面的添加按钮开始创建",
+    "SettingsPressKey": "按下按键……",
+    "SettingsNotBound": "未绑定",
+    "SettingsUnavailableDuringRaid": "战局中不可用",
+    "LoadoutManagementConfirmTitle": "切换装备管理模式",
+    "LoadoutManagementConfirmPrompt": "切换装备管理模式会将所有队员的装备重置为默认配置",
+    "LoadoutManagementConfirm": "继续"
+  },
+  "returnItems": ["您的队员送回了这些物品，请查收"],
+  "returnItemsDeath": ["您的队员找回了这些物品"],
+  "teamEscaped": ["活了！\n成功撤离"],
+  "teamSomeEscaped": ["可惜 {0} 没出来，不过我们算都安全了"],
+  "friendlyEscaped": ["太好，我们都出来了\n谢谢你带我"],
+  "deathEscapeMessages": [
+    "小队撤离报告：\n{0}",
+    "战局后小队报告：\n{0}",
+    "小队最终状态：\n{0}"
+  ],
+  "deathEscape": {
+    "MadeItOut": "成功撤离：{0}",
+    "Lost": "阵亡：{0}",
+    "ExtractRoute": "撤离路线：{0}"
+  },
+  "traitorKillMessages": [
+    "我还信过你。看来我错了",
+    "我好好加你这队，你就这样对我？",
+    "你拉我来就是为了背后捅刀子？真假？",
+    "我掩护你，你给我一枪什么意思？"
+  ],
+  "jerkKillMessages": [
+    "哥们我们一队的啊，能不能看清楚再开枪",
+    "你拿何晨光的枪？弹道往我身上飘？？",
+    "你是见谁都打，还是你专挑自己人开枪？",
+    "好好好。杀自己人这一块"
+  ]
+}

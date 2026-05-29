@@ -608,6 +608,7 @@ namespace pitTeam
             return normalized switch
             {
                 "de" => "ge",
+                "ch" => "chs",
                 _ => normalized
             };
         }

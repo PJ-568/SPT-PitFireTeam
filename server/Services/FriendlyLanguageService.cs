@@ -211,6 +211,7 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
         return normalized switch
         {
             "de" => "ge",
+            "ch" => "chs",
             _ => normalized
         };
     }
