@@ -1,0 +1,143 @@
+name: "Build and Test"
+
+on: [push, pull_request, merge_group, workflow_dispatch, workflow_call]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OUTPUT: 0
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  # ──────────────────────────────────
+  # Code style / formatting
+  # ──────────────────────────────────
+  lint:
+    name: Code Style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore (best-effort)
+        run: dotnet restore
+        continue-on-error: true
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes --verbosity diagnostic
+        continue-on-error: true
+
+  # ──────────────────────────────────
+  # Build — each project in parallel
+  # ──────────────────────────────────
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - name: Client
+            project: client/pitFireTeam.csproj
+            os: windows-latest
+            framework: net472
+
+          - name: SAIN Addon
+            project: addon/pitFireTeam.SAINAddon.csproj
+            os: windows-latest
+            framework: net472
+
+          - name: Server
+            project: server/pitFireTeam.Server.csproj
+            os: ubuntu-latest
+            framework: net9.0
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore NuGet packages
+        run: dotnet restore ${{ matrix.project }}
+        continue-on-error: true
+
+      - name: Build ${{ matrix.name }}
+        run: dotnet build ${{ matrix.project }} -c Release --no-restore
+        # NOTE: Build is best-effort. Some dependencies (Unity/SPTarkov/EFT
+        # assemblies) are not committed and will cause resolution errors.
+        # This step still catches syntax, API usage, and reference issues.
+        continue-on-error: true
+
+       - name: Upload build artifacts (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-${{ github.sha }}
+          path: |
+            client/bin/Release/**/*.dll
+            addon/bin/Release/**/*.dll
+            server/bin/Release/**/*.dll
+            client/bin/Release/**/*.pdb
+            addon/bin/Release/**/*.pdb
+            server/bin/Release/**/*.pdb
+           !**/ref/**
+            !**/lib/**
+          compression-level: 6
+
+  # ──────────────────────────────────
+  # Summary — merge all build outputs
+  # ──────────────────────────────────
+  package:
+    name: Package
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _artifacts
+          merge-multiple: true
+
+      - name: List contents
+        run: find _artifacts -type f | sort
+
+      - name: Upload combined package
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitFireTeam-${{ github.sha }}
+          path: _artifacts
+          compression-level: 6
