@@ -30,6 +30,8 @@ namespace pitTeam.BigBrain
         private const float AllyPushSupportMaxNavDistance = 65f;
         private const float HardRecoveryCloseThreatDistance = 10f;
         private const float AutomaticSecondaryRecentSeenHoldSeconds = 2.25f;
+        private const float HoldPositionLocalSupportMaxNavDistance = 28f;
+        private const float HoldPositionLocalSupportRetryCooldownSeconds = 2f;
 
         private enum CoverIntentKind
         {
@@ -48,8 +50,10 @@ namespace pitTeam.BigBrain
         private float supportIntentRetryUntil;
         private float protectIntentRetryUntil;
         private float autoSuppressRetryUntil;
+        private float holdPositionSupportRetryUntil;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedAllySupportDecision;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedAdvanceDecision;
+        private AICoreActionResultStruct<BotLogicDecision, GClass26>? preparedHoldPositionSupportDecision;
         private bool shotgunAutomaticSecondaryLatched;
         private bool shotgunAutomaticSecondaryDisabledForFight;
         private bool ownsAutomaticSecondarySwitch;
@@ -73,8 +77,10 @@ namespace pitTeam.BigBrain
             shootCoverSettlePhase.Reset();
             ClearCoverIntent();
             autoSuppressRetryUntil = 0f;
+            holdPositionSupportRetryUntil = 0f;
             preparedAllySupportDecision = null;
             preparedAdvanceDecision = null;
+            preparedHoldPositionSupportDecision = null;
             if (!combatCommon.HasActiveCombatEnemy())
             {
                 shotgunAutomaticSecondaryLatched = false;
@@ -118,6 +124,11 @@ namespace pitTeam.BigBrain
             if (!IsDecisionCompatibleWithPreparedAdvance(nextDecision))
             {
                 preparedAdvanceDecision = null;
+            }
+
+            if (!IsDecisionCompatibleWithPreparedHoldPositionSupport(nextDecision))
+            {
+                preparedHoldPositionSupportDecision = null;
             }
         }
 
@@ -373,6 +384,13 @@ namespace pitTeam.BigBrain
             if (TryGetLowAggressionRegroupDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> lowAggressionRegroup))
             {
                 return lowAggressionRegroup;
+            }
+
+            // Combat HoldPosition means "do not advance on the enemy", not "freeze in the open".
+            // If the boss line is stable, allow a small behind/lateral firing-position move.
+            if (TryGetHoldPositionLocalSupportDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> holdSupportDecision))
+            {
+                return holdSupportDecision;
             }
 
             // If the boss was just hit and this follower is not already committed to a stronger
@@ -720,6 +738,80 @@ namespace pitTeam.BigBrain
             preparedAdvanceDecision = advanceDecision;
             end = new AICoreActionEndStruct(reason, true);
             return true;
+        }
+
+        private bool TryGetHoldPositionLocalSupportDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (preparedHoldPositionSupportDecision.HasValue)
+            {
+                decision = preparedHoldPositionSupportDecision.Value;
+                preparedHoldPositionSupportDecision = null;
+                return true;
+            }
+
+            return TryBuildHoldPositionLocalSupportDecision(goalEnemy, out decision);
+        }
+
+        private bool TryPrepareHoldPositionLocalSupportBreak(
+            EnemyInfo goalEnemy,
+            string reason,
+            out AICoreActionEndStruct end)
+        {
+            end = FollowerCombatCommon.Continue();
+            if (!TryBuildHoldPositionLocalSupportDecision(
+                    goalEnemy,
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> supportDecision))
+            {
+                return false;
+            }
+
+            preparedHoldPositionSupportDecision = supportDecision;
+            end = new AICoreActionEndStruct(reason, true);
+            return true;
+        }
+
+        private bool TryBuildHoldPositionLocalSupportDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!combatCommon.IsTemporaryHoldPositionAggressionActive() ||
+                Time.time < holdPositionSupportRetryUntil ||
+                !combatCommon.HasActiveCombatEnemy(goalEnemy) ||
+                (goalEnemy.IsVisible && goalEnemy.CanShoot) ||
+                botOwner.Memory.IsUnderFire ||
+                FollowerCombatCommon.WasHitRecently(botOwner, 0.75f) ||
+                FollowerAwareness.WasRecentlyDamaged(botOwner))
+            {
+                return false;
+            }
+
+            Vector3 enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
+            if (!FollowerCombatCommon.IsFinite(enemyAnchor))
+            {
+                return false;
+            }
+
+            bool found = combatCommon.TryCreateSupportFiringPositionDecision(
+                goalEnemy,
+                enemyAnchor,
+                "holdPosition.localSupport",
+                out decision,
+                preferBackline: true,
+                enforceMarksmanPositionPolicy: false,
+                allowForwardPositions: false,
+                allowBattlefieldPositions: false,
+                maxNavDistance: HoldPositionLocalSupportMaxNavDistance);
+
+            if (!found)
+            {
+                holdPositionSupportRetryUntil = Time.time + HoldPositionLocalSupportRetryCooldownSeconds;
+            }
+
+            return found;
         }
 
         /// <summary>
@@ -1560,10 +1652,10 @@ namespace pitTeam.BigBrain
             bool isHoldingInCover = isCoverHoldReason ||
                                     botOwner.Memory.IsInCover ||
                                     combatCommon.IsBotInCommittedCover();
+            EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
 
             if (isHoldingInCover)
             {
-                EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
                 if (HasActivePushOrder())
                 {
                     return new AICoreActionEndStruct("orderedPushBreakHold", true);
@@ -1630,6 +1722,15 @@ namespace pitTeam.BigBrain
                 {
                     return new AICoreActionEndStruct("visibleEnemyBreakHold", true);
                 }
+            }
+            else if (goalEnemy != null &&
+                     IsBossHoldReason(reason) &&
+                     TryPrepareHoldPositionLocalSupportBreak(
+                         goalEnemy,
+                         "holdPositionLocalSupportBreak",
+                         out AICoreActionEndStruct holdSupportBreak))
+            {
+                return holdSupportBreak;
             }
 
             return combatCommon.EndBaseHoldPosition(reason);
@@ -2009,6 +2110,13 @@ namespace pitTeam.BigBrain
             return !preparedAdvanceDecision.HasValue ||
                    (preparedAdvanceDecision.Value.Action == nextDecision.Action &&
                     string.Equals(preparedAdvanceDecision.Value.Reason, nextDecision.Reason, StringComparison.Ordinal));
+        }
+
+        private bool IsDecisionCompatibleWithPreparedHoldPositionSupport(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
+        {
+            return !preparedHoldPositionSupportDecision.HasValue ||
+                   (preparedHoldPositionSupportDecision.Value.Action == nextDecision.Action &&
+                    StringComparer.Ordinal.Equals(preparedHoldPositionSupportDecision.Value.Reason, nextDecision.Reason));
         }
 
         /// <summary>

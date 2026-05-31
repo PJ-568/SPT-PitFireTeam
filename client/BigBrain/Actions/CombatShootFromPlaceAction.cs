@@ -56,6 +56,10 @@ namespace pitTeam.BigBrain.Actions
             }
 
             string? reason = GetReason(data) ?? BotOwner.Brain?.Agent?.LastResult().Reason;
+            if (StopUnownedGrenadeLauncherFire(reason, goalEnemy))
+            {
+                return;
+            }
 
             // If an immediate-fire decision briefly loses CanShoot because of foliage or a small
             // visibility flicker, keep a short suppressive shot at the last verified point instead

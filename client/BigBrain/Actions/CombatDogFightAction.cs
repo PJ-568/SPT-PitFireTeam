@@ -94,6 +94,11 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            if (StopUnownedGrenadeLauncherFire(GetReason(data), goalEnemy))
+            {
+                return;
+            }
+
             if (BotOwner.Settings.FileSettings.Grenade.CAN_THROW_FROM_ANY_PLACE && grenadeLogic.UpdateTryThrow())
             {
                 return;

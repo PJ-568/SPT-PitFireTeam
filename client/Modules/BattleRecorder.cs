@@ -333,6 +333,34 @@ namespace pitTeam.Modules
             });
         }
 
+        public static void RecordObjectiveDiagnostic(
+            BotOwner bot,
+            string objectiveName,
+            string action,
+            string reason,
+            object? details = null)
+        {
+            if (!CanRecordBot(bot))
+            {
+                return;
+            }
+
+            RecorderFollowerState state = GetOrCreateState(bot);
+            if (!IsBotInRecordedCombat(bot, state))
+            {
+                return;
+            }
+
+            WriteEventInternal("objectiveDiagnostic", bot, new
+            {
+                objective = objectiveName,
+                action,
+                reason,
+                details,
+                context = CreateTransitionContext(bot, state)
+            });
+        }
+
         public static void RecordPushEmitted(
             BotOwner owner,
             string enemyProfileId,
@@ -388,7 +416,9 @@ namespace pitTeam.Modules
             string action,
             string reason,
             bool? completed = null,
-            EnemyInfo? goalEnemy = null)
+            EnemyInfo? goalEnemy = null,
+            Vector3? target = null,
+            Vector3? suppressFrom = null)
         {
             if (!CanRecordBot(bot))
             {
@@ -402,6 +432,8 @@ namespace pitTeam.Modules
                 action,
                 reason,
                 completed,
+                target = target.HasValue && IsFinite(target.Value) ? CreateVector(target.Value) : null,
+                suppressFrom = suppressFrom.HasValue && IsFinite(suppressFrom.Value) ? CreateVector(suppressFrom.Value) : null,
                 state = CreateRecorderStatePayload(state),
                 context = CreateGrenadeContext(bot, goalEnemy)
             });

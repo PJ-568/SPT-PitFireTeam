@@ -121,7 +121,7 @@ namespace pitTeam.Components
                 Mathf.Max(LauncherSuppressPushBlockMinRadius, unsafeRadius),
                 Time.time,
                 Time.time + Mathf.Max(1f, ttlSeconds));
-            BattleRecorder.RecordGrenadeEvent(owner, "launcherSuppressEmit", reason ?? string.Empty);
+            BattleRecorder.RecordGrenadeEvent(owner, "launcherSuppressEmit", reason ?? string.Empty, target: target);
 
             // A launcher shot is about to become the squad's dominant event. Stop any existing
             // autonomous push so nearby followers do not continue advancing into the impact area.

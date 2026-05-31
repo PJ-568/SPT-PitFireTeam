@@ -341,9 +341,22 @@ namespace pitTeam.Modules
                 return;
             }
 
-            foreach (Item item in equipment.GetAllItems()
+            List<Item> itemsToRemove = new List<Item>();
+            HashSet<string> removeIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Item root in equipment.GetAllItems()
                          .Where(item => item != null && itemIds.Contains(item.Id))
                          .ToList())
+            {
+                foreach (Item child in root.GetAllItems().Reverse())
+                {
+                    if (child != null && removeIds.Add(child.Id))
+                    {
+                        itemsToRemove.Add(child);
+                    }
+                }
+            }
+
+            foreach (Item item in itemsToRemove)
             {
                 try
                 {

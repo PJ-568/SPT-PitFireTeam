@@ -438,17 +438,15 @@ Switching away from **Simple** also changes profile customization. The saved-loa
 
 The following are planned features in reaching a release version (1.0.0)
 
-**Planned commands:**
+**Beta 0.9.0:**
 
-- **Spread Out** - in combat, tells teammates who are not actively engaged to find cover.
-
+- **The Goons** - bringing back the the Goons as usable teammates along with Knight as trader and his quests.
 - **Squad Budget** - restricts the maximum number of teammates you can add to your squad based on available Command Points. Command Points are gained by leveling up, keeping teammates alive, and keeping picked-up raid allies alive. Points are lost if you kill teammates or allies.
 
-**Planned features:**
+**Version 1.0.0:**
 
-- Adding a third teammate tactic.
-- Being able to play with Scav teammates.
-- Porting the Goons playthrough from the old plugin.
+- **Scavs for hire** - being able to play with teammates as a Scav
+- **SAIN tactics addon** - being able to use SAIN personalities as teammate tactics
 
 ## Known Issues and Conflicts
 

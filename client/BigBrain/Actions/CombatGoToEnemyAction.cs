@@ -80,7 +80,13 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            TryPreferPrimaryAtRange(goalEnemy, GetReason(data));
+            string? reason = GetReason(data);
+            TryPreferPrimaryAtRange(goalEnemy, reason);
+            if (StopUnownedGrenadeLauncherFire(reason, goalEnemy))
+            {
+                return;
+            }
+
             SetCombatSprint(shouldSprint);
 
             // Push destinations are sticky, but nav/pathing in EFT can stall around rocks, stairs,

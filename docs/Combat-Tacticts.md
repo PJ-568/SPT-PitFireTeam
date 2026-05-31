@@ -50,6 +50,7 @@ Combat `HoldPosition` is not a normal movement hold. It temporarily sets effecti
 Expected behavior:
 
 - Rifleman suppresses proactive push/search pressure.
+- Rifleman can still take a small local firing-position move behind or lateral to the boss line when the current hold spot has no shot. This is not a push: it avoids forward positions and stays on a short local route.
 - Marksman suppresses proactive automatic close-search/auto-search.
 - Defensive behavior still works: immediate fire, dogfight, heal, boss protection, and survival can still interrupt.
 - The saved aggression value is not changed.
@@ -73,7 +74,7 @@ Rifleman/default behavior:
 - Riflemen with a shotgun first primary can latch a loaded automatic second primary for mid-or-farther fights; once latched it stays through the fight to avoid distance-bucket weapon churn, unless the automatic secondary runs dry with no reload ammo, at which point the fight is locked back to first primary.
 - Automatic-secondary switching is penetration-guarded against the first primary's current ammo: the secondary ammo may trail by up to 15 penetration, matching EFT's armor-resistance penetration window, so small gaps like 35 vs 40 still allow rate of fire to compensate while gaps like 20 vs 40 stay on the primary.
 - Rifleman weapon switching is owned by combat decisions only: if EFT automatically swaps to a support weapon, such as pistol fallback instead of reload, follower combat should not force an immediate primary swap back unless this tactic explicitly made the secondary switch first.
-- Riflemen with a usable grenade launcher in the second primary can use it for suppression decisions: ordered suppress follows the old plugin's boss-order ray scan for hostile player bodies and does not require `EnemyInfo.IsVisible`; autonomous use follows the old plugin's visible-enemy collection and requires multiple visible hostile targets. Launcher targets keep the old safety band (`27m` to `130m`), reject impact points near the boss or followers, require a clean suppress lane or suppress-from point, and emit artillery warnings before firing.
+- Riflemen with a usable grenade launcher in the second primary can use it for suppression decisions: ordered suppress follows the old plugin's boss-order ray scan for hostile player bodies and does not require `EnemyInfo.IsVisible`; autonomous use follows the old plugin's visible-enemy collection and requires multiple visible hostile targets. Launcher targets keep the old safety band (`27m` to `130m`), reject impact points near the boss or followers, require a clean suppress lane or suppress-from point, wait for the launcher aim to align with the selected impact point, and emit artillery warnings before firing.
 - Grenade-launcher suppression emits a short squad combat event. While that event is active, other followers do not start or continue autonomous pushes around the same impact area, even if their current enemy identity is different. Explicit player push orders still remain command-owned.
 - Other nearby Riflemen can react to the push event as support instead of starting a duplicate independent push: shoot from current cover, take a support shot, move to push-support cover, or move to a firing point.
 
@@ -81,6 +82,7 @@ Marksman behavior:
 
 - Generic `GoForward`/push is not a marksman assault order.
 - Marksman supports team push/search by finding a shooting position or support cover.
+- Marksman support positions reject wrong-level candidates when the boss/team is vertically separated, and reject directly close candidates that are actually path-separated from the boss.
 - If close automatic support is allowed by marksman aggression and safety checks, marksman can use automatic secondary behavior.
 - If a nearby Rifleman can reasonably take the push, marksman should prefer support/reposition instead of becoming the primary pusher.
 
@@ -97,6 +99,10 @@ Objective behavior:
 - If direct fire is blocked but suppression was explicitly ordered, it may still suppress the obstructed known point, as long as friendly shot safety passes.
 - If a better suppress-from point exists, the action can move there and suppress from that point.
 - The objective has an ordered-suppression protected window so one short obstruction or controller completion does not instantly cancel it.
+- Explicit follow-up combat orders, such as Push Enemy, break the suppression action immediately instead of waiting for that protected window.
+- Ordered grenade-launcher suppression only commits to the launcher when it has a current launch lane or a prepared suppress-from point. If not, it falls back to weapon suppression instead of holding the launcher out while searching.
+- If the selected launcher impact becomes unsafe after commit, ordered suppression falls back to weapon suppression instead of completing the order as failed. If the launcher is not yet aimed at the intended impact point, the bot holds fire while it keeps steering toward that point.
+- If the bot is already holding a second-primary grenade launcher when ordered suppression falls back to weapon fire, the objective switches back to the primary and retries briefly instead of completing as no-action.
 - It completes when suppression completes, target data disappears, friendly shot safety blocks the lane beyond the protected window, or the enemy is gone.
 
 Autonomous suppression remains separate:
@@ -117,10 +123,12 @@ Objective behavior:
 - The sniper rejects or ignores the order when self-preservation must win: active/pending heal work, under fire, recent hit, or point-blank visible shootable threat.
 - If accepted, it tries immediate fire first.
 - If current cover can shoot, it shoots from cover.
+- It switches back to the marksman primary at support ranges so an earlier close-quarter secondary does not degrade ordered support.
 - Otherwise it finds a firing cover or firing position using the enemy's current position when possible.
 - It is allowed to use closer/forward/lateral firing positions than autonomous marksman support, because this is an explicit player support request.
 - On arrival, it arms a short committed `sniper.NeedSniper.positionHold` settle window before reassessing.
-- It completes when it reaches a valid shot, settles without a lane, the enemy disappears, or a stronger interruption takes over.
+- It completes when it reaches a valid shot, movement ends for stable immediate fire, settles without a lane, the enemy disappears, or a stronger interruption takes over.
+- If it cannot build a lane, the battle recorder emits `objectiveDiagnostic` entries with support-cover rejection, current-position rejection, support-position rejection, and boss direct/path/vertical separation context.
 
 ### Need Help Order
 
@@ -177,14 +185,15 @@ Rifleman/default combat currently routes in this order:
 11. Continue committed cover movement/fire setup.
 12. Boss-distance regroup after commitments are checked.
 13. Low-aggression regroup, including temporary boss `HoldPosition` combat override.
-14. Boss-under-attack protection.
-15. Ally support, but only if a valid support decision can be prepared.
-16. Autonomous suppression.
-17. New grenade activation.
-18. Ordered push.
-19. Visible enemy handling.
-20. Generic advance/push.
-21. Cover hold, fallback shoot, suppress, or boss hold.
+14. Combat `HoldPosition` local support: a bounded behind/lateral firing-position move if the follower can improve its angle without advancing toward the enemy.
+15. Boss-under-attack protection.
+16. Ally support, but only if a valid support decision can be prepared.
+17. Autonomous suppression.
+18. New grenade activation.
+19. Ordered push.
+20. Visible enemy handling.
+21. Generic advance/push.
+22. Cover hold, fallback shoot, suppress, or boss hold.
 
 Explicit command objectives sit above this tactic router in `FollowerCombatLogicBase`:
 

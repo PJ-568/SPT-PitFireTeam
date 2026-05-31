@@ -798,6 +798,119 @@ namespace pitTeam.Patches
             RestoreProfileItemUiContext();
         }
 
+        private static void ShowProfileRecoveryOverlay(
+            OtherPlayerProfileScreen screen,
+            FriendlyTeammateProfileRecoveryNotice notice)
+        {
+            if (screen == null || notice == null || !notice.Recovered)
+            {
+                return;
+            }
+
+            CloseProfileRecoveryOverlay();
+
+            DefaultUIButton buttonTemplate = BackButtonField?.GetValue(screen) as DefaultUIButton;
+            if (buttonTemplate == null)
+            {
+                pitFireTeam.Log.LogWarning("[UI] Profile recovery overlay skipped: template button not found.");
+                return;
+            }
+
+            GameObject overlayRoot = new GameObject("pitFireTeam_ProfileRecoveryOverlay", typeof(RectTransform), typeof(Image));
+            overlayRoot.transform.SetParent(screen.transform, false);
+            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
+            overlayRect.anchorMin = Vector2.zero;
+            overlayRect.anchorMax = Vector2.one;
+            overlayRect.offsetMin = Vector2.zero;
+            overlayRect.offsetMax = Vector2.zero;
+            overlayRect.localScale = Vector3.one;
+            overlayRect.SetAsLastSibling();
+
+            Image backdrop = overlayRoot.GetComponent<Image>();
+            backdrop.color = new Color(0f, 0f, 0f, 0.58f);
+            backdrop.raycastTarget = true;
+
+            GameObject panel = new GameObject("pitFireTeam_ProfileRecoveryPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(overlayRoot.transform, false);
+            RectTransform panelRect = panel.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.sizeDelta = new Vector2(680f, 224f);
+            panelRect.localScale = Vector3.one;
+
+            Image panelImage = panel.GetComponent<Image>();
+            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
+            panelImage.raycastTarget = true;
+
+            GameObject header = new GameObject("pitFireTeam_ProfileRecoveryHeader", typeof(RectTransform), typeof(Image));
+            header.transform.SetParent(panel.transform, false);
+            RectTransform headerRect = header.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0f, 1f);
+            headerRect.anchorMax = new Vector2(1f, 1f);
+            headerRect.pivot = new Vector2(0.5f, 1f);
+            headerRect.offsetMin = new Vector2(0f, -34f);
+            headerRect.offsetMax = Vector2.zero;
+
+            Image headerImage = header.GetComponent<Image>();
+            headerImage.color = new Color(0.055f, 0.055f, 0.055f, 0.95f);
+            headerImage.raycastTarget = true;
+
+            CreateOverlayText(
+                "pitFireTeam_ProfileRecoveryTitle",
+                header.transform,
+                new Vector2(18f, 0f),
+                new Vector2(-54f, 0f),
+                TextAlignmentOptions.MidlineLeft,
+                GetSocialUiText("ProfileRecoveredTitle", "Profile recovered").ToUpperInvariant(),
+                19f,
+                new Color(0.87f, 0.87f, 0.84f, 1f));
+
+            Button closeButton = CreateWindowCloseButton(header.transform);
+            if (closeButton.transform is RectTransform closeRect)
+            {
+                closeRect.anchorMin = new Vector2(1f, 0.5f);
+                closeRect.anchorMax = new Vector2(1f, 0.5f);
+                closeRect.pivot = new Vector2(1f, 0.5f);
+                closeRect.anchoredPosition = new Vector2(-6f, 0f);
+            }
+
+            closeButton.onClick.AddListener(new UnityAction(CloseProfileRecoveryOverlay));
+
+            string body = string.IsNullOrWhiteSpace(notice.Message)
+                ? GetSocialUiText("ProfileRecoveredBody", "The profile of this teammate has been recovered from a bad state. Some items from his inventory may have been deleted in the process.")
+                : notice.Message;
+
+            CreateOverlayText(
+                "pitFireTeam_ProfileRecoveryBody",
+                panel.transform,
+                new Vector2(34f, 70f),
+                new Vector2(-34f, -48f),
+                TextAlignmentOptions.Center,
+                body,
+                22f,
+                new Color(0.88f, 0.88f, 0.84f, 1f));
+
+            DefaultUIButton okButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(250f, 18f), new Vector2(180f, 36f));
+            okButton.name = "pitFireTeam_ProfileRecoveryOkButton";
+            okButton.SetRawText(GetSocialUiText("Ok", "OK"), 20);
+            okButton.OnClick.RemoveAllListeners();
+            okButton.OnClick.AddListener(CloseProfileRecoveryOverlay);
+
+            ProfileRecoveryOverlayRoot = overlayRoot;
+        }
+
+        private static void CloseProfileRecoveryOverlay()
+        {
+            if (ProfileRecoveryOverlayRoot == null)
+            {
+                return;
+            }
+
+            GameObject.Destroy(ProfileRecoveryOverlayRoot);
+            ProfileRecoveryOverlayRoot = null;
+        }
+
         private static void CloseLoadoutEditorChildWindows()
         {
             CloseLoadoutEditorSaveBeforeRepairOverlay();

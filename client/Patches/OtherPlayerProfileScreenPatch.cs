@@ -63,6 +63,14 @@ namespace pitTeam.Patches
         public float Aggression { get; set; } = 50f;
         public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; }
         public List<FriendlyTeammateTacticOption> Tactics { get; set; }
+        public FriendlyTeammateProfileRecoveryNotice RecoveryNotice { get; set; }
+    }
+
+    internal class FriendlyTeammateProfileRecoveryNotice
+    {
+        public bool Recovered { get; set; }
+        public int RemovedItemCount { get; set; }
+        public string Message { get; set; }
     }
 
     internal class FriendlyTeammateSuitRequest
@@ -379,6 +387,7 @@ namespace pitTeam.Patches
         public static Transform EditLoadoutButtonRoot { get; set; }
         public static GameObject LoadoutEditorOverlayRoot { get; set; }
         public static GameObject LoadoutEditorSaveBeforeRepairOverlayRoot { get; set; }
+        public static GameObject ProfileRecoveryOverlayRoot { get; set; }
         public static SimpleStashPanel LoadoutEditorStashPanel { get; set; }
         public static ComplexStashPanel LoadoutEditorEquipmentPanel { get; set; }
         public static Profile LoadoutEditorProfile { get; set; }
@@ -642,6 +651,7 @@ namespace pitTeam.Patches
                 CreateEditLoadoutButton(__instance, clone, parent, profile, 2);
                 CreateEditNameButton(__instance, clone, parent, profile, 3);
                 DisplaySkillsPanel(__instance, profile, session);
+                ShowProfileRecoveryOverlay(__instance, options.RecoveryNotice);
             }
             catch (Exception ex)
             {
@@ -1317,6 +1327,7 @@ namespace pitTeam.Patches
 
         private static void ResetTeammateProfileUi(InventoryPlayerModelWithStatsWindow playerModelWindow)
         {
+            CloseProfileRecoveryOverlay();
             playerModelWindow.OnCustomizationChanged -= PlayerModelWithStatsWindow_OnCustomizationChanged;
             ViewedProfile = null;
             ActiveProfileScreen = null;

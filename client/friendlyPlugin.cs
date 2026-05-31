@@ -309,6 +309,9 @@ namespace pitTeam
             new TeammateBackpackObserverStatePatch().Enable();
             new TeammateBackpackExaminedPatch().Enable();
             new TeammateBackpackSimpleStashLabelPatch().Enable();
+            new TeammateCorpseContainersPanelDogtagPatch().Enable();
+            new TeammateCorpseEquipmentTabDogtagPatch().Enable();
+            new TeammateCorpseDogtagMovePatch().Enable();
             new FollowerBotReceiverHardAimIgnorePatch().Enable();
             new FollowerBotReceiverTiltIgnorePatch().Enable();
             new FollowerBotReceiverPhraseIgnorePatch().Enable();

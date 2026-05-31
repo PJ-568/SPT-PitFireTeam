@@ -1,5 +1,6 @@
 using EFT;
 using pitTeam.Components;
+using pitTeam.Modules;
 using pitTeam.Utils;
 using System;
 using UnityEngine;
@@ -83,6 +84,8 @@ namespace pitTeam.BigBrain
                 return RejectObjective("noEnemy");
             }
 
+            CombatCommon.TrySwitchBackToPrimaryAtRange(goalEnemy, Enemy.EnemyDistance.Close);
+
             AICoreActionResultStruct<BotLogicDecision, GClass26>? dogFight = CombatCommon.TryGetDogFightDecision();
             if (dogFight != null)
             {
@@ -112,6 +115,12 @@ namespace pitTeam.BigBrain
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.shootFromCover,
                     $"{ReasonPrefix}.currentCover");
+            }
+
+            if (BotOwner.Memory.IsUnderFire ||
+                FollowerCombatCommon.WasHitRecently(BotOwner, 1.5f))
+            {
+                return RejectObjective("selfPreservation");
             }
 
             if (CombatCommon.HasCommittedPosition(out AICoreActionResultStruct<BotLogicDecision, GClass26> committedPosition))
@@ -163,6 +172,7 @@ namespace pitTeam.BigBrain
                 return CombatCommon.CreateMoveToCommittedCoverDecision(coverReason);
             }
 
+            string? supportCoverReject = CombatCommon.LastSupportFiringCoverRejectReason;
             Vector3 currentEnemyPosition = FollowerCombatCommon.GetEnemyCurrentPosition(supportEnemy);
             if (CombatCommon.TryCreateFiringPositionDecisionAt(
                     supportEnemy,
@@ -178,6 +188,7 @@ namespace pitTeam.BigBrain
                 return currentPositionDecision;
             }
 
+            string? currentPositionReject = CombatCommon.LastSupportFiringPositionRejectReason;
             if (CombatCommon.TryCreateSupportFiringPositionDecision(
                     supportEnemy,
                     supportPosition,
@@ -192,7 +203,9 @@ namespace pitTeam.BigBrain
                 return positionDecision;
             }
 
-            return RetryOrRejectObjective("noLane");
+            return RetryOrRejectObjective(
+                "noLane",
+                CreateNoLaneDetails(supportPosition, supportCoverReject, currentPositionReject, CombatCommon.LastSupportFiringPositionRejectReason));
         }
 
         public override AICoreActionEndStruct ShallEndCurrentDecision(
@@ -247,6 +260,13 @@ namespace pitTeam.BigBrain
             }
 
             CombatCommon.ClearCommittedMovement();
+            if (string.Equals(end.Reason, "stableImmediateFire", StringComparison.Ordinal))
+            {
+                complete = true;
+                ClearObjectiveCommitments();
+                return end;
+            }
+
             if (IsArrivalEnd(end.Reason))
             {
                 ArmArrivalHold();
@@ -384,18 +404,84 @@ namespace pitTeam.BigBrain
                 $"{ReasonPrefix}.{suffix}");
         }
 
-        private AICoreActionResultStruct<BotLogicDecision, GClass26> RetryOrRejectObjective(string suffix)
+        private AICoreActionResultStruct<BotLogicDecision, GClass26> RetryOrRejectObjective(string suffix, object? details = null)
         {
             if (Time.time >= searchRetryUntil)
             {
+                BattleRecorder.RecordObjectiveDiagnostic(
+                    BotOwner,
+                    nameof(FollowerCombatNeedSniperObjective),
+                    "reject",
+                    suffix,
+                    details);
                 return RejectObjective(suffix);
             }
 
             retryScanUntil = Time.time + SearchRetryScanSeconds;
             CombatCommon.HoldFor(SearchRetryScanSeconds);
+            BattleRecorder.RecordObjectiveDiagnostic(
+                BotOwner,
+                nameof(FollowerCombatNeedSniperObjective),
+                "retry",
+                suffix,
+                details);
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                 BotLogicDecision.holdPosition,
                 $"{RetryHoldReason}.{suffix}");
+        }
+
+        private object CreateNoLaneDetails(
+            Vector3 supportPosition,
+            string? supportCoverReject,
+            string? currentPositionReject,
+            string? supportPositionReject)
+        {
+            Vector3 bossPosition = CombatCommon.GetBossPosition();
+            float directBossDistance = IsFinite(bossPosition)
+                ? Vector3.Distance(BotOwner.Position, bossPosition)
+                : float.NaN;
+            float verticalBossDelta = IsFinite(bossPosition)
+                ? Mathf.Abs(BotOwner.Position.y - bossPosition.y)
+                : float.NaN;
+            float bossPathDistance = float.NaN;
+            if (IsFinite(bossPosition))
+            {
+                Utils.Utils.TryGetCompletePathDistance(BotOwner.Position, bossPosition, out bossPathDistance);
+            }
+
+            return new
+            {
+                supportCoverReject,
+                currentPositionReject,
+                supportPositionReject,
+                supportPosition = CreateVectorPayload(supportPosition),
+                boss = new
+                {
+                    directDistance = SanitizeFloat(directBossDistance),
+                    pathDistance = SanitizeFloat(bossPathDistance),
+                    verticalDelta = SanitizeFloat(verticalBossDelta)
+                }
+            };
+        }
+
+        private static object? CreateVectorPayload(Vector3 value)
+        {
+            if (!IsFinite(value))
+            {
+                return null;
+            }
+
+            return new
+            {
+                x = SanitizeFloat(value.x),
+                y = SanitizeFloat(value.y),
+                z = SanitizeFloat(value.z)
+            };
+        }
+
+        private static float? SanitizeFloat(float value)
+        {
+            return float.IsNaN(value) || float.IsInfinity(value) ? null : value;
         }
 
         private AICoreActionResultStruct<BotLogicDecision, GClass26> RejectObjective(string suffix)

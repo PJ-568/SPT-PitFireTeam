@@ -33,6 +33,8 @@ namespace pitTeam.BigBrain.Actions
     /// </summary>
     internal abstract class FollowerCombatActionBase : CustomLogic
     {
+        private float nextUnownedLauncherGuardRecordAt;
+
         protected FollowerCombatActionBase(BotOwner botOwner) : base(botOwner)
         {
         }
@@ -156,6 +158,41 @@ namespace pitTeam.BigBrain.Actions
             }
         }
 
+        protected bool StopUnownedGrenadeLauncherFire(string? reason, EnemyInfo? goalEnemy = null)
+        {
+            if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(reason))
+            {
+                return false;
+            }
+
+            BotWeaponSelector? selector = BotOwner?.WeaponManager?.Selector;
+            Weapon? secondPrimary = selector?.SecondPrimaryWeaponItem as Weapon;
+            Weapon? activeWeapon = BotOwner?.WeaponManager?.ShootController?.Item;
+            bool selectedSecondPrimaryLauncher =
+                selector?.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon &&
+                FollowerCombatCommon.IsGrenadeLauncherWeapon(secondPrimary);
+            bool activeLauncher = FollowerCombatCommon.IsGrenadeLauncherWeapon(activeWeapon);
+            if (!selectedSecondPrimaryLauncher && !activeLauncher)
+            {
+                return false;
+            }
+
+            StopCombatShooting();
+            selector?.TryChangeToMain();
+
+            if (Time.time >= nextUnownedLauncherGuardRecordAt)
+            {
+                nextUnownedLauncherGuardRecordAt = Time.time + 2f;
+                BattleRecorder.RecordGrenadeEvent(
+                    BotOwner,
+                    "launcherReject",
+                    $"unownedLauncherSelection:{reason ?? "unknown"}",
+                    goalEnemy: goalEnemy);
+            }
+
+            return true;
+        }
+
         protected bool StopIfFriendlyInCurrentFireLane(EnemyInfo? goalEnemy)
         {
             if (goalEnemy == null)
@@ -238,6 +275,12 @@ namespace pitTeam.BigBrain.Actions
             if (selector.LastEquipmentSlot == EquipmentSlot.Holster)
             {
                 return true;
+            }
+
+            if (selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon &&
+                FollowerCombatCommon.IsGrenadeLauncherWeapon(selector.SecondPrimaryWeaponItem as Weapon))
+            {
+                return false;
             }
 
             if (selector.LastEquipmentSlot != selector.SupportWeapon)

@@ -496,6 +496,12 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (!FollowerCombatCommon.IsAutomaticWeapon(activeWeapon) &&
+                combatCommon.HasLoadedAutomaticSecondaryForPush())
+            {
+                return false;
+            }
+
             MagazineItemClass? magazine = activeWeapon.GetCurrentMagazine();
             int? magazineCount = magazine?.Cartridges?.Count;
             if (!magazineCount.HasValue)

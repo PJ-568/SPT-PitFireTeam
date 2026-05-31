@@ -18,6 +18,11 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            if (StopUnownedGrenadeLauncherFire(GetReason(data), BotOwner.Memory?.GoalEnemy))
+            {
+                return;
+            }
+
             baseLogic.UpdateNodeByBrain(GetData<GClass27>(data));
         }
     }

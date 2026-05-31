@@ -28,10 +28,16 @@ namespace pitTeam.BigBrain.Actions
         {
         }
 
+        public override void Stop()
+        {
+            StopCombatShooting();
+            base.Stop();
+        }
+
         public override void Update(CustomLayer.ActionData data)
         {
             EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
-            if (goalEnemy == null)
+            if (goalEnemy?.Person?.HealthController?.IsAlive != true)
             {
                 StopCombatShooting();
                 BotOwner.LookData.SetLookPointByHearing(null);
@@ -41,8 +47,14 @@ namespace pitTeam.BigBrain.Actions
 
             // Attack-moving can run for a while, so keep non-marksman followers on their primary at
             // range and pass the current decision reason into the wrapped node for suppress behavior.
-            TryPreferPrimaryAtRange(goalEnemy, GetReason(data));
-            baseLogic.SetCurrentReason(GetReason(data));
+            string? reason = GetReason(data);
+            TryPreferPrimaryAtRange(goalEnemy, reason);
+            if (StopUnownedGrenadeLauncherFire(reason, goalEnemy))
+            {
+                return;
+            }
+
+            baseLogic.SetCurrentReason(reason);
             baseLogic.UpdateNodeByBrain(GetRawData(data));
         }
 
@@ -163,7 +175,7 @@ namespace pitTeam.BigBrain.Actions
             private bool TryGetSafeShootOrSuppressTarget(EnemyInfo? goalEnemy, out Vector3 target)
             {
                 target = default;
-                if (goalEnemy == null)
+                if (goalEnemy?.Person?.HealthController?.IsAlive != true)
                 {
                     return false;
                 }
