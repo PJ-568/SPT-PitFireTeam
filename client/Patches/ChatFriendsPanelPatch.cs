@@ -16,8 +16,6 @@ namespace pitTeam.Patches
     internal class ChatFriendsPanelAddTeammateButtonPatch : ModulePatch
     {
         private const string AddTeammateButtonName = "pitFireTeam_AddTeammateButton";
-        private const string DefaultAddTeammateLabel = "+ Add teammate";
-
         private static readonly FieldInfo FriendsButtonField = AccessTools.Field(typeof(ChatFriendsPanel), "_friendsButton");
         private static readonly FieldInfo ButtonLabelField = AccessTools.Field(typeof(FriendsListContentButton), "_buttonLabel");
         private static readonly FieldInfo FriendsInputField = AccessTools.Field(typeof(ChatFriendsPanel), "_friendsInputField");
@@ -171,7 +169,7 @@ namespace pitTeam.Patches
             TextMeshProUGUI createdLabel = labelObject.GetComponent<TextMeshProUGUI>();
             if (createdLabel != null)
             {
-                createdLabel.text = GetLocalizedSocialUi("AddTeammate", DefaultAddTeammateLabel);
+                createdLabel.text = pitFireTeam.GetSocialUiText("AddTeammate");
                 createdLabel.enableWordWrapping = false;
                 createdLabel.overflowMode = TextOverflowModes.Ellipsis;
                 createdLabel.alignment = TextAlignmentOptions.MidlineLeft;
@@ -197,23 +195,5 @@ namespace pitTeam.Patches
             AddTeammateCreationFlow.Start();
         }
 
-        private static string GetLocalizedSocialUi(string key, string fallback)
-        {
-            try
-            {
-                if (pitFireTeam.optionsLang?.socialUi != null &&
-                    pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value) &&
-                    !string.IsNullOrEmpty(value))
-                {
-                    return value;
-                }
-            }
-            catch
-            {
-                // Fall back to the local default if language data is not ready.
-            }
-
-            return fallback;
-        }
     }
 }

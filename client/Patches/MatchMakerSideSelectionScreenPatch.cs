@@ -137,14 +137,7 @@ namespace pitTeam.Patches
                 TMP_Text label = mainCaption.GetComponentInChildren<TMP_Text>();
                 if (label != null)
                 {
-                    string title = "My Squad";
-                    if (pitFireTeam.optionsLang?.socialUi != null
-                        && pitFireTeam.optionsLang.socialUi.TryGetValue("SquadControlButton", out string localized)
-                        && !string.IsNullOrWhiteSpace(localized))
-                    {
-                        title = localized;
-                    }
-                    label.text = title;
+                    label.text = pitFireTeam.GetSocialUiText("SquadControlButton");
                 }
             }
 
@@ -201,7 +194,7 @@ namespace pitTeam.Patches
 
             tabsRosterInstance = UnityEngine.Object.Instantiate(rosterTemplate, screen.transform, false);
             tabsRosterInstance.name = "pitFireTeam_SideSelTab_Roster";
-            ConfigureTabForOverlay(tabsRosterInstance, new Vector2(-135f, -112f), GetSocialUiText("SquadControlRosterTab", "Roster"), selected: true,
+            ConfigureTabForOverlay(tabsRosterInstance, new Vector2(-135f, -112f), GetSocialUiText("SquadControlRosterTab"), selected: true,
                 onSelected: () =>
                 {
                     tabsRosterInstance?.ToggleSilently(true);
@@ -211,7 +204,7 @@ namespace pitTeam.Patches
 
             tabsSettingsInstance = UnityEngine.Object.Instantiate(settingsTemplate, screen.transform, false);
             tabsSettingsInstance.name = "pitFireTeam_SideSelTab_Settings";
-            ConfigureTabForOverlay(tabsSettingsInstance, new Vector2(135f, -112f), GetSocialUiText("SquadControlSettingsTab", "Settings"), selected: false,
+            ConfigureTabForOverlay(tabsSettingsInstance, new Vector2(135f, -112f), GetSocialUiText("SquadControlSettingsTab"), selected: false,
                 onSelected: () =>
                 {
                     tabsRosterInstance?.ToggleSilently(false);
@@ -294,16 +287,9 @@ namespace pitTeam.Patches
             tab.ToggleSilently(selected);
         }
 
-        private static string GetSocialUiText(string key, string fallback)
+        private static string GetSocialUiText(string key)
         {
-            if (pitFireTeam.optionsLang?.socialUi != null
-                && pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value)
-                && !string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-
-            return fallback;
+            return pitFireTeam.GetSocialUiText(key);
         }
 
         private static void WireBackButtonExit(MatchMakerSideSelectionScreen screen)

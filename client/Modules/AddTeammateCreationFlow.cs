@@ -23,11 +23,6 @@ namespace pitTeam.Modules
 {
     internal static class AddTeammateCreationFlow
     {
-        private const string DefaultAddTeammateToast = "adding {0} as teammate";
-        private const string DefaultFlowAlreadyOpen = "Add teammate flow is already open.";
-        private const string DefaultOpenFailed = "Could not open teammate creation screen.";
-        private const string DefaultUnsupportedSide = "Add teammate only supports PMC profiles right now.";
-        private const string DefaultCreateFailed = "Could not add teammate.";
         private const float MinimumReturnLoaderDurationSeconds = 0.1f;
 
         private static readonly Type SideSelectionScreenType = typeof(AccountSideSelectionScreen<EftAccountSideSelectionScreen.GClass3905, EEftScreenType>);
@@ -64,7 +59,7 @@ namespace pitTeam.Modules
         {
             if (activeController != null)
             {
-                ShowToast(GetLocalizedSocialUi("AddTeammateFlowActive", DefaultFlowAlreadyOpen));
+                ShowToast(GetLocalizedSocialUi("AddTeammateFlowActive"));
                 return;
             }
 
@@ -192,7 +187,7 @@ namespace pitTeam.Modules
                 ISession session = app?.Session;
                 if (session == null)
                 {
-                    ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed", DefaultOpenFailed));
+                    ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed"));
                     pitFireTeam.Log.LogError("[UI] Could not start add teammate flow: session is not available.");
                     return;
                 }
@@ -200,7 +195,7 @@ namespace pitTeam.Modules
                 EPlayerSide playerSide = session.Profile?.Info?.Side ?? EPlayerSide.Usec;
                 if (playerSide != EPlayerSide.Bear && playerSide != EPlayerSide.Usec)
                 {
-                    ShowToast(GetLocalizedSocialUi("AddTeammateUnsupportedSide", DefaultUnsupportedSide));
+                    ShowToast(GetLocalizedSocialUi("AddTeammateUnsupportedSide"));
                     pitFireTeam.Log.LogWarning($"[UI] Add teammate flow aborted because current side is {playerSide}.");
                     return;
                 }
@@ -213,7 +208,7 @@ namespace pitTeam.Modules
                 await EnsureDefaultProfilesLoaded();
                 if (GClass2305.Profile_0 == null || GClass2305.Profile_1 == null)
                 {
-                    ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed", DefaultOpenFailed));
+                    ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed"));
                     pitFireTeam.Log.LogError("[UI] Could not start add teammate flow: default preview profiles are missing.");
                     return;
                 }
@@ -245,7 +240,7 @@ namespace pitTeam.Modules
             catch (Exception ex)
             {
                 CleanupActiveFlow();
-                ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed", DefaultOpenFailed));
+                ShowToast(GetLocalizedSocialUi("AddTeammateOpenFailed"));
                 pitFireTeam.Log.LogError("[UI] Failed to open add teammate creation flow.");
                 pitFireTeam.Log.LogError(ex);
             }
@@ -402,22 +397,9 @@ namespace pitTeam.Modules
                 null);
         }
 
-        public static string GetLocalizedSocialUi(string key, string fallback)
+        public static string GetLocalizedSocialUi(string key)
         {
-            try
-            {
-                if (pitFireTeam.optionsLang?.socialUi != null &&
-                    pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value) &&
-                    !string.IsNullOrEmpty(value))
-                {
-                    return value;
-                }
-            }
-            catch
-            {
-            }
-
-            return fallback;
+            return pitFireTeam.GetSocialUiText(key);
         }
 
         private static IEnumerator ReturnToMainScreenWithOverlay()
@@ -542,7 +524,7 @@ namespace pitTeam.Modules
                 PrepareNicknameField(headSelectionState);
                 headSelectionState.StateReady = true;
                 nextButton.gameObject.SetActive(true);
-                nextButton.SetRawText(GetLocalizedSocialUi("AddTeammateConfirm", "ADD"), nextButton.HeaderSize);
+                nextButton.SetRawText(GetLocalizedSocialUi("AddTeammateConfirm"), nextButton.HeaderSize);
                 bool nicknameValid = headSelectionState._nicknameField != null &&
                     headSelectionState._nicknameField.method_5(GetNicknameText(headSelectionState)) == ENicknameError.ValidNickname;
                 nextButton.Interactable = !submitInProgress && nicknameValid;
@@ -652,7 +634,7 @@ namespace pitTeam.Modules
                 submitInProgress = false;
                 pitFireTeam.Log.LogError("[UI] Failed to create teammate in backend.");
                 pitFireTeam.Log.LogError(requestTask.Exception);
-                ShowToast(GetLocalizedSocialUi("AddTeammateCreateFailed", DefaultCreateFailed));
+                ShowToast(GetLocalizedSocialUi("AddTeammateCreateFailed"));
                 RefreshSubmitButton();
                 yield break;
             }
@@ -666,7 +648,7 @@ namespace pitTeam.Modules
                 submitInProgress = false;
                 pitFireTeam.Log.LogError("[UI] Failed to process teammate create response.");
                 pitFireTeam.Log.LogError(ex);
-                ShowToast(GetLocalizedSocialUi("AddTeammateCreateFailed", DefaultCreateFailed));
+                ShowToast(GetLocalizedSocialUi("AddTeammateCreateFailed"));
                 RefreshSubmitButton();
             }
         }
@@ -677,7 +659,7 @@ namespace pitTeam.Modules
             if (response == null || response.err != 0)
             {
                 string backendError = response?.errmsg;
-                throw new Exception(string.IsNullOrEmpty(backendError) ? DefaultCreateFailed : backendError);
+                throw new Exception(string.IsNullOrEmpty(backendError) ? GetLocalizedSocialUi("AddTeammateCreateFailed") : backendError);
             }
 
             pitFireTeam.Log.LogInfo($"[UI] Add teammate created in backend: {responseJson}");
@@ -686,7 +668,7 @@ namespace pitTeam.Modules
 
         private static IEnumerator ShowSuccessAndReturn(string nickname)
         {
-            string messageTemplate = GetLocalizedSocialUi("AddTeammateInProgress", DefaultAddTeammateToast);
+            string messageTemplate = GetLocalizedSocialUi("AddTeammateInProgress");
             ShowToast(string.Format(messageTemplate, nickname ?? string.Empty));
             SocialNetworkClassPatch.RefreshFriendsList();
             Components.SquadControlMenuUi.RequestRosterRefreshOnNextInject();

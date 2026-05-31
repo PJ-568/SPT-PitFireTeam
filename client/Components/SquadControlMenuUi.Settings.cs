@@ -210,7 +210,7 @@ namespace pitTeam.Components
         private IEnumerable<SquadSettingEntry> BuildSquadSettingsEntries()
         {
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.baseSettings ?? "Base Settings",
+                pitFireTeam.GetLanguageText(language => language.baseSettings),
                 pitFireTeam.spawnPoint,
                 pitFireTeam.englishBear,
                 pitFireTeam.pingRadioVolume,
@@ -220,7 +220,7 @@ namespace pitTeam.Components
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.followSettings ?? "Follow Settings",
+                pitFireTeam.GetLanguageText(language => language.followSettings),
                 pitFireTeam.patrolRadius,
                 pitFireTeam.followDistance,
                 pitFireTeam.goToDistance))
@@ -229,7 +229,7 @@ namespace pitTeam.Components
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.combatSettings ?? "Combat Settings",
+                pitFireTeam.GetLanguageText(language => language.combatSettings),
                 pitFireTeam.botGrenades,
                 pitFireTeam.regroupRadius,
                 pitFireTeam.enemyMarker,
@@ -242,7 +242,7 @@ namespace pitTeam.Components
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.raidSettings ?? "Raid Settings",
+                pitFireTeam.GetLanguageText(language => language.raidSettings),
                 pitFireTeam.teamEscape,
                 pitFireTeam.teamEscapeUseAnyExtract,
                 pitFireTeam.pickupEnabled,
@@ -259,7 +259,7 @@ namespace pitTeam.Components
 
             if (!IsRaidRestrictedSettingsContext())
             {
-                string loadoutSection = pitFireTeam.optionsLang?.loadoutManagementSettings ?? "Loadout Management";
+                string loadoutSection = pitFireTeam.GetLanguageText(language => language.loadoutManagementSettings);
                 yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Simple };
                 yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Restricted };
                 yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Immersive };
@@ -267,7 +267,7 @@ namespace pitTeam.Components
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.inputSettings ?? "Input Settings",
+                pitFireTeam.GetLanguageText(language => language.inputSettings),
                 pitFireTeam.hideUnsupportedCommands,
                 pitFireTeam.pingKey,
                 pitFireTeam.contactKey,
@@ -277,7 +277,7 @@ namespace pitTeam.Components
             }
 
             foreach (SquadSettingEntry setting in BuildSettingsSection(
-                pitFireTeam.optionsLang?.miscSettings ?? "Miscellaneous",
+                pitFireTeam.GetLanguageText(language => language.miscSettings),
                 pitFireTeam.teleportKey,
                 pitFireTeam.healKey,
                 pitFireTeam.heatlhMultiplier,
@@ -294,26 +294,22 @@ namespace pitTeam.Components
 
             if (screenRoot != null && screenRoot.activeInHierarchy)
             {
-                SetStandaloneTitle(GetSocialUiText(
-                    raidSettingsOverlayActive ? "SquadControlRaidSettingsTitle" : "SquadControlTitle",
-                    raidSettingsOverlayActive ? "My Squad Settings" : "My Squad"));
+                SetStandaloneTitle(GetSocialUiText(raidSettingsOverlayActive ? "SquadControlRaidSettingsTitle" : "SquadControlTitle"));
             }
 
             if (standaloneCloseButton != null)
             {
-                standaloneCloseButton.SetRawText(GetSocialUiText("SquadControlBack", "Back"), standaloneCloseButton.HeaderSize);
+                standaloneCloseButton.SetRawText(GetSocialUiText("SquadControlBack"), standaloneCloseButton.HeaderSize);
             }
 
             if (addTeammateButton != null)
             {
-                addTeammateButton.SetRawText(GetSocialUiText("AddTeammate", "+ Add teammate"), addTeammateButton.HeaderSize);
+                addTeammateButton.SetRawText(GetSocialUiText("AddTeammate"), addTeammateButton.HeaderSize);
             }
 
             if (emptyRosterLabel != null)
             {
-                emptyRosterLabel.text = GetSocialUiText(
-                    "SquadControlEmptyRoster",
-                    "You have not created any team members yet, press the add button below to get started");
+                emptyRosterLabel.text = GetSocialUiText("SquadControlEmptyRoster");
             }
 
             if (settingsContentRoot != null)
@@ -697,7 +693,7 @@ namespace pitTeam.Components
             tooltipAreaImage.raycastTarget = true;
 
             ProfileTooltipHoverController tooltipHover = tooltipAreaObject.AddComponent<ProfileTooltipHoverController>();
-            tooltipHover.Configure(GetSocialUiText("SettingsUnavailableDuringRaid", "Not available during raid"));
+            tooltipHover.Configure(GetSocialUiText("SettingsUnavailableDuringRaid"));
         }
 
         private static void SetSettingsControlInteractable(Transform controlRoot, bool interactable)
@@ -1072,7 +1068,7 @@ namespace pitTeam.Components
 
             GameObject titleObject = CreateText(
                 "pitFireTeam_LoadoutManagementConfirmTitle",
-                GetSocialUiText("LoadoutManagementConfirmTitle", "Change loadout management").ToUpperInvariant(),
+                GetSocialUiText("LoadoutManagementConfirmTitle").ToUpperInvariant(),
                 18f,
                 TextAlignmentOptions.MidlineLeft);
             RectTransform titleRect = titleObject.GetComponent<RectTransform>();
@@ -1095,7 +1091,7 @@ namespace pitTeam.Components
 
             GameObject bodyObject = CreateText(
                 "pitFireTeam_LoadoutManagementConfirmBody",
-                GetSocialUiText("LoadoutManagementConfirmPrompt", "Switching loadout management will switch all teammates to their Default loadout."),
+                GetSocialUiText("LoadoutManagementConfirmPrompt"),
                 24f,
                 TextAlignmentOptions.Center);
             RectTransform bodyRect = bodyObject.GetComponent<RectTransform>();
@@ -1110,7 +1106,7 @@ namespace pitTeam.Components
             bodyLabel.overflowMode = TextOverflowModes.Ellipsis;
 
             DefaultUIButton confirmButton = CreateOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f));
-            confirmButton.SetRawText(GetSocialUiText("LoadoutManagementConfirm", "Continue"), 22);
+            confirmButton.SetRawText(GetSocialUiText("LoadoutManagementConfirm"), 22);
             confirmButton.OnClick.RemoveAllListeners();
             confirmButton.OnClick.AddListener(() => ApplyLoadoutManagementModeChange(mode));
 
@@ -1759,7 +1755,7 @@ namespace pitTeam.Components
             SeedSuppressedNativeKeys();
             if (activeShortcutCaptureLabel != null)
             {
-                activeShortcutCaptureLabel.text = GetSocialUiText("SettingsPressKey", "Press key...");
+                activeShortcutCaptureLabel.text = GetSocialUiText("SettingsPressKey");
             }
 
             if (pitFireTeam.Instance != null)
@@ -1868,7 +1864,7 @@ namespace pitTeam.Components
             bool hasModifiers = shortcut.Modifiers != null && shortcut.Modifiers.Any();
             if (shortcut.MainKey == KeyCode.None && !hasModifiers)
             {
-                return GetSocialUiText("SettingsNotBound", "Not Bound");
+                return GetSocialUiText("SettingsNotBound");
             }
 
             shortcutBuilder.Clear();

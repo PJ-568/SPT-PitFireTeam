@@ -117,8 +117,8 @@ namespace pitTeam.Patches
                 TextAlignmentOptions.MidlineLeft,
                 string.Format(
                     pitFireTeam.IsFollowerLoadoutRealTransferMode()
-                        ? GetSocialUiText("EditLoadoutSubtitleReal", "Edit staged gear for {0}. Saving moves items between your stash and this teammate.")
-                        : GetSocialUiText("EditLoadoutSubtitle", "Edit cloned items for {0}. Changes here do not touch the real stash yet."),
+                        ? GetSocialUiText("EditLoadoutSubtitleReal")
+                        : GetSocialUiText("EditLoadoutSubtitle"),
                     profile.Info?.Nickname ?? "teammate"),
                 17f,
                 new Color(0.67f, 0.67f, 0.64f, 1f));
@@ -126,7 +126,7 @@ namespace pitTeam.Patches
             RectTransform leftSection = CreateLoadoutEditorSection(
                 panel.transform,
                 "pitFireTeam_PlayerStashSection",
-                GetSocialUiText("PlayerStash", "Player Stash"),
+                GetSocialUiText("PlayerStash"),
                 new Vector2(0f, 0f),
                 new Vector2(0.5f, 1f),
                 new Vector2(16f, 64f),
@@ -135,7 +135,7 @@ namespace pitTeam.Patches
             RectTransform rightSection = CreateLoadoutEditorSection(
                 panel.transform,
                 "pitFireTeam_BotInventorySection",
-                GetSocialUiText("BotInventory", "Follower Inventory"),
+                GetSocialUiText("BotInventory"),
                 new Vector2(0.5f, 0f),
                 new Vector2(1f, 1f),
                 new Vector2(0f, 64f),
@@ -145,7 +145,7 @@ namespace pitTeam.Patches
 
             DefaultUIButton cancelButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
             cancelButton.name = "pitFireTeam_LoadoutEditorCancelButton";
-            cancelButton.SetRawText(GetSocialUiText("Cancel", "Cancel"), 20);
+            cancelButton.SetRawText(GetSocialUiText("Cancel"), 20);
             cancelButton.OnClick.RemoveAllListeners();
             cancelButton.OnClick.AddListener(CloseLoadoutEditorOverlay);
             if (cancelButton.transform is RectTransform cancelRect)
@@ -159,7 +159,7 @@ namespace pitTeam.Patches
 
             DefaultUIButton doneButton = CreateOverlayButton(buttonTemplate, panel.transform, Vector2.zero, new Vector2(180f, 36f));
             doneButton.name = "pitFireTeam_LoadoutEditorDoneButton";
-            doneButton.SetRawText(GetSocialUiText("Save", "Save"), 20);
+            doneButton.SetRawText(GetSocialUiText("Save"), 20);
             doneButton.OnClick.RemoveAllListeners();
             doneButton.OnClick.AddListener(async () =>
             {
@@ -234,7 +234,7 @@ namespace pitTeam.Patches
         private static string GetLoadoutEditorTitle(ResultProfile profile)
         {
             string displayName = GetLoadoutEditorTitleTargetName(profile);
-            string titleFormat = GetSocialUiText("EditLoadoutTitleWithName", "Edit Loadout : {0}");
+            string titleFormat = GetSocialUiText("EditLoadoutTitleWithName");
             return string.Format(titleFormat, displayName);
         }
 
@@ -275,11 +275,11 @@ namespace pitTeam.Patches
                 CreateLoadoutEditorFallbackText(
                     leftSection,
                     "pitFireTeam_PlayerStashFallback",
-                    string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), missingReason));
+                    string.Format(GetSocialUiText("PlayerStashPlaceholder"), missingReason));
                 CreateLoadoutEditorFallbackText(
                     rightSection,
                     "pitFireTeam_BotInventoryFallback",
-                    string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), missingReason));
+                    string.Format(GetSocialUiText("BotInventoryPlaceholder"), missingReason));
                 return;
             }
 
@@ -291,11 +291,11 @@ namespace pitTeam.Patches
                 CreateLoadoutEditorFallbackText(
                     leftSection,
                     "pitFireTeam_PlayerStashFallback",
-                    string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), reason));
+                    string.Format(GetSocialUiText("PlayerStashPlaceholder"), reason));
                 CreateLoadoutEditorFallbackText(
                     rightSection,
                     "pitFireTeam_BotInventoryFallback",
-                    string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), reason));
+                    string.Format(GetSocialUiText("BotInventoryPlaceholder"), reason));
                 return;
             }
 
@@ -306,11 +306,11 @@ namespace pitTeam.Patches
                 CreateLoadoutEditorFallbackText(
                     leftSection,
                     "pitFireTeam_PlayerStashFallback",
-                    string.Format(GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"), reason));
+                    string.Format(GetSocialUiText("PlayerStashPlaceholder"), reason));
                 CreateLoadoutEditorFallbackText(
                     rightSection,
                     "pitFireTeam_BotInventoryFallback",
-                    string.Format(GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"), reason));
+                    string.Format(GetSocialUiText("BotInventoryPlaceholder"), reason));
                 return;
             }
 
@@ -468,7 +468,7 @@ namespace pitTeam.Patches
                     leftSection,
                     "pitFireTeam_PlayerStashFallback",
                     string.Format(
-                        GetSocialUiText("PlayerStashPlaceholder", "Failed to load cloned stash view.\n{0}"),
+                        GetSocialUiText("PlayerStashPlaceholder"),
                         ex.GetType().Name + ": " + ex.Message));
             }
         }
@@ -519,7 +519,7 @@ namespace pitTeam.Patches
                     rightSection,
                     "pitFireTeam_BotInventoryFallback",
                     string.Format(
-                        GetSocialUiText("BotInventoryPlaceholder", "Failed to load cloned follower inventory.\n{0}"),
+                        GetSocialUiText("BotInventoryPlaceholder"),
                         ex.GetType().Name + ": " + ex.Message));
             }
         }
@@ -862,7 +862,7 @@ namespace pitTeam.Patches
                 new Vector2(18f, 0f),
                 new Vector2(-54f, 0f),
                 TextAlignmentOptions.MidlineLeft,
-                GetSocialUiText("ProfileRecoveredTitle", "Profile recovered").ToUpperInvariant(),
+                GetSocialUiText("ProfileRecoveredTitle").ToUpperInvariant(),
                 19f,
                 new Color(0.87f, 0.87f, 0.84f, 1f));
 
@@ -878,7 +878,7 @@ namespace pitTeam.Patches
             closeButton.onClick.AddListener(new UnityAction(CloseProfileRecoveryOverlay));
 
             string body = string.IsNullOrWhiteSpace(notice.Message)
-                ? GetSocialUiText("ProfileRecoveredBody", "The profile of this teammate has been recovered from a bad state. Some items from his inventory may have been deleted in the process.")
+                ? GetSocialUiText("ProfileRecoveredBody")
                 : notice.Message;
 
             CreateOverlayText(
@@ -893,7 +893,7 @@ namespace pitTeam.Patches
 
             DefaultUIButton okButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(250f, 18f), new Vector2(180f, 36f));
             okButton.name = "pitFireTeam_ProfileRecoveryOkButton";
-            okButton.SetRawText(GetSocialUiText("Ok", "OK"), 20);
+            okButton.SetRawText(GetSocialUiText("Ok"), 20);
             okButton.OnClick.RemoveAllListeners();
             okButton.OnClick.AddListener(CloseProfileRecoveryOverlay);
 
@@ -982,7 +982,7 @@ namespace pitTeam.Patches
                 pitFireTeam.Log.LogError("[UI] Failed to commit teammate loadout editor changes.");
                 pitFireTeam.Log.LogError(ex);
                 NotificationManagerClass.DisplayWarningNotification(
-                    ex.Message ?? GetSocialUiText("LoadoutEditorSaveFailed", "Failed to save teammate inventory."),
+                    ex.Message ?? GetSocialUiText("LoadoutEditorSaveFailed"),
                     ENotificationDurationType.Default);
             }
         }
@@ -994,7 +994,7 @@ namespace pitTeam.Patches
                 || ItemUiContext.Instance == null)
             {
                 NotificationManagerClass.DisplayWarningNotification(
-                    GetSocialUiText("LoadoutEditorSaveFailed", "Failed to save teammate inventory."),
+                    GetSocialUiText("LoadoutEditorSaveFailed"),
                     ENotificationDurationType.Default);
                 return;
             }
@@ -1008,7 +1008,7 @@ namespace pitTeam.Patches
             if (ActiveProfileSession?.EquipmentBuildsStorage == null)
             {
                 NotificationManagerClass.DisplayWarningNotification(
-                    GetSocialUiText("LoadoutEditorSaveFailed", "Failed to save teammate inventory."),
+                    GetSocialUiText("LoadoutEditorSaveFailed"),
                     ENotificationDurationType.Default);
                 return;
             }
@@ -1038,7 +1038,7 @@ namespace pitTeam.Patches
 
                     if (string.IsNullOrWhiteSpace(enteredName))
                     {
-                        NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("NameCannotBeEmpty", "Name cannot be empty."), ENotificationDurationType.Default);
+                        NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("NameCannotBeEmpty"), ENotificationDurationType.Default);
                         continue;
                     }
 
@@ -1077,7 +1077,7 @@ namespace pitTeam.Patches
                     var saveResult = await buildsStorage.SaveBuild(editedBuild);
                     if (saveResult.Failed)
                     {
-                        NotificationManagerClass.DisplayWarningNotification(saveResult.Error ?? GetSocialUiText("SaveEquipmentPresetFailed", "Failed to save equipment preset."), ENotificationDurationType.Default);
+                        NotificationManagerClass.DisplayWarningNotification(saveResult.Error ?? GetSocialUiText("SaveEquipmentPresetFailed"), ENotificationDurationType.Default);
                         continue;
                     }
 
@@ -1178,7 +1178,7 @@ namespace pitTeam.Patches
                 if (realItemCommit && !liveStashRefreshApplied)
                 {
                     NotificationManagerClass.DisplayWarningNotification(
-                        GetSocialUiText("LoadoutEditorRealCommitRestartRequired", "Loadout saved. Restart the game to refresh the player stash view."),
+                        GetSocialUiText("LoadoutEditorRealCommitRestartRequired"),
                         ENotificationDurationType.Default);
                 }
             }
@@ -1326,9 +1326,7 @@ namespace pitTeam.Patches
 
         internal static IResult ShowLoadoutEditorSaveBeforeRepairPrompt()
         {
-            string message = GetSocialUiText(
-                "LoadoutEditorSaveBeforeRepair",
-                "Please save your teammate inventory first to be able to repair.");
+            string message = GetSocialUiText("LoadoutEditorSaveBeforeRepair");
 
             ShowLoadoutEditorSaveBeforeRepairOverlay(message);
             return new FailedResult(message, 0);
@@ -1390,13 +1388,13 @@ namespace pitTeam.Patches
 
             DefaultUIButton cancelButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(122f, 20f), new Vector2(170f, 36f));
             cancelButton.name = "pitFireTeam_LoadoutEditorSaveBeforeRepairCancelButton";
-            cancelButton.SetRawText(GetSocialUiText("Cancel", "Cancel"), 20);
+            cancelButton.SetRawText(GetSocialUiText("Cancel"), 20);
             cancelButton.OnClick.RemoveAllListeners();
             cancelButton.OnClick.AddListener(CloseLoadoutEditorSaveBeforeRepairOverlay);
 
             DefaultUIButton saveButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(328f, 20f), new Vector2(170f, 36f));
             saveButton.name = "pitFireTeam_LoadoutEditorSaveBeforeRepairSaveButton";
-            saveButton.SetRawText(GetSocialUiText("Save", "Save"), 20);
+            saveButton.SetRawText(GetSocialUiText("Save"), 20);
             saveButton.OnClick.RemoveAllListeners();
             saveButton.OnClick.AddListener(async () =>
             {

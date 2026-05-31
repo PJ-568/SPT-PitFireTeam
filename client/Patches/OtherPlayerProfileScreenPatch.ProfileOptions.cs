@@ -22,16 +22,9 @@ namespace pitTeam.Patches
 {
     internal partial class OtherPlayerProfileScreenPatch
     {
-        private static string GetSocialUiText(string key, string fallback)
+        private static string GetSocialUiText(string key)
         {
-            if (pitFireTeam.optionsLang?.socialUi != null
-                && pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value)
-                && !string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-
-            return fallback;
+            return pitFireTeam.GetSocialUiText(key);
         }
 
         private static void EnsureBodySuccess(string responseJson)
@@ -553,7 +546,7 @@ namespace pitTeam.Patches
                 button.name = "pitFireTeam_LoadoutDropdownEditButton";
                 button.gameObject.SetActive(true);
                 button.Interactable = true;
-                button.SetRawText(GetSocialUiText("EditLoadout", "EDIT LOADOUT"), 18);
+                button.SetRawText(GetSocialUiText("EditLoadout"), 18);
                 HideProfileButtonIconContainer(button);
                 button.OnClick.RemoveAllListeners();
                 button.OnClick.AddListener(() =>

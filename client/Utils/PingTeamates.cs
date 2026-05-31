@@ -339,7 +339,7 @@ namespace pitTeam.Utils
 
                     if (!bt.Data.HealthController.IsAlive)
                     {
-                        stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Dead"]);
+                        stringBuilder.Append(": " + pitFireTeam.GetBotStatusText("Dead"));
                     }
                     else if (bt.Data.Memory.HaveEnemy)
                     {
@@ -349,16 +349,16 @@ namespace pitTeam.Utils
                             float lastSeenAgo = Time.time - goalEnemy.PersonalLastSeenTime;
                             if (IsEnemyReliablyVisibleForMarker(bt.Data, goalEnemy) || lastSeenAgo < 5f)
                             {
-                                stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Engaged"]);
+                                stringBuilder.Append(": " + pitFireTeam.GetBotStatusText("Engaged"));
                             }
                             else
                             {
-                                stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Alerted"]);
+                                stringBuilder.Append(": " + pitFireTeam.GetBotStatusText("Alerted"));
                             }
                         }
                         else
                         {
-                            stringBuilder.Append(": " + pitFireTeam.optionsLang.botStatus["Alerted"]);
+                            stringBuilder.Append(": " + pitFireTeam.GetBotStatusText("Alerted"));
                         }
                     }
 
@@ -404,22 +404,22 @@ namespace pitTeam.Utils
                         BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(bt.Data);
                         if (IsFollowerCurrentlyHealing(bt.Data))
                         {
-                            stringBuilder.Append($" | " + pitFireTeam.optionsLang.botStatus["Heal"]);
+                            stringBuilder.Append($" | " + pitFireTeam.GetBotStatusText("Heal"));
                         }
                         else if (DoesFollowerWantToHeal(bt.Data))
                         {
-                            stringBuilder.Append($" | " + pitFireTeam.optionsLang.botStatus["WantToHeal"]);
+                            stringBuilder.Append($" | " + pitFireTeam.GetBotStatusText("WantToHeal"));
                         }
                         else
                         {
-                            string tactic = pitFireTeam.optionsLang.tacticOptions[0];
+                            string tactic = pitFireTeam.GetTacticOptionText(0);
                             if (followerData != null)
                             {
                                 tactic = followerData.CombatTactic switch
                                 {
-                                    FollowerCombatTactic.Marksman => "Marksman",
-                                    FollowerCombatTactic.Protector => "Protector",
-                                    _ => pitFireTeam.optionsLang.tacticOptions[0],
+                                    FollowerCombatTactic.Marksman => pitFireTeam.GetSocialUiText("ProfileTacticMarksman"),
+                                    FollowerCombatTactic.Protector => pitFireTeam.GetSocialUiText("ProfileTacticProtector"),
+                                    _ => pitFireTeam.GetTacticOptionText(0),
                                 };
                             }
                             if (tactic != null)

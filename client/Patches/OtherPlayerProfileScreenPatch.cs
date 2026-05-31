@@ -764,7 +764,7 @@ namespace pitTeam.Patches
             CustomTextMeshProUGUI label = CreateAggressionLabel(
                 "pitFireTeam_AggressionLabel",
                 rowRoot,
-                GetSocialUiText("ProfileAggression", "Aggression"),
+                GetSocialUiText("ProfileAggression"),
                 new Vector2(0f, 0.5f),
                 new Vector2(0f, 0.5f),
                 new Vector2(0f, 0.5f),
@@ -1067,33 +1067,25 @@ namespace pitTeam.Patches
         {
             if (string.IsNullOrWhiteSpace(tactic))
             {
-                return GetSocialUiText("ProfileTactic", "Rifleman");
+                return GetSocialUiText("ProfileTactic");
             }
 
             if (IsDefaultTacticSelection(tactic))
             {
-                return GetSocialUiText("ProfileTactic", GetTacticOptionFallback(0, "Rifleman"));
+                return GetSocialUiText("ProfileTactic");
             }
 
             if (string.Equals(tactic, "marksman", StringComparison.OrdinalIgnoreCase))
             {
-                return GetSocialUiText("ProfileTacticMarksman", GetTacticOptionFallback(2, "Marksman"));
+                return GetSocialUiText("ProfileTacticMarksman");
             }
 
             if (string.Equals(tactic, "protector", StringComparison.OrdinalIgnoreCase))
             {
-                return GetSocialUiText("ProfileTacticProtector", "Protector");
+                return GetSocialUiText("ProfileTacticProtector");
             }
 
             return tactic;
-        }
-
-        private static string GetTacticOptionFallback(int index, string fallback)
-        {
-            string[] options = pitFireTeam.optionsLang?.tacticOptions;
-            return options != null && index >= 0 && index < options.Length && !string.IsNullOrWhiteSpace(options[index])
-                ? options[index]
-                : fallback;
         }
 
         private static void CreateEditLoadoutButton(OtherPlayerProfileScreen screen, RectTransform loadoutSelector, Transform parent, ResultProfile profile, int rowOffset = 1)
@@ -1153,8 +1145,8 @@ namespace pitTeam.Patches
             bool realTransferMode = pitFireTeam.IsFollowerLoadoutRealTransferMode();
             button.SetRawText(
                 realTransferMode
-                    ? GetSocialUiText("BuyGearLoadout", "KIT LOADOUTS")
-                    : GetSocialUiText("EditLoadout", "EDIT LOADOUT"),
+                    ? GetSocialUiText("BuyGearLoadout")
+                    : GetSocialUiText("EditLoadout"),
                 18);
             HideProfileButtonIconContainer(button);
             button.OnClick.RemoveAllListeners();

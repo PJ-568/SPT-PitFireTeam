@@ -100,6 +100,7 @@ namespace pitTeam
         public Dictionary<string, string> memberUniformBottom { get; set; }
 
         public Dictionary<string, string> equipmentLock { get; set; }
+        public Dictionary<string, string> loadoutManagement { get; set; }
         public Dictionary<string, string> loadoutManagementSimple { get; set; }
         public Dictionary<string, string> loadoutManagementRestricted { get; set; }
         public Dictionary<string, string> loadoutManagementImmersive { get; set; }
@@ -513,6 +514,89 @@ namespace pitTeam
             optionsLang = LoadLanguageOptions(currentLanguageCode);
         }
 
+        internal static string GetSocialUiText(string key)
+        {
+            return GetDictionaryText(optionsLang?.socialUi, EmbeddedEnglishLanguageProvider.Fallback.socialUi, key);
+        }
+
+        internal static string GetGestureText(string key)
+        {
+            return GetDictionaryText(optionsLang?.gestures, EmbeddedEnglishLanguageProvider.Fallback.gestures, key);
+        }
+
+        internal static string GetBotStatusText(string key)
+        {
+            return GetDictionaryText(optionsLang?.botStatus, EmbeddedEnglishLanguageProvider.Fallback.botStatus, key);
+        }
+
+        internal static string GetTacticOptionText(int index)
+        {
+            string localized = GetArrayText(optionsLang?.tacticOptions, index);
+            if (!string.IsNullOrWhiteSpace(localized))
+            {
+                return localized;
+            }
+
+            return GetArrayText(EmbeddedEnglishLanguageProvider.Fallback.tacticOptions, index) ?? string.Empty;
+        }
+
+        internal static string GetLanguageText(Func<LanguageOptions, string> selector)
+        {
+            string localized = GetLanguageText(optionsLang, selector);
+            if (!string.IsNullOrWhiteSpace(localized))
+            {
+                return localized;
+            }
+
+            return GetLanguageText(EmbeddedEnglishLanguageProvider.Fallback, selector) ?? string.Empty;
+        }
+
+        private static string GetDictionaryText(Dictionary<string, string> localized, Dictionary<string, string> fallback, string key)
+        {
+            if (TryGetDictionaryText(localized, key, out string value)
+                || TryGetDictionaryText(fallback, key, out value))
+            {
+                return value;
+            }
+
+            return key ?? string.Empty;
+        }
+
+        private static bool TryGetDictionaryText(Dictionary<string, string> source, string key, out string value)
+        {
+            value = null;
+            if (source == null || string.IsNullOrWhiteSpace(key))
+            {
+                return false;
+            }
+
+            return source.TryGetValue(key, out value) && !string.IsNullOrWhiteSpace(value);
+        }
+
+        private static string GetArrayText(string[] values, int index)
+        {
+            return values != null && index >= 0 && index < values.Length && !string.IsNullOrWhiteSpace(values[index])
+                ? values[index]
+                : null;
+        }
+
+        private static string GetLanguageText(LanguageOptions language, Func<LanguageOptions, string> selector)
+        {
+            if (language == null || selector == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return selector(language);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static LanguageOptions LoadLanguageOptions(string languageCode)
         {
             LanguageOptions fallback = EmbeddedEnglishLanguageProvider.Create();
@@ -684,7 +768,7 @@ namespace pitTeam
             pmcArmbands = Config.Bind("", "14 PmcArmbands", true, new ConfigDescription(optionsLang.pmcArmbands["Description"], null, CreateConfigAttributes(-1007, false, optionsLang.pmcArmbands)));
             pmcArmbands.SettingChanged += (_, _) => SyncServerSettings();
 
-            loadoutManagementMode = Config.Bind("", "14 LoadoutManagement", LoadoutManagementMode.Simple, new ConfigDescription("Controls how teammate loadouts are selected, consumed, and preserved.", null, CreateConfigAttributes(-1005, false, optionsLang.loadoutManagementSimple)));
+            loadoutManagementMode = Config.Bind("", "14 LoadoutManagement", LoadoutManagementMode.Simple, new ConfigDescription(optionsLang.loadoutManagement["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.loadoutManagement)));
 
             botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
 

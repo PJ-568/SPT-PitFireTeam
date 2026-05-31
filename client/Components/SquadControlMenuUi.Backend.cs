@@ -193,7 +193,7 @@ namespace pitTeam.Components
 
             if (joinedGroup)
             {
-                string successTemplate = GetSocialUiText("SquadControlInviteAcceptedToast", "{0} joined the group.");
+                string successTemplate = GetSocialUiText("SquadControlInviteAcceptedToast");
                 AddTeammateCreationFlow.ShowToast(string.Format(successTemplate, nickname ?? string.Empty));
                 yield break;
             }
@@ -205,7 +205,7 @@ namespace pitTeam.Components
                 yield break;
             }
 
-            string failureTemplate = GetSocialUiText("SquadControlInvitePendingFailedToast", "Group invite for {0} was not accepted.");
+            string failureTemplate = GetSocialUiText("SquadControlInvitePendingFailedToast");
             AddTeammateCreationFlow.ShowToast(string.Format(failureTemplate, nickname ?? string.Empty));
         }
 
@@ -235,12 +235,12 @@ namespace pitTeam.Components
 
             if (removedFromGroup)
             {
-                string successTemplate = GetSocialUiText("SquadControlRemovedFromGroupToast", "Removed {0} from the group.");
+                string successTemplate = GetSocialUiText("SquadControlRemovedFromGroupToast");
                 AddTeammateCreationFlow.ShowToast(string.Format(successTemplate, nickname ?? string.Empty));
                 yield break;
             }
 
-            string failureTemplate = GetSocialUiText("SquadControlRemoveFromGroupFailedToast", "Failed to remove {0} from the group.");
+            string failureTemplate = GetSocialUiText("SquadControlRemoveFromGroupFailedToast");
             AddTeammateCreationFlow.ShowToast(string.Format(failureTemplate, nickname ?? string.Empty));
         }
 
@@ -356,16 +356,12 @@ namespace pitTeam.Components
 
                 entry.AutoJoinEnabled = nextState;
                 UpdateAutoJoinBadge(accountId, nextState);
-                string successTemplate = GetSocialUiText(
-                    nextState ? "SquadControlAutoJoinEnabledToast" : "SquadControlAutoJoinDisabledToast",
-                    nextState ? "Enabled PMC raid auto-join for {0}." : "Disabled PMC raid auto-join for {0}.");
+                string successTemplate = GetSocialUiText(nextState ? "SquadControlAutoJoinEnabledToast" : "SquadControlAutoJoinDisabledToast");
                 AddTeammateCreationFlow.ShowToast(string.Format(successTemplate, nickname ?? string.Empty));
                 yield break;
             }
 
-            string failureTemplate = GetSocialUiText(
-                nextState ? "SquadControlAutoJoinEnableFailedToast" : "SquadControlAutoJoinDisableFailedToast",
-                nextState ? "Failed to enable auto-join for {0}" : "Failed to disable auto-join for {0}");
+            string failureTemplate = GetSocialUiText(nextState ? "SquadControlAutoJoinEnableFailedToast" : "SquadControlAutoJoinDisableFailedToast");
             AddTeammateCreationFlow.ShowToast(string.Format(failureTemplate, nickname ?? string.Empty));
         }
 

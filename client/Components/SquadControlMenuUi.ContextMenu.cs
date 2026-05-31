@@ -47,9 +47,7 @@ namespace pitTeam.Components
             }
 
             bool isInGroup = IsAccountInCurrentGroup(entry.AccountId);
-            string groupActionLabel = GetSocialUiText(
-                isInGroup ? "SquadControlRemoveFromGroup" : "SquadControlInviteToGroup",
-                isInGroup ? "Remove from group" : "Invite to group");
+            string groupActionLabel = GetSocialUiText(isInGroup ? "SquadControlRemoveFromGroup" : "SquadControlInviteToGroup");
             Action groupAction = isInGroup
                 ? (Action)(() => RemoveTeammateFromGroup(entry))
                 : () => InviteTeammateToGroup(entry);
@@ -110,7 +108,7 @@ namespace pitTeam.Components
                 groupAction);
             CreateContextMenuButton(
                 menuObject.transform,
-                GetSocialUiText("SquadControlViewProfile", "View profile"),
+                GetSocialUiText("SquadControlViewProfile"),
                 () =>
                 {
                     ClosePortraitContextMenu();
@@ -118,9 +116,7 @@ namespace pitTeam.Components
                 });
             CreateContextMenuButton(
                 menuObject.transform,
-                GetSocialUiText(
-                    entry.AutoJoinEnabled ? "SquadControlAutoJoinOn" : "SquadControlAutoJoinOff",
-                    entry.AutoJoinEnabled ? "Auto join: On" : "Auto join: Off"),
+                GetSocialUiText(entry.AutoJoinEnabled ? "SquadControlAutoJoinOn" : "SquadControlAutoJoinOff"),
                 () => ToggleTeammateAutoJoin(entry));
 
             portraitContextMenuOverlay = overlayRoot;
@@ -187,7 +183,7 @@ namespace pitTeam.Components
                 buttonTemplate,
                 buttonsRoot,
                 "WatchProfile",
-                GetSocialUiText("SquadControlViewProfile", "View profile"),
+                GetSocialUiText("SquadControlViewProfile"),
                 () =>
                 {
                     ClosePortraitContextMenu();
@@ -198,9 +194,7 @@ namespace pitTeam.Components
                 buttonTemplate,
                 buttonsRoot,
                 "AutoJoin",
-                GetSocialUiText(
-                    entry.AutoJoinEnabled ? "SquadControlAutoJoinOn" : "SquadControlAutoJoinOff",
-                    entry.AutoJoinEnabled ? "Auto join: On" : "Auto join: Off"),
+                GetSocialUiText(entry.AutoJoinEnabled ? "SquadControlAutoJoinOn" : "SquadControlAutoJoinOff"),
                 () =>
                 {
                     ClosePortraitContextMenu();
