@@ -20,13 +20,7 @@ namespace pitTeam.Patches
     {
         public static string ViewBackpackTextUpper()
         {
-            string text = pitFireTeam.optionsLang?.gestures != null &&
-                          pitFireTeam.optionsLang.gestures.TryGetValue("ViewBackpack", out string value) &&
-                          !string.IsNullOrWhiteSpace(value)
-                ? value
-                : "View Backpack";
-
-            return text.ToUpperInvariant();
+            return pitFireTeam.GetGestureText("ViewBackpack").ToUpperInvariant();
         }
 
         public static void FitViewBackpackQuickText(CustomTextMeshProUGUI textField, GameObject? quickCommandObject = null)
@@ -397,41 +391,34 @@ namespace pitTeam.Patches
         {
             if (index == (int)EPhraseTrigger.OnRepeatedContact)
             {
-                __result = GetGestureText("OnRepeatedContact", EPhraseTrigger.OnRepeatedContact.ToString());
+                __result = GetGestureText("OnRepeatedContact");
                 return false;
             }
 
             if (index == (int)(EPhraseTrigger)CustomPhrases.TeamStatus)
             {
-                __result = GetGestureText("TeamStatus", CustomPhrases.TeamStatus.ToString());
+                __result = GetGestureText("TeamStatus");
                 return false;
             }
 
             if (index == (int)(EPhraseTrigger)CustomPhrases.ViewBackpack)
             {
-                __result = GetGestureText("ViewBackpack", CustomPhrases.ViewBackpack.ToString());
+                __result = GetGestureText("ViewBackpack");
                 return false;
             }
 
             if (index == (int)(EInteraction)CustomGestures.OverThere)
             {
-                __result = GetGestureText("OverThere", CustomGestures.OverThere.ToString());
+                __result = GetGestureText("OverThere");
                 return false;
             }
 
             return true;
         }
 
-        private static string GetGestureText(string key, string fallback)
+        private static string GetGestureText(string key)
         {
-            if (pitFireTeam.optionsLang?.gestures != null &&
-                pitFireTeam.optionsLang.gestures.TryGetValue(key, out string value) &&
-                !string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-
-            return fallback;
+            return pitFireTeam.GetGestureText(key);
         }
     }
 
@@ -449,17 +436,17 @@ namespace pitTeam.Patches
             {
                 if (trigger == EPhraseTrigger.OnRepeatedContact)
                 {
-                    __result = pitFireTeam.optionsLang.gestures["OnRepeatedContact"];
+                    __result = pitFireTeam.GetGestureText("OnRepeatedContact");
                     return false;
                 }
                 else if (trigger == (EPhraseTrigger)CustomPhrases.TeamStatus)
                 {
-                    __result = pitFireTeam.optionsLang.gestures["TeamStatus"];
+                    __result = pitFireTeam.GetGestureText("TeamStatus");
                     return false;
                 }
                 else if (trigger == (EPhraseTrigger)CustomPhrases.ViewBackpack)
                 {
-                    __result = pitFireTeam.optionsLang.gestures["ViewBackpack"];
+                    __result = pitFireTeam.GetGestureText("ViewBackpack");
                     return false;
                 }
             }
@@ -467,7 +454,7 @@ namespace pitTeam.Patches
             {
                 if (trigger2 == (EInteraction)CustomGestures.OverThere)
                 {
-                    __result = pitFireTeam.optionsLang.gestures["OverThere"];
+                    __result = pitFireTeam.GetGestureText("OverThere");
                     return false;
                 }
             }

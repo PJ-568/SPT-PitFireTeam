@@ -4,6 +4,10 @@ namespace pitTeam.Localization
 {
     internal static class EmbeddedEnglishLanguageProvider
     {
+        private static LanguageOptions cached;
+
+        public static LanguageOptions Fallback => cached ??= Create();
+
         private static Dictionary<string, string> Entry(string name, string description)
         {
             return new Dictionary<string, string>
@@ -94,6 +98,9 @@ namespace pitTeam.Localization
                 equipmentLock = Entry(
                     "Lock Squad Equipment",
                     "Locks the equipment of the squad members."),
+                loadoutManagement = Entry(
+                    "Loadout Management",
+                    "Controls how teammate loadouts are selected, consumed, and preserved."),
                 loadoutManagementSimple = Entry(
                     "Simple",
                     "Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted."),
@@ -189,7 +196,9 @@ namespace pitTeam.Localization
                     ["AddTeammateCreateFailed"] = "Could not create teammate.",
                     ["AddTeammateUnsupportedSide"] = "Add teammate only supports PMC profiles right now.",
                     ["Cancel"] = "Cancel",
+                    ["Save"] = "Save",
                     ["Done"] = "Done",
+                    ["Ok"] = "OK",
                     ["EnterNickname"] = "Enter player nickname",
                     ["NicknameTooShort"] = "Nickname too short",
                     ["NameCannotBeEmpty"] = "Name cannot be empty.",
@@ -217,6 +226,11 @@ namespace pitTeam.Localization
                     ["EditLoadoutTitleWithName"] = "Edit Loadout : {0}",
                     ["EditLoadoutSubtitle"] = "Edit cloned items for {0}. Changes here do not touch the real stash yet.",
                     ["EditLoadoutSubtitleReal"] = "Edit staged gear for {0}. Saving moves items between your stash and this teammate.",
+                    ["ProfileRecoveredTitle"] = "Profile recovered",
+                    ["ProfileRecoveredBody"] = "The profile of this teammate has been recovered from a bad state. Some items from his inventory may have been deleted in the process.",
+                    ["LoadoutEditorSaveBeforeRepair"] = "Please save your teammate inventory first to be able to repair.",
+                    ["LoadoutEditorSaveFailed"] = "Failed to save teammate inventory.",
+                    ["LoadoutEditorRealCommitRestartRequired"] = "Loadout saved. Restart the game to refresh the player stash view.",
                     ["PlayerStash"] = "Player Stash",
                     ["PlayerStashPlaceholder"] = "Failed to load cloned stash view.\n{0}",
                     ["BotInventory"] = "Follower Inventory",
@@ -233,6 +247,7 @@ namespace pitTeam.Localization
                     ["RemoveTeammateConfirm"] = "Remove",
                     ["SquadControlDeleteTooltip"] = "Delete",
                     ["SquadControlInviteToGroup"] = "Invite to group",
+                    ["SquadControlRemoveFromGroup"] = "Remove from group",
                     ["SquadControlViewProfile"] = "View profile",
                     ["SquadControlAutoJoinOn"] = "Auto join: On",
                     ["SquadControlAutoJoinOff"] = "Auto join: Off",

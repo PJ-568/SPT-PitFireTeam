@@ -98,7 +98,7 @@ namespace pitTeam.Patches
             button.name = "pitFireTeam_NicknameRenameButton";
             button.gameObject.SetActive(true);
             button.Interactable = true;
-            button.SetRawText(GetSocialUiText("RenameChange", "EDIT NAME"), 18);
+            button.SetRawText(GetSocialUiText("RenameChange"), 18);
             HideProfileButtonIconContainer(button);
             HideHideoutButtonDecorations(button);
             button.OnClick.RemoveAllListeners();
@@ -323,7 +323,7 @@ namespace pitTeam.Patches
             titleRect.offsetMax = new Vector2(-42f, 0f);
 
             CustomTextMeshProUGUI title = titleObject.GetComponent<CustomTextMeshProUGUI>();
-            title.text = "\u270E " + GetSocialUiText("RenameTeammateTitle", "Rename teammate").ToUpperInvariant();
+            title.text = "\u270E " + GetSocialUiText("RenameTeammateTitle").ToUpperInvariant();
             title.fontSize = 18f;
             title.alignment = TextAlignmentOptions.MidlineLeft;
             title.color = new Color(0.87f, 0.87f, 0.84f, 1f);
@@ -370,7 +370,7 @@ namespace pitTeam.Patches
             inputField.textViewport.offsetMax = Vector2.zero;
             AddTeammateNicknameFieldUi.SetStatusLabelText(
                 nicknameField,
-                GetSocialUiText("EnterNickname", "Enter player nickname"));
+                GetSocialUiText("EnterNickname"));
 
             TMP_Text stockStatusLabel = NicknameFieldStatusLabelField?.GetValue(nicknameField) as TMP_Text;
             if (stockStatusLabel != null)
@@ -395,7 +395,7 @@ namespace pitTeam.Patches
             inputField.pointSize = 28f;
 
             DefaultUIButton saveButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(0f, 12f), new Vector2(180f, 36f));
-            saveButton.SetRawText(GetSocialUiText("RenameSave", "Save"), 22);
+            saveButton.SetRawText(GetSocialUiText("RenameSave"), 22);
             saveButton.OnClick.RemoveAllListeners();
             saveButton.OnClick.AddListener(() => TryPersistNickname(inputField.text, profile, nicknameField, stockStatusLabel));
             if (saveButton.transform is RectTransform saveRect)
@@ -460,7 +460,7 @@ namespace pitTeam.Patches
             labelRect.offsetMax = Vector2.zero;
 
             CustomTextMeshProUGUI label = labelObject.GetComponent<CustomTextMeshProUGUI>();
-            label.text = GetSocialUiText("RenameClose", "x");
+            label.text = GetSocialUiText("RenameClose");
             label.fontSize = 16f;
             label.alignment = TextAlignmentOptions.Center;
             label.color = new Color(0.95f, 0.95f, 0.95f, 1f);
@@ -482,8 +482,8 @@ namespace pitTeam.Patches
             {
                 AddTeammateNicknameFieldUi.SetStatusLabelText(
                     nicknameField,
-                    GetSocialUiText("NicknameTooShort", "Nickname too short"));
-                SetRenameStatus(statusLabel, GetSocialUiText("NicknameTooShort", "Nickname too short"), true);
+                    GetSocialUiText("NicknameTooShort"));
+                SetRenameStatus(statusLabel, GetSocialUiText("NicknameTooShort"), true);
                 inputField?.ActivateInputField();
                 return;
             }
@@ -493,7 +493,7 @@ namespace pitTeam.Patches
             {
                 nicknameField.method_6(validationError, false);
                 string message = validationError == ENicknameError.TooShort
-                    ? GetSocialUiText("NicknameTooShort", "Nickname too short")
+                    ? GetSocialUiText("NicknameTooShort")
                     : validationError.Localized(EStringCase.None);
                 if (validationError == ENicknameError.TooShort)
                 {
@@ -506,7 +506,7 @@ namespace pitTeam.Patches
 
             AddTeammateNicknameFieldUi.SetStatusLabelText(
                 nicknameField,
-                GetSocialUiText("EnterNickname", "Enter player nickname"));
+                GetSocialUiText("EnterNickname"));
 
             if (string.Equals(normalized, current, StringComparison.Ordinal))
             {
@@ -543,7 +543,7 @@ namespace pitTeam.Patches
                     inputField.ActivateInputField();
                 }
 
-                SetRenameStatus(statusLabel, GetSocialUiText("RenameFailed", "Could not rename teammate"), true);
+                SetRenameStatus(statusLabel, GetSocialUiText("RenameFailed"), true);
             }
         }
 

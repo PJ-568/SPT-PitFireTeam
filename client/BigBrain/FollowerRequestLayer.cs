@@ -113,6 +113,7 @@ namespace pitTeam.BigBrain
                 }
 
                 InteractableObjects.RemoveTaker(BotOwner);
+                InteractableObjects.RemoveBodyLootTaker(BotOwner);
                 InteractableObjects.RemoveOpener(BotOwner);
                 followerData.ClearCommand("KnownEnemyAcquired");
                 return false;

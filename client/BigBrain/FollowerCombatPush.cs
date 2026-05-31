@@ -24,7 +24,11 @@ namespace pitTeam.BigBrain
         private const string PushReasonPrefix = "push.";
         private const float RunToEnemyNonSprintGraceSeconds = 0.75f;
         private const float RunToEnemyNoSprintBlockSeconds = 3f;
+        private const float UrbanDetourPushCheckInterval = 0.75f;
+        private const float UrbanDetourRunToEnemyBlockSeconds = 3f;
         private const int AutoPushMinMagazineAmmo = 10;
+        private const int StandardAutoPushMagazineCapacity = 30;
+        private const int PrecisionRifleAutoPushMagazineCapacity = 20;
         private const int ShotgunAutoPushMinMagazineAmmo = 6;
         private const float ShotgunAutoPushMaxEnemyDistance = 20f;
         private const float CautiousPushRoleThreatMultiplier = 1.1f;
@@ -35,6 +39,7 @@ namespace pitTeam.BigBrain
         private float committedPushActionableVisibleSince;
         private Vector3 stalledPushLastPosition;
         private float stalledPushSince;
+        private float nextUrbanDetourPushCheckAt;
 
         public FollowerCombatPush(BotOwner botOwner, FollowerCombatCommon combatCommon)
         {
@@ -161,6 +166,7 @@ namespace pitTeam.BigBrain
             committedPushActionableVisibleSince = 0f;
             stalledPushLastPosition = Vector3.zero;
             stalledPushSince = 0f;
+            nextUrbanDetourPushCheckAt = 0f;
         }
 
         public bool IsPushCommittedDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
@@ -208,6 +214,11 @@ namespace pitTeam.BigBrain
             }
 
             bool pushOrdered = source == PushActivationSource.Ordered;
+            if (!pushOrdered && combatCommon.HasActiveGrenadeLauncherSuppressNearCurrentEnemy())
+            {
+                return CreateNoPushDecision(goalEnemy, "launcherSuppress");
+            }
+
             if (!pushOrdered &&
                 IsEnemyMarksman(goalEnemy) &&
                 TryCreateMarksmanFightDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> marksmanFight))
@@ -221,6 +232,18 @@ namespace pitTeam.BigBrain
                 ? 1f
                 : Utils.Enemy.GetEnemiesAtLocation(botOwner, goalEnemy, goalEnemy.CurrPosition);
             bool cautiousPush = ShouldUseCautiousPushStyle(goalEnemy, pushOrdered, enemyLowThreat, enemiesAtLocation);
+            cautiousPush |= combatCommon.ShouldUseCautiousWeaponThreatStyle(goalEnemy);
+
+            if (!pushOrdered &&
+                combatCommon.ShouldBlockProactiveAutoPushForWeaponThreat(goalEnemy))
+            {
+                if (TryCreateLowAmmoCoveredPush(goalEnemy, distanceToEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> weaponThreatDecision))
+                {
+                    return weaponThreatDecision;
+                }
+
+                return CreateNoPushDecision(goalEnemy, "weaponThreat");
+            }
 
             if (!pushOrdered &&
                 ShouldRestrictAutoPushForWeapon(out bool allowCloseShotgunPush) &&
@@ -231,7 +254,7 @@ namespace pitTeam.BigBrain
                     return lowAmmoDecision;
                 }
 
-                return CreateLowAmmoNoPushDecision(goalEnemy);
+                return CreateNoPushDecision(goalEnemy, "lowAmmo");
             }
 
             // Once push is activated, threat affects movement style, not whether ordered push exists.
@@ -473,26 +496,47 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            int? magazineCount = activeWeapon.GetCurrentMagazine()?.Cartridges?.Count;
+            if (!FollowerCombatCommon.IsAutomaticWeapon(activeWeapon) &&
+                combatCommon.HasLoadedAutomaticSecondaryForPush())
+            {
+                return false;
+            }
+
+            MagazineItemClass? magazine = activeWeapon.GetCurrentMagazine();
+            int? magazineCount = magazine?.Cartridges?.Count;
             if (!magazineCount.HasValue)
             {
                 return false;
             }
 
-            if (magazineCount.Value >= AutoPushMinMagazineAmmo)
+            bool lowRemainingAmmo = magazineCount.Value < AutoPushMinMagazineAmmo;
+            bool lowCapacityWeapon = IsLowCapacityAutoPushWeapon(activeWeapon, magazine);
+            if (!lowRemainingAmmo && !lowCapacityWeapon)
             {
                 return false;
             }
 
-            allowCloseShotgunPush = IsShotgun(activeWeapon) &&
+            allowCloseShotgunPush = lowRemainingAmmo &&
+                                    FollowerCombatCommon.IsShotgunWeapon(activeWeapon) &&
                                     magazineCount.Value >= ShotgunAutoPushMinMagazineAmmo;
             return true;
         }
 
-        private static bool IsShotgun(Weapon weapon)
+        private static bool IsLowCapacityAutoPushWeapon(Weapon activeWeapon, MagazineItemClass? magazine)
         {
-            return weapon is ShotgunItemClass ||
-                   weapon.GetType().Name.IndexOf("Shotgun", StringComparison.OrdinalIgnoreCase) >= 0;
+            int magazineCapacity = magazine?.MaxCount ?? activeWeapon.GetMaxMagazineCount();
+            if (magazineCapacity <= 0 || magazineCapacity >= StandardAutoPushMagazineCapacity)
+            {
+                return false;
+            }
+
+            if (FollowerCombatCommon.IsShotgunWeapon(activeWeapon))
+            {
+                return false;
+            }
+
+            return !FollowerCombatCommon.IsPrecisionRifleWeapon(activeWeapon) ||
+                   magazineCapacity < PrecisionRifleAutoPushMagazineCapacity;
         }
 
         private bool CanUseCloseShotgunAutoPush(EnemyInfo goalEnemy, bool allowCloseShotgunPush)
@@ -512,7 +556,7 @@ namespace pitTeam.BigBrain
                    ShotgunAutoPushMaxEnemyDistance * ShotgunAutoPushMaxEnemyDistance;
         }
 
-        private static bool ShouldUseCautiousPushStyle(
+        private bool ShouldUseCautiousPushStyle(
             EnemyInfo goalEnemy,
             bool pushOrdered,
             bool enemyLowThreat,
@@ -558,25 +602,25 @@ namespace pitTeam.BigBrain
             return TryCreateApproachCoverDecision(cover, out decision);
         }
 
-        private AICoreActionResultStruct<BotLogicDecision, GClass26> CreateLowAmmoNoPushDecision(EnemyInfo goalEnemy)
+        private AICoreActionResultStruct<BotLogicDecision, GClass26> CreateNoPushDecision(EnemyInfo goalEnemy, string reasonPrefix)
         {
             if (botOwner.Memory.IsInCover && botOwner.Memory.CurCustomCoverPoint?.CanIShootToEnemy == true)
             {
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.shootFromCover,
-                    "lowAmmoShootFromCover");
+                    $"{reasonPrefix}ShootFromCover");
             }
 
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.shootFromPlace,
-                    "lowAmmoShootFromPlace");
+                    $"{reasonPrefix}ShootFromPlace");
             }
 
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                 BotLogicDecision.holdPosition,
-                "lowAmmoHold");
+                $"{reasonPrefix}Hold");
         }
 
         private bool TryCreateMarksmanFightDecision(
@@ -668,11 +712,23 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            if (combatCommon.HasActiveGrenadeLauncherSuppressNearCurrentEnemy())
+            {
+                reason = "pushLauncherSuppress";
+                return true;
+            }
+
             if (combatCommon.TryGetCommittedPushDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedPush) &&
                 IsStartWeakEnemyPushReason(committedPush.Reason) &&
                 combatCommon.ShouldBlockWeakEnemyRushForBossDistance(goalEnemy))
             {
                 reason = "weakPushBossDistance";
+                return true;
+            }
+
+            if (combatCommon.TryGetCommittedPushDecision(goalEnemy, out committedPush) &&
+                ShouldInterruptCommittedPushForUrbanDetour(goalEnemy, committedPush, out reason))
+            {
                 return true;
             }
 
@@ -710,6 +766,56 @@ namespace pitTeam.BigBrain
             }
 
             return false;
+        }
+
+        private bool ShouldInterruptCommittedPushForUrbanDetour(
+            EnemyInfo goalEnemy,
+            AICoreActionResultStruct<BotLogicDecision, GClass26> committedPush,
+            out string reason)
+        {
+            reason = string.Empty;
+            if (!IsDetourSensitivePushMovement(committedPush.Action))
+            {
+                nextUrbanDetourPushCheckAt = 0f;
+                return false;
+            }
+
+            if (goalEnemy.IsVisible || goalEnemy.CanShoot)
+            {
+                nextUrbanDetourPushCheckAt = 0f;
+                return false;
+            }
+
+            if (Time.time < nextUrbanDetourPushCheckAt)
+            {
+                return false;
+            }
+
+            nextUrbanDetourPushCheckAt = Time.time + UrbanDetourPushCheckInterval;
+            if (botOwner.Mover?.TargetPoint is not Vector3 targetPoint)
+            {
+                return false;
+            }
+
+            if (!combatCommon.IsUrbanDetourMovementTarget(
+                    targetPoint,
+                    out _,
+                    out _))
+            {
+                return false;
+            }
+
+            combatCommon.BlockRunToEnemy(UrbanDetourRunToEnemyBlockSeconds);
+            reason = "pushUrbanDetour";
+            return true;
+        }
+
+        private static bool IsDetourSensitivePushMovement(BotLogicDecision action)
+        {
+            return action == BotLogicDecision.runToEnemy ||
+                   action == BotLogicDecision.goToEnemy ||
+                   action == BotLogicDecision.goToPoint ||
+                   action == BotLogicDecision.goToPointTactical;
         }
 
         private bool ShouldEndRunToEnemyBecauseNotSprinting()

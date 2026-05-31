@@ -72,16 +72,9 @@ namespace pitTeam.Patches
                     || button == EItemInfoButton.NeededSearch);
         }
 
-        private static string GetSocialUiText(string key, string fallback)
+        private static string GetSocialUiText(string key)
         {
-            if (pitFireTeam.optionsLang?.socialUi != null
-                && pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value)
-                && !string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-
-            return fallback;
+            return pitFireTeam.GetSocialUiText(key);
         }
 
         public static void CaptureAndSuppressMissingItems(ref IEnumerable<Item> notFoundItems)
@@ -106,14 +99,14 @@ namespace pitTeam.Patches
         {
             if (profile == null || session == null || inventoryController == null)
             {
-                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutsOpenFailed", "Unable to open teammate kit loadouts."), ENotificationDurationType.Default);
+                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutsOpenFailed"), ENotificationDurationType.Default);
                 pitFireTeam.Log.LogWarning("[UI] Buy loadout screen aborted: missing teammate profile, session, or inventory controller.");
                 return;
             }
 
             if (!TryResolveBackendController(session, inventoryController, out GClass3387 backendController))
             {
-                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutsOpenFailed", "Unable to open teammate kit loadouts."), ENotificationDurationType.Default);
+                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutsOpenFailed"), ENotificationDurationType.Default);
                 pitFireTeam.Log.LogWarning($"[UI] Buy loadout screen aborted: expected backend inventory controller, got '{inventoryController.GetType().Name}'.");
                 return;
             }
@@ -238,7 +231,7 @@ namespace pitTeam.Patches
 
             if (!TryCreateBuyQuote(out EquipmentBuildBuyQuote quote))
             {
-                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutPriceFailed", "Unable to price selected teammate kit."), ENotificationDurationType.Default);
+                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutPriceFailed"), ENotificationDurationType.Default);
                 return true;
             }
 
@@ -906,7 +899,7 @@ namespace pitTeam.Patches
 
             GameObject deliveryObject = CreateOverlayText(
                 "pitFireTeam_BuyLoadoutInteractiveDeliveryNotice",
-                GetSocialUiText("KitCurrentGearDeliveryNotice", "Teammate's current kit will be returned to you via delivery service."),
+                GetSocialUiText("KitCurrentGearDeliveryNotice"),
                 17f,
                 TextAlignmentOptions.TopLeft);
             deliveryObject.transform.SetParent(contentObject.transform, false);
@@ -919,7 +912,7 @@ namespace pitTeam.Patches
 
             GameObject stashHeaderObject = CreateOverlayText(
                 "pitFireTeam_BuyLoadoutInteractiveStashHeader",
-                GetSocialUiText("KitItemsTakenFromStash", "The following items will be taken from stash:"),
+                GetSocialUiText("KitItemsTakenFromStash"),
                 18f,
                 TextAlignmentOptions.TopLeft);
             stashHeaderObject.transform.SetParent(contentObject.transform, false);
@@ -1048,7 +1041,7 @@ namespace pitTeam.Patches
 
             GameObject headerObject = CreateOverlayText(
                 "pitFireTeam_BuyLoadoutPurchasedHeader",
-                GetSocialUiText("KitItemsPurchased", "The following items will be purchased:"),
+                GetSocialUiText("KitItemsPurchased"),
                 18f,
                 TextAlignmentOptions.TopLeft);
             headerObject.transform.SetParent(container, false);
@@ -1285,7 +1278,7 @@ namespace pitTeam.Patches
                 promptLabel.text = quote.CanEquipFromStash
                     ? string.Empty
                     : string.Format(
-                        GetSocialUiText("PurchaseKitPrompt", "Purchase {0} Kit for {1}?"),
+                        GetSocialUiText("PurchaseKitPrompt"),
                         quote.BuildName,
                         FormatRoubles(quote.FinalPrice));
             }
@@ -1358,7 +1351,7 @@ namespace pitTeam.Patches
 
             GameObject titleObject = CreateOverlayText(
                 "pitFireTeam_BuyLoadoutNotEnoughResourcesTitle",
-                GetSocialUiText("BuyKitTitle", "BUY KIT"),
+                GetSocialUiText("BuyKitTitle"),
                 18f,
                 TextAlignmentOptions.MidlineLeft);
             RectTransform titleRect = titleObject.GetComponent<RectTransform>();
@@ -1380,7 +1373,7 @@ namespace pitTeam.Patches
             closeButton.onClick.AddListener(CloseBuyConfirmOverlay);
 
             string bodyText = string.Format(
-                GetSocialUiText("NotEnoughResourcesKitPrompt", "Not enough resources to purchase {0} kit"),
+                GetSocialUiText("NotEnoughResourcesKitPrompt"),
                 quote?.BuildName ?? "selected");
             GameObject bodyObject = CreateOverlayText(
                 "pitFireTeam_BuyLoadoutNotEnoughResourcesBody",
@@ -1398,7 +1391,7 @@ namespace pitTeam.Patches
             bodyLabel.enableWordWrapping = true;
             bodyLabel.overflowMode = TextOverflowModes.Ellipsis;
 
-            string okText = GetSocialUiText("Ok", "OK");
+            string okText = GetSocialUiText("Ok");
             DefaultUIButton okButton = CreateOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f));
             if (okButton != null)
             {
@@ -1432,7 +1425,7 @@ namespace pitTeam.Patches
         {
             if (quote?.Build?.Equipment == null || string.IsNullOrWhiteSpace(_accountId))
             {
-                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutPurchaseFailed", "Unable to purchase teammate kit."), ENotificationDurationType.Default);
+                NotificationManagerClass.DisplayWarningNotification(GetSocialUiText("KitLoadoutPurchaseFailed"), ENotificationDurationType.Default);
                 return;
             }
 
@@ -1478,7 +1471,7 @@ namespace pitTeam.Patches
                     pitFireTeam.Log.LogError("[UI] Failed to refresh live player stash after teammate kit purchase.");
                     pitFireTeam.Log.LogError(ex);
                     NotificationManagerClass.DisplayWarningNotification(
-                        GetSocialUiText("LoadoutEditorRealCommitRestartRequired", "Loadout saved. Restart the game to refresh the player stash view."),
+                        GetSocialUiText("LoadoutEditorRealCommitRestartRequired"),
                         ENotificationDurationType.Default);
                 }
 
@@ -1496,7 +1489,7 @@ namespace pitTeam.Patches
             {
                 pitFireTeam.Log.LogError("[UI] Failed to purchase teammate equipment build.");
                 pitFireTeam.Log.LogError(ex);
-                NotificationManagerClass.DisplayWarningNotification(ex.Message ?? GetSocialUiText("KitLoadoutPurchaseFailed", "Unable to purchase teammate kit."), ENotificationDurationType.Default);
+                NotificationManagerClass.DisplayWarningNotification(ex.Message ?? GetSocialUiText("KitLoadoutPurchaseFailed"), ENotificationDurationType.Default);
             }
             finally
             {
@@ -1728,28 +1721,26 @@ namespace pitTeam.Patches
 
         private static string FormatRoubles(int amount)
         {
-            return string.Format(GetSocialUiText("CurrencyRoubles", "{0:N0} RUB"), Mathf.Max(0, amount));
+            return string.Format(GetSocialUiText("CurrencyRoubles"), Mathf.Max(0, amount));
         }
 
         private static string FormatBuyOverlayTitle(EquipmentBuildBuyQuote quote)
         {
             return quote == null
-                ? GetSocialUiText("BuyKitTitle", "BUY KIT")
+                ? GetSocialUiText("BuyKitTitle")
                 : $"{quote.BuildName} - {FormatRoubles(quote.FinalPrice)}";
         }
 
         private static string CreateBuyConfirmBodyText(EquipmentBuildBuyQuote quote)
         {
-            string deliveryText = GetSocialUiText(
-                "KitCurrentGearDeliveryNotice",
-                "Teammate's current kit will be returned to you via delivery service.");
+            string deliveryText = GetSocialUiText("KitCurrentGearDeliveryNotice");
             if (quote.CanEquipFromStash)
             {
                 return $"{CreateUsedStashItemsText(quote)}\n\n{deliveryText}";
             }
 
             string text = string.Format(
-                GetSocialUiText("PurchaseKitPrompt", "Purchase {0} Kit for {1}?"),
+                GetSocialUiText("PurchaseKitPrompt"),
                 quote.BuildName,
                 FormatRoubles(quote.FinalPrice));
             text = $"{text}\n\n{deliveryText}";
@@ -1775,7 +1766,7 @@ namespace pitTeam.Patches
                 .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .Select(FormatUsedStashItemLine);
 
-            return $"{GetSocialUiText("KitItemsTakenFromStash", "The following items will be taken from stash:")}\n{string.Join("\n", lines)}";
+            return $"{GetSocialUiText("KitItemsTakenFromStash")}\n{string.Join("\n", lines)}";
         }
 
         private static string CreatePurchasedItemsText(EquipmentBuildBuyQuote quote)
@@ -1784,7 +1775,7 @@ namespace pitTeam.Patches
                 .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .Select(FormatUsedStashItemLine);
 
-            return $"{GetSocialUiText("KitItemsPurchased", "The following items will be purchased:")}\n{string.Join("\n", lines)}";
+            return $"{GetSocialUiText("KitItemsPurchased")}\n{string.Join("\n", lines)}";
         }
 
         private static List<UsedStashItemSummary> CreateDisplayItemSummaries(IEnumerable<UsedStashItemSummary> items)
@@ -1861,8 +1852,8 @@ namespace pitTeam.Patches
         private static string GetQuoteActionButtonText(EquipmentBuildBuyQuote quote)
         {
             return quote?.CanEquipFromStash == true
-                ? GetSocialUiText("EquipKitAction", "EQUIP")
-                : GetSocialUiText("PurchaseKitAction", "Purchase");
+                ? GetSocialUiText("EquipKitAction")
+                : GetSocialUiText("PurchaseKitAction");
         }
 
         private static string FormatUsedStashItemLine(UsedStashItemSummary item)
@@ -1900,7 +1891,7 @@ namespace pitTeam.Patches
 
             foreach (TMP_Text label in toggle.GetComponentsInChildren<TMP_Text>(true))
             {
-                label.text = GetSocialUiText("UseItemsInStash", "Use items in stash");
+                label.text = GetSocialUiText("UseItemsInStash");
                 label.enableWordWrapping = false;
                 label.overflowMode = TextOverflowModes.Ellipsis;
             }
@@ -2284,7 +2275,7 @@ namespace pitTeam.Patches
         {
             if (item == null)
             {
-                return GetSocialUiText("UnknownItem", "Unknown item");
+                return GetSocialUiText("UnknownItem");
             }
 
             string name = item.Name?.Localized(null);
@@ -2405,10 +2396,10 @@ namespace pitTeam.Patches
 
         private static void ApplyActionButtonText(Transform screen)
         {
-            string label = GetSocialUiText("PurchaseKitAction", "Purchase");
+            string label = GetSocialUiText("PurchaseKitAction");
             if (_excludeExistingItems && TryCreateBuyQuote(out EquipmentBuildBuyQuote quote) && quote.CanEquipFromStash)
             {
-                label = GetSocialUiText("EquipKitAction", "EQUIP");
+                label = GetSocialUiText("EquipKitAction");
             }
 
             Transform buttonTransform = FindEquipButtonTransform(screen);

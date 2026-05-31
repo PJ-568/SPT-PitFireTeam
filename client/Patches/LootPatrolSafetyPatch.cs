@@ -41,6 +41,37 @@ namespace pitTeam.Patches
             return !IsCombatLayer(layer) && HasHostileBossOrFollowerEnemy(GetBotOwner(layer));
         }
 
+        public static bool HasUsableCombatLayer(List<AICoreLayerClass<BotLogicDecision>> activeLayerList)
+        {
+            if (activeLayerList == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < activeLayerList.Count; i++)
+            {
+                AICoreLayerClass<BotLogicDecision> layer = activeLayerList[i];
+                if (layer == null || !IsCombatLayer(layer))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (layer.ShallUseNow())
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // If the combat layer cannot evaluate, do not end the currently running layer into a null update.
+                }
+            }
+
+            return false;
+        }
+
         public static bool HasHostileBossOrFollowerEnemy(BotOwner botOwner)
         {
             if (botOwner == null || botOwner.IsDead || botOwner.BotState != EBotState.Active)
@@ -133,7 +164,15 @@ namespace pitTeam.Patches
         private static bool IsCombatLayer(AICoreLayerClass<BotLogicDecision> layer)
         {
             string name = SafeName(layer);
-            return name.IndexOf("Combat", StringComparison.OrdinalIgnoreCase) >= 0;
+            Type type = layer?.GetType();
+            string typeName = type?.Name ?? string.Empty;
+            string namespaceName = type?.Namespace ?? string.Empty;
+
+            return name.IndexOf("Combat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   typeName.IndexOf("Combat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   namespaceName.IndexOf(".Combat", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   (namespaceName.IndexOf("SAIN", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    name.IndexOf("Squad", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         private static void EndStatefulNonCombatAction(BotOwner botOwner, AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
@@ -232,6 +271,11 @@ namespace pitTeam.Patches
                 }
 
                 HostilePeacefulLayerInterrupt.WakeHostileBot(botOwner);
+
+                if (!HostilePeacefulLayerInterrupt.HasUsableCombatLayer(activeLayerList))
+                {
+                    return;
+                }
 
                 // AICoreStrategyAbstractClass.Update selects the first active layer from List_0.
                 // For this single update, hide peaceful layers so an already-hostile bot can fall

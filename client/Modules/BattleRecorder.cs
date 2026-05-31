@@ -333,6 +333,34 @@ namespace pitTeam.Modules
             });
         }
 
+        public static void RecordObjectiveDiagnostic(
+            BotOwner bot,
+            string objectiveName,
+            string action,
+            string reason,
+            object? details = null)
+        {
+            if (!CanRecordBot(bot))
+            {
+                return;
+            }
+
+            RecorderFollowerState state = GetOrCreateState(bot);
+            if (!IsBotInRecordedCombat(bot, state))
+            {
+                return;
+            }
+
+            WriteEventInternal("objectiveDiagnostic", bot, new
+            {
+                objective = objectiveName,
+                action,
+                reason,
+                details,
+                context = CreateTransitionContext(bot, state)
+            });
+        }
+
         public static void RecordPushEmitted(
             BotOwner owner,
             string enemyProfileId,
@@ -388,7 +416,9 @@ namespace pitTeam.Modules
             string action,
             string reason,
             bool? completed = null,
-            EnemyInfo? goalEnemy = null)
+            EnemyInfo? goalEnemy = null,
+            Vector3? target = null,
+            Vector3? suppressFrom = null)
         {
             if (!CanRecordBot(bot))
             {
@@ -402,6 +432,8 @@ namespace pitTeam.Modules
                 action,
                 reason,
                 completed,
+                target = target.HasValue && IsFinite(target.Value) ? CreateVector(target.Value) : null,
+                suppressFrom = suppressFrom.HasValue && IsFinite(suppressFrom.Value) ? CreateVector(suppressFrom.Value) : null,
                 state = CreateRecorderStatePayload(state),
                 context = CreateGrenadeContext(bot, goalEnemy)
             });
@@ -512,7 +544,7 @@ namespace pitTeam.Modules
             }
 
             EnemyInfo? goalEnemy = bot.Memory?.GoalEnemy;
-            object? enemySnapshot = CreateEnemySnapshot(goalEnemy, currentPosition, lookDirection, moveTargetDirection);
+            object? enemySnapshot = CreateEnemySnapshot(bot, goalEnemy, currentPosition, lookDirection, moveTargetDirection);
             object? bossSnapshot = CreateBossSnapshot(bot, currentPosition, lookDirection);
 
             var snapshot = new
@@ -611,24 +643,28 @@ namespace pitTeam.Modules
                     hitRecently = FollowerCombatCommon.WasHitRecently(bot, 0.5f) ||
                                   FollowerAwareness.WasRecentlyHit(bot)
                 },
-                enemy = CreateTransitionEnemyContext(goalEnemy),
+                enemy = CreateTransitionEnemyContext(bot, goalEnemy),
                 boss = CreateTransitionBossContext(bot)
             };
         }
 
-        private static object? CreateTransitionEnemyContext(EnemyInfo? goalEnemy)
+        private static object? CreateTransitionEnemyContext(BotOwner bot, EnemyInfo? goalEnemy)
         {
             if (goalEnemy == null)
             {
                 return null;
             }
 
+            FollowerEnemyInfoCorrection.CorrectDistanceOnly(bot, goalEnemy);
+
             return new
             {
                 profileId = goalEnemy.ProfileId,
                 distance = SanitizeFloat(goalEnemy.Distance),
+                visibleType = goalEnemy.VisibleType.ToString(),
                 isVisible = goalEnemy.IsVisible,
                 canShoot = goalEnemy.CanShoot,
+                reliableShootLane = FollowerImmediateFirePolicy.HasReliableImmediateFireLane(bot, goalEnemy),
                 personalSeenTime = SanitizeFloat(goalEnemy.PersonalSeenTime),
                 personalLastSeenTime = SanitizeFloat(goalEnemy.PersonalLastSeenTime)
             };
@@ -642,7 +678,7 @@ namespace pitTeam.Modules
 
             return new
             {
-                enemy = CreateTransitionEnemyContext(goalEnemy ?? bot.Memory?.GoalEnemy),
+                enemy = CreateTransitionEnemyContext(bot, goalEnemy ?? bot.Memory?.GoalEnemy),
                 pressure = new
                 {
                     underFire = bot.Memory?.IsUnderFire == true,
@@ -777,6 +813,7 @@ namespace pitTeam.Modules
         }
 
         private static object? CreateEnemySnapshot(
+            BotOwner bot,
             EnemyInfo? goalEnemy,
             Vector3 botPosition,
             Vector3 lookDirection,
@@ -786,6 +823,8 @@ namespace pitTeam.Modules
             {
                 return null;
             }
+
+            FollowerEnemyInfoCorrection.CorrectDistanceOnly(bot, goalEnemy);
 
             Vector3 position = goalEnemy.Person?.Transform != null
                 ? goalEnemy.Person.Transform.position
@@ -799,8 +838,10 @@ namespace pitTeam.Modules
                 profileId = goalEnemy.ProfileId,
                 role = goalEnemy.Person?.Profile?.Info?.Settings?.Role.ToString(),
                 distance = SanitizeFloat(goalEnemy.Distance),
+                visibleType = goalEnemy.VisibleType.ToString(),
                 isVisible = goalEnemy.IsVisible,
                 canShoot = goalEnemy.CanShoot,
+                reliableShootLane = FollowerImmediateFirePolicy.HasReliableImmediateFireLane(bot, goalEnemy),
                 haveSeen = goalEnemy.HaveSeen,
                 personalSeenTime = SanitizeFloat(goalEnemy.PersonalSeenTime),
                 personalLastSeenTime = SanitizeFloat(goalEnemy.PersonalLastSeenTime),

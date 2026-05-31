@@ -34,7 +34,7 @@ internal static class FriendlyItemTemplateIds
         public const string GrizzlyMedicalKit = "590c657e86f77412b013051d";
         public const string Surv12SurgicalKit = "5d02797c86f774203f38e30a";
         public const string CmsSurgicalKit = "60d4399358ef941a33423dad";
-        public const string SalewaFirstAidKit = "544fb3364bdc2dfb738b4567";
+        public const string SalewaFirstAidKit = "544fb45d4bdc2dee738b4568";
         public const string Ai2Medkit = "544fc38949f06fd411383b42";
         public const string CarFirstAidKit = "5c0e30fa86f77413531e1cd3";
         public const string AnalginPainkillers = "5e831507ea0a7c419314e497";

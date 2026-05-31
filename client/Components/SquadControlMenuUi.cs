@@ -942,7 +942,7 @@ namespace pitTeam.Components
                 }
             }
 
-            squadButton.SetRawText(GetSocialUiText("SquadControlButton", "Squad Control"), playerButton.HeaderSize);
+            squadButton.SetRawText(GetSocialUiText("SquadControlButton"), playerButton.HeaderSize);
             squadButton.SetIcon(LoadSquadIcon());
             squadButton.OnClick.RemoveAllListeners();
             squadButton.OnClick.AddListener(Modules.SquadSideSelectionFlow.Open);
@@ -987,7 +987,7 @@ namespace pitTeam.Components
             }
 
             raidSettingsButton.transform.SetSiblingIndex(hideScreenButton.transform.GetSiblingIndex() + 1);
-            raidSettingsButton.SetRawText(GetSocialUiText("SquadControlRaidSettingsButton", "Squad Settings"), hideScreenButton.HeaderSize);
+            raidSettingsButton.SetRawText(GetSocialUiText("SquadControlRaidSettingsButton"), hideScreenButton.HeaderSize);
             raidSettingsButton.SetIcon(null);
             raidSettingsButton.OnClick.RemoveAllListeners();
             raidSettingsButton.OnClick.AddListener(ShowRaidSettingsOverlay);
@@ -1120,8 +1120,8 @@ namespace pitTeam.Components
 
             if (!TryCreateStockTraderChrome(rootRect))
             {
-                rosterPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlRosterPanel", GetSocialUiText("SquadControlRosterTab", "Roster"));
-                settingsPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
+                rosterPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlRosterPanel", GetSocialUiText("SquadControlRosterTab"));
+                settingsPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab"));
                 BuildSettingsPanel();
             }
 
@@ -1132,7 +1132,7 @@ namespace pitTeam.Components
         {
             GameObject titleObject = CreateText(
                 "pitFireTeam_SquadControlTitle",
-                GetSocialUiText("SquadControlTitle", "Squad Control"),
+                GetSocialUiText("SquadControlTitle"),
                 44,
                 TextAlignmentOptions.Center);
             RectTransform titleRect = titleObject.GetComponent<RectTransform>();
@@ -1246,7 +1246,7 @@ namespace pitTeam.Components
             UpdateRosterPanelLayout(false);
             RebuildRosterTiles();
 
-            settingsPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab", "Settings"));
+            settingsPanel = CreateFallbackContentPanel("pitFireTeam_SquadControlSettingsPanel", GetSocialUiText("SquadControlSettingsTab"));
             BuildSettingsPanel();
             return true;
         }
@@ -1282,12 +1282,12 @@ namespace pitTeam.Components
             RetractPanels();
             raidSettingsOverlayActive = true;
             screenRoot.SetActive(true);
-            SetStandaloneTitle(GetSocialUiText("SquadControlRaidSettingsTitle", "My Squad Settings"));
+            SetStandaloneTitle(GetSocialUiText("SquadControlRaidSettingsTitle"));
             ShowTab(false);
 
             if (standaloneCloseButton != null)
             {
-                standaloneCloseButton.SetRawText(GetSocialUiText("SquadControlBack", "Back"), standaloneCloseButton.HeaderSize);
+                standaloneCloseButton.SetRawText(GetSocialUiText("SquadControlBack"), standaloneCloseButton.HeaderSize);
                 standaloneCloseButton.SetIcon(null);
                 standaloneCloseButton.OnClick.RemoveAllListeners();
                 standaloneCloseButton.OnClick.AddListener(HideRaidSettingsOverlay);
@@ -1318,7 +1318,7 @@ namespace pitTeam.Components
                 standaloneCloseButton.gameObject.SetActive(false);
             }
 
-            SetStandaloneTitle(GetSocialUiText("SquadControlTitle", "My Squad"));
+            SetStandaloneTitle(GetSocialUiText("SquadControlTitle"));
             CancelShortcutCapture(false);
             SyncButtonVisibility();
         }

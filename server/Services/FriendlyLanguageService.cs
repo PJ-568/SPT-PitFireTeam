@@ -13,6 +13,7 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
     private const string ModFolderName = "pitFireTeam-ServerMod";
     private const string LanguageFolderName = "lang";
     private readonly ConcurrentDictionary<string, string> sessionLocales = new();
+    private JsonObject? embeddedEnglishFallback;
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = false
@@ -31,10 +32,16 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
             LanguageFolderName);
 
         JsonObject? embeddedEnglish = ParseLanguageJson(embeddedEnglishJson, "embedded English language");
+        if (embeddedEnglish != null)
+        {
+            embeddedEnglishFallback = CloneObject(embeddedEnglish);
+        }
+
         EnsureEnglishLanguageFile(languageDirectory, embeddedEnglish);
 
         JsonObject fallback = LoadLanguageFile(languageDirectory, "en")
             ?? CloneObject(embeddedEnglish)
+            ?? CloneObject(embeddedEnglishFallback)
             ?? [];
         JsonObject selected = string.Equals(locale, "en", StringComparison.OrdinalIgnoreCase)
             ? fallback
@@ -100,7 +107,9 @@ public class FriendlyLanguageService(ISptLogger<FriendlyLanguageService> logger)
             "Resources",
             LanguageFolderName);
 
-        JsonObject fallback = LoadLanguageFile(languageDirectory, "en") ?? [];
+        JsonObject fallback = LoadLanguageFile(languageDirectory, "en")
+            ?? CloneObject(embeddedEnglishFallback)
+            ?? [];
         JsonObject selected = string.Equals(locale, "en", StringComparison.OrdinalIgnoreCase)
             ? fallback
             : LoadLanguageFile(languageDirectory, locale) ?? [];

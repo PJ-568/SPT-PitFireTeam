@@ -103,7 +103,7 @@ namespace pitTeam.Components
                 label.fontSharedMaterial = templateLabel.fontSharedMaterial;
             }
 
-            label.text = GetSocialUiText("RenameClose", "x");
+            label.text = GetSocialUiText("RenameClose");
             label.fontSize = 16f;
             label.alignment = TextAlignmentOptions.Center;
             label.color = new Color(0.95f, 0.95f, 0.95f, 1f);
@@ -495,16 +495,9 @@ namespace pitTeam.Components
             return groupBadgeSprite;
         }
 
-        private static string GetSocialUiText(string key, string fallback)
+        private static string GetSocialUiText(string key)
         {
-            if (pitFireTeam.optionsLang?.socialUi != null
-                && pitFireTeam.optionsLang.socialUi.TryGetValue(key, out string value)
-                && !string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-
-            return fallback;
+            return pitFireTeam.GetSocialUiText(key);
         }
     }
 }

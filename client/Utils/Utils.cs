@@ -78,6 +78,21 @@ namespace pitTeam.Utils
             }
         }
 
+        public static bool TryGetCompletePathDistance(Vector3 point1, Vector3 point2, out float distance, NavMeshPath existingMesh = null)
+        {
+            distance = 0f;
+            NavMeshPath navMeshPath = existingMesh != null ? existingMesh : new NavMeshPath();
+            navMeshPath.ClearCorners();
+            if (!NavMesh.CalculatePath(point1, point2, -1, navMeshPath) ||
+                navMeshPath.status != NavMeshPathStatus.PathComplete)
+            {
+                return false;
+            }
+
+            distance = navMeshPath.CalculatePathLength();
+            return true;
+        }
+
         public static bool IsWithinDistance(Vector3 point1, Vector3 point2, float distance)
         {
             return (point1 - point2).sqrMagnitude <= distance * distance;

@@ -29,6 +29,10 @@ namespace pitTeam.Modules
         private Vector3? _lootPosition;
         private Components.BotFollowerPlayer? _botToLoot;
         private string? _botToLootProfileId;
+        private Corpse? _bodyLootTarget;
+        private Vector3? _bodyLootPosition;
+        private Components.BotFollowerPlayer? _botToBodyLoot;
+        private string? _botToBodyLootProfileId;
 
         private bool IsDisposed = false;
 
@@ -228,6 +232,11 @@ namespace pitTeam.Modules
             yield return EquipmentSlot.FirstPrimaryWeapon;
             yield return EquipmentSlot.SecondPrimaryWeapon;
             yield return EquipmentSlot.Holster;
+            yield return EquipmentSlot.ArmorVest;
+            yield return EquipmentSlot.Headwear;
+            yield return EquipmentSlot.Earpiece;
+            yield return EquipmentSlot.FaceCover;
+            yield return EquipmentSlot.Eyewear;
         }
 
         private static IEnumerable<Item> RemoveNestedReturnRoots(IEnumerable<Item> items)
@@ -527,6 +536,7 @@ namespace pitTeam.Modules
             _doorsToOpen?.Clear();
 
             _lootItem = null;
+            _bodyLootTarget = null;
             _lootedItems = null;
 
             _enemiesSeen = null;
@@ -688,6 +698,20 @@ namespace pitTeam.Modules
             return Instance._lootItem;
         }
 
+        public static void SetCurBodyLootTarget(Corpse? corpse)
+        {
+            if (Instance != null)
+            {
+                Instance._bodyLootTarget = corpse;
+            }
+        }
+
+        public static Corpse? GetCurBodyLootTarget()
+        {
+            if (Instance == null) return null;
+            return Instance._bodyLootTarget;
+        }
+
         public static Vector3 GetLootPosition()
         {
             if (Instance?._lootItem != null && TryGetLootNavPosition(Instance._lootItem, out Vector3 livePosition))
@@ -752,6 +776,47 @@ namespace pitTeam.Modules
             return false;
         }
 
+        public static bool SetBodyLootTaker(BotOwner bot, Corpse? corpse = null)
+        {
+            if (Instance == null || bot == null) return false;
+
+            var follower = BossPlayers.Instance.GetFollower(bot);
+            if (follower == null) return false;
+
+            if (corpse != null)
+            {
+                // Pin the corpse at command issue time. The quick panel can clear its current
+                // interactable before the follower reaches the body.
+                Instance._bodyLootTarget = corpse;
+            }
+
+            if (Instance._bodyLootTarget == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!TryGetLootNavPosition(Instance._bodyLootTarget, out Vector3 bodyPosition))
+                {
+                    return false;
+                }
+
+                Instance._bodyLootPosition = bodyPosition;
+                Instance._botToBodyLoot = follower;
+                Instance._botToBodyLootProfileId = bot.ProfileId;
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Could not make bot a Body Loot Taker");
+                Logger.LogError(ex);
+            }
+
+            return false;
+        }
+
         private static bool TryGetLootNavPosition(LootItem lootItem, out Vector3 position)
         {
             position = Vector3.zero;
@@ -801,6 +866,20 @@ namespace pitTeam.Modules
             return _follower != null && _follower == Instance._botToLoot;
         }
 
+        public static bool IsBodyLootTaker(BotOwner bot)
+        {
+            if (Instance == null || bot == null) return false;
+            if (!string.IsNullOrEmpty(Instance._botToBodyLootProfileId) &&
+                !string.IsNullOrEmpty(bot.ProfileId) &&
+                string.Equals(Instance._botToBodyLootProfileId, bot.ProfileId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            var follower = BossPlayers.Instance.GetFollower(bot);
+            return follower != null && follower == Instance._botToBodyLoot;
+        }
+
         public static void RemoveTaker(BotOwner bot)
         {
             if (Instance == null || bot == null || string.IsNullOrEmpty(bot.ProfileId)) return;
@@ -818,6 +897,26 @@ namespace pitTeam.Modules
             {
                 Instance._botToLoot = null;
                 Instance._botToLootProfileId = null;
+            }
+        }
+
+        public static void RemoveBodyLootTaker(BotOwner bot)
+        {
+            if (Instance == null || bot == null || string.IsNullOrEmpty(bot.ProfileId)) return;
+
+            if (!string.IsNullOrEmpty(Instance._botToBodyLootProfileId) &&
+                string.Equals(Instance._botToBodyLootProfileId, bot.ProfileId, StringComparison.Ordinal))
+            {
+                Instance._botToBodyLoot = null;
+                Instance._botToBodyLootProfileId = null;
+                return;
+            }
+
+            Components.BotFollowerPlayer follower = BossPlayers.Instance.GetFollower(bot);
+            if (follower != null && Instance._botToBodyLoot == follower)
+            {
+                Instance._botToBodyLoot = null;
+                Instance._botToBodyLootProfileId = null;
             }
         }
         /** Set what bot is going to open the door */
@@ -868,6 +967,28 @@ namespace pitTeam.Modules
                 Instance._botToLootProfileId = null;
             }
         }
+
+        public static Vector3 GetBodyLootPosition()
+        {
+            if (Instance?._bodyLootTarget != null && TryGetLootNavPosition(Instance._bodyLootTarget, out Vector3 livePosition))
+            {
+                Instance._bodyLootPosition = livePosition;
+                return livePosition;
+            }
+
+            return Instance?._bodyLootPosition ?? Vector3.zero;
+        }
+
+        public static void ClearCurBodyLootTarget()
+        {
+            if (Instance != null)
+            {
+                Instance._bodyLootTarget = null;
+                Instance._bodyLootPosition = null;
+                Instance._botToBodyLoot = null;
+                Instance._botToBodyLootProfileId = null;
+            }
+        }
         /** Store the item that was given to a follower */
         public static void StoreItem(BotOwner bot, Item item)
         {
@@ -894,6 +1015,17 @@ namespace pitTeam.Modules
             }
 
             var list = Instance._lootedItems[bot.ProfileId];
+            HashSet<string> treeIds = GetItemTreeIds(item);
+
+            if (TryStoreOnlyReturnableHandledItems(bot, item, treeIds, list))
+            {
+                return;
+            }
+
+            RegisterProtectedRaidItemIds(
+                treeIds,
+                "follower handled item",
+                synchronous: true);
 
             // Track the largest meaningful root. If a whole backpack/rig is tracked, its
             // children ride inside that one return tree and must not be mailed separately.
@@ -902,7 +1034,6 @@ namespace pitTeam.Modules
                 return;
             }
 
-            HashSet<string> treeIds = GetItemTreeIds(item);
             list.RemoveAll(itemId =>
                 !string.Equals(itemId, item.Id, StringComparison.Ordinal) &&
                 treeIds.Contains(itemId));
@@ -911,11 +1042,146 @@ namespace pitTeam.Modules
             {
                 list.Add(item.Id);
             }
+        }
 
+        private static bool TryStoreOnlyReturnableHandledItems(
+            BotOwner bot,
+            Item item,
+            HashSet<string> treeIds,
+            List<string> trackedReturnIds)
+        {
+            if (pitFireTeam.IsFollowerLoadoutLootableMode())
+            {
+                return false;
+            }
+
+            HashSet<string> protectedFollowerGearIds = GetProtectedFollowerEquipmentIds();
+            if (protectedFollowerGearIds.Count == 0 || !treeIds.Overlaps(protectedFollowerGearIds))
+            {
+                return false;
+            }
+
+            // Simple/Restricted teammate spawn gear may be moved around in raid for interaction
+            // parity, but it must not become return-mail cargo. Body-loot can put protected gear
+            // and unrelated cargo in the same backpack/rig, so split clean non-protected children
+            // back out for return tracking instead of mailing the protected parent.
             RegisterProtectedRaidItemIds(
                 treeIds,
-                "follower handled item",
+                "protected follower handled item",
                 synchronous: true);
+
+            List<Item> returnableRoots = new List<Item>();
+            CollectReturnableRootsExcludingProtected(item, protectedFollowerGearIds, returnableRoots);
+
+            foreach (Item returnableRoot in returnableRoots)
+            {
+                if (returnableRoot == null || string.IsNullOrWhiteSpace(returnableRoot.Id))
+                {
+                    continue;
+                }
+
+                HashSet<string> returnableTreeIds = GetItemTreeIds(returnableRoot);
+                RegisterProtectedRaidItemIds(
+                    returnableTreeIds,
+                    "follower handled item",
+                    synchronous: true);
+
+                if (HasTrackedAncestor(returnableRoot, trackedReturnIds))
+                {
+                    continue;
+                }
+
+                trackedReturnIds.RemoveAll(itemId =>
+                    !string.Equals(itemId, returnableRoot.Id, StringComparison.Ordinal) &&
+                    returnableTreeIds.Contains(itemId));
+
+                if (!trackedReturnIds.Contains(returnableRoot.Id))
+                {
+                    trackedReturnIds.Add(returnableRoot.Id);
+                }
+            }
+
+            if (returnableRoots.Count == 0)
+            {
+                Logger.LogInfo(
+                    $"[Loot] Skipped protected follower gear return for '{bot?.Profile?.Nickname ?? bot?.ProfileId ?? "unknown"}': {item.TemplateId}");
+            }
+
+            return true;
+        }
+
+        private static HashSet<string> GetProtectedFollowerEquipmentIds()
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            if (Instance?._followersEquipment == null)
+            {
+                return ids;
+            }
+
+            foreach (List<string> followerGearIds in Instance._followersEquipment.Values)
+            {
+                if (followerGearIds == null)
+                {
+                    continue;
+                }
+
+                foreach (string itemId in followerGearIds)
+                {
+                    if (!string.IsNullOrWhiteSpace(itemId))
+                    {
+                        ids.Add(itemId);
+                    }
+                }
+            }
+
+            return ids;
+        }
+
+        private static void CollectReturnableRootsExcludingProtected(
+            Item item,
+            HashSet<string> protectedIds,
+            List<Item> returnableRoots)
+        {
+            if (item == null || protectedIds == null || protectedIds.Count == 0)
+            {
+                return;
+            }
+
+            HashSet<string> itemTreeIds = GetItemTreeIds(item);
+            bool itemIsProtected = protectedIds.Contains(item.Id);
+            bool subtreeContainsProtected = itemTreeIds.Overlaps(protectedIds);
+
+            if (!itemIsProtected && !subtreeContainsProtected)
+            {
+                returnableRoots.Add(item);
+                return;
+            }
+
+            if (item is not CompoundItem compound)
+            {
+                return;
+            }
+
+            foreach (Item child in GetDirectChildren(compound))
+            {
+                CollectReturnableRootsExcludingProtected(child, protectedIds, returnableRoots);
+            }
+        }
+
+        private static IEnumerable<Item> GetDirectChildren(CompoundItem item)
+        {
+            foreach (Item child in item.GetAllItems())
+            {
+                if (child == null || ReferenceEquals(child, item))
+                {
+                    continue;
+                }
+
+                if (ReferenceEquals(child.Parent?.Container?.ParentItem, item))
+                {
+                    yield return child;
+                }
+            }
         }
 
         public static void RemoveStoredItem(string bot, string itemId)

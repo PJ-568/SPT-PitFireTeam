@@ -231,7 +231,7 @@ namespace pitTeam.Components
 
             addTeammateButton = Instantiate(playerButton, rosterRect, false);
             addTeammateButton.name = "pitFireTeam_SquadControlAddTeammateButton";
-            addTeammateButton.SetRawText(GetSocialUiText("AddTeammate", "+ Add teammate"), playerButton.HeaderSize);
+            addTeammateButton.SetRawText(GetSocialUiText("AddTeammate"), playerButton.HeaderSize);
             addTeammateButton.SetIcon(null);
             addTeammateButton.Interactable = true;
             addTeammateButton.OnClick.RemoveAllListeners();
@@ -268,7 +268,7 @@ namespace pitTeam.Components
 
             GameObject textObject = CreateText(
                 "pitFireTeam_EmptyRosterLabel",
-                GetSocialUiText("SquadControlEmptyRoster", "You have not created any team members yet, press the add button below to get started"),
+                GetSocialUiText("SquadControlEmptyRoster"),
                 24f,
                 TextAlignmentOptions.Center);
             textObject.transform.SetParent(rosterRect, false);
@@ -293,9 +293,7 @@ namespace pitTeam.Components
                 return;
             }
 
-            emptyRosterLabel.text = GetSocialUiText(
-                "SquadControlEmptyRoster",
-                "You have not created any team members yet, press the add button below to get started");
+            emptyRosterLabel.text = GetSocialUiText("SquadControlEmptyRoster");
             emptyRosterLabel.gameObject.SetActive(isEmpty);
 
             UpdateRosterPanelLayout(isEmpty);
@@ -401,7 +399,7 @@ namespace pitTeam.Components
             button.onClick.AddListener(() => ShowRemoveConfirmOverlay(entry));
 
             TooltipHoverController tooltipHover = buttonObject.AddComponent<TooltipHoverController>();
-            tooltipHover.Configure(GetSocialUiText("SquadControlDeleteTooltip", "Delete"));
+            tooltipHover.Configure(GetSocialUiText("SquadControlDeleteTooltip"));
 
             GameObject labelObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
             labelObject.transform.SetParent(buttonObject.transform, false);
@@ -417,7 +415,7 @@ namespace pitTeam.Components
                 label.fontSharedMaterial = templateLabel.fontSharedMaterial;
             }
 
-            label.text = GetSocialUiText("RenameClose", "x");
+            label.text = GetSocialUiText("RenameClose");
             label.fontSize = 16f;
             label.fontWeight = FontWeight.Medium;
             label.alignment = TextAlignmentOptions.Center;
@@ -456,7 +454,7 @@ namespace pitTeam.Components
             badgeImage.raycastTarget = true;
 
             TooltipHoverController tooltipHover = badgeObject.AddComponent<TooltipHoverController>();
-            tooltipHover.Configure(GetSocialUiText("SquadControlAutoJoinTooltip", "Auto-join"));
+            tooltipHover.Configure(GetSocialUiText("SquadControlAutoJoinTooltip"));
 
             badgeObject.SetActive(entry.AutoJoinEnabled);
         }
@@ -512,7 +510,7 @@ namespace pitTeam.Components
             badgeImage.raycastTarget = true;
 
             TooltipHoverController tooltipHover = badgeObject.AddComponent<TooltipHoverController>();
-            tooltipHover.Configure(GetSocialUiText("SquadControlInGroupTooltip", "In group"));
+            tooltipHover.Configure(GetSocialUiText("SquadControlInGroupTooltip"));
 
             bool startsActive = IsAccountInCurrentGroup(accountId)
                 || Modules.SquadSideSelectionFlow.IsAccountInOpeningGroupSnapshot(accountId);
@@ -586,7 +584,7 @@ namespace pitTeam.Components
 
             GameObject titleObject = CreateText(
                 "pitFireTeam_RemoveTitle",
-                GetSocialUiText("RemoveTeammateTitle", "Remove teammate").ToUpperInvariant(),
+                GetSocialUiText("RemoveTeammateTitle").ToUpperInvariant(),
                 18f,
                 TextAlignmentOptions.MidlineLeft);
             RectTransform titleRect = titleObject.GetComponent<RectTransform>();
@@ -610,7 +608,7 @@ namespace pitTeam.Components
             GameObject bodyObject = CreateText(
                 "pitFireTeam_RemoveBody",
                 string.Format(
-                    GetSocialUiText("RemoveTeammatePrompt", "Are you sure you want to delete member {0}? Process cannot be undone."),
+                    GetSocialUiText("RemoveTeammatePrompt"),
                     entry.Nickname),
                 24f,
                 TextAlignmentOptions.Center);
@@ -626,7 +624,7 @@ namespace pitTeam.Components
             bodyLabel.overflowMode = TextOverflowModes.Ellipsis;
 
             DefaultUIButton removeButton = CreateOverlayActionButton(panel.transform, new Vector2(0f, 10f), new Vector2(180f, 36f));
-            removeButton.SetRawText(GetSocialUiText("RemoveTeammateConfirm", "Remove"), 22);
+            removeButton.SetRawText(GetSocialUiText("RemoveTeammateConfirm"), 22);
             removeButton.OnClick.RemoveAllListeners();
             removeButton.OnClick.AddListener(() => RemoveTeammate(entry));
 

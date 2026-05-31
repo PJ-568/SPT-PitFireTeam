@@ -30,13 +30,16 @@ namespace pitTeam.Components
         // Situational request-layer commands.
         TakeLootItem = 5,
         OpenDoor = 6,
+        // Commanded corpse recovery. This is cargo collection, not equipment replacement:
+        // the action may use empty compatible slots, but it must not swap the follower's kit.
+        TakeBodyGear = 7,
         // Combat objective commands.
-        PushEnemy = 7,
-        SuppressEnemy = 8,
-        NeedSniper = 9,
+        PushEnemy = 8,
+        SuppressEnemy = 9,
+        NeedSniper = 10,
         // Combat gesture movement commands.
-        CombatComeToBossCover = 10,
-        CombatMoveToPointTactical = 11
+        CombatComeToBossCover = 11,
+        CombatMoveToPointTactical = 12
     }
 
     public enum FollowerCombatTactic
@@ -1184,6 +1187,33 @@ namespace pitTeam.Components
             BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetTakeLootItem));
         }
 
+        public void SetTakeBodyGear(float duration)
+        {
+            if (_activeCommand == FollowerCommandType.HoldPosition)
+            {
+                _resumeHoldAfterTakeLoot = true;
+                _resumeHoldAfterTakeLootCrouch = _holdPositionShouldCrouch;
+            }
+            else if (_activeCommand != FollowerCommandType.TakeBodyGear)
+            {
+                _resumeHoldAfterTakeLoot = false;
+                _resumeHoldAfterTakeLootCrouch = false;
+            }
+
+            if (_activeCommand != FollowerCommandType.None &&
+                _activeCommand != FollowerCommandType.TakeBodyGear &&
+                _activeCommand != FollowerCommandType.HoldPosition)
+            {
+                ClearCommand($"SetTakeBodyGear:replace({_activeCommand})");
+            }
+
+            _activeCommand = FollowerCommandType.TakeBodyGear;
+            _commandTarget = Vector3.zero;
+            _commandUntilTime = Time.time + Mathf.Max(12f, duration);
+            _resumeHoldAfterComeCloser = false;
+            BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(SetTakeBodyGear));
+        }
+
         public void SetOpenDoor(float duration)
         {
             if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.OpenDoor)
@@ -1218,13 +1248,18 @@ namespace pitTeam.Components
 
         public void SetSuppressEnemy(float duration)
         {
+            SetSuppressEnemy(duration, Vector3.zero);
+        }
+
+        public void SetSuppressEnemy(float duration, Vector3 orderTarget)
+        {
             if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.SuppressEnemy)
             {
                 ClearCommand($"SetSuppressEnemy:replace({_activeCommand})");
             }
 
             _activeCommand = FollowerCommandType.SuppressEnemy;
-            _commandTarget = Vector3.zero;
+            _commandTarget = orderTarget;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;
@@ -1385,6 +1420,29 @@ namespace pitTeam.Components
             }
 
             ClearCommand("CompleteTakeLootItem");
+        }
+
+        public void CompleteTakeBodyGear()
+        {
+            if (_activeCommand != FollowerCommandType.TakeBodyGear)
+            {
+                return;
+            }
+
+            if (_resumeHoldAfterTakeLoot)
+            {
+                _activeCommand = FollowerCommandType.HoldPosition;
+                _commandTarget = Vector3.zero;
+                _commandUntilTime = float.PositiveInfinity;
+                _holdPositionShouldCrouch = _resumeHoldAfterTakeLootCrouch;
+                _resumeHoldAfterComeCloser = false;
+                _resumeHoldAfterTakeLoot = false;
+                _resumeHoldAfterTakeLootCrouch = false;
+                BattleRecorder.RecordCommandSet(this, _activeCommand, _commandTarget, _commandUntilTime, nameof(CompleteTakeBodyGear));
+                return;
+            }
+
+            ClearCommand("CompleteTakeBodyGear");
         }
 
         public bool ShouldCrouchForHoldPosition()
@@ -1890,6 +1948,11 @@ namespace pitTeam.Components
                 if (_activeCommand == FollowerCommandType.TakeLootItem)
                 {
                     InteractableObjects.RemoveTaker(_bot);
+                }
+
+                if (_activeCommand == FollowerCommandType.TakeBodyGear)
+                {
+                    InteractableObjects.RemoveBodyLootTaker(_bot);
                 }
 
                 if (_activeCommand == FollowerCommandType.OpenDoor)

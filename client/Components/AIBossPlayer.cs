@@ -251,6 +251,13 @@ namespace pitTeam.Components
                     ApplyTakeLootCommand(info.PlayerRequester);
                     return;
                 }
+                else if (info.phrase == EPhraseTrigger.CheckHim ||
+                         info.phrase == EPhraseTrigger.LootBody)
+                {
+                    // Body check: closest eligible follower moves to the corpse and recovers gear as cargo.
+                    ApplyTakeBodyGearCommand(info.PlayerRequester);
+                    return;
+                }
                 else if (info.phrase == EPhraseTrigger.FollowMe || info.phrase == EPhraseTrigger.Cooperation)
                 {
                     // Follow Me / Cooperation: normal follow mode and command cleanup.
@@ -1493,37 +1500,7 @@ namespace pitTeam.Components
                 return;
             }
 
-            BotOwner closestFollower = null;
-            float bestSqrDistance = float.MaxValue;
-            Vector3 lootPos = lootItem.transform.position;
-
-            foreach (BotOwner follower in Followers)
-            {
-                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active)
-                {
-                    continue;
-                }
-
-                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
-                {
-                    continue;
-                }
-
-                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
-                if (followerData == null)
-                {
-                    continue;
-                }
-
-                float sqrDistance = (follower.Position - lootPos).sqrMagnitude;
-                if (sqrDistance >= bestSqrDistance)
-                {
-                    continue;
-                }
-
-                closestFollower = follower;
-                bestSqrDistance = sqrDistance;
-            }
+            BotOwner closestFollower = FindClosestEligibleInteractionFollower(lootItem.transform.position);
 
             if (closestFollower == null)
             {
@@ -1548,6 +1525,81 @@ namespace pitTeam.Components
             closestFollowerData.SetTakeLootItem(35f);
             closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
             closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private void ApplyTakeBodyGearCommand(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return;
+            }
+
+            Corpse corpse = InteractableObjects.GetCurBodyLootTarget();
+            if (corpse == null)
+            {
+                return;
+            }
+
+            BotOwner closestFollower = FindClosestEligibleInteractionFollower(corpse.transform.position);
+            if (closestFollower == null)
+            {
+                return;
+            }
+
+            if (!InteractableObjects.SetBodyLootTaker(closestFollower, corpse))
+            {
+                closestFollower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                return;
+            }
+
+            BotFollowerPlayer closestFollowerData = BossPlayers.Instance?.GetFollower(closestFollower);
+            if (closestFollowerData == null)
+            {
+                InteractableObjects.RemoveBodyLootTaker(closestFollower);
+                return;
+            }
+
+            // Body looting can take multiple inventory transactions, so reserve the corpse and
+            // let the request action own the approach/interruption/cleanup lifecycle.
+            closestFollowerData.SetTakeBodyGear(75f);
+            closestFollower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+            closestFollower.Gesture.TryGestus(EInteraction.OkGesture, false);
+        }
+
+        private BotOwner FindClosestEligibleInteractionFollower(Vector3 targetPosition)
+        {
+            BotOwner closestFollower = null;
+            float bestSqrDistance = float.MaxValue;
+
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null || follower.IsDead || follower.BotState != EBotState.Active)
+                {
+                    continue;
+                }
+
+                if (follower.Memory?.HaveEnemy == true || HasActiveCombatEnemy(follower))
+                {
+                    continue;
+                }
+
+                BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null)
+                {
+                    continue;
+                }
+
+                float sqrDistance = (follower.Position - targetPosition).sqrMagnitude;
+                if (sqrDistance >= bestSqrDistance)
+                {
+                    continue;
+                }
+
+                closestFollower = follower;
+                bestSqrDistance = sqrDistance;
+            }
+
+            return closestFollower;
         }
 
         private void ApplyOpenDoorCommand(IPlayer requester)
@@ -2184,6 +2236,7 @@ namespace pitTeam.Components
             if (requester == null) return;
             if (Time.time < _nextThereGestureAt) return;
             _nextThereGestureAt = Time.time + 0.6f;
+            Vector3 suppressOrderTarget = GetSuppressOrderTarget(requester);
 
             BotOwner focusedFollower = null;
             if (requester is Player requesterPlayer)
@@ -2214,18 +2267,21 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                if (!FollowerCombatCommon.IsSuppressCapableWeapon(follower.WeaponManager?.ShootController?.Item))
+                if (!FollowerCombatCommon.IsSuppressCapableWeapon(follower.WeaponManager?.ShootController?.Item) &&
+                    !FollowerCombatCommon.HasUsableSecondPrimaryGrenadeLauncher(follower))
                 {
                     if (!willSupress) noSupressFollower = follower;
                     continue;
                 }
 
-                if (!TryEnsureSuppressEnemy(follower, bossVisibleEnemies))
+                bool hasLauncher = FollowerCombatCommon.HasUsableSecondPrimaryGrenadeLauncher(follower);
+                if (!TryEnsureSuppressEnemy(follower, bossVisibleEnemies) &&
+                    (!hasLauncher || !TryEnsureOrderedLauncherSuppressEnemy(follower, requester)))
                 {
                     continue;
                 }
 
-                followerData.SetSuppressEnemy(6f);
+                followerData.SetSuppressEnemy(6f, suppressOrderTarget);
                 follower.BotTalk.TrySay(EPhraseTrigger.Covering, true);
                 noSupressFollower = null;
                 willSupress = true;
@@ -2235,6 +2291,114 @@ namespace pitTeam.Components
             {
                 noSupressFollower.BotTalk.TrySay(EPhraseTrigger.Negative, true);
             }
+        }
+
+        private static Vector3 GetSuppressOrderTarget(IPlayer requester)
+        {
+            if (requester == null)
+            {
+                return Vector3.zero;
+            }
+
+            Vector3 lookDirection = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+            return requester.Position + lookDirection * 120f;
+        }
+
+        private bool TryEnsureOrderedLauncherSuppressEnemy(BotOwner follower, IPlayer requester)
+        {
+            if (follower == null || requester == null)
+            {
+                return false;
+            }
+
+            List<Player> targets = GetOrderedLauncherSuppressTargets(requester);
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Player enemy = targets[i];
+                if (enemy == null ||
+                    enemy.HealthController?.IsAlive != true ||
+                    enemy.ProfileId == follower.ProfileId ||
+                    enemy.ProfileId == realPlayer?.ProfileId)
+                {
+                    continue;
+                }
+
+                RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal: true, allowGoalPromotion: true);
+                if (follower.Memory?.GoalEnemy?.Person?.HealthController?.IsAlive == true)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private List<Player> GetOrderedLauncherSuppressTargets(IPlayer requester)
+        {
+            List<Player> targets = new List<Player>();
+            if (requester == null)
+            {
+                return targets;
+            }
+
+            const float scanDistance = 120f;
+            RaycastHit[] hits = new RaycastHit[20];
+            Vector3 lookDirection = requester.LookDirection.sqrMagnitude > 0.001f
+                ? requester.LookDirection.normalized
+                : requester.Transform.forward;
+            Ray ray = new Ray(requester.Transform.position, lookDirection);
+            int hitCount = Physics.SphereCastNonAlloc(
+                ray,
+                scanDistance * 0.5f,
+                hits,
+                scanDistance * 0.5f,
+                LayerMaskClass.PlayerMask);
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                Player enemy = hits[i].collider?.gameObject?.GetComponentInParent<Player>();
+                if (enemy == null ||
+                    targets.Any(existing => existing != null && existing.ProfileId == enemy.ProfileId) ||
+                    !IsOrderedLauncherSuppressEnemy(requester, enemy))
+                {
+                    continue;
+                }
+
+                targets.Add(enemy);
+            }
+
+            return targets;
+        }
+
+        private bool IsOrderedLauncherSuppressEnemy(IPlayer requester, Player enemy)
+        {
+            if (requester == null ||
+                enemy == null ||
+                enemy.HealthController?.IsAlive != true ||
+                enemy.ProfileId == requester.ProfileId ||
+                enemy.ProfileId == realPlayer?.ProfileId)
+            {
+                return false;
+            }
+
+            if (Followers.Any(follower => follower != null && follower.ProfileId == enemy.ProfileId))
+            {
+                return false;
+            }
+
+            if (bossGroup?.IsEnemy(enemy) == true ||
+                bossGroup?.IsPlayerEnemy(enemy) == true)
+            {
+                return true;
+            }
+
+            BotOwner enemyBot = enemy.AIData?.BotOwner;
+            return enemyBot?.BotsGroup != null &&
+                   (enemyBot.BotsGroup.IsEnemy(requester) ||
+                    enemyBot.BotsGroup.IsPlayerEnemy(requester) ||
+                    enemyBot.Memory?.GoalEnemy?.ProfileId == requester.ProfileId);
         }
 
         private void ApplyNeedSniperPhrase(IPlayer requester)

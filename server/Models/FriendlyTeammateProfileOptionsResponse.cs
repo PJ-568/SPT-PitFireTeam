@@ -11,6 +11,8 @@ public record FriendlyTeammateProfileOptionsResponse
     public List<FriendlyTeammateLoadoutOption> Loadouts { get; set; } = [];
 
     public List<FriendlyTeammateTacticOption> Tactics { get; set; } = [];
+
+    public FriendlyTeammateProfileRecoveryNotice? RecoveryNotice { get; set; }
 }
 
 public record FriendlyTeammateLoadoutOption
@@ -25,4 +27,13 @@ public record FriendlyTeammateTacticOption
     public string Id { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
+}
+
+public record FriendlyTeammateProfileRecoveryNotice
+{
+    public bool Recovered { get; set; }
+
+    public int RemovedItemCount { get; set; }
+
+    public string Message { get; set; } = string.Empty;
 }

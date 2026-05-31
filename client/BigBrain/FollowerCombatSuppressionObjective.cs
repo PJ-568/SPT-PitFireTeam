@@ -1,13 +1,18 @@
 using EFT;
 using System;
+using UnityEngine;
 
 namespace pitTeam.BigBrain
 {
     internal sealed class FollowerCombatSuppressionObjective : FollowerCombatObjectiveBase
     {
         internal const string ReasonPrefix = "objectiveSuppress";
+        private const string WeaponSwitchToPrimaryReason = "objectiveSuppress.weaponSwitchToPrimary";
+        private const float WeaponSwitchRetrySeconds = 0.25f;
 
         private bool complete;
+        private bool launcherFallbackToWeapon;
+        private float weaponSwitchRetryUntil;
 
         public FollowerCombatSuppressionObjective(BotOwner botOwner, FollowerCombatCommon combatCommon)
             : base(botOwner, combatCommon)
@@ -19,6 +24,8 @@ namespace pitTeam.BigBrain
         public override void Reset()
         {
             complete = false;
+            launcherFallbackToWeapon = false;
+            weaponSwitchRetryUntil = 0f;
         }
 
         public override void Activate()
@@ -65,6 +72,29 @@ namespace pitTeam.BigBrain
                 return healDecision.Value;
             }
 
+            if (!launcherFallbackToWeapon &&
+                CombatCommon.TryCreateGrenadeLauncherSuppressDecision(
+                    goalEnemy,
+                    ReasonPrefix,
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> launcherDecision,
+                    ordered: true))
+            {
+                return launcherDecision;
+            }
+
+            if (CombatCommon.TryCreateOrderedSuppressWeaponFallbackDecision(
+                    goalEnemy,
+                    ReasonPrefix,
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> fallbackDecision))
+            {
+                if (string.Equals(fallbackDecision.Reason, WeaponSwitchToPrimaryReason, StringComparison.Ordinal))
+                {
+                    weaponSwitchRetryUntil = Time.time + WeaponSwitchRetrySeconds;
+                }
+
+                return fallbackDecision;
+            }
+
             if (CombatCommon.TryCreateSuppressDecision(
                     goalEnemy,
                     ReasonPrefix,
@@ -99,6 +129,14 @@ namespace pitTeam.BigBrain
                 AICoreActionEndStruct end = CombatCommon.EndSuppressFire(currentDecision.Reason);
                 if (end.Value)
                 {
+                    if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(currentDecision.Reason) &&
+                        ShouldFallbackLauncherSuppressToWeapon(end.Reason))
+                    {
+                        launcherFallbackToWeapon = true;
+                        CombatCommon.PrepareLauncherSuppressWeaponFallback();
+                        return end;
+                    }
+
                     complete = true;
                     ClearObjectiveCommitments();
                 }
@@ -108,6 +146,17 @@ namespace pitTeam.BigBrain
 
             if (currentDecision.Action == BotLogicDecision.holdPosition)
             {
+                if (string.Equals(currentDecision.Reason, WeaponSwitchToPrimaryReason, StringComparison.Ordinal))
+                {
+                    if (Time.time >= weaponSwitchRetryUntil)
+                    {
+                        return new AICoreActionEndStruct("suppressionWeaponSwitchRetry", true);
+                    }
+
+                    CombatCommon.HoldFor(Mathf.Max(0.05f, weaponSwitchRetryUntil - Time.time));
+                    return default;
+                }
+
                 complete = true;
                 ClearObjectiveCommitments();
                 return new AICoreActionEndStruct("suppressionNoAction", true);
@@ -119,6 +168,13 @@ namespace pitTeam.BigBrain
         internal static bool IsSuppressionObjectiveReason(string? reason)
         {
             return reason != null && reason.StartsWith(ReasonPrefix, StringComparison.Ordinal);
+        }
+
+        private static bool ShouldFallbackLauncherSuppressToWeapon(string? endReason)
+        {
+            return string.Equals(endReason, "followerSuppressHardBlockedLane", StringComparison.Ordinal) ||
+                   string.Equals(endReason, "followerSuppressBlockedLane", StringComparison.Ordinal) ||
+                   string.Equals(endReason, "launcherImpactUnsafe", StringComparison.Ordinal);
         }
 
         private void ClearObjectiveCommitments()

@@ -38,6 +38,12 @@ namespace pitTeam.BigBrain.Actions
             BotOwner.Settings.FileSettings.Grenade.CAN_THROW_STRAIGHT_CONTACT = false;
             try
             {
+                EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+                if (StopUnownedGrenadeLauncherFire(GetReason(data), goalEnemy))
+                {
+                    return;
+                }
+
                 // Before the vanilla node runs, try to raise the follower if the current cover only
                 // has a standing shot lane. This prevents a crouched follower from "shooting cover"
                 // while his muzzle is actually blocked by the cover edge.
@@ -54,7 +60,7 @@ namespace pitTeam.BigBrain.Actions
                     return;
                 }
 
-                if (StopIfFriendlyInCurrentFireLane(BotOwner.Memory?.GoalEnemy))
+                if (StopIfFriendlyInCurrentFireLane(goalEnemy))
                 {
                     return;
                 }

@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using EFT.InventoryLogic;
 using pitTeam.Components;
 using pitTeam.Modules;
 using pitTeam.Utils;
@@ -32,6 +33,8 @@ namespace pitTeam.BigBrain.Actions
     /// </summary>
     internal abstract class FollowerCombatActionBase : CustomLogic
     {
+        private float nextUnownedLauncherGuardRecordAt;
+
         protected FollowerCombatActionBase(BotOwner botOwner) : base(botOwner)
         {
         }
@@ -155,6 +158,41 @@ namespace pitTeam.BigBrain.Actions
             }
         }
 
+        protected bool StopUnownedGrenadeLauncherFire(string? reason, EnemyInfo? goalEnemy = null)
+        {
+            if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(reason))
+            {
+                return false;
+            }
+
+            BotWeaponSelector? selector = BotOwner?.WeaponManager?.Selector;
+            Weapon? secondPrimary = selector?.SecondPrimaryWeaponItem as Weapon;
+            Weapon? activeWeapon = BotOwner?.WeaponManager?.ShootController?.Item;
+            bool selectedSecondPrimaryLauncher =
+                selector?.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon &&
+                FollowerCombatCommon.IsGrenadeLauncherWeapon(secondPrimary);
+            bool activeLauncher = FollowerCombatCommon.IsGrenadeLauncherWeapon(activeWeapon);
+            if (!selectedSecondPrimaryLauncher && !activeLauncher)
+            {
+                return false;
+            }
+
+            StopCombatShooting();
+            selector?.TryChangeToMain();
+
+            if (Time.time >= nextUnownedLauncherGuardRecordAt)
+            {
+                nextUnownedLauncherGuardRecordAt = Time.time + 2f;
+                BattleRecorder.RecordGrenadeEvent(
+                    BotOwner,
+                    "launcherReject",
+                    $"unownedLauncherSelection:{reason ?? "unknown"}",
+                    goalEnemy: goalEnemy);
+            }
+
+            return true;
+        }
+
         protected bool StopIfFriendlyInCurrentFireLane(EnemyInfo? goalEnemy)
         {
             if (goalEnemy == null)
@@ -195,7 +233,7 @@ namespace pitTeam.BigBrain.Actions
             return false;
         }
 
-        protected void TryPreferPrimaryAtRange(EnemyInfo? goalEnemy)
+        protected void TryPreferPrimaryAtRange(EnemyInfo? goalEnemy, string? reason = null)
         {
             if (goalEnemy == null)
             {
@@ -203,6 +241,11 @@ namespace pitTeam.BigBrain.Actions
             }
 
             if (BossPlayers.Instance?.GetFollower(BotOwner)?.CombatTactic == FollowerCombatTactic.Marksman)
+            {
+                return;
+            }
+
+            if (ShouldKeepAutomaticSecondaryForPush(reason))
             {
                 return;
             }
@@ -219,7 +262,51 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            if (ShouldRespectVanillaSupportWeaponFallback(selector))
+            {
+                return;
+            }
+
             selector.TryChangeToMain();
+        }
+
+        private bool ShouldRespectVanillaSupportWeaponFallback(BotWeaponSelector selector)
+        {
+            if (selector.LastEquipmentSlot == EquipmentSlot.Holster)
+            {
+                return true;
+            }
+
+            if (selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon &&
+                FollowerCombatCommon.IsGrenadeLauncherWeapon(selector.SecondPrimaryWeaponItem as Weapon))
+            {
+                return false;
+            }
+
+            if (selector.LastEquipmentSlot != selector.SupportWeapon)
+            {
+                return false;
+            }
+
+            BotWeaponManager? weaponManager = BotOwner?.WeaponManager;
+            if (weaponManager == null)
+            {
+                return false;
+            }
+
+            if (weaponManager.Reload?.Reloading == true)
+            {
+                return true;
+            }
+
+            return weaponManager.MainWeaponInfo?.BulletCount <= 0;
+        }
+
+        private bool ShouldKeepAutomaticSecondaryForPush(string? reason)
+        {
+            return FollowerCombatCommon.IsSelectedSecondPrimaryOverShotgunPrimary(BotOwner) ||
+                   FollowerCombatCommon.IsAutomaticSecondaryPushReason(reason) &&
+                   FollowerCombatCommon.IsUsingAutomaticSecondaryOverNonAutomaticPrimary(BotOwner);
         }
 
         protected bool WaitForEnemyAimAlignment(ref float startedAt, float maxAngle = 32f, float timeout = 0.12f)

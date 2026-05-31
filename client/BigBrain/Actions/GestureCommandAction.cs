@@ -1,8 +1,10 @@
 using Comfort.Common;
+using Diz.LanguageExtensions;
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using EFT.Interactive;
 using EFT.InventoryLogic;
+using JsonType;
 using pitTeam.Components;
 using pitTeam.Modules;
 using pitTeam.Utils;
@@ -45,6 +47,15 @@ namespace pitTeam.BigBrain.Actions
         private float lootPickupReadyAt;
         private float lootPickupAttemptStartedAt;
         private LootItem? activeLootItem;
+        private Corpse? activeBodyLootCorpse;
+        private bool bodyLootMoveInProgress;
+        private float bodyLootReadyAt;
+        private float bodyLootNextMoveAt;
+        private float bodyLootAttemptStartedAt;
+        private int bodyLootMovesSucceeded;
+        private bool bodyLootWeaponListDirty;
+        private bool bodyLootBackpackCapacityAttempted;
+        private readonly HashSet<string> bodyLootAttemptedItemIds = new HashSet<string>(StringComparer.Ordinal);
         private Door? activeDoor;
         private bool doorMoveIssued;
         private bool doorInteractIssued;
@@ -87,6 +98,15 @@ namespace pitTeam.BigBrain.Actions
             lootPickupReadyAt = 0f;
             lootPickupAttemptStartedAt = 0f;
             activeLootItem = null;
+            activeBodyLootCorpse = null;
+            bodyLootMoveInProgress = false;
+            bodyLootReadyAt = 0f;
+            bodyLootNextMoveAt = 0f;
+            bodyLootAttemptStartedAt = 0f;
+            bodyLootMovesSucceeded = 0;
+            bodyLootWeaponListDirty = false;
+            bodyLootBackpackCapacityAttempted = false;
+            bodyLootAttemptedItemIds.Clear();
             activeDoor = null;
             doorMoveIssued = false;
             doorInteractIssued = false;
@@ -112,6 +132,7 @@ namespace pitTeam.BigBrain.Actions
             {
                 ReleaseRegroupReservation();
                 CleanupLootInteraction($"CommandInterrupt:{command}");
+                CleanupBodyLootInteraction($"CommandInterrupt:{command}");
                 CleanupDoorInteraction();
                 followerData?.ClearCommand($"CommandInterrupt:{command}");
                 BotOwner.StopMove();
@@ -135,6 +156,11 @@ namespace pitTeam.BigBrain.Actions
                     CleanupLootInteraction($"CommandChanged:{command}");
                 }
 
+                if (lastCommand == FollowerCommandType.TakeBodyGear)
+                {
+                    CleanupBodyLootInteraction($"CommandChanged:{command}");
+                }
+
                 comeTargetInitialized = false;
                 comeTarget = Vector3.zero;
                 comePoseInitialized = false;
@@ -150,6 +176,15 @@ namespace pitTeam.BigBrain.Actions
                 lootPickupReadyAt = 0f;
                 lootPickupAttemptStartedAt = 0f;
                 activeLootItem = null;
+                activeBodyLootCorpse = null;
+                bodyLootMoveInProgress = false;
+                bodyLootReadyAt = 0f;
+                bodyLootNextMoveAt = 0f;
+                bodyLootAttemptStartedAt = 0f;
+                bodyLootMovesSucceeded = 0;
+                bodyLootWeaponListDirty = false;
+                bodyLootBackpackCapacityAttempted = false;
+                bodyLootAttemptedItemIds.Clear();
                 CleanupDoorInteraction();
             }
 
@@ -173,6 +208,10 @@ namespace pitTeam.BigBrain.Actions
 
                 case FollowerCommandType.TakeLootItem:
                     HandleTakeLootItem();
+                    break;
+
+                case FollowerCommandType.TakeBodyGear:
+                    HandleTakeBodyGear();
                     break;
 
                 case FollowerCommandType.OpenDoor:
@@ -758,10 +797,23 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Stop()
         {
+            bool botInvalid = BotOwner == null ||
+                              BotOwner.IsDead ||
+                              BotOwner.BotState != EBotState.Active ||
+                              BotOwner.GetPlayer?.HealthController?.IsAlive != true;
+
             if (followerData?.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) != true ||
+                botInvalid ||
                 command != FollowerCommandType.TakeLootItem)
             {
                 CleanupLootInteraction("TakeLoot:actionStop");
+            }
+
+            if (followerData?.TryPeekActiveCommand(out FollowerCommandType bodyCommand, out _, out _) != true ||
+                botInvalid ||
+                bodyCommand != FollowerCommandType.TakeBodyGear)
+            {
+                CleanupBodyLootInteraction("TakeBodyGear:actionStop");
             }
 
             CleanupDoorInteraction();
@@ -1168,6 +1220,760 @@ namespace pitTeam.BigBrain.Actions
                    string.Equals(reason, "TakeLoot:detectedInInventory", StringComparison.Ordinal) ||
                    string.Equals(reason, "TakeLoot:detectedInInventoryDuringPickup", StringComparison.Ordinal);
         }
+
+        private void HandleTakeBodyGear()
+        {
+            if (followerData == null)
+            {
+                return;
+            }
+
+            if (!CanContinueBodyLootCommand(out string? guardFailureReason))
+            {
+                ClearBodyLootState(guardFailureReason ?? "TakeBodyGear:invalidState");
+                return;
+            }
+
+            activeBodyLootCorpse ??= InteractableObjects.GetCurBodyLootTarget();
+            if (activeBodyLootCorpse == null || activeBodyLootCorpse.gameObject == null)
+            {
+                ClearBodyLootState("TakeBodyGear:corpseMissing");
+                return;
+            }
+
+            if (InteractableObjects.GetCurBodyLootTarget() == null)
+            {
+                InteractableObjects.SetCurBodyLootTarget(activeBodyLootCorpse);
+            }
+
+            Vector3 bodyPosition;
+            try
+            {
+                bodyPosition = InteractableObjects.GetBodyLootPosition();
+            }
+            catch
+            {
+                ClearBodyLootState("TakeBodyGear:missingBodyPosition");
+                return;
+            }
+
+            float distance = Vector3.Distance(BotOwner.Position, bodyPosition);
+            if (distance > 1.9f)
+            {
+                bodyLootReadyAt = 0f;
+                BotOwner.GoToSomePointData.SetPoint(bodyPosition);
+                BotOwner.GoToSomePointData.UpdateToGo(false);
+                BotOwner.Steering.LookToMovingDirection();
+                return;
+            }
+
+            BotOwner.StopMove();
+            if (BotOwner.Mover.Sprinting)
+            {
+                BotOwner.Mover.Sprint(false, false);
+            }
+            BotOwner.Steering.LookToPoint(activeBodyLootCorpse.transform.position);
+
+            if (bodyLootMoveInProgress)
+            {
+                if (bodyLootAttemptStartedAt > 0f && Time.time - bodyLootAttemptStartedAt > 4f)
+                {
+                    bodyLootMoveInProgress = false;
+                    bodyLootAttemptStartedAt = 0f;
+                    bodyLootNextMoveAt = Time.time + 0.25f;
+                }
+
+                return;
+            }
+
+            if (bodyLootReadyAt <= 0f)
+            {
+                bodyLootReadyAt = Time.time + 0.45f;
+                return;
+            }
+
+            if (Time.time < bodyLootReadyAt || Time.time < bodyLootNextMoveAt)
+            {
+                return;
+            }
+
+            TryStartNextBodyGearMove();
+        }
+
+        private bool CanContinueBodyLootCommand(out string? reason)
+        {
+            reason = null;
+
+            if (BotOwner == null || BotOwner.IsDead || BotOwner.BotState != EBotState.Active)
+            {
+                reason = "TakeBodyGear:botInvalid";
+                return false;
+            }
+
+            if (!InteractableObjects.IsBodyLootTaker(BotOwner))
+            {
+                if (!InteractableObjects.SetBodyLootTaker(BotOwner) || !InteractableObjects.IsBodyLootTaker(BotOwner))
+                {
+                    reason = "TakeBodyGear:notTaker";
+                    return false;
+                }
+            }
+
+            if (BotOwner.Memory?.HaveEnemy == true)
+            {
+                reason = "TakeBodyGear:enemy";
+                return false;
+            }
+
+            return true;
+        }
+
+        private void TryStartNextBodyGearMove()
+        {
+            try
+            {
+                if (!TryGetBodyLootExecutionContext(out InventoryController? inventory, out InventoryEquipment? corpseEquipment, out InventoryEquipment? followerEquipment, out string reason))
+                {
+                    ClearBodyLootState(reason);
+                    return;
+                }
+
+                // Try the corpse backpack first as a capacity source, but only if it can be
+                // carried inside the follower's own backpack. After that move succeeds, the next
+                // planning pass sees its nested grids through normal live inventory state.
+                BodyGearMove? backpackCapacityMove = TryBuildCorpseBackpackCapacityMove(inventory, corpseEquipment, followerEquipment);
+                if (backpackCapacityMove != null)
+                {
+                    StartBodyGearMove(inventory, backpackCapacityMove);
+                    return;
+                }
+
+                // Plan one live inventory transaction at a time. This keeps interruption behavior
+                // simple: completed moves remain valid cargo, and unmoved body gear stays on the corpse.
+                foreach (BodyGearCandidate candidate in GetBodyGearCandidates(corpseEquipment))
+                {
+                    if (candidate.Item == null ||
+                        string.IsNullOrEmpty(candidate.Item.Id) ||
+                        bodyLootAttemptedItemIds.Contains(candidate.Item.Id) ||
+                        !IsBodyGearCandidateLootable(candidate.Item) ||
+                        IsLootNowInBotInventory(BotOwner?.GetPlayer, candidate.Item))
+                    {
+                        continue;
+                    }
+
+                    bodyLootAttemptedItemIds.Add(candidate.Item.Id);
+                    if (!TryBuildBodyGearMove(inventory, followerEquipment, candidate, out BodyGearMove? move))
+                    {
+                        continue;
+                    }
+
+                    StartBodyGearMove(inventory, move);
+                    return;
+                }
+
+                FinishBodyLootNoMoreMoves();
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("TakeBodyGear planning failed");
+                Modules.Logger.LogError(ex);
+                ClearBodyLootState("TakeBodyGear:planningException");
+            }
+        }
+
+        private bool TryGetBodyLootExecutionContext(
+            out InventoryController? inventory,
+            out InventoryEquipment? corpseEquipment,
+            out InventoryEquipment? followerEquipment,
+            out string reason)
+        {
+            inventory = BotOwner?.GetPlayer?.InventoryController;
+            followerEquipment = inventory?.Inventory?.Equipment;
+            corpseEquipment = activeBodyLootCorpse?.ItemOwner?.RootItem as InventoryEquipment;
+
+            if (!CanContinueBodyLootCommand(out string? guardFailureReason))
+            {
+                reason = guardFailureReason ?? "TakeBodyGear:invalidState";
+                return false;
+            }
+
+            if (activeBodyLootCorpse == null || activeBodyLootCorpse.gameObject == null)
+            {
+                reason = "TakeBodyGear:corpseMissing";
+                return false;
+            }
+
+            if (inventory == null || followerEquipment == null)
+            {
+                reason = "TakeBodyGear:noInventory";
+                return false;
+            }
+
+            if (corpseEquipment == null)
+            {
+                reason = "TakeBodyGear:noCorpseEquipment";
+                return false;
+            }
+
+            reason = string.Empty;
+            return true;
+        }
+
+        private BodyGearMove? TryBuildCorpseBackpackCapacityMove(
+            InventoryController inventory,
+            InventoryEquipment corpseEquipment,
+            InventoryEquipment followerEquipment)
+        {
+            if (bodyLootBackpackCapacityAttempted)
+            {
+                return null;
+            }
+
+            bodyLootBackpackCapacityAttempted = true;
+
+            Item corpseBackpack = corpseEquipment.GetSlot(EquipmentSlot.Backpack)?.ContainedItem;
+            if (corpseBackpack == null || string.IsNullOrEmpty(corpseBackpack.Id))
+            {
+                return null;
+            }
+
+            if (!IsBodyGearCandidateLootable(corpseBackpack))
+            {
+                return null;
+            }
+
+            bodyLootAttemptedItemIds.Add(corpseBackpack.Id);
+
+            Item followerBackpack = followerEquipment.GetSlot(EquipmentSlot.Backpack)?.ContainedItem;
+            if (followerBackpack is not SearchableItemItemClass followerSearchableBackpack)
+            {
+                return null;
+            }
+
+            foreach (EFT.InventoryLogic.IContainer container in followerSearchableBackpack.Containers ?? Enumerable.Empty<EFT.InventoryLogic.IContainer>())
+            {
+                if (!container.TryFindLocationForItem(corpseBackpack, out ItemAddress address) ||
+                    corpseBackpack.Parent.Equals(address))
+                {
+                    continue;
+                }
+
+                GStruct154<GClass3411> moveResult = InteractionsHandlerClass.Move(corpseBackpack, address, inventory, true);
+                if (moveResult.Failed || moveResult.Value.ItemsDestroyRequired || !inventory.CanExecute(moveResult.Value))
+                {
+                    continue;
+                }
+
+                return new BodyGearMove(corpseBackpack, moveResult.Value, "bodyBackpackCapacity");
+            }
+
+            return null;
+        }
+
+        private bool TryBuildBodyGearMove(
+            InventoryController inventory,
+            InventoryEquipment followerEquipment,
+            BodyGearCandidate candidate,
+            out BodyGearMove? move)
+        {
+            move = null;
+
+            if (candidate.Item == null)
+            {
+                return false;
+            }
+
+            // Empty compatible slots are allowed because they increase carry capacity without
+            // sacrificing the follower's current fighting kit. Existing gear is never thrown or swapped.
+            if (TryFindBodyGearEquipmentSlot(followerEquipment, candidate, out ItemAddress? equipAddress) &&
+                TryCreateBodyGearMove(inventory, candidate.Item, equipAddress, candidate.SourceName, out move))
+            {
+                return true;
+            }
+
+            foreach (EFT.InventoryLogic.IContainer container in GetBodyGearCarryContainers(followerEquipment, candidate.Item))
+            {
+                if (!container.TryFindLocationForItem(candidate.Item, out ItemAddress packAddress) ||
+                    candidate.Item.Parent.Equals(packAddress))
+                {
+                    continue;
+                }
+
+                if (TryCreateBodyGearMove(inventory, candidate.Item, packAddress, candidate.SourceName, out move))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool TryCreateBodyGearMove(
+            InventoryController inventory,
+            Item item,
+            ItemAddress address,
+            string sourceName,
+            out BodyGearMove? move)
+        {
+            move = null;
+
+            GStruct154<GClass3411> moveResult = InteractionsHandlerClass.Move(item, address, inventory, true);
+            if (moveResult.Failed || moveResult.Value.ItemsDestroyRequired || !inventory.CanExecute(moveResult.Value))
+            {
+                return false;
+            }
+
+            move = new BodyGearMove(item, moveResult.Value, sourceName);
+            return true;
+        }
+
+        private void StartBodyGearMove(InventoryController inventory, BodyGearMove move)
+        {
+            bodyLootMoveInProgress = true;
+            bodyLootAttemptStartedAt = Time.time;
+            inventory.RunNetworkTransaction(move.Operation, new Callback(result => CompleteBodyGearMove(result, move)));
+        }
+
+        private void CompleteBodyGearMove(IResult result, BodyGearMove move)
+        {
+            try
+            {
+                bodyLootMoveInProgress = false;
+                bodyLootAttemptStartedAt = 0f;
+                bodyLootNextMoveAt = Time.time + 0.2f;
+
+                if (result?.Succeed == true || IsLootNowInBotInventory(BotOwner?.GetPlayer, move.Item))
+                {
+                    bodyLootMovesSucceeded++;
+
+                    if (followerData?.IsSquadMate == true)
+                    {
+                        InteractableObjects.StoreItem(BotOwner, move.Item);
+                    }
+
+                    if (move.Item is Weapon && move.Item.GetItemComponent<KnifeComponent>() == null)
+                    {
+                        bodyLootWeaponListDirty = true;
+                    }
+
+                    return;
+                }
+
+                Modules.Logger.LogInfo(
+                    $"[LootCommand] Body gear move failed for '{BotOwner?.Profile?.Nickname ?? BotOwner?.ProfileId ?? "unknown"}': {move.SourceName}:{move.Item?.TemplateId ?? "unknown"}");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("TakeBodyGear move completion failed");
+                Modules.Logger.LogError(ex);
+                bodyLootMoveInProgress = false;
+                bodyLootAttemptStartedAt = 0f;
+                bodyLootNextMoveAt = Time.time + 0.2f;
+            }
+        }
+
+        private void FinishBodyLootNoMoreMoves()
+        {
+            if (bodyLootWeaponListDirty)
+            {
+                BotOwner.WeaponManager.UpdateWeaponsList();
+                bodyLootWeaponListDirty = false;
+            }
+
+            if (bodyLootMovesSucceeded > 0)
+            {
+                BotOwner.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                ClearBodyLootState("TakeBodyGear:done");
+                return;
+            }
+
+            BotOwner.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+            ClearBodyLootState("TakeBodyGear:noSpace");
+        }
+
+        private IEnumerable<BodyGearCandidate> GetBodyGearCandidates(InventoryEquipment corpseEquipment)
+        {
+            foreach (EquipmentSlot slot in BodyGearTopLevelSlotOrder)
+            {
+                Item item = corpseEquipment.GetSlot(slot)?.ContainedItem;
+                if (item != null)
+                {
+                    yield return new BodyGearCandidate(item, slot, slot.ToString(), 0);
+                }
+            }
+
+            foreach (EquipmentSlot slot in BodyGearContentSlotOrder)
+            {
+                Item root = corpseEquipment.GetSlot(slot)?.ContainedItem;
+                if (root is not CompoundItem compound)
+                {
+                    continue;
+                }
+
+                List<Item> contents = new List<Item>();
+                compound.GetAllAssembledItems(contents);
+
+                foreach (Item item in contents
+                             .Where(item => item != null && item != root && item is not SearchableItemItemClass)
+                             .OrderByDescending(GetBodyGearContentPriority)
+                             .ThenByDescending(GetItemArea)
+                             .ThenByDescending(item => item.Template?.CreditsPrice ?? 0))
+                {
+                    yield return new BodyGearCandidate(item, null, $"{slot}.Contents", 1);
+                }
+            }
+        }
+
+        private static bool TryFindBodyGearEquipmentSlot(
+            InventoryEquipment equipment,
+            BodyGearCandidate candidate,
+            out ItemAddress? address)
+        {
+            address = null;
+
+            if (candidate.Item is BackpackItemClass)
+            {
+                return false;
+            }
+
+            foreach (EquipmentSlot slotName in GetBodyGearEquipmentSlotOrder(candidate))
+            {
+                Slot slot = equipment.GetSlot(slotName);
+                if (slot == null || slot.Deleted || slot.ContainedItem != null)
+                {
+                    continue;
+                }
+
+                Error error;
+                ItemAddress candidateAddress = slot.FindLocationForItem(candidate.Item, out error);
+                if (candidateAddress != null)
+                {
+                    address = candidateAddress;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<EquipmentSlot> GetBodyGearEquipmentSlotOrder(BodyGearCandidate candidate)
+        {
+            if (candidate.SourceSlot == EquipmentSlot.FirstPrimaryWeapon ||
+                candidate.SourceSlot == EquipmentSlot.SecondPrimaryWeapon)
+            {
+                yield return EquipmentSlot.SecondPrimaryWeapon;
+                yield return EquipmentSlot.FirstPrimaryWeapon;
+                yield break;
+            }
+
+            Item item = candidate.Item;
+            if (item is PistolItemClass || item is RevolverItemClass)
+            {
+                yield return EquipmentSlot.Holster;
+                yield break;
+            }
+
+            if (item is ArmorItemClass)
+            {
+                yield return EquipmentSlot.ArmorVest;
+                yield break;
+            }
+
+            if (item is VestItemClass)
+            {
+                yield return EquipmentSlot.TacticalVest;
+                yield break;
+            }
+
+            if (item is HeadwearItemClass)
+            {
+                yield return EquipmentSlot.Headwear;
+                yield break;
+            }
+
+            if (item is HeadphonesItemClass)
+            {
+                yield return EquipmentSlot.Earpiece;
+                yield break;
+            }
+
+            if (item is FaceCoverItemClass)
+            {
+                yield return EquipmentSlot.FaceCover;
+                yield break;
+            }
+
+            if (item is VisorsItemClass)
+            {
+                yield return EquipmentSlot.Eyewear;
+                yield break;
+            }
+
+            if (item is Weapon && item.GetItemComponent<KnifeComponent>() == null)
+            {
+                yield return EquipmentSlot.SecondPrimaryWeapon;
+                yield return EquipmentSlot.FirstPrimaryWeapon;
+            }
+        }
+
+        private static IEnumerable<EFT.InventoryLogic.IContainer> GetBodyGearCarryContainers(InventoryEquipment equipment, Item item)
+        {
+            HashSet<EFT.InventoryLogic.IContainer> seen = new HashSet<EFT.InventoryLogic.IContainer>();
+
+            foreach (EquipmentSlot slot in BodyGearCarrySlotOrder)
+            {
+                Item root = equipment.GetSlot(slot)?.ContainedItem;
+                if (root is not SearchableItemItemClass searchable)
+                {
+                    continue;
+                }
+
+                foreach (EFT.InventoryLogic.IContainer container in GetSearchableContainersRecursive(searchable))
+                {
+                    if (container != null && seen.Add(container))
+                    {
+                        yield return container;
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<EFT.InventoryLogic.IContainer> GetSearchableContainersRecursive(SearchableItemItemClass item)
+        {
+            foreach (EFT.InventoryLogic.IContainer container in item.Containers ?? Enumerable.Empty<EFT.InventoryLogic.IContainer>())
+            {
+                yield return container;
+            }
+
+            foreach (Item child in item.GetAllItems())
+            {
+                if (child != null && child != item && child is SearchableItemItemClass nested)
+                {
+                    foreach (EFT.InventoryLogic.IContainer container in GetSearchableContainersRecursive(nested))
+                    {
+                        yield return container;
+                    }
+                }
+            }
+        }
+
+        private static int GetBodyGearContentPriority(Item item)
+        {
+            if (item is Weapon && item.GetItemComponent<KnifeComponent>() == null)
+            {
+                return 100;
+            }
+
+            if (item is ArmorItemClass || item is VestItemClass)
+            {
+                return 90;
+            }
+
+            if (item is HeadwearItemClass || item is HeadphonesItemClass || item is FaceCoverItemClass || item is VisorsItemClass)
+            {
+                return 80;
+            }
+
+            return 10;
+        }
+
+        private static bool IsBodyGearCandidateLootable(Item item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            if (item.IsSpecialSlotOnly ||
+                item is ArmBandItemClass ||
+                item.GetItemComponent<KnifeComponent>() != null)
+            {
+                return false;
+            }
+
+            // Respect vanilla lootability/removal flags from the corpse equipment slot. We check the
+            // raw component data here because pitFireTeam relaxes UnlootableComponent elsewhere so
+            // players can inspect/reorganize teammate gear during raid.
+            Slot sourceSlot = item.CurrentAddress?.Container as Slot;
+            if (sourceSlot == null || sourceSlot.ParentItem is not InventoryEquipment)
+            {
+                return true;
+            }
+
+            if (IsAlwaysNonLootableEquipmentSlot(sourceSlot))
+            {
+                return false;
+            }
+
+            if (item.TryGetItemComponent<UnlootableComponent>(out UnlootableComponent unlootableComponent) &&
+                IsUnlootableFromSlotIgnoringPatch(unlootableComponent, sourceSlot))
+            {
+                return false;
+            }
+
+            if (item.TryGetItemComponent<CantRemoveFromSlotsDuringRaidComponent>(out CantRemoveFromSlotsDuringRaidComponent cantRemoveComponent) &&
+                !cantRemoveComponent.CanRemoveFromSlotDuringRaid(sourceSlot.ID))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsAlwaysNonLootableEquipmentSlot(Slot slot)
+        {
+            return string.Equals(slot.ID, EquipmentSlot.ArmBand.ToString(), StringComparison.Ordinal) ||
+                   string.Equals(slot.ID, EquipmentSlot.Scabbard.ToString(), StringComparison.Ordinal);
+        }
+
+        private static bool IsUnlootableFromSlotIgnoringPatch(UnlootableComponent component, Slot slot)
+        {
+            if (component?.Template == null ||
+                slot == null ||
+                string.IsNullOrEmpty(component.Template.SlotName) ||
+                !slot.ID.Contains(component.Template.SlotName))
+            {
+                return false;
+            }
+
+            if (slot.ParentItem?.Owner is GClass3384 equipmentOwner)
+            {
+                return component.Template.Side.CheckSide(equipmentOwner.Side);
+            }
+
+            return false;
+        }
+
+        private static int GetItemArea(Item item)
+        {
+            try
+            {
+                XYCellSizeStruct size = item.CalculateCellSize();
+                return Mathf.Max(1, size.X) * Mathf.Max(1, size.Y);
+            }
+            catch
+            {
+                return 1;
+            }
+        }
+
+        private void CleanupBodyLootInteraction(string reason)
+        {
+            if (!bodyLootMoveInProgress &&
+                bodyLootReadyAt <= 0f &&
+                bodyLootNextMoveAt <= 0f &&
+                bodyLootAttemptStartedAt <= 0f &&
+                activeBodyLootCorpse == null &&
+                bodyLootAttemptedItemIds.Count == 0)
+            {
+                return;
+            }
+
+            bodyLootMoveInProgress = false;
+            bodyLootReadyAt = 0f;
+            bodyLootNextMoveAt = 0f;
+            bodyLootAttemptStartedAt = 0f;
+            bodyLootMovesSucceeded = 0;
+            bodyLootWeaponListDirty = false;
+            bodyLootBackpackCapacityAttempted = false;
+            bodyLootAttemptedItemIds.Clear();
+            activeBodyLootCorpse = null;
+
+            if (BotOwner != null)
+            {
+                InteractableObjects.RemoveBodyLootTaker(BotOwner);
+                BotOwner.Mover.Pause = false;
+                if (BotOwner.Mover.Sprinting)
+                {
+                    BotOwner.Mover.Sprint(false, false);
+                }
+
+                BotOwner.SetPose(1f);
+            }
+
+            InteractableObjects.ClearCurBodyLootTarget();
+        }
+
+        private void ClearBodyLootState(string reason)
+        {
+            if (!string.Equals(reason, "TakeBodyGear:done", StringComparison.Ordinal) &&
+                !string.Equals(reason, "TakeBodyGear:actionStop", StringComparison.Ordinal))
+            {
+                Modules.Logger.LogInfo(
+                    $"[LootCommand] Body gear loot ended for '{BotOwner?.Profile?.Nickname ?? BotOwner?.ProfileId ?? "unknown"}': {reason}");
+            }
+
+            CleanupBodyLootInteraction(reason);
+            if (string.Equals(reason, "TakeBodyGear:done", StringComparison.Ordinal))
+            {
+                followerData?.CompleteTakeBodyGear();
+            }
+            else
+            {
+                followerData?.ClearCommand(reason);
+            }
+        }
+
+        private sealed class BodyGearMove
+        {
+            public BodyGearMove(Item item, GInterface424 operation, string sourceName)
+            {
+                Item = item;
+                Operation = operation;
+                SourceName = sourceName;
+            }
+
+            public Item Item { get; }
+            public GInterface424 Operation { get; }
+            public string SourceName { get; }
+        }
+
+        private sealed class BodyGearCandidate
+        {
+            public BodyGearCandidate(Item item, EquipmentSlot? sourceSlot, string sourceName, int sourceTier)
+            {
+                Item = item;
+                SourceSlot = sourceSlot;
+                SourceName = sourceName;
+                SourceTier = sourceTier;
+            }
+
+            public Item Item { get; }
+            public EquipmentSlot? SourceSlot { get; }
+            public string SourceName { get; }
+            public int SourceTier { get; }
+        }
+
+        private static readonly EquipmentSlot[] BodyGearTopLevelSlotOrder =
+        {
+            // Mirrors the recovery priority used for player/fallen gear, with backpack already
+            // attempted in a capacity-first pass. Scabbard, armband, and secure container are omitted.
+            EquipmentSlot.FirstPrimaryWeapon,
+            EquipmentSlot.ArmorVest,
+            EquipmentSlot.TacticalVest,
+            EquipmentSlot.Headwear,
+            EquipmentSlot.SecondPrimaryWeapon,
+            EquipmentSlot.Holster,
+            EquipmentSlot.Backpack,
+            EquipmentSlot.Pockets,
+            EquipmentSlot.Earpiece,
+            EquipmentSlot.FaceCover,
+            EquipmentSlot.Eyewear
+        };
+
+        private static readonly EquipmentSlot[] BodyGearContentSlotOrder =
+        {
+            EquipmentSlot.TacticalVest,
+            EquipmentSlot.Backpack,
+            EquipmentSlot.Pockets
+        };
+
+        private static readonly EquipmentSlot[] BodyGearCarrySlotOrder =
+        {
+            EquipmentSlot.Backpack,
+            EquipmentSlot.TacticalVest,
+            EquipmentSlot.Pockets
+        };
 
         private void HandleOpenDoor()
         {

@@ -180,7 +180,7 @@ namespace pitTeam.Patches
 
             AddTeammateNicknameFieldUi.SetStatusLabelText(
                 __instance,
-                AddTeammateCreationFlow.GetLocalizedSocialUi("EnterNickname", "enter player nickname"));
+                AddTeammateCreationFlow.GetLocalizedSocialUi("EnterNickname"));
         }
     }
 
@@ -205,7 +205,7 @@ namespace pitTeam.Patches
             {
                 AddTeammateNicknameFieldUi.SetStatusLabelText(
                     __instance,
-                    AddTeammateCreationFlow.GetLocalizedSocialUi("NicknameTooShort", "Nickname too short"));
+                    AddTeammateCreationFlow.GetLocalizedSocialUi("NicknameTooShort"));
                 return;
             }
 
@@ -213,7 +213,7 @@ namespace pitTeam.Patches
             {
                 AddTeammateNicknameFieldUi.SetStatusLabelText(
                     __instance,
-                    AddTeammateCreationFlow.GetLocalizedSocialUi("EnterNickname", "Enter player nickname"));
+                    AddTeammateCreationFlow.GetLocalizedSocialUi("EnterNickname"));
             }
         }
     }
