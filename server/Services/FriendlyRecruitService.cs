@@ -21,7 +21,12 @@ public class FriendlyRecruitService(
 {
     private const string ModFolderName = "pitFireTeam-ServerMod";
     private const string RecruitRequestsFileName = "recruit-requests.json";
-    private const bool ForceRecruitPickupInviteForTesting = true;
+#if DEBUG
+    // Local-only test override. Release builds use the separate hardcoded-false branch below.
+    private const bool ForceRecruitPickupInviteForTesting = false;
+#else
+    private const bool ForceRecruitPickupInviteForTesting = false;
+#endif
 
     public void QueueRecruitPickups(MongoId sessionId, List<FriendlyRecruitPickupCandidate>? candidates)
     {
