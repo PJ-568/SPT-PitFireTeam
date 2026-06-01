@@ -19,6 +19,8 @@ Read code first. Assume nothing.
 
 Check `LOCAL.md` for machine-local deployment paths and current local runtime notes. `LOCAL.md` is intentionally ignored by git; do not treat it as shared project documentation.
 
+When the user asks for a behavior change "for testing", especially flags that force success, bypass chance rolls, ignore level/tier rules, or otherwise make production behavior easier to verify, mark the code clearly as a temporary test override. Before preparing any release, explicitly remind the user that test flags may have been left on and scan for those overrides before building or packaging.
+
 Check `docs/Localization.md` before adding or changing user-facing text. UI/server text must use the centralized pitFireTeam language model and embedded English fallback instead of hardcoded per-callsite fallback strings.
 
 If a method, class, property, or runtime behavior is unclear:
