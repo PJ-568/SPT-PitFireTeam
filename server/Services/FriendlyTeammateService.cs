@@ -161,48 +161,160 @@ public class FriendlyTeammateService(
         var head = NormalizeRequiredValue(candidate.Head, "head");
         var targetLevel = Math.Max(1, candidate.Level);
 
-        var teammate = GenerateTeammateBot(
-            sessionId,
-            new BotGenerationDetails
-            {
-                IsPmc = true,
-                Side = playerPmc.Info!.Side!,
-                Role = GetPmcRole(playerPmc.Info.Side),
-                PlayerLevel = targetLevel,
-                PlayerName = playerPmc.Info.Nickname,
-                BotRelativeLevelDeltaMax = 0,
-                BotRelativeLevelDeltaMin = 0,
-                BotCountToGenerate = 1,
-                BotDifficulty = "hard",
-                Location = TeammateGenerationLocation,
-                LocationSpecificPmcLevelOverride = new MinMax<int>
+        bool usedCapturedProfile = TryDeserializeRecruitProfile(candidate, out var teammate);
+        if (!usedCapturedProfile)
+        {
+            teammate = GenerateTeammateBot(
+                sessionId,
+                new BotGenerationDetails
                 {
-                    Min = targetLevel,
-                    Max = targetLevel,
-                },
-                IsPlayerScav = false,
-                AllPmcsHaveSameNameAsPlayer = false,
-            }
-        );
+                    IsPmc = true,
+                    Side = playerPmc.Info!.Side!,
+                    Role = GetPmcRole(playerPmc.Info.Side),
+                    PlayerLevel = targetLevel,
+                    PlayerName = playerPmc.Info.Nickname,
+                    BotRelativeLevelDeltaMax = 0,
+                    BotRelativeLevelDeltaMin = 0,
+                    BotCountToGenerate = 1,
+                    BotDifficulty = "hard",
+                    Location = TeammateGenerationLocation,
+                    LocationSpecificPmcLevelOverride = new MinMax<int>
+                    {
+                        Min = targetLevel,
+                        Max = targetLevel,
+                    },
+                    IsPlayerScav = false,
+                    AllPmcsHaveSameNameAsPlayer = false,
+                }
+            );
+        }
 
-        teammate.Info!.Nickname = nickname;
+        teammate.Info ??= new CommonInfo();
+        teammate.Customization ??= new CommonCustomization();
+        teammate.Info.Nickname = nickname;
         teammate.Info.LowerNickname = nickname.ToLowerInvariant();
-        teammate.Customization!.Voice = voice;
+        teammate.Customization.Voice = voice;
         teammate.Customization.Head = head;
-        teammate.Aid = GetUniqueAccountId(sessionId);
+        teammate.Aid = GetRecruitAccountIdOrUnique(sessionId, candidate.AccountId);
 
-        NormalizeTeammateProfile(teammate, playerPmc);
+        if (usedCapturedProfile)
+        {
+            NormalizeCapturedRecruitProfile(teammate, playerPmc, candidate);
+        }
+        else
+        {
+            NormalizeTeammateProfile(teammate, playerPmc);
+        }
+
         NormalizeTeammateSkillsForCreation(teammate, playerPmc);
-        // Temporarily disabled: this floor baseline can over-inflate teammate skills.
-        // ApplyPmcFollowerSkillBaseline(teammate);
+        InitializeRecruitRaidStats(teammate, targetLevel, GetRecruitStatsSeed(candidate));
         PrepareNewTeammateDefaultForCurrentLoadoutMode(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: IsCurrentLoadoutManagementModeExtreme());
         SaveTeammate(sessionId, teammate);
         SaveTeammateSettings(sessionId, teammate, CreateDefaultTeammateSettings());
 
-        logger.Info($"Accepted recruit pickup '{nickname}' for session '{sessionId}' with aid '{teammate.Aid}'");
+        logger.Info($"Accepted recruit pickup '{nickname}' for session '{sessionId}' with aid '{teammate.Aid}' capturedProfile={usedCapturedProfile}");
 
         return ToFriendSummary(teammate);
+    }
+
+    public bool TryGetRecruitCandidateProfile(MongoId sessionId, FriendlyRecruitPickupCandidate candidate, out GetOtherProfileResponse? profile)
+    {
+        profile = null;
+        if (!TryDeserializeRecruitProfile(candidate, out var recruit))
+        {
+            return false;
+        }
+
+        var playerPmc = GetPlayerProfile(sessionId);
+        recruit.Info ??= new CommonInfo();
+        recruit.Customization ??= new CommonCustomization();
+
+        if (!string.IsNullOrWhiteSpace(candidate.Nickname))
+        {
+            recruit.Info.Nickname = candidate.Nickname.Trim();
+            recruit.Info.LowerNickname = recruit.Info.Nickname.ToLowerInvariant();
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate.Voice))
+        {
+            recruit.Customization.Voice = candidate.Voice.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate.Head))
+        {
+            recruit.Customization.Head = candidate.Head.Trim();
+        }
+
+        if (int.TryParse(candidate.AccountId, out var aid) && aid > 0)
+        {
+            recruit.Aid = aid;
+        }
+
+        NormalizeCapturedRecruitProfile(recruit, playerPmc, candidate);
+        NormalizeTeammateSkillsForCreation(recruit, playerPmc);
+        InitializeRecruitRaidStats(recruit, Math.Max(1, candidate.Level), GetRecruitStatsSeed(candidate));
+        profile = ToOtherProfileResponse(recruit);
+
+        // Pending recruits are bot profiles, not player hideouts. Let the stock other-profile
+        // screen render normally while suppressing the View Hideout action.
+        profile.Hideout = null!;
+        profile.HideoutAreaStashes = [];
+        profile.CustomizationStash = string.Empty;
+        return true;
+    }
+
+    private bool TryDeserializeRecruitProfile(FriendlyRecruitPickupCandidate candidate, out BotBase teammate)
+    {
+        teammate = null!;
+        if (string.IsNullOrWhiteSpace(candidate.ProfileJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            var deserialized = jsonUtil.Deserialize<BotBase>(candidate.ProfileJson);
+            if (deserialized?.Info == null)
+            {
+                return false;
+            }
+
+            teammate = deserialized;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Failed to deserialize captured recruit profile '{candidate.ProfileId}'; falling back to generated recruit profile: {ex.Message}");
+            teammate = null!;
+            return false;
+        }
+    }
+
+    private void NormalizeCapturedRecruitProfile(BotBase teammate, PmcData playerPmc, FriendlyRecruitPickupCandidate candidate)
+    {
+        teammate.Info ??= new CommonInfo();
+        teammate.Customization ??= new CommonCustomization();
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items ??= [];
+        teammate.Stats ??= new Stats();
+        teammate.Stats.Eft ??= new EftStats();
+        teammate.Stats.Eft.OverallCounters ??= new OverallCounters { Items = [] };
+        teammate.Stats.Eft.OverallCounters.Items ??= [];
+        teammate.Hideout ??= new Hideout();
+        teammate.Inventory.HideoutAreaStashes ??= [];
+
+        if (teammate.Id == null && !string.IsNullOrWhiteSpace(candidate.ProfileId))
+        {
+            teammate.Id = new MongoId(candidate.ProfileId);
+        }
+
+        teammate.Info.Side ??= playerPmc.Info?.Side;
+        teammate.Info.LowerNickname = teammate.Info.Nickname?.ToLowerInvariant();
+        teammate.Info.MemberCategory = MemberCategory.Unheard;
+        teammate.Info.SelectedMemberCategory = MemberCategory.Unheard;
+        teammate.Info.BannedState = playerPmc.Info?.BannedState;
+        teammate.Info.BannedUntil = playerPmc.Info?.BannedUntil;
     }
 
     public List<object> ListTeammates(MongoId sessionId)
@@ -3101,6 +3213,61 @@ public class FriendlyTeammateService(
         AddOverallCounter(teammate, 1, "Deaths");
     }
 
+    private static void InitializeRecruitRaidStats(BotBase teammate, int targetLevel, int? deterministicSeed = null)
+    {
+        EnsureTeammateEftStats(teammate);
+
+        var rng = deterministicSeed.HasValue ? new Random(deterministicSeed.Value) : Random.Shared;
+        var level = Math.Clamp(targetLevel, 1, 79);
+        var sessions = Math.Max(1, (int)Math.Round(level * RandomRange(rng, 2.5d, 5.5d) + rng.Next(0, 13)));
+        var survivalRate = Math.Clamp(0.25d + level * 0.0045d + RandomRange(rng, -0.08d, 0.12d), 0.18d, 0.72d);
+        var survived = Math.Clamp((int)Math.Round(sessions * survivalRate), 0, sessions);
+        var deaths = Math.Max(0, sessions - survived);
+        var killRate = Math.Clamp(0.55d + level * 0.035d + RandomRange(rng, -0.35d, 0.65d), 0.2d, 4.25d);
+        var kills = Math.Max(0, (int)Math.Round(sessions * killRate));
+        var lifetimeSeconds = Math.Max(600, (long)Math.Round(sessions * RandomRange(rng, 850d, 2100d)));
+
+        teammate.Stats!.Eft!.TotalInGameTime = lifetimeSeconds;
+        teammate.Stats.Eft.OverallCounters = new OverallCounters { Items = [] };
+
+        AddOverallCounter(teammate, sessions, "Sessions", "Pmc");
+        AddOverallCounter(teammate, survived, "ExitStatus", "Survived", "Pmc");
+        AddOverallCounter(teammate, deaths, "Deaths");
+        AddOverallCounter(teammate, kills, "Kills");
+        AddOverallCounter(teammate, lifetimeSeconds, "LifeTime", "Pmc");
+    }
+
+    private static int GetRecruitStatsSeed(FriendlyRecruitPickupCandidate candidate)
+    {
+        unchecked
+        {
+            var hash = 17;
+            hash = hash * 31 + StableStringHash(candidate.ProfileId);
+            hash = hash * 31 + StableStringHash(candidate.AccountId);
+            hash = hash * 31 + Math.Max(1, candidate.Level);
+            return hash & int.MaxValue;
+        }
+    }
+
+    private static int StableStringHash(string? value)
+    {
+        unchecked
+        {
+            var hash = 23;
+            foreach (var ch in value ?? string.Empty)
+            {
+                hash = hash * 31 + ch;
+            }
+
+            return hash;
+        }
+    }
+
+    private static double RandomRange(Random rng, double min, double max)
+    {
+        return min + rng.NextDouble() * (max - min);
+    }
+
     private static void AddOverallCounter(BotBase teammate, double value, params string[] key)
     {
         if (value <= 0 || key == null || key.Length == 0)
@@ -3673,6 +3840,40 @@ public class FriendlyTeammateService(
         }
 
         throw new FriendlyTeammateException("Unable to allocate a unique teammate account id");
+    }
+
+    public int GetRecruitAccountIdOrUnique(MongoId sessionId, string? accountId)
+    {
+        if (int.TryParse(accountId, out var aid) && aid > 0 && !IsAccountIdInUse(sessionId, aid))
+        {
+            return aid;
+        }
+
+        return GetUniqueAccountId(sessionId);
+    }
+
+    private bool IsAccountIdInUse(MongoId sessionId, int aid)
+    {
+        if (saveServer.GetProfiles().Values.Any(profile => profile.ProfileInfo?.Aid == aid))
+        {
+            return true;
+        }
+
+        if (LoadTeammates(sessionId).Any(teammate => teammate.Aid == aid))
+        {
+            return true;
+        }
+
+        var teammateRoot = System.IO.Path.Combine(fileUtil.GetModPath(ModFolderName), "Resources", TeammateFolderName);
+        if (!fileUtil.DirectoryExists(teammateRoot))
+        {
+            return false;
+        }
+
+        return fileUtil
+            .GetFiles(teammateRoot, recursive: true, searchPattern: "*.json")
+            .Where(IsTeammateProfileFile)
+            .Any(path => jsonUtil.DeserializeFromFile<BotBase>(path)?.Aid == aid);
     }
 
     private SearchFriendResponse ToFriendSummary(BotBase teammate)

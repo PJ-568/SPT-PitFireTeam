@@ -215,6 +215,7 @@ Current verified custom teammate feature state:
 - Dismiss: trigger `OnFollowerDismiss` event for addon cleanup
 - English voice assignment applied at profile-load time via `SessionLoadBotsEnglishVoicePatch`
 - Followers now persist raid-earned experience and common-skill progression through the backend follower-progress route
+- Teammate raid outcomes now persist profile counters for sessions, survived exits, and deaths so derived stats such as survival rate and K/D remain grounded in saved teammate data
 - Follower kills now contribute to player kill-quest progress and legacy-style raid XP counters when eligibility checks pass
 - Transit-ready teammates are carried forward through the synthetic raid group path between raids/maps
 
@@ -679,6 +680,7 @@ Supported commands via `GestureCommandAction`:
 
 - `POST /returnitems` — Return teammate items via mail (NOT YET POSTED in client runtime)
 - `POST /teamescaped` — Log escape/death outcome + notify teammates
+- `POST /pitfireteam/teammate/raid-outcomes` — Persist teammate escaped/lost raid outcomes, health/death state, raid-stat counters, and eligible loadout-management equipment state
 - `POST /pitfireteam/recruitpickup` — Queue defeated NPC candidates as friend requests
 
 ## Backend Services

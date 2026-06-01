@@ -1,6 +1,7 @@
 using EFT;
 using EFT.Counters;
 
+using Comfort.Common;
 using HarmonyLib;
 using Newtonsoft.Json;
 using SPT.Common.Http;
@@ -18,11 +19,13 @@ namespace pitTeam.Modules
     internal class RecruitPickupCandidateRequest
     {
         public string ProfileId { get; set; } = string.Empty;
+        public string AccountId { get; set; } = string.Empty;
         public string Nickname { get; set; } = string.Empty;
         public int Level { get; set; }
         public string Side { get; set; } = string.Empty;
         public string Voice { get; set; } = string.Empty;
         public string Head { get; set; } = string.Empty;
+        public string ProfileJson { get; set; } = string.Empty;
     }
 
     internal class RecruitPickupRequest
@@ -45,6 +48,7 @@ namespace pitTeam.Modules
         private Dictionary<string, pitAIBossPlayer> _bosses;
         private List<BotFollowerPlayer> _followers;
         private Dictionary<string, BotFollowerPlayer> _followersByProfileId;
+        private HashSet<string> _progressSavedFollowerProfileIds;
         private List<string> _shallBeFollower;
         private List<int> _botsGroup;
 
@@ -62,6 +66,7 @@ namespace pitTeam.Modules
             _bosses = new Dictionary<string, pitAIBossPlayer>();
             _followers = new List<BotFollowerPlayer> { };
             _followersByProfileId = new Dictionary<string, BotFollowerPlayer>(StringComparer.Ordinal);
+            _progressSavedFollowerProfileIds = new HashSet<string>(StringComparer.Ordinal);
             _shallBeFollower = new List<string> { };
             _removedBosses = new List<string> { };
             _botsGroup = new List<int> { };
@@ -213,6 +218,7 @@ namespace pitTeam.Modules
             _removedBosses.Clear();
             _followers.Clear();
             _followersByProfileId.Clear();
+            _progressSavedFollowerProfileIds.Clear();
             _shallBeFollower.Clear();
             FollowerGrenadeCooldowns.ClearAll();
             FollowerDeathEscapeResolver.ClearFallenSquadmateSnapshots();
@@ -364,15 +370,31 @@ namespace pitTeam.Modules
                                 recruitCandidates.Add(new RecruitPickupCandidateRequest
                                 {
                                     ProfileId = pr.Id,
+                                    AccountId = pr.AccountId ?? string.Empty,
                                     Nickname = pr.Nickname,
                                     Level = pr.Info?.Level ?? 1,
                                     Side = pr.Info?.Side.ToString() ?? string.Empty,
                                     Voice = voiceId,
                                     Head = headId,
+                                    ProfileJson = CreateRecruitProfileJson(pr, _defaultJsonConverters),
                                 });
+                            }
+                            else
+                            {
+                                Modules.Logger.LogInfo(
+                                    $"Skipped recruit pickup candidate due to missing identity data. " +
+                                    $"profileId='{pr.Id ?? string.Empty}' nickname='{pr.Nickname ?? string.Empty}' " +
+                                    $"voice='{voiceId}' head='{headId}'");
                             }
                         }
 
+                        continue;
+                    }
+
+                    string progressSaveKey = GetProgressSaveKey(item, pr);
+                    if (!string.IsNullOrEmpty(progressSaveKey) && Instance._progressSavedFollowerProfileIds.Contains(progressSaveKey))
+                    {
+                        Modules.Logger.LogInfo($"[Progress] Skipped duplicate squadmate progress save for '{pr.Nickname ?? progressSaveKey}'.");
                         continue;
                     }
 
@@ -380,12 +402,16 @@ namespace pitTeam.Modules
 
                     pr.Skills.DisplayList.ExecuteForEach(skill =>
                     {
+                        float syntheticProgress = skill.Id == ESkillId.Strength
+                            ? CalculateFollowerStrengthProgress(item.GetBot())
+                            : 0f;
+
                         skills.Add(new
                         {
                             Id = skill.Id,
                             Current = skill.Current,
-                            Progress = skill.ProgressValue,
-                            PointsEarnedDuringSession = skill.PointsEarned,
+                            Progress = skill.ProgressValue + syntheticProgress,
+                            PointsEarnedDuringSession = skill.PointsEarned + syntheticProgress,
                         });
                     });
 
@@ -412,27 +438,163 @@ namespace pitTeam.Modules
                         RaidSeconds = GetFollowerRaidSeconds(item.GetBot()),
                         Skills = skills
                     });
+
+                    if (!string.IsNullOrEmpty(progressSaveKey))
+                    {
+                        Instance._progressSavedFollowerProfileIds.Add(progressSaveKey);
+                    }
                 }
 
                 string progressJson = new
                 {
                     Entries = data
                 }.ToJson(_defaultJsonConverters);
-                PostRaidRequestAsync("/client/game/bot/followerprogress", progressJson, "followers progress");
+                if (data.Count > 0)
+                {
+                    PostRaidRequestAsync("/client/game/bot/followerprogress", progressJson, "followers progress");
+                }
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogError("Failed to save followers progress");
+                Modules.Logger.LogError("Failed to save squadmate follower progress");
                 Modules.Logger.LogError(ex);
             }
 
-            if (recruitCandidates.Count > 0)
+            try
             {
-                string recruitJson = new RecruitPickupRequest
+                if (recruitCandidates.Count > 0)
                 {
-                    Candidates = recruitCandidates
-                }.ToJson(_defaultJsonConverters);
-                PostRaidRequestAsync("/singleplayer/pitfireteam/recruitpickup", recruitJson, "recruit pickup");
+                    string recruitJson = new RecruitPickupRequest
+                    {
+                        Candidates = recruitCandidates
+                    }.ToJson(_defaultJsonConverters);
+                    PostRaidRequestAsync("/singleplayer/pitfireteam/recruitpickup", recruitJson, "recruit pickup candidates");
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"Failed to send recruit pickup candidates. candidates={recruitCandidates.Count}");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static string GetProgressSaveKey(BotFollowerPlayer follower, Profile profile)
+        {
+            string profileId = follower?.GetBot()?.ProfileId ?? profile?.Id;
+            if (!string.IsNullOrWhiteSpace(profileId))
+            {
+                return profileId;
+            }
+
+            string accountId = profile?.AccountId;
+            return string.IsNullOrWhiteSpace(accountId) ? string.Empty : $"aid:{accountId}";
+        }
+
+        private static float CalculateFollowerStrengthProgress(BotOwner bot)
+        {
+            try
+            {
+                Player player = bot?.GetPlayer;
+                if (player?.Pedometer == null)
+                {
+                    return 0f;
+                }
+
+                float overweight = CalculatePlayerStyleOverweight(player);
+                if (overweight <= 0f || !Singleton<BackendConfigSettingsClass>.Instantiated)
+                {
+                    return 0f;
+                }
+
+                BackendConfigSettingsClass.GlobalSkillsSettings settings = Singleton<BackendConfigSettingsClass>.Instance.SkillsSettings;
+                float runDistance = GetPedometerDistance(player, EPlayerState.Run);
+                float sprintDistance = GetPedometerDistance(player, EPlayerState.Sprint);
+                float movementGain = runDistance * UnityEngine.Mathf.Lerp(settings.Strength.MovementActionMin, settings.Strength.MovementActionMax, overweight);
+                float sprintGain = sprintDistance * UnityEngine.Mathf.Lerp(settings.Strength.SprintActionMin, settings.Strength.SprintActionMax, overweight);
+                float total = (movementGain + sprintGain) * settings.SkillProgressRate;
+
+                if (total > 0f)
+                {
+                    Modules.Logger.LogInfo(
+                        $"[Progress] Synthetic Strength for '{player.Profile?.Nickname ?? bot.ProfileId}': " +
+                        $"weight={GetInventoryWeightKg(player):0.0}kg overweight={overweight:0.00} " +
+                        $"run={runDistance:0.0}m sprint={sprintDistance:0.0}m progress={total:0.00}");
+                }
+
+                return UnityEngine.Mathf.Max(0f, total);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[Progress] Failed to calculate follower Strength progress.");
+                Modules.Logger.LogError(ex);
+                return 0f;
+            }
+        }
+
+        private static float CalculatePlayerStyleOverweight(Player player)
+        {
+            if (player == null || !Singleton<BackendConfigSettingsClass>.Instantiated)
+            {
+                return 0f;
+            }
+
+            float totalWeight = GetInventoryWeightKg(player);
+            BackendConfigSettingsClass.GClass1736 stamina = Singleton<BackendConfigSettingsClass>.Instance.Stamina;
+            float skillRelative = player.Skills?.CarryingWeightRelativeModifier ?? 1f;
+            float healthRelative = player.HealthController?.CarryingWeightRelativeModifier ?? 1f;
+            float healthAbsolute = player.HealthController?.CarryingWeightAbsoluteModifier ?? 0f;
+            UnityEngine.Vector2 limits = stamina.BaseOverweightLimits * skillRelative * healthRelative;
+            limits += new UnityEngine.Vector2(healthAbsolute, healthAbsolute);
+
+            if (limits.y <= limits.x)
+            {
+                return totalWeight > limits.x ? 1f : 0f;
+            }
+
+            return UnityEngine.Mathf.Clamp01(UnityEngine.Mathf.InverseLerp(limits.x, limits.y, totalWeight));
+        }
+
+        private static float GetInventoryWeightKg(Player player)
+        {
+            try
+            {
+                return UnityEngine.Mathf.Max(0f, player?.InventoryController?.Inventory?.TotalWeight?.Value ?? 0f);
+            }
+            catch
+            {
+                return 0f;
+            }
+        }
+
+        private static float GetPedometerDistance(Player player, EPlayerState state)
+        {
+            float[] distances = player?.Pedometer?.Float_1;
+            int index = (int)state;
+            if (distances == null || index < 0 || index >= distances.Length)
+            {
+                return 0f;
+            }
+
+            return UnityEngine.Mathf.Max(0f, distances[index]);
+        }
+
+        private static string CreateRecruitProfileJson(Profile profile, JsonConverter[] converters)
+        {
+            if (profile == null)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                CompleteProfileDescriptorClass descriptor = new CompleteProfileDescriptorClass(profile, GClass2240.Instance);
+                return descriptor.ToJson(converters);
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError($"Failed to capture recruited bot profile '{profile.ProfileId ?? profile.Nickname}' for friend request; recruit invite will fall back to generated profile if accepted.");
+                Modules.Logger.LogError(ex);
+                return string.Empty;
             }
         }
 

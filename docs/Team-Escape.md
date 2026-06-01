@@ -26,7 +26,7 @@ Related docs:
 
 The player-death outcome system runs when the player boss dies and `BossPlayers.KillPlayerBoss(...)` tears down the active boss/follower relationship.
 
-The `Team Escape` raid setting controls whether surviving teammates roll for escape after player death. It is enabled by default. If disabled, player death skips survivor escape rolls, tracked follower loot recovery, and death-gear recovery. Already-dead teammates are still posted as lost outcomes so `Immersive` / `Realistic` Default gear loss is persisted.
+The `Team Escape` raid setting controls whether surviving teammates roll for escape after player death. It is enabled by default. If disabled, player death skips survivor escape rolls, tracked follower loot recovery, and death-gear recovery. Live and already-dead teammates are still posted as lost outcomes so raid stats, roster death state, and `Immersive` / `Realistic` Default gear loss are persisted.
 
 Authoritative client files:
 
@@ -86,6 +86,18 @@ Current probability inputs:
 - secure-container meds
 
 The roll is two-stage when a current fight is detected: first estimate whether the follower survives/disengages from the active fight, then apply the normal route escape estimate. The final result is clamped between the configured minimum and maximum chance in code.
+
+## Raid Stats And Progress
+
+Every persisted teammate raid outcome updates the teammate profile counters that EFT derives raid stats from:
+
+- `Sessions/Pmc` is incremented for every posted outcome
+- `ExitStatus/Survived/Pmc` is incremented when the teammate escapes
+- `Deaths` is incremented when the teammate is lost
+
+This keeps derived profile stats such as survival rate and kill/death ratio grounded in the saved teammate profile. Kills, raid-earned XP, raid seconds, and common-skill progress are persisted separately through `/client/game/bot/followerprogress`.
+
+Normal player extraction posts living active squadmates as escaped outcomes. Player-death Team Escape posts the resolved escaped/lost outcomes after the server rolls escape chances. If Team Escape is disabled, live squadmates do not roll or recover gear, but they are still posted as lost outcomes so the raid session does not vanish from their stats.
 
 ## Extract And Distance
 

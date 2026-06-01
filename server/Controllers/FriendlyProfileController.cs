@@ -19,7 +19,8 @@ public class FriendlyProfileController(
     ProfileFixerService profileFixerService,
     PlayerScavGenerator playerScavGenerator,
     ProfileHelper profileHelper,
-    FriendlyTeammateService teammateService)
+    FriendlyTeammateService teammateService,
+    FriendlyRecruitService recruitService)
     : ProfileController(
         logger,
         saveServer,
@@ -34,6 +35,12 @@ public class FriendlyProfileController(
             && teammateProfile != null)
         {
             return teammateProfile;
+        }
+
+        if (recruitService.TryGetRecruitProfile(sessionId, request.AccountId, out var recruitProfile)
+            && recruitProfile != null)
+        {
+            return recruitProfile;
         }
 
         return base.GetOtherProfile(sessionId, request);
