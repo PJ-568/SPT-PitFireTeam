@@ -89,7 +89,9 @@ namespace pitTeam.BigBrain
         private float nextReloadCheckAt = 0f;
         private float nextMagazineFillCheckAt = 0f;
         private readonly HashSet<EquipmentSlot> reloadSlotsTried = new HashSet<EquipmentSlot>();
+        private readonly Dictionary<EquipmentSlot, float> reloadSlotRetryAfter = new Dictionary<EquipmentSlot, float>();
         private EquipmentSlot? forcedTopOffSlot = null;
+        private EquipmentSlot? returnAfterTopOffSlot = null;
         private float nextHealWorkRefreshAt = 0f;
         private bool stoppedForHealDecision = false;
         private bool sawEnemyDuringCurrentCycle = false;
@@ -524,6 +526,7 @@ namespace pitTeam.BigBrain
             reloadingInProgress = false;
             reloadSlotsTried.Clear();
             forcedTopOffSlot = null;
+            returnAfterTopOffSlot = null;
             nextReloadCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
             nextMagazineFillCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
         }
@@ -549,10 +552,17 @@ namespace pitTeam.BigBrain
 
             if (ShouldReloadCurrentWeaponOutOfCombat())
             {
-                reloadSlotsTried.Add(selector.LastEquipmentSlot);
+                EquipmentSlot currentSlot = selector.LastEquipmentSlot;
+                reloadSlotsTried.Add(currentSlot);
                 reloadingInProgress = TryForceReloadCurrentWeaponOutOfCombat();
-                if (forcedTopOffSlot == selector.LastEquipmentSlot)
+                if (forcedTopOffSlot == currentSlot)
                 {
+                    if (!reloadingInProgress)
+                    {
+                        MarkReloadSlotFailed(currentSlot);
+                        TryReturnAfterTopOffSwitch(selector);
+                    }
+
                     forcedTopOffSlot = null;
                 }
 
@@ -565,6 +575,7 @@ namespace pitTeam.BigBrain
             {
                 reloadingInProgress = false;
                 BotOwner.WeaponManager.Reload.TryFillMagazines();
+                TryReturnAfterTopOffSwitch(selector);
                 nextReloadCheckAt = Time.time + OutOfCombatReloadCheckInterval;
                 nextMagazineFillCheckAt = Time.time + OutOfCombatReloadFullCycleCooldown;
                 return;
@@ -580,6 +591,7 @@ namespace pitTeam.BigBrain
 
             reloadSlotsTried.Clear();
             triedFillMagazines = false;
+            returnAfterTopOffSlot = null;
             nextReloadCheckAt = Time.time + OutOfCombatReloadFullCycleCooldown;
         }
 
@@ -597,6 +609,16 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            bool forceTopOffCurrentSlot =
+                forcedTopOffSlot.HasValue &&
+                BotOwner.WeaponManager.Selector?.LastEquipmentSlot == forcedTopOffSlot.Value;
+
+            // Chamber/OnlyBarrel support weapons do not always report magazine-style reload counts.
+            if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
+            {
+                return FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(BotOwner, currentWeapon);
+            }
+
             int maxBulletCount = reload.MaxBulletCount;
             if (maxBulletCount <= 0)
             {
@@ -605,10 +627,6 @@ namespace pitTeam.BigBrain
 
             float reloadThreshold = BotOwner.Settings?.FileSettings?.Boss?.PERCENT_BULLET_TO_RELOAD ?? 0.6f;
             float currentRatio = (float)reload.BulletCount / maxBulletCount;
-            bool forceTopOffCurrentSlot =
-                forcedTopOffSlot.HasValue &&
-                BotOwner.WeaponManager.Selector?.LastEquipmentSlot == forcedTopOffSlot.Value;
-
             if (!forceTopOffCurrentSlot && currentRatio >= reloadThreshold)
             {
                 return false;
@@ -616,11 +634,6 @@ namespace pitTeam.BigBrain
 
             // For external-magazine weapons, only reload-swap if there is actually a better magazine available.
             // Loose-ammo top-off is handled by TryFillMagazines before this branch runs.
-            if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
-            {
-                return FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(BotOwner, currentWeapon);
-            }
-
             return FollowerOutOfCombatReloadPolicy.HasBetterMagazine(BotOwner, currentWeapon);
         }
 
@@ -682,12 +695,13 @@ namespace pitTeam.BigBrain
 
         private bool TrySelectWeaponToTopOff(BotWeaponSelector selector, EquipmentSlot slot)
         {
+            EquipmentSlot previousSlot = selector.LastEquipmentSlot;
             if (reloadSlotsTried.Contains(slot) || !ShouldReloadWeaponInSlot(slot))
             {
                 return false;
             }
 
-            if (selector.LastEquipmentSlot == slot)
+            if (previousSlot == slot)
             {
                 if (ShouldReloadCurrentWeaponOutOfCombat())
                 {
@@ -709,6 +723,10 @@ namespace pitTeam.BigBrain
             if (switched)
             {
                 forcedTopOffSlot = slot;
+                if (previousSlot != slot)
+                {
+                    returnAfterTopOffSlot = previousSlot;
+                }
             }
 
             return switched;
@@ -722,14 +740,49 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            MagazineItemClass? magazine = weapon.GetCurrentMagazine();
-            if (magazine == null || magazine.MaxCount <= 0)
+            if (IsReloadSlotRetryCoolingDown(slot))
             {
                 return false;
             }
 
-            return weapon.GetCurrentMagazineCount() < magazine.MaxCount &&
-                   FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(BotOwner, weapon);
+            return FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(BotOwner, weapon);
+        }
+
+        private void MarkReloadSlotFailed(EquipmentSlot slot)
+        {
+            reloadSlotRetryAfter[slot] = Time.time + OutOfCombatReloadFullCycleCooldown;
+            reloadSlotsTried.Add(slot);
+        }
+
+        private bool IsReloadSlotRetryCoolingDown(EquipmentSlot slot)
+        {
+            return reloadSlotRetryAfter.TryGetValue(slot, out float retryAt) && Time.time < retryAt;
+        }
+
+        private void TryReturnAfterTopOffSwitch(BotWeaponSelector selector)
+        {
+            if (!returnAfterTopOffSlot.HasValue ||
+                selector == null ||
+                selector.LastEquipmentSlot == returnAfterTopOffSlot.Value)
+            {
+                returnAfterTopOffSlot = null;
+                return;
+            }
+
+            switch (returnAfterTopOffSlot.Value)
+            {
+                case EquipmentSlot.FirstPrimaryWeapon:
+                    selector.ChangeToMain();
+                    break;
+                case EquipmentSlot.SecondPrimaryWeapon:
+                    selector.TryChangeToSlot(EquipmentSlot.SecondPrimaryWeapon, false);
+                    break;
+                case EquipmentSlot.Holster:
+                    selector.TryChangeToSlot(EquipmentSlot.Holster, false);
+                    break;
+            }
+
+            returnAfterTopOffSlot = null;
         }
 
         private Weapon? GetWeaponInSlot(EquipmentSlot slot)

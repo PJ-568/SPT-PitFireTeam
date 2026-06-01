@@ -12,6 +12,7 @@ namespace pitTeam.BigBrain
 
         private bool complete;
         private bool launcherFallbackToWeapon;
+        private bool launcherOnly;
         private float weaponSwitchRetryUntil;
         private FollowerCombatCommon.GrenadeLauncherSuppressPlan? launcherPlan;
 
@@ -26,13 +27,20 @@ namespace pitTeam.BigBrain
         {
             complete = false;
             launcherFallbackToWeapon = false;
+            launcherOnly = false;
             weaponSwitchRetryUntil = 0f;
             launcherPlan = null;
         }
 
         public override void Activate()
         {
+            Activate(requireLauncher: false);
+        }
+
+        public void Activate(bool requireLauncher)
+        {
             Reset();
+            launcherOnly = requireLauncher;
             ClearObjectiveCommitments();
         }
 
@@ -85,6 +93,12 @@ namespace pitTeam.BigBrain
                 return launcherDecision;
             }
 
+            if (launcherOnly)
+            {
+                complete = true;
+                return Hold("launcherOnlyNoDecision");
+            }
+
             if (CombatCommon.TryCreateOrderedSuppressWeaponFallbackDecision(
                     goalEnemy,
                     ReasonPrefix,
@@ -135,6 +149,13 @@ namespace pitTeam.BigBrain
                     if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(currentDecision.Reason) &&
                         ShouldFallbackLauncherSuppressToWeapon(end.Reason))
                     {
+                        if (launcherOnly)
+                        {
+                            complete = true;
+                            ClearObjectiveCommitments();
+                            return end;
+                        }
+
                         launcherFallbackToWeapon = true;
                         CombatCommon.PrepareLauncherSuppressWeaponFallback();
                         return end;
@@ -160,6 +181,13 @@ namespace pitTeam.BigBrain
 
                 if (launcherPlan == null)
                 {
+                    if (launcherOnly)
+                    {
+                        complete = true;
+                        ClearObjectiveCommitments();
+                        return new AICoreActionEndStruct("launcherMovePlanMissing", true);
+                    }
+
                     launcherFallbackToWeapon = true;
                     return new AICoreActionEndStruct("launcherMovePlanMissing", true);
                 }

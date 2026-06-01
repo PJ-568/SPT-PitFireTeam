@@ -73,6 +73,7 @@ namespace pitTeam.Components
         private const float AttentionCommandDebounceSeconds = 0.35f;
         private const float OrderedLauncherRayScanDistance = 120f;
         private const float OrderedLauncherRayMaxPerpendicularDistance = 35f;
+        private const float OrderedLauncherSecondSuppressMaxEnemyDistance = 80f;
         private float _ignoreNextThereGestureUntil;
         private float _nextThereGestureAt;
         private float _lastTeamStatusCommandAt = -999f;
@@ -2281,9 +2282,10 @@ namespace pitTeam.Components
             }
             bossVisibleEnemies = PrioritizeContactEnemies(requester, bossVisibleEnemies);
 
-            BotOwner? noSupressFollower = null;
-            bool willSupress = false;
-
+            List<Player> orderedLauncherTargets = GetOrderedLauncherSuppressTargets(requester);
+            List<SuppressCommandCandidate> primaryCandidates = new List<SuppressCommandCandidate>();
+            BotOwner? closestUnavailableFollower = null;
+            float closestUnavailableDistanceSqr = Mathf.Infinity;
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
@@ -2297,30 +2299,99 @@ namespace pitTeam.Components
                     continue;
                 }
 
+                float bossDistanceSqr = (follower.Position - requester.Position).sqrMagnitude;
                 if (!FollowerCombatCommon.IsSuppressCapableWeapon(follower.WeaponManager?.ShootController?.Item) &&
                     !FollowerCombatCommon.HasUsableSecondPrimaryGrenadeLauncher(follower))
                 {
-                    if (!willSupress) noSupressFollower = follower;
+                    if (bossDistanceSqr < closestUnavailableDistanceSqr)
+                    {
+                        closestUnavailableFollower = follower;
+                        closestUnavailableDistanceSqr = bossDistanceSqr;
+                    }
+
                     continue;
                 }
 
-                bool hasLauncher = FollowerCombatCommon.HasUsableSecondPrimaryGrenadeLauncher(follower);
-                if (!TryEnsureSuppressEnemy(follower, bossVisibleEnemies) &&
-                    (!hasLauncher || !TryEnsureOrderedLauncherSuppressEnemy(follower, requester)))
+                InsertSuppressCommandCandidate(
+                    primaryCandidates,
+                    new SuppressCommandCandidate(follower, followerData, bossDistanceSqr));
+            }
+
+            bool willSupress = false;
+            BotOwner? primarySuppressFollower = null;
+            for (int i = 0; i < primaryCandidates.Count; i++)
+            {
+                SuppressCommandCandidate candidate = primaryCandidates[i];
+                if (!TryIssueSuppressCommand(
+                        candidate.Follower,
+                        candidate.FollowerData,
+                        requester,
+                        suppressOrderTarget,
+                        bossVisibleEnemies,
+                        orderedLauncherTargets))
                 {
                     continue;
                 }
 
-                followerData.SetSuppressEnemy(6f, suppressOrderTarget);
-                follower.BotTalk.TrySay(EPhraseTrigger.Covering, true);
-                noSupressFollower = null;
+                primarySuppressFollower = candidate.Follower;
                 willSupress = true;
+                break;
             }
 
-            if (noSupressFollower != null)
+            if (willSupress && focusedFollower == null)
             {
-                noSupressFollower.BotTalk.TrySay(EPhraseTrigger.Negative, true);
+                BotOwner? launcherSuppressFollower = FindOrderedLauncherSuppressFollower(
+                    requester,
+                    primarySuppressFollower,
+                    orderedLauncherTargets);
+                if (launcherSuppressFollower != null)
+                {
+                    BotFollowerPlayer? launcherFollowerData = BossPlayers.Instance?.GetFollower(launcherSuppressFollower);
+                    TryIssueSuppressCommand(
+                        launcherSuppressFollower,
+                        launcherFollowerData,
+                        requester,
+                        suppressOrderTarget,
+                        bossVisibleEnemies,
+                        orderedLauncherTargets,
+                        requireLauncher: true);
+                }
             }
+
+            if (!willSupress && closestUnavailableFollower != null)
+            {
+                closestUnavailableFollower.BotTalk.TrySay(EPhraseTrigger.Negative, true);
+            }
+        }
+
+        private readonly struct SuppressCommandCandidate
+        {
+            public SuppressCommandCandidate(BotOwner follower, BotFollowerPlayer followerData, float bossDistanceSqr)
+            {
+                Follower = follower;
+                FollowerData = followerData;
+                BossDistanceSqr = bossDistanceSqr;
+            }
+
+            public BotOwner Follower { get; }
+            public BotFollowerPlayer FollowerData { get; }
+            public float BossDistanceSqr { get; }
+        }
+
+        private static void InsertSuppressCommandCandidate(
+            List<SuppressCommandCandidate> candidates,
+            SuppressCommandCandidate candidate)
+        {
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (candidate.BossDistanceSqr < candidates[i].BossDistanceSqr)
+                {
+                    candidates.Insert(i, candidate);
+                    return;
+                }
+            }
+
+            candidates.Add(candidate);
         }
 
         private static Vector3 GetSuppressOrderTarget(IPlayer requester)
@@ -2336,14 +2407,125 @@ namespace pitTeam.Components
             return requester.Position + lookDirection * 120f;
         }
 
-        private bool TryEnsureOrderedLauncherSuppressEnemy(BotOwner follower, IPlayer requester)
+        private bool TryIssueSuppressCommand(
+            BotOwner? follower,
+            BotFollowerPlayer? followerData,
+            IPlayer requester,
+            Vector3 suppressOrderTarget,
+            List<Player> bossVisibleEnemies,
+            List<Player> orderedLauncherTargets,
+            bool requireLauncher = false)
+        {
+            if (follower == null ||
+                followerData == null ||
+                follower.IsDead ||
+                follower.BotState != EBotState.Active)
+            {
+                return false;
+            }
+
+            bool hasLauncher = FollowerCombatCommon.HasUsableSecondPrimaryGrenadeLauncher(follower);
+            if (requireLauncher && !hasLauncher)
+            {
+                return false;
+            }
+
+            if (!FollowerCombatCommon.IsSuppressCapableWeapon(follower.WeaponManager?.ShootController?.Item) &&
+                !hasLauncher)
+            {
+                return false;
+            }
+
+            if (!TryEnsureSuppressEnemy(follower, bossVisibleEnemies) &&
+                (!hasLauncher || !TryEnsureOrderedLauncherSuppressEnemy(follower, requester, orderedLauncherTargets)))
+            {
+                return false;
+            }
+
+            followerData.SetSuppressEnemy(6f, suppressOrderTarget, requireLauncher);
+            follower.BotTalk.TrySay(EPhraseTrigger.Covering, true);
+            return true;
+        }
+
+        private BotOwner? FindOrderedLauncherSuppressFollower(
+            IPlayer requester,
+            BotOwner? primarySuppressFollower,
+            List<Player> orderedLauncherTargets)
+        {
+            if (requester == null || orderedLauncherTargets == null || orderedLauncherTargets.Count == 0)
+            {
+                return null;
+            }
+
+            BotOwner? selected = null;
+            float selectedDistanceSqr = Mathf.Infinity;
+            foreach (BotOwner follower in Followers)
+            {
+                if (follower == null ||
+                    follower == primarySuppressFollower ||
+                    follower.IsDead ||
+                    follower.BotState != EBotState.Active ||
+                    !FollowerCombatCommon.HasUsableSecondPrimaryGrenadeLauncher(follower) ||
+                    !IsWithinOrderedLauncherSecondSuppressRange(follower, orderedLauncherTargets))
+                {
+                    continue;
+                }
+
+                BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(follower);
+                if (followerData == null ||
+                    followerData.CombatTactic == FollowerCombatTactic.Marksman)
+                {
+                    continue;
+                }
+
+                float bossDistanceSqr = (follower.Position - requester.Position).sqrMagnitude;
+                if (bossDistanceSqr >= selectedDistanceSqr)
+                {
+                    continue;
+                }
+
+                selected = follower;
+                selectedDistanceSqr = bossDistanceSqr;
+            }
+
+            return selected;
+        }
+
+        private static bool IsWithinOrderedLauncherSecondSuppressRange(
+            BotOwner follower,
+            List<Player> orderedLauncherTargets)
+        {
+            float maxDistanceSqr =
+                OrderedLauncherSecondSuppressMaxEnemyDistance * OrderedLauncherSecondSuppressMaxEnemyDistance;
+            for (int i = 0; i < orderedLauncherTargets.Count; i++)
+            {
+                Player target = orderedLauncherTargets[i];
+                if (target == null || target.HealthController?.IsAlive != true)
+                {
+                    continue;
+                }
+
+                Vector3 targetPosition = target.Transform != null ? target.Transform.position : target.Position;
+                if ((targetPosition - follower.Position).sqrMagnitude <= maxDistanceSqr)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool TryEnsureOrderedLauncherSuppressEnemy(
+            BotOwner follower,
+            IPlayer requester,
+            List<Player> orderedLauncherTargets)
         {
             if (follower == null || requester == null)
             {
                 return false;
             }
 
-            List<Player> targets = GetOrderedLauncherSuppressTargets(requester);
+            List<Player> targets = orderedLauncherTargets ?? GetOrderedLauncherSuppressTargets(requester);
             for (int i = 0; i < targets.Count; i++)
             {
                 Player enemy = targets[i];

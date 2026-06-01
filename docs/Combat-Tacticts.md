@@ -92,6 +92,8 @@ Combat `Suppress` becomes `SuppressEnemy` and is consumed by `FollowerCombatSupp
 
 Objective behavior:
 
+- The boss order is not broadcast to every Rifleman. The boss selects the nearest active Rifleman/default follower that can prepare a suppression target, measured by distance to the boss.
+- One additional Rifleman/default follower may also receive the order only when that follower has a usable grenade launcher in the second primary slot and is within `80m` of a hostile target on the boss order ray. This second follower is launcher-only; if launcher setup fails, it does not fall back into rifle suppression.
 - The command is consumed into an objective, like regroup, so it is not polled inside the normal Default decision tree.
 - It does not interrupt active healing or an already active fight action; it waits until that action's normal end logic allows a switch.
 - It targets the current enemy's best known shoot/suppress point.
@@ -116,6 +118,8 @@ Autonomous suppression remains separate:
 - Autonomous suppression is shorter and more conservative than ordered suppression.
 - Point-blank suppression is not allowed to continue just because visibility/shootability is flickering. If the target is within point-blank contact range and there is no confirmed foliage obstruction near the lane, follower suppression clears instead of blind-firing around hard geometry.
 - Ordered/objective suppression can be interrupted after its protected opening burst when the follower needs healing or reload-retreat. The order should create pressure, not pin the follower in place while hurt or empty.
+
+Out of combat, patrol periodically tops off follower weapons across first primary, second primary, and holster slots when compatible ammo is reachable, including chamber/OnlyBarrel support weapons such as single-shot launchers.
 
 ### Need Sniper Order
 

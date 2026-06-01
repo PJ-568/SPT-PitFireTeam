@@ -89,6 +89,7 @@ namespace pitTeam.Components
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
+        private bool _suppressEnemyRequiresLauncher;
         private bool _holdPositionShouldCrouch = true;
         private bool _resumeHoldAfterComeCloser;
         private bool _resumeHoldAfterTakeLoot;
@@ -1253,6 +1254,11 @@ namespace pitTeam.Components
 
         public void SetSuppressEnemy(float duration, Vector3 orderTarget)
         {
+            SetSuppressEnemy(duration, orderTarget, requireLauncher: false);
+        }
+
+        public void SetSuppressEnemy(float duration, Vector3 orderTarget, bool requireLauncher)
+        {
             if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.SuppressEnemy)
             {
                 ClearCommand($"SetSuppressEnemy:replace({_activeCommand})");
@@ -1261,6 +1267,7 @@ namespace pitTeam.Components
             _activeCommand = FollowerCommandType.SuppressEnemy;
             _commandTarget = orderTarget;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _suppressEnemyRequiresLauncher = requireLauncher;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;
             _resumeHoldAfterTakeLootCrouch = false;
@@ -1557,6 +1564,9 @@ namespace pitTeam.Components
             untilTime = _commandUntilTime;
             return command != FollowerCommandType.None;
         }
+
+        public bool SuppressEnemyRequiresLauncher =>
+            _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyRequiresLauncher;
 
         public void SetCombatTacticFromString(string? tactic)
         {
@@ -1963,6 +1973,7 @@ namespace pitTeam.Components
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
+            _suppressEnemyRequiresLauncher = false;
             _holdPositionShouldCrouch = true;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;

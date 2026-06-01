@@ -25,7 +25,7 @@ namespace pitTeam.BigBrain
         protected readonly FollowerCombatObjectiveBase defaultObjective;
         protected readonly FollowerCombatObjectiveBase sniperObjective;
         protected readonly FollowerCombatObjectiveBase regroupObjective;
-        protected readonly FollowerCombatObjectiveBase suppressionObjective;
+        protected readonly FollowerCombatSuppressionObjective suppressionObjective;
         protected readonly FollowerCombatObjectiveBase needSniperObjective;
         protected CombatObjectiveKind currentObjective = CombatObjectiveKind.Default;
 
@@ -229,7 +229,7 @@ namespace pitTeam.BigBrain
             return new FollowerCombatRegroupObjective(botOwner, combatCommon);
         }
 
-        protected virtual FollowerCombatObjectiveBase CreateSuppressionObjective(
+        protected virtual FollowerCombatSuppressionObjective CreateSuppressionObjective(
             BotOwner botOwner,
             FollowerCombatCommon combatCommon)
         {
@@ -468,18 +468,24 @@ namespace pitTeam.BigBrain
             }
 
             Vector3 suppressTarget = Vector3.zero;
+            bool suppressRequiresLauncher = false;
             if (followerData.TryPeekActiveCommand(out FollowerCommandType command, out Vector3 target, out _) &&
                 command == FollowerCommandType.SuppressEnemy)
             {
                 suppressTarget = target;
+                suppressRequiresLauncher = followerData.SuppressEnemyRequiresLauncher;
             }
 
             followerData.ClearCommand("CombatObjective:ConsumeSuppression");
             if (currentObjective != CombatObjectiveKind.Suppression)
             {
-                suppressionObjective.Activate();
+                suppressionObjective.Activate(suppressRequiresLauncher);
                 currentObjective = CombatObjectiveKind.Suppression;
                 BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateSuppression");
+            }
+            else
+            {
+                suppressionObjective.Activate(suppressRequiresLauncher);
             }
 
             combatCommon.SetOrderedSuppressTarget(suppressTarget);

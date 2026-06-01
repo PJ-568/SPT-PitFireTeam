@@ -99,6 +99,8 @@ This keeps derived profile stats such as survival rate and kill/death ratio grou
 
 Normal player extraction posts living active squadmates as escaped outcomes. Player-death Team Escape posts the resolved escaped/lost outcomes after the server rolls escape chances. If Team Escape is disabled, live squadmates do not roll or recover gear, but they are still posted as lost outcomes so the raid session does not vanish from their stats.
 
+The Team Escape resolver also posts squadmate progress itself before sending escape outcomes, while live follower state is still available. The later boss cleanup path may attempt the same save, but client-side per-raid duplicate protection prevents double-counting the same teammate profile.
+
 ## Extract And Distance
 
 The resolver chooses an available extract snapshot and measures direct distance from the player death position.

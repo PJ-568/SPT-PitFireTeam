@@ -510,10 +510,11 @@ Command state:
 
 Targeting:
 
-- Optional focused follower if boss is looking at one.
+- Optional focused follower if boss is looking at one; otherwise nearest valid Rifleman/default follower to the boss wins.
 - Rifleman/default only; marksman followers are skipped.
-- Requires a suppress-capable current weapon.
-- Ensures a target by using the follower's current enemy or boss-visible enemies.
+- Requires a suppress-capable current weapon or a usable second-primary grenade launcher.
+- Ensures a target by using the follower's current enemy, boss-visible enemies, or boss order-ray launcher targets.
+- One additional Rifleman/default can also receive the order when it has a usable second-primary grenade launcher and is within `80m` of a hostile target on the boss order ray. This secondary order is launcher-only and does not fall back to rifle suppression.
 
 Core behavior:
 
