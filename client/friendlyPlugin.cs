@@ -155,7 +155,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.0")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.1")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -428,6 +428,9 @@ namespace pitTeam
             new ChatInvitePlayersPanelRefreshPatch().Enable();
             new ChatCreateDialoguePanelRefreshPatch().Enable();
             new ChatFriendsRequestsPanelRefreshPatch().Enable();
+            new FriendRequestProfileViewPatch().Enable();
+            new FriendRequestAcceptRefreshPatch().Enable();
+            new FriendRequestAcceptAllRefreshPatch().Enable();
             // new SocialNetworkClassSendPatch().Enable();
             // new QuestClassPatch().Enable();
 

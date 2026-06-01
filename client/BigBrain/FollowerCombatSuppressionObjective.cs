@@ -13,6 +13,7 @@ namespace pitTeam.BigBrain
         private bool complete;
         private bool launcherFallbackToWeapon;
         private float weaponSwitchRetryUntil;
+        private FollowerCombatCommon.GrenadeLauncherSuppressPlan? launcherPlan;
 
         public FollowerCombatSuppressionObjective(BotOwner botOwner, FollowerCombatCommon combatCommon)
             : base(botOwner, combatCommon)
@@ -26,6 +27,7 @@ namespace pitTeam.BigBrain
             complete = false;
             launcherFallbackToWeapon = false;
             weaponSwitchRetryUntil = 0f;
+            launcherPlan = null;
         }
 
         public override void Activate()
@@ -45,6 +47,11 @@ namespace pitTeam.BigBrain
             AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
         {
             CombatCommon.HandleSharedDecisionChanged(nextDecision);
+            if (IsLauncherMoveReason(nextDecision.Reason))
+            {
+                return;
+            }
+
             CombatCommon.HandleFollowerSuppressDecisionChanged(nextDecision);
         }
 
@@ -73,11 +80,7 @@ namespace pitTeam.BigBrain
             }
 
             if (!launcherFallbackToWeapon &&
-                CombatCommon.TryCreateGrenadeLauncherSuppressDecision(
-                    goalEnemy,
-                    ReasonPrefix,
-                    out AICoreActionResultStruct<BotLogicDecision, GClass26> launcherDecision,
-                    ordered: true))
+                TryGetLauncherDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> launcherDecision))
             {
                 return launcherDecision;
             }
@@ -144,6 +147,32 @@ namespace pitTeam.BigBrain
                 return end;
             }
 
+            if (currentDecision.Action == BotLogicDecision.goToPoint &&
+                IsLauncherMoveReason(currentDecision.Reason))
+            {
+                if (!CombatCommon.HasActiveCombatEnemy(goalEnemy))
+                {
+                    complete = true;
+                    launcherPlan = null;
+                    ClearObjectiveCommitments();
+                    return new AICoreActionEndStruct("suppressionEnemyMissing", true);
+                }
+
+                if (launcherPlan == null)
+                {
+                    launcherFallbackToWeapon = true;
+                    return new AICoreActionEndStruct("launcherMovePlanMissing", true);
+                }
+
+                if (CombatCommon.IsAtGrenadeLauncherSuppressPosition(launcherPlan))
+                {
+                    return new AICoreActionEndStruct("launcherMoveArrived", true);
+                }
+
+                AICoreActionEndStruct moveEnd = CombatCommon.EndGoToPoint(endWhenEnemyVisibleShootable: false);
+                return moveEnd.Value ? moveEnd : default;
+            }
+
             if (currentDecision.Action == BotLogicDecision.holdPosition)
             {
                 if (string.Equals(currentDecision.Reason, WeaponSwitchToPrimaryReason, StringComparison.Ordinal))
@@ -168,6 +197,49 @@ namespace pitTeam.BigBrain
         internal static bool IsSuppressionObjectiveReason(string? reason)
         {
             return reason != null && reason.StartsWith(ReasonPrefix, StringComparison.Ordinal);
+        }
+
+        private bool TryGetLauncherDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            launcherPlan ??= CombatCommon.TryPrepareGrenadeLauncherSuppressPlan(
+                goalEnemy,
+                ReasonPrefix,
+                ordered: true,
+                out FollowerCombatCommon.GrenadeLauncherSuppressPlan? preparedPlan)
+                ? preparedPlan
+                : null;
+
+            if (launcherPlan == null)
+            {
+                return false;
+            }
+
+            if (launcherPlan.HasSuppressFrom &&
+                !CombatCommon.IsAtGrenadeLauncherSuppressPosition(launcherPlan))
+            {
+                decision = CombatCommon.CreateGrenadeLauncherMoveDecision(launcherPlan);
+                return true;
+            }
+
+            if (CombatCommon.TryStartGrenadeLauncherSuppressDecision(goalEnemy, launcherPlan, out decision))
+            {
+                launcherPlan = null;
+                return true;
+            }
+
+            CombatCommon.SetOrderedSuppressTarget(launcherPlan.FirstTarget);
+            launcherPlan = null;
+            launcherFallbackToWeapon = true;
+            CombatCommon.PrepareLauncherSuppressWeaponFallback();
+            return false;
+        }
+
+        private static bool IsLauncherMoveReason(string? reason)
+        {
+            return string.Equals(reason, $"{ReasonPrefix}.launcherMove", StringComparison.Ordinal);
         }
 
         private static bool ShouldFallbackLauncherSuppressToWeapon(string? endReason)

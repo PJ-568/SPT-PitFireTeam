@@ -4,6 +4,7 @@ using SPTarkov.Server.Core.Constants;
 using SPTarkov.Server.Core.Helpers;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Enums;
+using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Utils;
 
@@ -20,11 +21,13 @@ public class FriendlyRecruitService(
 {
     private const string ModFolderName = "pitFireTeam-ServerMod";
     private const string RecruitRequestsFileName = "recruit-requests.json";
+    private const bool ForceRecruitPickupInviteForTesting = true;
 
     public void QueueRecruitPickups(MongoId sessionId, List<FriendlyRecruitPickupCandidate>? candidates)
     {
         if (candidates == null || candidates.Count == 0)
         {
+            logger.Warning($"Recruit pickup request for session '{sessionId}' contained no candidates.");
             return;
         }
 
@@ -34,10 +37,15 @@ public class FriendlyRecruitService(
         {
             if (!IsValidCandidate(candidate))
             {
+                logger.Warning(
+                    $"Skipped invalid recruit pickup candidate for session '{sessionId}'. " +
+                    $"profileId='{candidate?.ProfileId ?? string.Empty}' nickname='{candidate?.Nickname ?? string.Empty}' " +
+                    $"voice='{candidate?.Voice ?? string.Empty}' head='{candidate?.Head ?? string.Empty}'");
                 continue;
             }
 
-            if (Random.Shared.Next(0, 101) > CalculateRecruitChance(playerLevel, Math.Max(1, candidate.Level)))
+            if (!ForceRecruitPickupInviteForTesting &&
+                Random.Shared.Next(0, 101) > CalculateRecruitChance(playerLevel, Math.Max(1, candidate.Level)))
             {
                 continue;
             }
@@ -45,17 +53,20 @@ public class FriendlyRecruitService(
             successfulCandidates.Add(new FriendlyRecruitRequestEntry
             {
                 ProfileId = candidate.ProfileId,
+                AccountId = candidate.AccountId?.Trim() ?? string.Empty,
                 Nickname = candidate.Nickname.Trim(),
                 Level = Math.Max(1, candidate.Level),
                 Side = candidate.Side?.Trim() ?? string.Empty,
                 Voice = candidate.Voice.Trim(),
                 Head = candidate.Head.Trim(),
+                ProfileJson = candidate.ProfileJson?.Trim() ?? string.Empty,
                 CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             });
         }
 
         if (successfulCandidates.Count == 0)
         {
+            logger.Warning($"Recruit pickup request for session '{sessionId}' had {candidates.Count} candidate(s), but none passed validation/chance.");
             return;
         }
 
@@ -63,9 +74,11 @@ public class FriendlyRecruitService(
         var picked = successfulCandidates[Random.Shared.Next(successfulCandidates.Count)];
         if (pending.Any(entry => string.Equals(entry.ProfileId, picked.ProfileId, StringComparison.Ordinal)))
         {
+            logger.Info($"Skipped duplicate recruit pickup request '{picked.Nickname}' for session '{sessionId}'");
             return;
         }
 
+        EnsureRecruitRequestAccountId(sessionId, pending, picked);
         pending.Add(picked);
         SaveRecruitRequests(sessionId, pending);
         logger.Info($"Queued recruit pickup request '{picked.Nickname}' for session '{sessionId}'");
@@ -79,6 +92,11 @@ public class FriendlyRecruitService(
             return [];
         }
 
+        if (EnsureRecruitRequestAccountIds(sessionId, pending))
+        {
+            SaveRecruitRequests(sessionId, pending);
+        }
+
         var toId = sessionId.ToString();
         return pending.Select(entry => new FriendlySocialFriendRequestEntry
         {
@@ -86,22 +104,31 @@ public class FriendlyRecruitService(
             From = entry.ProfileId,
             To = toId,
             Date = entry.CreatedAt,
-            Profile = new FriendlySocialFriendProfile
-            {
-                Id = entry.ProfileId,
-                Aid = entry.ProfileId,
-                Info = new FriendlySocialFriendInfo
-                {
-                    Nickname = entry.Nickname,
-                    Side = string.Equals(entry.Side, Sides.Bear, StringComparison.OrdinalIgnoreCase) ? Sides.Bear : Sides.Usec,
-                    Level = entry.Level,
-                    MemberCategory = MemberCategory.Unheard,
-                    SelectedMemberCategory = MemberCategory.Unheard,
-                    Ignored = false,
-                    Banned = false,
-                }
-            }
+            Profile = CreateRecruitRequestMember(entry),
         }).ToList();
+    }
+
+    public bool TryGetRecruitProfile(MongoId sessionId, string? accountId, out GetOtherProfileResponse? profile)
+    {
+        profile = null;
+        if (string.IsNullOrWhiteSpace(accountId))
+        {
+            return false;
+        }
+
+        var pending = LoadRecruitRequests(sessionId);
+        if (EnsureRecruitRequestAccountIds(sessionId, pending))
+        {
+            SaveRecruitRequests(sessionId, pending);
+        }
+
+        var request = pending.FirstOrDefault(entry => IsRecruitIdentityMatch(entry, accountId));
+        if (request == null)
+        {
+            return false;
+        }
+
+        return teammateService.TryGetRecruitCandidateProfile(sessionId, request, out profile);
     }
 
     public bool AcceptRecruitRequest(MongoId sessionId, string? profileId)
@@ -192,6 +219,70 @@ public class FriendlyRecruitService(
                !string.IsNullOrWhiteSpace(candidate.Nickname) &&
                !string.IsNullOrWhiteSpace(candidate.Voice) &&
                !string.IsNullOrWhiteSpace(candidate.Head);
+    }
+
+    private static bool IsRecruitIdentityMatch(FriendlyRecruitRequestEntry entry, string accountId)
+    {
+        return string.Equals(entry.ProfileId, accountId, StringComparison.Ordinal) ||
+               string.Equals(entry.AccountId, accountId, StringComparison.Ordinal) ||
+               string.Equals($"pitfireteam-recruit-{entry.ProfileId}", accountId, StringComparison.Ordinal);
+    }
+
+    private bool EnsureRecruitRequestAccountIds(MongoId sessionId, List<FriendlyRecruitRequestEntry> requests)
+    {
+        var changed = false;
+        foreach (var request in requests)
+        {
+            changed |= EnsureRecruitRequestAccountId(sessionId, requests, request);
+        }
+
+        return changed;
+    }
+
+    private bool EnsureRecruitRequestAccountId(
+        MongoId sessionId,
+        List<FriendlyRecruitRequestEntry> pending,
+        FriendlyRecruitRequestEntry request)
+    {
+        if (int.TryParse(request.AccountId, out var existingAid) && existingAid > 0)
+        {
+            return false;
+        }
+
+        var usedPendingAids = pending
+            .Where(entry => !ReferenceEquals(entry, request))
+            .Select(entry => int.TryParse(entry.AccountId, out var aid) ? aid : 0)
+            .Where(aid => aid > 0)
+            .ToHashSet();
+
+        int generatedAid;
+        do
+        {
+            generatedAid = teammateService.GetRecruitAccountIdOrUnique(sessionId, request.AccountId);
+        }
+        while (usedPendingAids.Contains(generatedAid));
+
+        request.AccountId = generatedAid.ToString();
+        return true;
+    }
+
+    private FriendlySocialFriendProfile CreateRecruitRequestMember(FriendlyRecruitRequestEntry entry)
+    {
+        return new FriendlySocialFriendProfile
+        {
+            Id = entry.ProfileId,
+            Aid = entry.AccountId,
+            Info = new FriendlySocialFriendInfo
+            {
+                Nickname = entry.Nickname,
+                Side = string.Equals(entry.Side, Sides.Bear, StringComparison.OrdinalIgnoreCase) ? Sides.Bear : Sides.Usec,
+                Level = entry.Level,
+                MemberCategory = MemberCategory.Unheard,
+                SelectedMemberCategory = MemberCategory.Unheard,
+                Ignored = false,
+                Banned = false,
+            },
+        };
     }
 
     private static int CalculateRecruitChance(int playerLevel, int botLevel)

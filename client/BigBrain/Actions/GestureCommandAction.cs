@@ -1017,7 +1017,17 @@ namespace pitTeam.BigBrain.Actions
                 lootPickupInProgress = true;
                 lootPickupAttemptStartedAt = Time.time;
                 botPlayer.SaveInteractionRayInfo();
-                botPlayer.CurrentManagedState.Pickup(true, () => ExecuteLootPickupTransaction(lootItem, rootItem, inventory, pickupResult.Value));
+                try
+                {
+                    botPlayer.CurrentManagedState.Pickup(true, () => ExecuteLootPickupTransaction(lootItem, rootItem, inventory, pickupResult.Value));
+                }
+                catch (Exception ex)
+                {
+                    Modules.Logger.LogError("TakeLoot pickup animation failed; falling back to direct inventory transaction");
+                    Modules.Logger.LogError(ex);
+                    StopLootPickupState(botPlayer);
+                    ExecuteLootPickupTransaction(lootItem, rootItem, inventory, pickupResult.Value);
+                }
             }
             catch (Exception ex)
             {

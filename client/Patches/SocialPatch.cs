@@ -6,6 +6,7 @@ using EFT.UI.Chat;
 using EFT.InventoryLogic;
 using EFT.Quests;
 using EFT.UI;
+using pitTeam.Components;
 using Newtonsoft.Json.Linq;
 
 using HarmonyLib;
@@ -43,11 +44,11 @@ namespace pitTeam.Patches
 
         private static float delay = 0;
 
-        public static void RefreshFriendsList()
+        public static void RefreshFriendsList(bool force = false)
         {
-            if (socialNetworkClass != null && iChatInteractions != null && delay < Time.time)
+            if (socialNetworkClass != null && iChatInteractions != null && (force || delay < Time.time))
             {
-                delay = Time.time + 2;
+                delay = Time.time + (force ? 0.25f : 2f);
                 iChatInteractions.GetFriendsList(new Callback<GClass1055>(result =>
                 {
                     RefreshFriendsCallbackMethod?.Invoke(socialNetworkClass, new object[] { result });
@@ -63,6 +64,12 @@ namespace pitTeam.Patches
                     RefreshOutputRequestsCallbackMethod?.Invoke(socialNetworkClass, new object[] { result });
                 }));
             }
+        }
+
+        public static void RefreshFriendsListAndSquadRoster()
+        {
+            SquadControlMenuUi.RequestRosterRefreshNowOrNextInject();
+            RefreshFriendsList(true);
         }
     }
 
@@ -105,6 +112,48 @@ namespace pitTeam.Patches
         private static void PatchPrefix()
         {
             SocialNetworkClassPatch.RefreshFriendsList();
+        }
+    }
+
+    internal class FriendRequestAcceptRefreshPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            Type acceptCallbackType = typeof(SocialNetworkClass).GetNestedType("Class1613", BindingFlags.Public | BindingFlags.NonPublic);
+            return AccessTools.Method(acceptCallbackType, "method_1");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix()
+        {
+            SocialNetworkClassPatch.RefreshFriendsListAndSquadRoster();
+        }
+    }
+
+    internal class FriendRequestAcceptAllRefreshPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(SocialNetworkClass), nameof(SocialNetworkClass.AcceptAllFriendRequests));
+        }
+
+        [PatchPostfix]
+        private static async void PatchPostfix(Task __result)
+        {
+            try
+            {
+                if (__result != null)
+                {
+                    await __result;
+                }
+
+                SocialNetworkClassPatch.RefreshFriendsListAndSquadRoster();
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogInfo("[UI] Failed to refresh squad roster after accepting all friend requests.");
+                Modules.Logger.LogError(ex);
+            }
         }
     }
 
@@ -193,6 +242,39 @@ namespace pitTeam.Patches
                 Modules.Logger.LogInfo("[UI] Failed to refresh teammate cache for social context actions.");
                 Modules.Logger.LogError(ex);
             }
+        }
+    }
+
+    internal class FriendRequestProfileViewPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass3785), "method_15");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(GClass3785 __instance)
+        {
+            UpdatableChatMember? profileMember = __instance?.Gclass1070_0?.Profile;
+            if (profileMember == null)
+            {
+                return true;
+            }
+
+            string profileAccountId = profileMember.AccountId;
+            if (string.IsNullOrWhiteSpace(profileAccountId) || profileAccountId == "0")
+            {
+                return true;
+            }
+
+            string currentAccountId = __instance.UpdatableChatMember_0?.AccountId;
+            if (!string.IsNullOrWhiteSpace(currentAccountId) && currentAccountId != "0")
+            {
+                return true;
+            }
+
+            ItemUiContext.Instance.ShowPlayerProfileScreen(profileAccountId, EItemViewType.OtherPlayerProfile).HandleExceptions();
+            return false;
         }
     }
 

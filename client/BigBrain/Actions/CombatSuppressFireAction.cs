@@ -5,7 +5,6 @@ using pitTeam.Components;
 using pitTeam.Modules;
 using pitTeam.Utils;
 using UnityEngine;
-using UnityEngine.AI;
 
 namespace pitTeam.BigBrain.Actions
 {
@@ -20,17 +19,10 @@ namespace pitTeam.BigBrain.Actions
         private const float CloseThreatSuppressFireAlignmentDistance = 6f;
         private const float CloseThreatSuppressFireMaxAngle = 35f;
         private const float SuppressPointCorrectionAngle = 25f;
-        private const float LauncherSuppressFindPositionMinDistance = 12f;
-        private const float LauncherSuppressFindPositionMaxRadius = 50f;
-        private const float LauncherSuppressFindPositionCooldown = 0.75f;
-        private const float LauncherSuppressReachedMoveTargetDistance = 1.5f;
-        private const float LauncherSuppressTargetReuseDistance = 1f;
         private const float LauncherSuppressFireMaxAimAngle = 12f;
+        private const float WeaponSuppressFireMaxAimAngle = 18f;
 
         private readonly GClass281 baseLogic;
-        private Vector3? launcherSuppressMoveTarget;
-        private Vector3 launcherSuppressMoveTargetFor;
-        private float nextLauncherSuppressPositionSearchAt;
         private string? lastLauncherSuppressSafetyRejectReason;
         private float nextLauncherSuppressSafetyRejectAt;
         private float nextLauncherSuppressAimHoldRecordAt;
@@ -91,6 +83,11 @@ namespace pitTeam.BigBrain.Actions
                     return;
                 }
 
+                if (ShouldHoldSuppressFireUntilAimed(fireOrigin, target))
+                {
+                    return;
+                }
+
                 BotOwner.ShootData.Shoot();
                 return;
             }
@@ -111,6 +108,16 @@ namespace pitTeam.BigBrain.Actions
             {
                 BotOwner.Steering.LookToPoint(goalEnemy.CurrPosition);
                 StopCombatShooting();
+                return;
+            }
+
+            Vector3 suppressTarget = GetRawData(data) is GClass27 suppressData && suppressData.PointToShoot.HasValue
+                ? suppressData.PointToShoot.Value
+                : BotOwner.SuppressShoot?.GetPoint() ?? goalEnemy.CurrPosition;
+            if (ShouldHoldSuppressFireUntilAimed(
+                    BotOwner.WeaponRoot != null ? BotOwner.WeaponRoot.position : BotOwner.Position + Vector3.up * 1.2f,
+                    suppressTarget))
+            {
                 return;
             }
 
@@ -219,6 +226,12 @@ namespace pitTeam.BigBrain.Actions
                 BotOwner.Steering.LookToPoint(target.Value);
                 BotOwner.GoToSomePointData.SetPoint(suppressFrom.Position);
                 BotOwner.GoToSomePointData.UpdateToGo(true);
+                if (launcherSuppress)
+                {
+                    StopCombatShooting();
+                    return;
+                }
+
                 if (ShouldHoldCloseThreatSuppressFire(target.Value))
                 {
                     StopCombatShooting();
@@ -242,6 +255,16 @@ namespace pitTeam.BigBrain.Actions
                     return;
                 }
 
+                if (ShouldHoldSuppressFireUntilAimed(fireOrigin, target.Value, launcherSuppress))
+                {
+                    return;
+                }
+
+                if (ShouldAbortFinalSuppressShot(reason, fireOrigin, target.Value, launcherSuppress, launcherUnsafeRadius))
+                {
+                    return;
+                }
+
                 BotOwner.ShootData.Shoot();
                 return;
             }
@@ -259,23 +282,37 @@ namespace pitTeam.BigBrain.Actions
 
             if (launcherSuppress && !CanSuppressFromCurrentPosition(fireOrigin, target.Value))
             {
-                if (TryMoveToLauncherSuppressPosition(target.Value))
-                {
-                    return;
-                }
-
                 StopCombatShooting();
                 return;
             }
 
             if (launcherSuppress)
             {
-                launcherSuppressMoveTarget = null;
+                if (ShouldHoldSuppressFireUntilAimed(fireOrigin, target.Value, launcherSuppress))
+                {
+                    return;
+                }
+
+                if (ShouldAbortFinalSuppressShot(reason, fireOrigin, target.Value, launcherSuppress, launcherUnsafeRadius))
+                {
+                    return;
+                }
+
                 BotOwner.ShootData?.Shoot();
                 return;
             }
 
-            baseLogic.UpdateNodeByBrain(null);
+            if (ShouldHoldSuppressFireUntilAimed(fireOrigin, target.Value))
+            {
+                return;
+            }
+
+            if (ShouldAbortFinalSuppressShot(reason, fireOrigin, target.Value, launcherSuppress, launcherUnsafeRadius))
+            {
+                return;
+            }
+
+            BotOwner.ShootData?.Shoot();
         }
 
         private void HoldLauncherSuppressPosition(Vector3 target, CustomNavigationPoint suppressFrom)
@@ -289,112 +326,7 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            if (TryMoveToLauncherSuppressPosition(target))
-            {
-                return;
-            }
-
             BotOwner.StopMove();
-        }
-
-        private bool TryMoveToLauncherSuppressPosition(Vector3 target)
-        {
-            if (TryUseCachedLauncherSuppressPosition(target))
-            {
-                return true;
-            }
-
-            if (Time.time < nextLauncherSuppressPositionSearchAt)
-            {
-                return false;
-            }
-
-            nextLauncherSuppressPositionSearchAt = Time.time + LauncherSuppressFindPositionCooldown;
-            if (!TryFindLauncherSuppressPosition(
-                    target,
-                LauncherSuppressFindPositionMinDistance,
-                LauncherSuppressFindPositionMaxRadius,
-                    out Vector3 firePosition))
-            {
-                return false;
-            }
-
-            launcherSuppressMoveTarget = firePosition;
-            launcherSuppressMoveTargetFor = target;
-            MoveToLauncherSuppressPosition(firePosition, target);
-            return true;
-        }
-
-        private bool TryFindLauncherSuppressPosition(
-            Vector3 target,
-            float minDistance,
-            float maxRadius,
-            out Vector3 firePosition)
-        {
-            firePosition = Vector3.zero;
-            NavMeshPath path = new NavMeshPath();
-            const int steps = 48;
-            float minDistanceSqr = minDistance * minDistance;
-
-            for (int i = 0; i < steps; i++)
-            {
-                float angle = i * (360f / steps);
-                Vector3 direction = Quaternion.Euler(0f, angle, 0f) * Vector3.forward;
-                Vector3 sample = target + direction * maxRadius;
-                if (!NavMesh.SamplePosition(sample, out NavMeshHit hit, 10f, NavMesh.AllAreas))
-                {
-                    continue;
-                }
-
-                if ((hit.position - target).sqrMagnitude < minDistanceSqr)
-                {
-                    continue;
-                }
-
-                if (!Covers.IsNavigablePoint(BotOwner.Position, hit.position, 150f, path))
-                {
-                    continue;
-                }
-
-                Vector3 candidateFireOrigin = hit.position + Vector3.up * 1.2f;
-                if (!CanSuppressFromCurrentPosition(candidateFireOrigin, target) ||
-                    FollowerShotSafety.IsFriendlyInSuppressionLane(BotOwner, candidateFireOrigin, target))
-                {
-                    continue;
-                }
-
-                firePosition = hit.position;
-                return true;
-            }
-
-            return false;
-        }
-
-        private bool TryUseCachedLauncherSuppressPosition(Vector3 target)
-        {
-            if (!launcherSuppressMoveTarget.HasValue ||
-                (launcherSuppressMoveTargetFor - target).sqrMagnitude > LauncherSuppressTargetReuseDistance * LauncherSuppressTargetReuseDistance)
-            {
-                return false;
-            }
-
-            if ((BotOwner.Position - launcherSuppressMoveTarget.Value).sqrMagnitude <=
-                LauncherSuppressReachedMoveTargetDistance * LauncherSuppressReachedMoveTargetDistance)
-            {
-                launcherSuppressMoveTarget = null;
-                return false;
-            }
-
-            MoveToLauncherSuppressPosition(launcherSuppressMoveTarget.Value, target);
-            return true;
-        }
-
-        private void MoveToLauncherSuppressPosition(Vector3 position, Vector3 target)
-        {
-            BotOwner.Steering.LookToPoint(target);
-            BotOwner.SetPose(1f);
-            BotOwner.GoToSomePointData.SetPoint(position);
-            BotOwner.GoToSomePointData.UpdateToGo(true);
         }
 
         private bool IsGrenadeLauncherSelectedForSuppress()
@@ -412,6 +344,34 @@ namespace pitTeam.BigBrain.Actions
         private static float GetLauncherSuppressUnsafeRadius(string? reason)
         {
             return FollowerCombatCommon.IsAutoSuppressReason(reason) ? 18f : 12f;
+        }
+
+        private bool ShouldAbortFinalSuppressShot(
+            string? reason,
+            Vector3 fireOrigin,
+            Vector3 target,
+            bool launcherSuppress,
+            float launcherUnsafeRadius)
+        {
+            if (launcherSuppress && FollowerShotSafety.IsFriendlyNearImpact(BotOwner, target, launcherUnsafeRadius))
+            {
+                RecordLauncherSuppressSafetyReject($"{reason}:launcherImpactUnsafeFinal", target);
+                StopCombatShooting();
+                return true;
+            }
+
+            if (FollowerShotSafety.IsFriendlyInSuppressionLane(BotOwner, fireOrigin, target))
+            {
+                if (launcherSuppress)
+                {
+                    RecordLauncherSuppressSafetyReject($"{reason}:launcherFriendlyLaneFinal", target);
+                }
+
+                StopCombatShooting();
+                return true;
+            }
+
+            return false;
         }
 
         private bool IsCurrentSuppressionAimUnsafe(
@@ -435,7 +395,53 @@ namespace pitTeam.BigBrain.Actions
             return FollowerShotSafety.IsFriendlyInAimLane(BotOwner, fireOrigin, aimDirection, distance);
         }
 
+        private bool ShouldHoldSuppressFireUntilAimed(
+            Vector3 fireOrigin,
+            Vector3 suppressTarget,
+            bool launcherSuppress = false)
+        {
+            BotOwner.Steering.LookToPoint(suppressTarget);
+
+            IBotAiming aiming = BotOwner.AimingManager?.CurrentAiming;
+            if (aiming == null)
+            {
+                StopCombatShooting();
+                return true;
+            }
+
+            aiming.SetTarget(suppressTarget);
+            BotOwner.AimingManager.NodeUpdate();
+
+            Vector3 aimDirection = BotOwner.WeaponRoot != null
+                ? BotOwner.WeaponRoot.forward
+                : BotOwner.LookDirection;
+            aimDirection.y = 0f;
+            if (aimDirection.sqrMagnitude <= 0.0001f)
+            {
+                StopCombatShooting();
+                return true;
+            }
+
+            float maxAngle = launcherSuppress ? LauncherSuppressFireMaxAimAngle : WeaponSuppressFireMaxAimAngle;
+            if (!aiming.IsReady || IsSuppressAimNotAligned(fireOrigin, suppressTarget, aimDirection, maxAngle))
+            {
+                StopCombatShooting();
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool IsLauncherAimNotAligned(Vector3 fireOrigin, Vector3 suppressTarget, Vector3 aimDirection)
+        {
+            return IsSuppressAimNotAligned(fireOrigin, suppressTarget, aimDirection, LauncherSuppressFireMaxAimAngle);
+        }
+
+        private static bool IsSuppressAimNotAligned(
+            Vector3 fireOrigin,
+            Vector3 suppressTarget,
+            Vector3 aimDirection,
+            float maxAngle)
         {
             Vector3 targetDirection = suppressTarget - fireOrigin;
             targetDirection.y = 0f;
@@ -444,7 +450,7 @@ namespace pitTeam.BigBrain.Actions
                 return true;
             }
 
-            return Vector3.Angle(aimDirection.normalized, targetDirection.normalized) > LauncherSuppressFireMaxAimAngle;
+            return Vector3.Angle(aimDirection.normalized, targetDirection.normalized) > maxAngle;
         }
 
         private void RecordLauncherSuppressSafetyReject(string reason, Vector3 target)

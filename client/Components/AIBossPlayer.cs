@@ -71,6 +71,8 @@ namespace pitTeam.Components
         private const float FriendlyDownPollMs = 3000f;
         private const float TeamStatusDebounceSeconds = 0.08f;
         private const float AttentionCommandDebounceSeconds = 0.35f;
+        private const float OrderedLauncherRayScanDistance = 120f;
+        private const float OrderedLauncherRayMaxPerpendicularDistance = 35f;
         private float _ignoreNextThereGestureUntil;
         private float _nextThereGestureAt;
         private float _lastTeamStatusCommandAt = -999f;
@@ -1782,6 +1784,8 @@ namespace pitTeam.Components
         {
             if (deadFollower == null) return;
 
+            SaveDeadFollowerProgress(deadFollower);
+
             FallenFollowerInfo info = new FallenFollowerInfo
             {
                 DeadFollowerProfileId = deadFollower.ProfileId,
@@ -1792,6 +1796,32 @@ namespace pitTeam.Components
             _pendingFriendlyDown[deadFollower.ProfileId] = info;
             TryAnnounceFriendlyDown(info);
             EnsureFriendlyDownTimer();
+        }
+
+        private void SaveDeadFollowerProgress(BotOwner deadFollower)
+        {
+            try
+            {
+                if (deadFollower == null || string.IsNullOrWhiteSpace(deadFollower.ProfileId))
+                {
+                    return;
+                }
+
+                BotFollowerPlayer follower = BossPlayers.GetFollowerByProfileId(deadFollower.ProfileId);
+                if (follower == null || !follower.IsSquadMate)
+                {
+                    return;
+                }
+
+                Modules.Logger.LogInfo(
+                    $"[Progress] Saving dead squadmate progress for '{deadFollower.Profile?.Nickname ?? deadFollower.ProfileId}'.");
+                BossPlayers.SaveFollowersProgress(new List<BotFollowerPlayer> { follower });
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("Failed to save dead squadmate progress");
+                Modules.Logger.LogError(ex);
+            }
         }
 
         private void EnsureFriendlyDownTimer()
@@ -2338,12 +2368,12 @@ namespace pitTeam.Components
         private List<Player> GetOrderedLauncherSuppressTargets(IPlayer requester)
         {
             List<Player> targets = new List<Player>();
+            List<float> targetScores = new List<float>();
             if (requester == null)
             {
                 return targets;
             }
 
-            const float scanDistance = 120f;
             RaycastHit[] hits = new RaycastHit[20];
             Vector3 lookDirection = requester.LookDirection.sqrMagnitude > 0.001f
                 ? requester.LookDirection.normalized
@@ -2351,9 +2381,9 @@ namespace pitTeam.Components
             Ray ray = new Ray(requester.Transform.position, lookDirection);
             int hitCount = Physics.SphereCastNonAlloc(
                 ray,
-                scanDistance * 0.5f,
+                OrderedLauncherRayScanDistance * 0.5f,
                 hits,
-                scanDistance * 0.5f,
+                OrderedLauncherRayScanDistance * 0.5f,
                 LayerMaskClass.PlayerMask);
 
             for (int i = 0; i < hitCount; i++)
@@ -2366,10 +2396,71 @@ namespace pitTeam.Components
                     continue;
                 }
 
-                targets.Add(enemy);
+                Vector3 enemyPosition = enemy.Transform != null ? enemy.Transform.position : enemy.Position;
+                if (!TryGetOrderedLauncherRayScore(ray, enemyPosition, out float score))
+                {
+                    continue;
+                }
+
+                InsertOrderedLauncherTarget(targets, targetScores, enemy, score);
             }
 
             return targets;
+        }
+
+        private static bool TryGetOrderedLauncherRayScore(Ray ray, Vector3 target, out float score)
+        {
+            score = 0f;
+
+            Vector3 rayDirection = Vector3.ProjectOnPlane(ray.direction, Vector3.up);
+            if (rayDirection.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            rayDirection.Normalize();
+            Vector3 offset = Vector3.ProjectOnPlane(target - ray.origin, Vector3.up);
+            if (offset.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            float alongRay = Vector3.Dot(offset, rayDirection);
+            if (alongRay < 0f || alongRay > OrderedLauncherRayScanDistance)
+            {
+                return false;
+            }
+
+            Vector3 closestPoint = rayDirection * alongRay;
+            float perpendicularDistanceSqr = (offset - closestPoint).sqrMagnitude;
+            if (perpendicularDistanceSqr >
+                OrderedLauncherRayMaxPerpendicularDistance * OrderedLauncherRayMaxPerpendicularDistance)
+            {
+                return false;
+            }
+
+            score = perpendicularDistanceSqr + alongRay * 0.01f;
+            return true;
+        }
+
+        private static void InsertOrderedLauncherTarget(
+            List<Player> targets,
+            List<float> targetScores,
+            Player target,
+            float score)
+        {
+            for (int i = 0; i < targetScores.Count; i++)
+            {
+                if (score < targetScores[i])
+                {
+                    targets.Insert(i, target);
+                    targetScores.Insert(i, score);
+                    return;
+                }
+            }
+
+            targets.Add(target);
+            targetScores.Add(score);
         }
 
         private bool IsOrderedLauncherSuppressEnemy(IPlayer requester, Player enemy)

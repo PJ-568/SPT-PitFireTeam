@@ -248,6 +248,21 @@ namespace pitTeam.Components
             pendingTileRefreshAccountIds.Clear();
         }
 
+        internal static void RequestRosterRefreshNowOrNextInject()
+        {
+            RequestRosterRefreshOnNextInject();
+
+            SquadControlMenuUi instance = FindInstance();
+            if (instance?.rosterGridRoot == null || instance.rosterPanel == null || !instance.rosterPanel.activeInHierarchy)
+            {
+                return;
+            }
+
+            forceRosterRefreshOnNextInject = false;
+            pendingTileRefreshAccountIds.Clear();
+            instance.RebuildRosterTiles();
+        }
+
         internal static void RequestRosterTileRefreshOnNextInject(string accountId)
         {
             if (string.IsNullOrWhiteSpace(accountId))

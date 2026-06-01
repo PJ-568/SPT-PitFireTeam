@@ -112,6 +112,7 @@ namespace pitTeam.Modules
                                bot.HealthController?.IsAlive == true;
                     })
                     .ToList();
+                int aliveCount = aliveSquadmates.Count;
 
                 if (squadmates.Count == 0)
                 {
@@ -137,21 +138,20 @@ namespace pitTeam.Modules
                 if (!teamEscapeEnabled)
                 {
                     // Team Escape controls whether surviving followers get an escape roll after
-                    // player death. It must not suppress lost outcomes for teammates who already
-                    // died, because Immersive/Realistic gear loss is persisted from those outcomes.
-                    Logger.LogInfo("[DeathEscape] Player died, Team Escape is disabled; persisting fallen squadmate loss outcomes only.");
-                    List<FollowerDeathEscapeOutcomeEntry> fallenEntries = new List<FollowerDeathEscapeOutcomeEntry>();
-                    AddMissingFallenSquadmateOutcomes(fallenEntries);
-                    if (fallenEntries.Count > 0)
+                    // player death. With it disabled, live squadmates do not roll or recover gear,
+                    // but they still need a lost raid outcome so sessions/deaths stay accurate.
+                    Logger.LogInfo("[DeathEscape] Player died, Team Escape is disabled; persisting live and fallen squadmate loss outcomes.");
+                    List<FollowerDeathEscapeOutcomeEntry> lostEntries = CreateLostOutcomesForSquadmates(squadmates, aliveCount);
+                    AddMissingFallenSquadmateOutcomes(lostEntries);
+                    if (lostEntries.Count > 0)
                     {
-                        SendOutcomes(fallenEntries);
+                        SendOutcomes(lostEntries);
                     }
 
                     return;
                 }
 
                 ExtractSnapshot extract = ChooseExtract(boss, deathPosition);
-                int aliveCount = aliveSquadmates.Count;
                 LostOnDeathRules lostOnDeathRules = LoadLostOnDeathRules();
                 HashSet<string> trackedLootIds = BuildTrackedLootIdSet(squadmates.Select(follower => follower.GetBot()));
                 List<RecoverableGearCandidate> deathGearSnapshot = CreateDeathGearSnapshot(
@@ -257,6 +257,58 @@ namespace pitTeam.Modules
             {
                 ClearFallenSquadmateSnapshots();
             }
+        }
+
+        private static List<FollowerDeathEscapeOutcomeEntry> CreateLostOutcomesForSquadmates(List<BotFollowerPlayer> squadmates, int aliveCount)
+        {
+            List<FollowerDeathEscapeOutcomeEntry> entries = new List<FollowerDeathEscapeOutcomeEntry>();
+            if (squadmates == null || squadmates.Count == 0)
+            {
+                return entries;
+            }
+
+            HashSet<string> seenAids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (BotFollowerPlayer follower in squadmates)
+            {
+                BotOwner bot = follower?.GetBot();
+                if (bot == null)
+                {
+                    continue;
+                }
+
+                string aid = bot.Profile?.AccountId ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(aid) && !seenAids.Add(aid))
+                {
+                    continue;
+                }
+
+                FollowerReadiness readiness = SnapshotReadiness(bot);
+                entries.Add(new FollowerDeathEscapeOutcomeEntry
+                {
+                    Aid = aid,
+                    ProfileId = bot.ProfileId ?? string.Empty,
+                    Nickname = bot.Profile?.Nickname ?? "Squadmate",
+                    Escaped = false,
+                    RollEscape = false,
+                    Chance = 0f,
+                    ExtractName = string.Empty,
+                    Distance = 0f,
+                    HealthRatio = readiness.HealthRatio,
+                    EquipmentPower = readiness.EquipmentPower,
+                    EnemyAveragePower = 0f,
+                    RouteEnemyAveragePower = 0f,
+                    CurrentFightEnemyAveragePower = 0f,
+                    RouteEnemyCount = 0,
+                    CurrentFightEnemyCount = 0,
+                    AliveSquadmates = aliveCount,
+                    HasSecureMeds = readiness.HasSecureMeds,
+                    VitalsDestroyed = readiness.VitalsDestroyed,
+                    EquipmentItems = null,
+                    TrackedItemIds = Array.Empty<string>()
+                });
+            }
+
+            return entries;
         }
 
         private static FollowerReadiness SnapshotReadiness(BotOwner bot)

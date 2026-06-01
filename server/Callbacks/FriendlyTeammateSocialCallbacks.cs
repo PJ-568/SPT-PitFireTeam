@@ -65,17 +65,25 @@ public class FriendlyTeammateSocialCallbacks(
     public ValueTask<string> MergeProfileView(string url, GetOtherProfileRequest request, MongoId sessionId, string? previousOutput)
     {
         var body = DeserializeBody<GetOtherProfileResponse>(previousOutput);
+
+        if (teammateService.TryGetTeammateProfile(sessionId, request.AccountId, out var teammateProfile)
+            && teammateProfile != null)
+        {
+            return new ValueTask<string>(httpResponseUtil.GetBody(teammateProfile));
+        }
+
+        if (recruitService.TryGetRecruitProfile(sessionId, request.AccountId, out var recruitProfile)
+            && recruitProfile != null)
+        {
+            return new ValueTask<string>(httpResponseUtil.GetBody(recruitProfile));
+        }
+
         if (int.TryParse(request.AccountId, out var requestedAid) && body?.Data?.Aid == requestedAid)
         {
             return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
         }
 
-        if (!teammateService.TryGetTeammateProfile(sessionId, request.AccountId, out var teammateProfile))
-        {
-            return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
-        }
-
-        return new ValueTask<string>(httpResponseUtil.GetBody(teammateProfile));
+        return new ValueTask<string>(previousOutput ?? httpResponseUtil.NullResponse());
     }
 
     public ValueTask<string> DeleteFriend(string url, DeleteFriendRequest request, MongoId sessionId, string? previousOutput)
