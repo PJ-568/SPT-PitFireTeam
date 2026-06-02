@@ -92,19 +92,27 @@ namespace pitTeam.Utils
                 return;
             }
 
-            CancelAllHealing(bot, recoverDestroyedSurgeryParts: true);
+            NormalizeSurgeryRecoveredPartsForFirstAid(bot.GetPlayer);
+            if (bot.AIData?.Player != null && bot.AIData.Player != bot.GetPlayer)
+            {
+                NormalizeSurgeryRecoveredPartsForFirstAid(bot.AIData.Player);
+            }
 
             RefreshMedicalWork(bot);
             RefreshBotMovementAfterHealing(bot, ignoreBrokenLegPenalty: true);
 
-            if (
+            if (!IsUsingMedical(bot) &&
                 bot.WeaponManager?.Selector != null &&
                 bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.FirstPrimaryWeapon &&
-                 bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon
-            )
+                bot.WeaponManager.Selector.LastEquipmentSlot != EquipmentSlot.SecondPrimaryWeapon)
             {
                 TryReturnToMainWeapon(bot);
             }
+        }
+
+        public static void AbortHealing(BotOwner bot, bool recoverDestroyedSurgeryParts)
+        {
+            CancelAllHealing(bot, recoverDestroyedSurgeryParts);
         }
 
         public static void UpdateMedicalHandsWatchdog(BotOwner bot)
@@ -439,6 +447,14 @@ namespace pitTeam.Utils
             {
                 bot.Medecine.Stimulators.CancelCurrent();
             }
+        }
+
+        public static bool IsUsingMedical(BotOwner bot)
+        {
+            return bot?.Medecine != null &&
+                   (bot.Medecine.FirstAid?.Using == true ||
+                    bot.Medecine.SurgicalKit?.Using == true ||
+                    bot.Medecine.Stimulators?.Using == true);
         }
 
         private static bool TryRecoverStuckMedicalHands(BotOwner bot, string reason)

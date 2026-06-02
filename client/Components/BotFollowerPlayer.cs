@@ -90,6 +90,8 @@ namespace pitTeam.Components
         private Vector3 _commandTarget;
         private float _commandUntilTime;
         private bool _suppressEnemyRequiresLauncher;
+        private bool _orderedPushCancelRequested;
+        private string? _orderedPushCancelReason;
         private bool _holdPositionShouldCrouch = true;
         private bool _resumeHoldAfterComeCloser;
         private bool _resumeHoldAfterTakeLoot;
@@ -1240,7 +1242,7 @@ namespace pitTeam.Components
 
             _activeCommand = FollowerCommandType.PushEnemy;
             _commandTarget = Vector3.zero;
-            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _commandUntilTime = float.PositiveInfinity;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;
             _resumeHoldAfterTakeLootCrouch = false;
@@ -1567,6 +1569,31 @@ namespace pitTeam.Components
 
         public bool SuppressEnemyRequiresLauncher =>
             _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyRequiresLauncher;
+
+        public void RequestOrderedPushCancel(string reason)
+        {
+            _orderedPushCancelRequested = true;
+            _orderedPushCancelReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
+            if (_activeCommand == FollowerCommandType.PushEnemy)
+            {
+                ClearCommand($"OrderedPushCancel:{_orderedPushCancelReason}");
+            }
+        }
+
+        public bool HasOrderedPushCancelRequest => _orderedPushCancelRequested;
+
+        public bool TryConsumeOrderedPushCancelRequest(out string reason)
+        {
+            reason = _orderedPushCancelReason ?? "unspecified";
+            if (!_orderedPushCancelRequested)
+            {
+                return false;
+            }
+
+            _orderedPushCancelRequested = false;
+            _orderedPushCancelReason = null;
+            return true;
+        }
 
         public void SetCombatTacticFromString(string? tactic)
         {
@@ -2290,6 +2317,11 @@ namespace pitTeam.Components
 
         private void OnBeingHit(DamageInfoStruct arg1, EBodyPart arg2, float arg3)
         {
+            if (_activeCommand == FollowerCommandType.PushEnemy)
+            {
+                return;
+            }
+
             ClearCommand("OnBeingHit");
         }
 

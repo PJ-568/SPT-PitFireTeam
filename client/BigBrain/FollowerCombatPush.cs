@@ -50,6 +50,7 @@ namespace pitTeam.BigBrain
         public void Reset()
         {
             ClearCommittedPush("reset");
+            nextUrbanDetourPushCheckAt = 0f;
         }
 
         public void HandleDecisionChanged(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
@@ -166,7 +167,6 @@ namespace pitTeam.BigBrain
             committedPushActionableVisibleSince = 0f;
             stalledPushLastPosition = Vector3.zero;
             stalledPushSince = 0f;
-            nextUrbanDetourPushCheckAt = 0f;
         }
 
         public bool IsPushCommittedDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)

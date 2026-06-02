@@ -64,9 +64,9 @@ namespace pitTeam.BigBrain.Actions
             // short SAIN-like dodge destination, then force crouch/no-sprint before shooting.
             BotOwner.Mover.SetTargetMoveSpeed(1f);
             bool unsafeCloseFacing = IsUnsafeCloseThreatFacing(goalEnemy);
-            if (goalEnemy != null && ShouldKeepFacingCloseThreat(goalEnemy))
+            if (ShouldLockDogFightLook(goalEnemy))
             {
-                MaintainThreatFacing(goalEnemy, goalEnemy.GetBodyPartPosition(), allowHardTurn: true);
+                MaintainThreatFacing(goalEnemy!, GetDogFightThreatLookPoint(goalEnemy!), allowHardTurn: true);
             }
 
             UpdateSainLikeMovement(goalEnemy);
@@ -75,12 +75,12 @@ namespace pitTeam.BigBrain.Actions
 
             if (goalEnemy == null || !goalEnemy.CanShoot || !goalEnemy.IsVisible)
             {
-                // If the enemy flickers out at point blank, keep facing him but stop firing. This
-                // prevents the bot from spraying through the player/followers or turning away.
-                if (goalEnemy != null && ShouldKeepFacingCloseThreat(goalEnemy))
+                // Dogfight movement can step forward, backward, or sideways, but aim should stay
+                // locked to the fight target. If visibility flickers, stop firing and keep looking
+                // at the last known threat point rather than letting the movement target own look.
+                if (ShouldLockDogFightLook(goalEnemy))
                 {
-                    MaintainThreatFacing(goalEnemy, goalEnemy.GetBodyPartPosition(), allowHardTurn: true);
-                    BotOwner.Mover.Stop();
+                    MaintainThreatFacing(goalEnemy!, GetDogFightThreatLookPoint(goalEnemy!), allowHardTurn: true);
                 }
 
                 StopCombatShooting();
@@ -309,16 +309,13 @@ namespace pitTeam.BigBrain.Actions
         private bool IsUnsafeCloseThreatFacing(EnemyInfo? goalEnemy)
         {
             return goalEnemy != null &&
-                   goalEnemy.IsVisible &&
-                   goalEnemy.CanShoot &&
                    goalEnemy.Distance <= UnsafeCloseThreatDistance &&
                    CombatAttackMoveLook.GetThreatLookAngle(BotOwner, goalEnemy) > UnsafeCloseThreatLookAngle;
         }
 
-        private bool ShouldKeepFacingCloseThreat(EnemyInfo goalEnemy)
+        private static bool ShouldLockDogFightLook(EnemyInfo? goalEnemy)
         {
-            return goalEnemy.Distance <= UnsafeCloseThreatDistance &&
-                   (goalEnemy.IsVisible || Time.time - goalEnemy.PersonalSeenTime <= RecentSeenThreshold);
+            return goalEnemy?.Person?.HealthController?.IsAlive == true;
         }
 
         private void MaintainThreatFacing(EnemyInfo goalEnemy, Vector3 shootPoint, bool allowHardTurn)
@@ -327,6 +324,23 @@ namespace pitTeam.BigBrain.Actions
             {
                 BotOwner.Steering.LookToPoint(shootPoint);
             }
+        }
+
+        private static Vector3 GetDogFightThreatLookPoint(EnemyInfo goalEnemy)
+        {
+            Vector3 bodyPoint = goalEnemy.GetBodyPartPosition();
+            if (FollowerCombatCommon.IsFinite(bodyPoint))
+            {
+                return bodyPoint;
+            }
+
+            Vector3 currentPosition = goalEnemy.CurrPosition + Vector3.up * 0.8f;
+            if (FollowerCombatCommon.IsFinite(currentPosition))
+            {
+                return currentPosition;
+            }
+
+            return goalEnemy.EnemyLastPositionReal + Vector3.up * 0.8f;
         }
 
         private enum DogFightMoveStatus

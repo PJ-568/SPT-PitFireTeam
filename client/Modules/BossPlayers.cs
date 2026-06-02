@@ -398,20 +398,39 @@ namespace pitTeam.Modules
                         continue;
                     }
 
+                    FollowerMovementSkillProgress movementProgress = CalculateFollowerMovementSkillProgress(item.GetBot());
                     List<object> skills = new List<object>();
 
                     pr.Skills.DisplayList.ExecuteForEach(skill =>
                     {
-                        float syntheticProgress = skill.Id == ESkillId.Strength
-                            ? CalculateFollowerStrengthProgress(item.GetBot())
-                            : 0f;
+                        float baseCurrent = UnityEngine.Mathf.Max(0f, skill.Current - skill.PointsEarned);
+                        float progress = skill.ProgressValue;
+                        float pointsEarned = skill.PointsEarned;
+
+                        if (skill.Id == ESkillId.Strength)
+                        {
+                            progress += movementProgress.StrengthProgress;
+                            pointsEarned += movementProgress.StrengthProgress;
+                        }
+                        else if (skill.Id == ESkillId.Endurance && movementProgress.SuppressEnduranceProgress)
+                        {
+                            if (progress > 0f || pointsEarned > 0f)
+                            {
+                                Modules.Logger.LogInfo(
+                                    $"[Progress] Suppressed vanilla AI Endurance for '{pr.Nickname ?? pr.ProfileId}': " +
+                                    $"progress={progress:0.00} points={pointsEarned:0.00} because custom follower weight is overweight.");
+                            }
+
+                            progress = 0f;
+                            pointsEarned = 0f;
+                        }
 
                         skills.Add(new
                         {
                             Id = skill.Id,
-                            Current = skill.Current,
-                            Progress = skill.ProgressValue + syntheticProgress,
-                            PointsEarnedDuringSession = skill.PointsEarned + syntheticProgress,
+                            Current = baseCurrent,
+                            Progress = progress,
+                            PointsEarnedDuringSession = pointsEarned,
                         });
                     });
 
@@ -490,48 +509,60 @@ namespace pitTeam.Modules
             return string.IsNullOrWhiteSpace(accountId) ? string.Empty : $"aid:{accountId}";
         }
 
-        private static float CalculateFollowerStrengthProgress(BotOwner bot)
+        private sealed class FollowerMovementSkillProgress
         {
+            public float StrengthProgress { get; set; }
+            public bool SuppressEnduranceProgress { get; set; }
+        }
+
+        private static FollowerMovementSkillProgress CalculateFollowerMovementSkillProgress(BotOwner bot)
+        {
+            FollowerMovementSkillProgress result = new FollowerMovementSkillProgress();
             try
             {
                 Player player = bot?.GetPlayer;
                 if (player?.Pedometer == null)
                 {
-                    return 0f;
+                    return result;
                 }
 
-                float overweight = CalculatePlayerStyleOverweight(player);
+                float overweight = CalculatePlayerStyleSkillOverweight(player);
                 if (overweight <= 0f || !Singleton<BackendConfigSettingsClass>.Instantiated)
                 {
-                    return 0f;
+                    Modules.Logger.LogInfo(
+                        $"[Progress] Follower movement skill for '{player.Profile?.Nickname ?? bot.ProfileId}': " +
+                        $"weight={GetInventoryWeightKg(player):0.0}kg walkOverweight={overweight:0.00}; keeping vanilla movement skill routing.");
+                    return result;
                 }
 
+                result.SuppressEnduranceProgress = true;
                 BackendConfigSettingsClass.GlobalSkillsSettings settings = Singleton<BackendConfigSettingsClass>.Instance.SkillsSettings;
                 float runDistance = GetPedometerDistance(player, EPlayerState.Run);
                 float sprintDistance = GetPedometerDistance(player, EPlayerState.Sprint);
                 float movementGain = runDistance * UnityEngine.Mathf.Lerp(settings.Strength.MovementActionMin, settings.Strength.MovementActionMax, overweight);
                 float sprintGain = sprintDistance * UnityEngine.Mathf.Lerp(settings.Strength.SprintActionMin, settings.Strength.SprintActionMax, overweight);
                 float total = (movementGain + sprintGain) * settings.SkillProgressRate;
+                result.StrengthProgress = UnityEngine.Mathf.Max(0f, total);
 
-                if (total > 0f)
+                if (result.StrengthProgress > 0f)
                 {
                     Modules.Logger.LogInfo(
                         $"[Progress] Synthetic Strength for '{player.Profile?.Nickname ?? bot.ProfileId}': " +
-                        $"weight={GetInventoryWeightKg(player):0.0}kg overweight={overweight:0.00} " +
-                        $"run={runDistance:0.0}m sprint={sprintDistance:0.0}m progress={total:0.00}");
+                        $"weight={GetInventoryWeightKg(player):0.0}kg walkOverweight={overweight:0.00} " +
+                        $"run={runDistance:0.0}m sprint={sprintDistance:0.0}m progress={result.StrengthProgress:0.00}");
                 }
 
-                return UnityEngine.Mathf.Max(0f, total);
+                return result;
             }
             catch (Exception ex)
             {
-                Modules.Logger.LogError("[Progress] Failed to calculate follower Strength progress.");
+                Modules.Logger.LogError("[Progress] Failed to calculate follower movement skill progress.");
                 Modules.Logger.LogError(ex);
-                return 0f;
+                return result;
             }
         }
 
-        private static float CalculatePlayerStyleOverweight(Player player)
+        private static float CalculatePlayerStyleSkillOverweight(Player player)
         {
             if (player == null || !Singleton<BackendConfigSettingsClass>.Instantiated)
             {
@@ -543,7 +574,7 @@ namespace pitTeam.Modules
             float skillRelative = player.Skills?.CarryingWeightRelativeModifier ?? 1f;
             float healthRelative = player.HealthController?.CarryingWeightRelativeModifier ?? 1f;
             float healthAbsolute = player.HealthController?.CarryingWeightAbsoluteModifier ?? 0f;
-            UnityEngine.Vector2 limits = stamina.BaseOverweightLimits * skillRelative * healthRelative;
+            UnityEngine.Vector2 limits = stamina.WalkOverweightLimits * skillRelative * healthRelative;
             limits += new UnityEngine.Vector2(healthAbsolute, healthAbsolute);
 
             if (limits.y <= limits.x)

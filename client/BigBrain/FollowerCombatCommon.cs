@@ -9994,6 +9994,18 @@ namespace pitTeam.BigBrain
         {
             bool haveHealWork = botOwner.Medecine.FirstAid.Have2Do || botOwner.Medecine.SurgicalKit.HaveWork;
             bool activelyHealing = botOwner.Medecine.FirstAid.Using || botOwner.Medecine.SurgicalKit.Using;
+            float timeout = botOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
+            if (activelyHealing)
+            {
+                if (healStartedAt > 0f && healStartedAt + timeout < Time.time)
+                {
+                    AbortActiveHeal();
+                    return new AICoreActionEndStruct("healTimedOut", true);
+                }
+
+                return Continue();
+            }
+
             if (!haveHealWork)
             {
                 CompleteActiveHeal();
@@ -10008,13 +10020,6 @@ namespace pitTeam.BigBrain
             {
                 CompleteActiveHeal();
                 return new AICoreActionEndStruct("healIdleTimedOut", true);
-            }
-
-            float timeout = botOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
-            if (healStartedAt > 0f && healStartedAt + timeout < Time.time)
-            {
-                CompleteActiveHeal();
-                return new AICoreActionEndStruct("healTimedOut", true);
             }
 
             return Continue();
@@ -10702,6 +10707,14 @@ namespace pitTeam.BigBrain
         {
             ClearCommittedHealCover();
             FollowerMedical.CompleteHealing(botOwner);
+            healBlockUntil = Time.time + 5f;
+            healStartedAt = 0f;
+        }
+
+        private void AbortActiveHeal()
+        {
+            ClearCommittedHealCover();
+            FollowerMedical.AbortHealing(botOwner, recoverDestroyedSurgeryParts: true);
             healBlockUntil = Time.time + 5f;
             healStartedAt = 0f;
         }

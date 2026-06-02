@@ -1480,6 +1480,7 @@ namespace pitTeam.Components
 
                 if (combatContext)
                 {
+                    followerData.RequestOrderedPushCancel("CoverMe");
                     followerData.SetCombatIndependent(false);
                 }
                 else
@@ -2719,6 +2720,7 @@ namespace pitTeam.Components
             foreach (BotOwner follower in Followers)
             {
                 if (follower == null || follower.IsDead || follower.BotState != EBotState.Active) continue;
+                BossPlayers.Instance?.GetFollower(follower)?.RequestOrderedPushCancel("NeedHelp");
                 PrioritizeEnemy(follower, enemyBot);
             }
         }

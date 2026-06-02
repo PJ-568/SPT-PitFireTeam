@@ -267,6 +267,29 @@ For a stable beginner squad:
 - Rifleman aggression around `50%`
 - Marksman aggression around `30%`
 
+### Important Combat Advice
+
+Do not constantly pull teammates back toward you while they are actively fighting another enemy.
+
+In fights with multiple enemies, you can accidentally disrupt their current engagement and create unstable combat behavior as enemy priorities constantly change.
+
+The default squad style is that you create opportunities for your teammates to engage while you provide support. Use **Status Report** often to keep track of the squad. Your own play should generally be more defensive and less aggressive than your Riflemen, using enemy markers and callouts to set up angles instead of crowding the fight. If you play too aggressively, teammates may collapse onto your position to protect or rescue you, which can create crowding and friendly-fire risk. Use **On Your Own** in combat when you want them to fight independently of your situation. Use **Need Help** to temporarily pull squad attention back to a threat near you, and **Cover Me** when you want them to stop independent behavior and care about your protection again. Use **Go Forward** when you want Rifleman to push the current enemy and go in for the kill.
+
+Teammates generally perform better when:
+
+- they are allowed to finish their current engagement
+- they lead the push
+- you support them instead of constantly repositioning them
+
+Over-commanding teammates can:
+
+- interrupt movement
+- reset positioning
+- confuse enemy prioritization
+- create unstable combat behavior
+
+Use commands deliberately instead of continuously micromanaging.
+
 ### Basic Combat Usage
 
 #### Regroup
@@ -375,26 +398,6 @@ help teammates orient toward threats or suspected enemy locations.
 
 These are especially useful before enemies become fully visible.
 
-### Important Combat Advice
-
-Do not constantly pull teammates back toward you while they are actively fighting another enemy.
-
-In fights with multiple enemies, you can accidentally disrupt their current engagement and create unstable combat behavior as enemy priorities constantly change.
-
-Teammates generally perform better when:
-
-- they are allowed to finish their current engagement
-- they lead the push
-- you support them instead of constantly repositioning them
-
-Over-commanding teammates can:
-
-- interrupt movement
-- reset positioning
-- confuse enemy prioritization
-- create unstable combat behavior
-
-Use commands deliberately instead of continuously micromanaging.
 
 ### Raid Survival Post Player
 

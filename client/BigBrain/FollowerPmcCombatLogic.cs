@@ -28,5 +28,12 @@ namespace pitTeam.BigBrain
                    followerData.TryGetActiveCommand(out FollowerCommandType command, out _) &&
                    command == FollowerCommandType.SuppressEnemy;
         }
+
+        protected override bool ShouldConsumePushCommand(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return followerData != null &&
+                   followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
+                   command == FollowerCommandType.PushEnemy;
+        }
     }
 }

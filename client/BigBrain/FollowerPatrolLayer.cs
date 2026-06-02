@@ -419,21 +419,26 @@ namespace pitTeam.BigBrain
             bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
             bool canStartHeal = CanStartVanillaHealNode();
 
+            float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
+            if (isUsingHeal)
+            {
+                if (healStartAt > 0f && healStartAt + healTimeout < Time.time)
+                {
+                    AbortHealing();
+                    return true;
+                }
+
+                return false;
+            }
+
             // Old EndHeal equivalent: no pending heal work -> end heal action.
-            if (!hasPendingHealWork && !isUsingHeal)
+            if (!hasPendingHealWork)
             {
                 CompleteHealing();
                 return true;
             }
 
-            // If heal work is gone but med action is still "using", cancel to avoid stuck animation/state.
-            if (isUsingHeal && !hasPendingHealWork)
-            {
-                CompleteHealing();
-                return true;
-            }
-
-            if (!isUsingHeal && !canStartHeal && healNodeEnteredAt > 0f && healNodeEnteredAt + HealNodeStartTimeout < Time.time)
+            if (!canStartHeal && healNodeEnteredAt > 0f && healNodeEnteredAt + HealNodeStartTimeout < Time.time)
             {
                 RefreshHealWorkForRetry();
                 if (!CanStartVanillaHealNode())
@@ -442,14 +447,6 @@ namespace pitTeam.BigBrain
                 }
 
                 healNodeEnteredAt = Time.time;
-            }
-
-            // end heal timeout.
-            float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
-            if (isUsingHeal && healStartAt + healTimeout < Time.time)
-            {
-                CompleteHealing();
-                return true;
             }
 
             if (!IsActive() && isHealAction)
@@ -469,6 +466,16 @@ namespace pitTeam.BigBrain
             healNodeEnteredAt = 0f;
             // Normal patrol healing should finish/cancel medical state without restoring all raid HP.
             Utils.FollowerMedical.CompleteHealing(BotOwner);
+        }
+
+        private void AbortHealing()
+        {
+            isHealing = false;
+            stoppedForHealDecision = false;
+            healStartAt = 0f;
+            healSoftTimeoutAt = 0f;
+            healNodeEnteredAt = 0f;
+            Utils.FollowerMedical.AbortHealing(BotOwner, recoverDestroyedSurgeryParts: true);
         }
 
         private bool CanStartVanillaHealNode()

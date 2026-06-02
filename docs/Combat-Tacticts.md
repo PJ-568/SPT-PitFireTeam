@@ -65,8 +65,13 @@ Combat `GoForward` becomes `PushEnemy` if the follower already has an active ene
 
 Rifleman/default behavior:
 
-- The command returns control to the primary Rifleman objective.
+- The command is consumed into a durable ordered-push objective.
+- The objective latches the current combat enemy as the ordered kill target and keeps pursuing until that target dies or becomes unrecoverable.
+- Ordered push runs as full ordered pressure rather than a timed aggression pulse; medical, reload, and immediate survival actions can interrupt the current action, but they do not clear the ordered target.
+- Boss-under-attack/help retargets do not cancel ordered push. If another enemy becomes a point-blank visible shootable self-defense threat, the follower can handle that immediate fight and then resume the ordered target.
+- Explicit new boss orders cancel ordered push. Combat `CoverMe` and `NeedHelp` request ordered-push cancellation before applying their own boss-protection/support behavior; regroup, suppression, and Need Sniper interrupt through their normal objective handoff.
 - Ordered push first tries to build a committed firing-position move using the enemy's current body position.
+- When an ordered firing-position move reaches a reachable pressure point, the ordered-push objective honors the shared arrival hold before selecting another point. This lets the follower hold, face, and fight from the best reached pressure point instead of reselecting tiny adjacent firing points every tick against an unreachable or marksman-style target.
 - If no firing position exists, it falls back to `FollowerCombatPush.EngageEnemy(true, ...)`.
 - The selected push is committed as `push.*`, so the bot should finish the chosen push phase unless interrupted by real danger, enemy loss, enemy change, or another explicit command.
 - Ordered push refreshes enemy retention during the committed push so it should not forget the enemy mid-route.
@@ -209,14 +214,14 @@ Explicit command objectives sit above this tactic router in `FollowerCombatLogic
 - explicit regroup can switch to regroup objective
 - explicit Rifleman suppression can switch to suppression objective
 - explicit Need Sniper can switch to NeedSniper objective for Marksman
-- explicit push returns from regroup/suppression/NeedSniper to the primary tactic objective
+- explicit push switches into the ordered-push objective
 - NeedHelp does not switch objectives directly; it marks boss-under-attack and lets each active tactic's protection/support branch respond.
 
 Important policy:
 
 - Boss-distance regroup does not break active push/help/heal-style commitments.
 - Autonomous boss-distance regroup defers briefly after recent personal contact so a follower can finish or stabilize a local fight before retreating to the boss.
-- Explicit regroup breaks push; explicit push does not break an already running push.
+- Explicit regroup breaks ordered push; explicit push refreshes/restarts the ordered-push objective for the current target.
 - Explicit suppression is objective-owned and does not live as a Default-local router branch.
 - Ally support does not break a hold unless the support decision can be prepared first.
 - Hold breakers prepare the next action when possible, so the router does not break into a branch that cannot actually execute.
@@ -232,6 +237,7 @@ Default and marksman can ask push code for a pressure plan, but they still keep 
 - Rifleman push support uses the same push event but keeps Rifleman policy: eligible nearby helpers support from cover or a nearby firing point and avoid duplicating the active pusher's destination.
 - Push events are globally locked: one emitter owns the active push event, helpers cannot emit their own push while that event is active, and a short cooldown prevents emit/release/emit chains.
 - Against marksman enemies, push does not manufacture a fake hold if no valid firing-position push exists. It returns no push decision and lets the tactic continue routing.
+- Ordered push is allowed to reach a pressure/firing point and hold it briefly through the shared committed-position hold, so unreachable marksman-style contacts become "fight from here and rescan" instead of repeated adjacent point selection.
 
 Committed push breaks for:
 
@@ -363,7 +369,7 @@ Default situational behavior:
 - under damage pressure, prefer recovery or suppressive retreat over exposed standing fire
 - if visible and shootable, shoot immediately using the corrected follower `EnemyInfo` senses
 - if visible but not shootable, prefer firing cover or pressure movement
-- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
+- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. While dogfight is active, movement may step forward, backward, or sideways, but look/aim stays locked to the live fight target body/current position, falling back to the last known point only if live target data is unavailable. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
 - heal-cover movement is sticky against non-visible recent-hit pressure; it only breaks for immediate fire on a true point-blank visible shootable threat.
 - if heal-cover movement reaches its committed cover but EFT has not yet marked the bot in cover and the bot is still under fire, keep the `runToHeal` action alive instead of ending/reselecting it every tick. Existing stall handling can still reject the cover if it remains ineffective.
 - if enemy is unseen but recent enough, push/search can continue using retained enemy memory
@@ -413,7 +419,7 @@ Combat regroup is objective-owned.
 Regroup behavior:
 
 - explicit combat regroup activates the regroup objective
-- explicit push can leave regroup and return to the active tactic objective
+- explicit push can leave regroup and activate the ordered-push objective
 - autonomous boss-distance regroup waits through a short recent-fight grace window when the follower still has fresh personal enemy contact, recent hit/damage pressure, visible contact, or shootable contact
 - extreme separation bypasses that grace so a follower who is very far out of bounds still rejoins
 - hot contact regroup stays combat-active and moves bossward using withdraw-style movement

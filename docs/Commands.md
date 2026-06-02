@@ -26,7 +26,7 @@ Authoritative files:
 
 Command input starts in `pitAIBossPlayer.PhraseSaid(...)` or `pitAIBossPlayer.GestusShown(...)`.
 
-Most durable commands are stored on `BotFollowerPlayer` as a single active `FollowerCommandType`. This state is intentionally simple: one command, one optional target, one timeout. New timed commands usually replace any previous active command unless they are the same command type.
+Most durable commands are stored on `BotFollowerPlayer` as a single active `FollowerCommandType`. This state is intentionally simple: one command, one optional target, and either a timeout or a combat-objective handoff. New timed commands usually replace any previous active command unless they are the same command type.
 
 There are three execution paths:
 
@@ -39,7 +39,7 @@ There are three execution paths:
 2. **Core combat**
    - `FollowerCombatLogicBase` owns objective selection and command handoff.
    - `RegroupNearBoss`, `SuppressEnemy`, and `NeedSniper` are consumed into combat objectives.
-   - `PushEnemy` is handled inside the active tactic's primary objective.
+   - `PushEnemy` is consumed into the ordered-push objective.
    - Combat gesture commands (`CombatComeToBossCover`, `CombatMoveToPointTactical`) break hold commitments, but are dropped if the follower is already moving.
 
 3. **SAIN addon combat**
@@ -59,7 +59,7 @@ There are three execution paths:
 | `RegroupNearBoss` | none | timed | `GestureCommandAction`, core combat regroup, or SAIN addon |
 | `TakeLootItem` | reserved current loot item, not `_commandTarget` | timed | `GestureCommandAction` |
 | `OpenDoor` | reserved current door, not `_commandTarget` | timed | `GestureCommandAction` |
-| `PushEnemy` | current combat enemy | timed | core combat default/marksman routing |
+| `PushEnemy` | current combat enemy | consumed into objective | core ordered-push objective |
 | `SuppressEnemy` | current combat enemy | timed | core rifleman suppression objective |
 | `NeedSniper` | current/support enemy | timed | core marksman support objective |
 | `CombatComeToBossCover` | none | timed | core combat gesture handoff |
@@ -182,11 +182,11 @@ Input:
 
 Behavior:
 
-- This is intentionally not a protection/tactic command right now.
 - Broadcast to all active followers.
-- Disables patrol-radius mode by setting `CanPatrol` false.
+- Outside combat, disables patrol-radius mode by setting `CanPatrol` false.
+- In combat, clears ordered-push objective pressure and disables combat-independent mode.
 - Does not clear active request command state.
-- Does not set boss protection, combat aggression, regroup, or combat objective state.
+- Does not set boss protection, combat aggression, regroup, or a new combat objective state.
 
 Execution:
 
@@ -460,15 +460,21 @@ Input:
 
 Command state:
 
-- `SetPushEnemy(12f)`
+- `SetPushEnemy(...)`, consumed by combat into a durable ordered-push objective
 
 Core behavior:
 
 - `FollowerRequestLayer` refuses to consume it.
-- Core combat primary objective handles it.
-- Rifleman/default ordered push tries committed firing-position movement first, then falls back to `FollowerCombatPush.EngageEnemy(true, ...)`.
+- Core combat consumes it into `FollowerCombatOrderedPushObjective`.
+- Rifleman/default latches the current combat enemy as the ordered kill target.
+- The objective keeps effective ordered-push pressure active until that target dies or becomes unrecoverable.
+- Medical, reload, and immediate survival actions may interrupt the current action, but they do not clear the ordered target.
+- Boss-under-attack/help retargets do not cancel the ordered target; only point-blank self-defense may temporarily take over the current action.
+- Explicit new boss orders can cancel ordered push. Combat `CoverMe` and `NeedHelp` request ordered-push cancellation before their own support behavior runs.
+- Ordered push tries committed firing-position movement first, then falls back to `FollowerCombatPush.EngageEnemy(Ordered)`.
+- After reaching an ordered firing-position pressure point, core combat honors the shared arrival hold before selecting another pressure point, so unreachable/marksman-style contacts are fought from the best reached point instead of causing immediate point-reselect churn.
 - Push movement is committed as `push.*` and keeps enemy retention refreshed.
-- Regroup/suppression/need-sniper objectives return to primary objective when a push order appears.
+- Regroup/suppression/need-sniper objectives can be interrupted by a push order, which activates the ordered-push objective.
 
 Marksman behavior:
 
@@ -564,6 +570,7 @@ Behavior:
 
 - Finds closest valid enemy from boss-tracked enemies, boss group enemies, boss visible contact enemies, and SAIN contact fallback.
 - Marks boss logic as manually under attack by that enemy.
+- Requests ordered-push cancellation before applying the new support signal.
 - Calls `PrioritizeEnemy(...)` for each active follower.
 - Core combat reacts through existing boss-under-attack protection/support routing.
 

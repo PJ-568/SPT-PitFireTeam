@@ -13,6 +13,7 @@ namespace pitTeam.BigBrain
         {
             Default,
             Regroup,
+            OrderedPush,
             Suppression,
             NeedSniper,
 
@@ -25,6 +26,7 @@ namespace pitTeam.BigBrain
         protected readonly FollowerCombatObjectiveBase defaultObjective;
         protected readonly FollowerCombatObjectiveBase sniperObjective;
         protected readonly FollowerCombatObjectiveBase regroupObjective;
+        protected readonly FollowerCombatOrderedPushObjective orderedPushObjective;
         protected readonly FollowerCombatSuppressionObjective suppressionObjective;
         protected readonly FollowerCombatObjectiveBase needSniperObjective;
         protected CombatObjectiveKind currentObjective = CombatObjectiveKind.Default;
@@ -37,6 +39,7 @@ namespace pitTeam.BigBrain
             defaultObjective = CreateDefaultObjective(botOwner, combatCommon);
             sniperObjective = CreateSniperObjective(botOwner, combatCommon);
             regroupObjective = CreateRegroupObjective(botOwner, combatCommon);
+            orderedPushObjective = CreateOrderedPushObjective(botOwner, combatCommon);
             suppressionObjective = CreateSuppressionObjective(botOwner, combatCommon);
             needSniperObjective = CreateNeedSniperObjective(botOwner, combatCommon);
         }
@@ -66,6 +69,7 @@ namespace pitTeam.BigBrain
             defaultObjective.Reset();
             sniperObjective.Reset();
             regroupObjective.Reset();
+            orderedPushObjective.Reset();
             suppressionObjective.Reset();
             needSniperObjective.Reset();
             currentObjective = CombatObjectiveKind.Default;
@@ -129,6 +133,12 @@ namespace pitTeam.BigBrain
             EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
             FollowerEnemyInfoCorrection.CorrectDistanceOnly(BotOwner, goalEnemy);
 
+            if (currentObjective == CombatObjectiveKind.OrderedPush &&
+                followerData?.HasOrderedPushCancelRequest == true)
+            {
+                return new AICoreActionEndStruct("orderedPushCancelRequested", true);
+            }
+
             if (goalEnemy != null &&
                 HasActiveCombatGestureOrder(followerData) &&
                 FollowerCombatCommon.IsMovementDecision(currentDecision))
@@ -160,6 +170,14 @@ namespace pitTeam.BigBrain
                 }
 
                 return new AICoreActionEndStruct("objectiveSuppressionOrder", true);
+            }
+
+            if (currentObjective != CombatObjectiveKind.OrderedPush &&
+                goalEnemy != null &&
+                ShouldConsumePushCommand(followerData, goalEnemy) &&
+                CanInterruptForOrderedPushOrder(currentDecision))
+            {
+                return new AICoreActionEndStruct("objectivePushOrder", true);
             }
 
             if (currentObjective != CombatObjectiveKind.NeedSniper &&
@@ -229,6 +247,13 @@ namespace pitTeam.BigBrain
             return new FollowerCombatRegroupObjective(botOwner, combatCommon);
         }
 
+        protected virtual FollowerCombatOrderedPushObjective CreateOrderedPushObjective(
+            BotOwner botOwner,
+            FollowerCombatCommon combatCommon)
+        {
+            return new FollowerCombatOrderedPushObjective(botOwner, combatCommon);
+        }
+
         protected virtual FollowerCombatSuppressionObjective CreateSuppressionObjective(
             BotOwner botOwner,
             FollowerCombatCommon combatCommon)
@@ -253,6 +278,11 @@ namespace pitTeam.BigBrain
         }
 
         protected virtual bool ShouldConsumeNeedSniperCommand(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return false;
+        }
+
+        protected virtual bool ShouldConsumePushCommand(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
         {
             return false;
         }
@@ -284,6 +314,14 @@ namespace pitTeam.BigBrain
                    !combatCommon.IsInFight(currentDecision.Action);
         }
 
+        protected virtual bool CanInterruptForOrderedPushOrder(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
+        {
+            return currentDecision.Action != BotLogicDecision.heal &&
+                   currentDecision.Action != BotLogicDecision.healStimulators &&
+                   currentDecision.Action != BotLogicDecision.dogFight;
+        }
+
         protected virtual bool ShouldReturnToPrimaryObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
         {
             // Regroup is temporary combat intent: finish it when it completes, combat ends, or
@@ -302,6 +340,16 @@ namespace pitTeam.BigBrain
                    HasActiveCombatGestureOrder(followerData) ||
                    HasActiveNeedSniperOrder(followerData) ||
                    suppressionObjective.IsComplete ||
+                   !combatCommon.HasActiveCombatEnemy(goalEnemy);
+        }
+
+        protected virtual bool ShouldReturnFromOrderedPushObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return HasActiveCombatGestureOrder(followerData) ||
+                   HasActiveSuppressOrder(followerData) ||
+                   HasActiveNeedSniperOrder(followerData) ||
+                   ShouldConsumeRegroupCommand(followerData) ||
+                   orderedPushObjective.IsComplete ||
                    !combatCommon.HasActiveCombatEnemy(goalEnemy);
         }
 
@@ -396,6 +444,22 @@ namespace pitTeam.BigBrain
         private void RefreshObjective(EnemyInfo goalEnemy)
         {
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData?.TryConsumeOrderedPushCancelRequest(out string cancelReason) == true)
+            {
+                if (currentObjective == CombatObjectiveKind.OrderedPush)
+                {
+                    ActivatePrimaryObjective($"orderedPushCancel:{cancelReason}");
+                }
+
+                return;
+            }
+
+            if (ShouldConsumePushCommand(followerData, goalEnemy))
+            {
+                ActivateOrderedPushObjective(followerData!, goalEnemy);
+                return;
+            }
+
             if (ShouldConsumeRegroupCommand(followerData))
             {
                 ActivateRegroupObjective(followerData!);
@@ -424,6 +488,11 @@ namespace pitTeam.BigBrain
                 ActivatePrimaryObjective();
             }
 
+            if (currentObjective == CombatObjectiveKind.OrderedPush && ShouldReturnFromOrderedPushObjective(followerData, goalEnemy))
+            {
+                ActivatePrimaryObjective();
+            }
+
             if (currentObjective == CombatObjectiveKind.NeedSniper && ShouldReturnFromNeedSniperObjective(followerData, goalEnemy))
             {
                 ActivatePrimaryObjective();
@@ -435,6 +504,20 @@ namespace pitTeam.BigBrain
             followerData.ClearCommand("CombatObjective:ConsumeRegroup");
             ActivateRegroupObjective(forceReset: true, "activateRegroupOrder");
             followerData.SetCombatRegroupBossAnchor(true);
+        }
+
+        private void ActivateOrderedPushObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)
+        {
+            if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
+            {
+                followerData.ClearCommand("CombatObjective:RejectPush");
+                return;
+            }
+
+            followerData.ClearCommand("CombatObjective:ConsumePush");
+            orderedPushObjective.Activate(goalEnemy);
+            currentObjective = CombatObjectiveKind.OrderedPush;
+            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateOrderedPush");
         }
 
         private void ActivateRegroupObjective(bool forceReset = false, string reason = "activateRegroup")
@@ -526,7 +609,7 @@ namespace pitTeam.BigBrain
             BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "combatStart");
         }
 
-        private void ActivatePrimaryObjective()
+        private void ActivatePrimaryObjective(string reason = "returnPrimary")
         {
             if (currentObjective == CombatObjectiveKind.Default)
             {
@@ -534,6 +617,7 @@ namespace pitTeam.BigBrain
             }
 
             regroupObjective.Deactivate();
+            orderedPushObjective.Deactivate();
             suppressionObjective.Deactivate();
             needSniperObjective.Deactivate();
             BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
@@ -541,7 +625,7 @@ namespace pitTeam.BigBrain
             // StartDecision() here or the bot would incorrectly get a fresh combat opener.
             GetObjective().Activate();
             currentObjective = CombatObjectiveKind.Default;
-            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "returnPrimary");
+            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), reason);
         }
 
         protected FollowerCombatObjectiveBase GetCurrentObjective()
@@ -549,6 +633,7 @@ namespace pitTeam.BigBrain
             return currentObjective switch
             {
                 CombatObjectiveKind.Regroup => regroupObjective,
+                CombatObjectiveKind.OrderedPush => orderedPushObjective,
                 CombatObjectiveKind.Suppression => suppressionObjective,
                 CombatObjectiveKind.NeedSniper => needSniperObjective,
                 _ => GetObjective(),
