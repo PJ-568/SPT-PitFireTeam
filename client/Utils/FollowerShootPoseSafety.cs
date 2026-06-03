@@ -5,6 +5,9 @@ namespace pitTeam.Utils
 {
     internal static class FollowerShootPoseSafety
     {
+        // Vanilla's crouch check uses a low body-origin lane. A waist-high obstruction can make
+        // crouch unsafe even when standing is clear, so followers require both low and weapon-ish
+        // crouch probes before allowing the shoot-from-place node to choose crouch.
         private const float VanillaCrouchProbeHeight = 0.6f;
         private const float CrouchWeaponProbeHeight = 0.95f;
 

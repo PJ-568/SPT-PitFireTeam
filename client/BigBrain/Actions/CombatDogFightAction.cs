@@ -20,6 +20,7 @@ namespace pitTeam.BigBrain.Actions
         private const float UnsafeCloseThreatLookAngle = 70f;
         private const float FastFireDistance = 8f;
         private const float FastFireAngle = 35f;
+        private const float PointBlankContactFireAngle = 55f;
 
         private readonly GClass178 shootLogic;
         private readonly GClass274 grenadeLogic;
@@ -58,12 +59,22 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
-            EnemyInfo goalEnemy = BotOwner.Memory.GoalEnemy;
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
 
             // Dogfight is about weapon control, not travel speed. Keep movement slow, update a
             // short SAIN-like dodge destination, then force crouch/no-sprint before shooting.
             BotOwner.Mover.SetTargetMoveSpeed(1f);
             bool unsafeCloseFacing = IsUnsafeCloseThreatFacing(goalEnemy);
+            bool hasConfirmedShot = goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible;
+            bool hasPointBlankContactShot = false;
+            Vector3 pointBlankContactTarget = Vector3.zero;
+            if (!hasConfirmedShot)
+            {
+                hasPointBlankContactShot = FollowerCombatCommon.TryGetPointBlankContactFireTarget(
+                    BotOwner,
+                    goalEnemy,
+                    out pointBlankContactTarget);
+            }
             if (ShouldLockDogFightLook(goalEnemy))
             {
                 MaintainThreatFacing(goalEnemy!, GetDogFightThreatLookPoint(goalEnemy!), allowHardTurn: true);
@@ -73,11 +84,11 @@ namespace pitTeam.BigBrain.Actions
             ApplyDogFightPose(goalEnemy);
             BotOwner.Sprint(false, true);
 
-            if (goalEnemy == null || !goalEnemy.CanShoot || !goalEnemy.IsVisible)
+            if (goalEnemy == null || !hasConfirmedShot && !hasPointBlankContactShot)
             {
                 // Dogfight movement can step forward, backward, or sideways, but aim should stay
                 // locked to the fight target. If visibility flickers, stop firing and keep looking
-                // at the last known threat point rather than letting the movement target own look.
+                // at the live/current threat point rather than letting the movement target own look.
                 if (ShouldLockDogFightLook(goalEnemy))
                 {
                     MaintainThreatFacing(goalEnemy!, GetDogFightThreatLookPoint(goalEnemy!), allowHardTurn: true);
@@ -104,7 +115,9 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            Vector3 shootPoint = shootLogic.GetTarget() ?? goalEnemy.CurrPosition;
+            Vector3 shootPoint = hasPointBlankContactShot && !hasConfirmedShot
+                ? pointBlankContactTarget
+                : shootLogic.GetTarget() ?? GetDogFightThreatLookPoint(goalEnemy);
             MaintainThreatFacing(goalEnemy, shootPoint, allowHardTurn: true);
 
             // Close retreat movement is dangerous if it turns the bot away from the attacker. Stop
@@ -123,6 +136,20 @@ namespace pitTeam.BigBrain.Actions
             // either our fast-fire helper or the vanilla shoot node can press the trigger.
             if (StopIfFriendlyInCurrentFireLane(shootPoint))
             {
+                return;
+            }
+
+            if (hasPointBlankContactShot && !hasConfirmedShot)
+            {
+                if (GetLookAngleToPoint(shootPoint) <= PointBlankContactFireAngle)
+                {
+                    BotOwner.ShootData.Shoot();
+                }
+                else
+                {
+                    StopCombatShooting();
+                }
+
                 return;
             }
 
@@ -326,6 +353,23 @@ namespace pitTeam.BigBrain.Actions
             }
         }
 
+        private float GetLookAngleToPoint(Vector3 point)
+        {
+            Vector3 lookDirection = BotOwner.LookDirection;
+            if (lookDirection.sqrMagnitude <= 0.001f && BotOwner.Transform != null)
+            {
+                lookDirection = BotOwner.Transform.forward;
+            }
+
+            Vector3 toTarget = point - BotOwner.Position;
+            if (lookDirection.sqrMagnitude <= 0.001f || toTarget.sqrMagnitude <= 0.001f)
+            {
+                return 180f;
+            }
+
+            return Vector3.Angle(lookDirection, toTarget);
+        }
+
         private static Vector3 GetDogFightThreatLookPoint(EnemyInfo goalEnemy)
         {
             Vector3 bodyPoint = goalEnemy.GetBodyPartPosition();
@@ -334,7 +378,7 @@ namespace pitTeam.BigBrain.Actions
                 return bodyPoint;
             }
 
-            Vector3 currentPosition = goalEnemy.CurrPosition + Vector3.up * 0.8f;
+            Vector3 currentPosition = FollowerCombatCommon.GetEnemyCurrentPosition(goalEnemy) + Vector3.up * 0.8f;
             if (FollowerCombatCommon.IsFinite(currentPosition))
             {
                 return currentPosition;

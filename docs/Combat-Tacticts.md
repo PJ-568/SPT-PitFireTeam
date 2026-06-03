@@ -67,7 +67,7 @@ Rifleman/default behavior:
 
 - The command is consumed into a durable ordered-push objective.
 - The objective latches the current combat enemy as the ordered kill target and keeps pursuing until that target dies or becomes unrecoverable.
-- Ordered push runs as full ordered pressure rather than a timed aggression pulse; medical, reload, and immediate survival actions can interrupt the current action, but they do not clear the ordered target.
+- Ordered push runs as full ordered pressure rather than a timed aggression pulse; medical, reload, and immediate survival actions can interrupt the current action, but they do not clear the ordered target. Active or pending medical work blocks new push phases until heal logic starts or the medical work clears.
 - Boss-under-attack/help retargets do not cancel ordered push. If another enemy becomes a point-blank visible shootable self-defense threat, the follower can handle that immediate fight and then resume the ordered target.
 - Explicit new boss orders cancel ordered push. Combat `CoverMe` and `NeedHelp` request ordered-push cancellation before applying their own boss-protection/support behavior; regroup, suppression, and Need Sniper interrupt through their normal objective handoff.
 - Ordered push first tries to build a committed firing-position move using the enemy's current body position.
@@ -98,20 +98,21 @@ Combat `Suppress` becomes `SuppressEnemy` and is consumed by `FollowerCombatSupp
 Objective behavior:
 
 - The boss order is not broadcast to every Rifleman. The boss selects the nearest active Rifleman/default follower that can prepare a suppression target, measured by distance to the boss.
-- One additional Rifleman/default follower may also receive the order only when that follower has a usable grenade launcher in the second primary slot and is within `80m` of a hostile target on the boss order ray. This second follower is launcher-only; if launcher setup fails, it does not fall back into rifle suppression.
+- One additional Rifleman/default follower may also receive the order only when that follower has a usable grenade launcher in the second primary slot and is within `80m` of a hostile target on the boss order ray. This second follower is launcher-preferred; if launcher setup fails, it falls back into primary weapon suppression before giving up.
 - The command is consumed into an objective, like regroup, so it is not polled inside the normal Default decision tree.
 - It does not interrupt active healing or an already active fight action; it waits until that action's normal end logic allows a switch.
 - It targets the current enemy's best known shoot/suppress point.
-- If the bot already has a safe lane, it suppresses from place.
-- If direct fire is blocked but suppression was explicitly ordered, it may still suppress the obstructed known point, as long as friendly shot safety passes.
-- If a better suppress-from point exists, the action can move there and suppress from that point.
+- Launcher-capable ordered suppression first checks whether the launcher can fire safely from the current position, then whether it can move to a suppress-from point and fire.
+- If launcher support is unavailable, primary weapon suppression first checks whether the bot already has a safe lane from place.
+- If a better suppress-from point exists, primary weapon suppression can move there and suppress from that point.
+- If direct primary fire is blocked but suppression was explicitly ordered, it may still suppress the obstructed known point, as long as friendly shot safety passes.
 - The objective has an ordered-suppression protected window so one short obstruction or controller completion does not instantly cancel it.
 - Ordered weapon suppression has a hard 2-second cap. It should create a burst of pressure, not keep firing until EFT's suppression controller empties magazines.
 - Explicit follow-up combat orders, such as Push Enemy, break the suppression action immediately instead of waiting for that protected window.
 - Ordered grenade-launcher suppression is a phased suppression objective: first prepare the launcher target and optional suppress-from point, then move to that point if needed, then re-check the launch lane from the reached position before switching to the launcher and initializing `SuppressShoot`.
 - Launcher voice lines, artillery warnings, squad launcher-suppression events, and `launcherInit` recorder events happen only after the bot has reached/confirmed the launch position and the launcher suppress action can start.
 - Launcher suppression ending depends on the loaded launcher: single-shot launchers end after one observed shot/controller completion, while multi-shot launchers use a 2-second firing window measured from the first observed launcher shot and may keep firing until that window expires or the loaded rounds are gone.
-- If the selected launcher impact becomes unsafe, no launch lane exists from the reached position, or the launcher action cannot start, ordered suppression falls back to weapon suppression instead of completing the order as failed. If weapon suppression cannot be created either, the suppression objective completes as no-action.
+- If the selected launcher impact becomes unsafe, no launch lane exists from the reached position, or the launcher action cannot start, ordered suppression falls back to weapon suppression instead of completing the order as failed. If weapon suppression cannot be created either, the suppression objective completes as no-action and answers `Negative`.
 - If the launcher is not yet aimed at the intended impact point after action start, the bot holds fire while it keeps steering toward that point.
 - Immediately before any suppress shot is released, the action re-checks friendly impact/lane safety; launcher suppress records a final safety reject if a friendly moved into the impact area or shot lane during the aim wait.
 - If the bot is already holding a second-primary grenade launcher when ordered suppression falls back to weapon fire, the objective switches back to the primary and retries briefly instead of completing as no-action.
@@ -124,7 +125,7 @@ Autonomous suppression remains separate:
 - Point-blank suppression is not allowed to continue just because visibility/shootability is flickering. If the target is within point-blank contact range and there is no confirmed foliage obstruction near the lane, follower suppression clears instead of blind-firing around hard geometry.
 - Ordered/objective suppression can be interrupted after its protected opening burst when the follower needs healing or reload-retreat. The order should create pressure, not pin the follower in place while hurt or empty.
 
-Out of combat, patrol periodically tops off follower weapons across first primary, second primary, and holster slots when compatible ammo is reachable, including chamber/OnlyBarrel support weapons such as single-shot launchers.
+Out of combat, patrol periodically fills reachable magazines with loose ammo, then may temporarily switch across first primary, second primary, and holster slots only for meaningful reload work: better-magazine swaps for external-magazine weapons or chamber/OnlyBarrel top-offs such as single-shot launchers.
 
 ### Need Sniper Order
 
@@ -369,13 +370,14 @@ Default situational behavior:
 - under damage pressure, prefer recovery or suppressive retreat over exposed standing fire
 - if visible and shootable, shoot immediately using the corrected follower `EnemyInfo` senses
 - if visible but not shootable, prefer firing cover or pressure movement
-- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. While dogfight is active, movement may step forward, backward, or sideways, but look/aim stays locked to the live fight target body/current position, falling back to the last known point only if live target data is unavailable. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
+- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. While dogfight is active, movement may step forward, backward, or sideways, but look/aim stays locked to the live fight target body/current position, falling back to the last known point only if live target data is unavailable. At point-blank range, if normal `CanShoot` flickers off but the muzzle has no hard obstruction to the live target chest, dogfight can use a direct close-contact shot after aim alignment and friendly-lane safety pass. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
 - heal-cover movement is sticky against non-visible recent-hit pressure; it only breaks for immediate fire on a true point-blank visible shootable threat.
 - if heal-cover movement reaches its committed cover but EFT has not yet marked the bot in cover and the bot is still under fire, keep the `runToHeal` action alive instead of ending/reselecting it every tick. Existing stall handling can still reject the cover if it remains ineffective.
 - if enemy is unseen but recent enough, push/search can continue using retained enemy memory
 - if too far from boss and not protected by push/help/heal, switch to regroup objective
 - if boss is attacked, prepare protection/support before breaking passive holds
 - if ally is engaged, prepare support before breaking passive holds
+- shoot-from-place wraps vanilla crouch/prone behavior because EFT may choose a lower stance whenever it is technically allowed, even when the lower muzzle lane is blocked and a standing lane is clear. Followers veto crouch through `FollowerShootFromPlaceCrouchPatch` unless both crouch-height probes have a reliable lane, actively stand back up if already crouched while only the standing lane is safe, only allow prone at long range with a verified low firing lane, and force standing again before/after the vanilla node if prone would leave them vulnerable or unable to shoot.
 
 ## Marksman Combat Behavior
 

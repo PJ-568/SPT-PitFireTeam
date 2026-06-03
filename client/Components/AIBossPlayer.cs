@@ -74,6 +74,7 @@ namespace pitTeam.Components
         private const float OrderedLauncherRayScanDistance = 120f;
         private const float OrderedLauncherRayMaxPerpendicularDistance = 35f;
         private const float OrderedLauncherSecondSuppressMaxEnemyDistance = 80f;
+        private const float ContactHelpCancelMaxDistance = 50f;
         private float _ignoreNextThereGestureUntil;
         private float _nextThereGestureAt;
         private float _lastTeamStatusCommandAt = -999f;
@@ -379,6 +380,15 @@ namespace pitTeam.Components
             }
             seenEnemies = FilterContactEnemyCandidates(requester, seenEnemies);
             seenEnemies = PrioritizeContactEnemies(requester, seenEnemies);
+            bool contactInvokesNeedHelp = TryGetMutualContactNeedHelpEnemy(
+                requester,
+                seenEnemies,
+                out BotOwner? contactHelpEnemy);
+            if (contactInvokesNeedHelp && contactHelpEnemy != null)
+            {
+                aBossLogic.MarkManualUnderAttack(contactHelpEnemy);
+            }
+
             Vector3 lookTarget = GetLookTargetFromDirection(requester, requester.LookDirection);
             int followersProcessed = 0;
             int followersSkippedVisibility = 0;
@@ -409,6 +419,11 @@ namespace pitTeam.Components
 
                 if (seenEnemies == null || seenEnemies.Count == 0) continue;
 
+                bool contactHelpForFollower =
+                    contactInvokesNeedHelp &&
+                    contactHelpEnemy != null &&
+                    IsFollowerCloseEnoughForContactHelp(follower, requester);
+                bool contactHelpEnemyInjected = false;
                 Player? prioritizedGoalEnemy = null;
                 for (int i = 0; i < seenEnemies.Count; i++)
                 {
@@ -421,6 +436,14 @@ namespace pitTeam.Components
                         {
                             continue;
                         }
+                    }
+
+                    if (contactHelpForFollower &&
+                        contactHelpEnemy != null &&
+                        string.Equals(enemy.ProfileId, contactHelpEnemy.ProfileId, StringComparison.Ordinal))
+                    {
+                        prioritizedGoalEnemy = enemy;
+                        break;
                     }
 
                     if (hasOwnVisibleGoal)
@@ -459,8 +482,13 @@ namespace pitTeam.Components
                         }
                     }
 
+                    bool isContactHelpEnemy =
+                        contactHelpForFollower &&
+                        contactHelpEnemy != null &&
+                        string.Equals(enemy.ProfileId, contactHelpEnemy.ProfileId, StringComparison.Ordinal);
                     if (hasOwnVisibleGoal &&
-                        !string.Equals(enemy.ProfileId, ownVisibleGoalId, StringComparison.Ordinal))
+                        !string.Equals(enemy.ProfileId, ownVisibleGoalId, StringComparison.Ordinal) &&
+                        !isContactHelpEnemy)
                     {
                         continue;
                     }
@@ -469,7 +497,26 @@ namespace pitTeam.Components
                                             enemy.ProfileId == prioritizedGoalEnemy.ProfileId;
                     pitTeam.Patches.FollowerContactPhraseGate.SuppressCommandedContact(follower, enemy.ProfileId, 4f);
                     RegisterContactEnemyForFollower(follower, enemy, prioritizeAsGoal, true);
+                    if (contactHelpEnemy != null &&
+                        string.Equals(enemy.ProfileId, contactHelpEnemy.ProfileId, StringComparison.Ordinal))
+                    {
+                        contactHelpEnemyInjected = true;
+                    }
+
                     enemiesInjected++;
+                }
+
+                if (contactHelpForFollower && contactHelpEnemy != null)
+                {
+                    if (!contactHelpEnemyInjected && contactHelpEnemy.GetPlayer is Player contactHelpPlayer)
+                    {
+                        pitTeam.Patches.FollowerContactPhraseGate.SuppressCommandedContact(follower, contactHelpPlayer.ProfileId, 4f);
+                        RegisterContactEnemyForFollower(follower, contactHelpPlayer, prioritizeAsGoal: true, allowGoalPromotion: true);
+                        enemiesInjected++;
+                    }
+
+                    followerData.RequestOrderedPushCancel("ContactHelp");
+                    PrioritizeEnemy(follower, contactHelpEnemy);
                 }
             }
 
@@ -1085,6 +1132,81 @@ namespace pitTeam.Components
             return CanEnemyBeSeenForContact(enemy, firePos);
         }
 
+        private bool TryGetMutualContactNeedHelpEnemy(
+            IPlayer requester,
+            List<Player> seenEnemies,
+            out BotOwner? enemyBot)
+        {
+            enemyBot = null;
+            if (requester == null || seenEnemies == null || seenEnemies.Count == 0)
+            {
+                return false;
+            }
+
+            Player? requesterPlayer = requester as Player ?? realPlayer;
+            if (requesterPlayer == null)
+            {
+                return false;
+            }
+
+            foreach (Player enemy in seenEnemies)
+            {
+                if (enemy == null ||
+                    enemy.HealthController?.IsAlive != true ||
+                    enemy.ProfileId == requesterPlayer.ProfileId)
+                {
+                    continue;
+                }
+
+                BotOwner? candidateBot = enemy.AIData?.BotOwner;
+                if (candidateBot == null ||
+                    candidateBot.IsDead ||
+                    candidateBot.BotState != EBotState.Active)
+                {
+                    continue;
+                }
+
+                if (!CanContactEnemySeeRequester(enemy, candidateBot, requesterPlayer))
+                {
+                    continue;
+                }
+
+                enemyBot = candidateBot;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool CanContactEnemySeeRequester(Player enemy, BotOwner enemyBot, Player requester)
+        {
+            if (enemy == null || requester == null)
+            {
+                return false;
+            }
+
+            Vector3 enemyFirePos = enemy.PlayerBones?.WeaponRoot?.position ?? (enemy.Position + Vector3.up * 1.2f);
+            if (CanEnemyBeSeenForContact(requester, enemyFirePos))
+            {
+                return true;
+            }
+
+            EnemyInfo? goalEnemy = enemyBot?.Memory?.GoalEnemy;
+            return goalEnemy?.ProfileId == requester.ProfileId &&
+                   (goalEnemy.IsVisible || goalEnemy.CanShoot);
+        }
+
+        private static bool IsFollowerCloseEnoughForContactHelp(BotOwner follower, IPlayer requester)
+        {
+            if (follower == null || requester == null)
+            {
+                return false;
+            }
+
+            return (follower.Position - requester.Position).sqrMagnitude <=
+                   ContactHelpCancelMaxDistance * ContactHelpCancelMaxDistance;
+        }
+
         private bool CanReactToBossGesture(BotOwner follower, IPlayer requester)
         {
             return CanReactToBossGesture(follower, requester, TeamStatusGestureDistance);
@@ -1448,6 +1570,7 @@ namespace pitTeam.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
+                followerData.ClearQueuedPushEnemyWhileHealing("OnYourOwn:dropQueuedPushWhileHealing");
                 if (combatContext)
                 {
                     followerData.SetCombatIndependent(true);

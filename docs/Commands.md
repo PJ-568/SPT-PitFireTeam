@@ -104,6 +104,7 @@ Behavior:
 - Custom `OverThere` also forwards an `OnRepeatedContact` phrase event to visible followers so they can play normal voice/receiver feedback.
 - This is a combat cue, not a `FollowerCommandType`.
 - Contact injection clears most active request-layer commands after the follower now has an enemy, except `PushEnemy` and `SuppressEnemy`.
+- If the contact enemy and player can see each other, Contact acts as a quick Need Help cue for nearby followers: followers within `50m` of the player cancel ordered push and prioritize that enemy through the boss-under-attack/help path.
 
 ### Directional Look
 
@@ -161,18 +162,18 @@ State:
 
 - Does not create `FollowerCommandType` state.
 - Sets `BotFollowerPlayer.CanPatrol` true for selected out-of-combat followers.
+- In combat, sets combat-independent mode instead of changing out-of-combat patrol state.
 
 Targeting:
 
 - Broadcast to all active followers every time.
-- Followers with active enemy state reject the command with `DontKnow` / `NoGesture`; combat behavior is unchanged.
 
 Behavior:
 
 - Clears current request command state and temporary combat aggression override.
 - Enables patrol-radius mode in `FollowAction`.
 - `FollowMe` / `Cooperation` clears this mode.
-- This is out-of-combat only; core combat and SAIN addon combat do not consume it.
+- Combat use does not create a request command; it only asks the current combat layer to stop anchoring behavior around the boss.
 
 ### Cover Me
 
@@ -192,15 +193,16 @@ Execution:
 
 - `FollowAction` checks `followerData.CanPatrol` every update.
 - When disabled, the action uses normal close follow/settle behavior.
-- When enabled, the action uses the patrol camp logic inherited from the old plugin:
-  - first ensure the follower is close enough to the boss
-  - treat the boss as stationary only while the boss remains inside the same small movement grid
-  - define a larger camp sector around the boss
+- When enabled, the action uses sector-anchored patrol:
+  - remember the boss/player's current camp sector
+  - patrol around the follower's current sector after combat instead of running back only because boss distance is large
+  - return to the boss only after the boss/player leaves the remembered camp sector
+  - define the new camp sector around the boss after that return
   - choose random reachable nav points inside the configured `patrolRadius`
   - avoid points too close to the boss or other followers
   - walk slowly between patrol points and pause 6-10 seconds at each point
   - run peaceful look/actions while waiting when available
-  - if the boss exits the camp sector, temporarily follow the boss, then initialize a new patrol camp
+  - if the boss exits the camp sector, temporarily follow the boss, then initialize the new patrol camp
 
 ## Out-Of-Combat Commands
 
@@ -468,7 +470,7 @@ Core behavior:
 - Core combat consumes it into `FollowerCombatOrderedPushObjective`.
 - Rifleman/default latches the current combat enemy as the ordered kill target.
 - The objective keeps effective ordered-push pressure active until that target dies or becomes unrecoverable.
-- Medical, reload, and immediate survival actions may interrupt the current action, but they do not clear the ordered target.
+- Medical, reload, and immediate survival actions may interrupt the current action, but they do not clear the ordered target. Active or pending medical work blocks new push phases until heal logic starts or the medical work clears.
 - Boss-under-attack/help retargets do not cancel the ordered target; only point-blank self-defense may temporarily take over the current action.
 - Explicit new boss orders can cancel ordered push. Combat `CoverMe` and `NeedHelp` request ordered-push cancellation before their own support behavior runs.
 - Ordered push tries committed firing-position movement first, then falls back to `FollowerCombatPush.EngageEnemy(Ordered)`.
@@ -520,14 +522,15 @@ Targeting:
 - Rifleman/default only; marksman followers are skipped.
 - Requires a suppress-capable current weapon or a usable second-primary grenade launcher.
 - Ensures a target by using the follower's current enemy, boss-visible enemies, or boss order-ray launcher targets.
-- One additional Rifleman/default can also receive the order when it has a usable second-primary grenade launcher and is within `80m` of a hostile target on the boss order ray. This secondary order is launcher-only and does not fall back to rifle suppression.
+- One additional Rifleman/default can also receive the order when it has a usable second-primary grenade launcher and is within `80m` of a hostile target on the boss order ray. This secondary order is launcher-preferred; if the launcher cannot support, the suppression objective falls back to primary weapon suppression before giving up.
 
 Core behavior:
 
 - `FollowerPmcCombatLogic` marks `SuppressEnemy` consumable.
 - `FollowerCombatLogicBase` validates weapon/enemy and activates `FollowerCombatSuppressionObjective`.
-- The objective tries dogfight/heal first, then ordered suppress-fire setup.
+- The objective tries dogfight/heal first, then launcher support from the current position or a suppress-from point, then primary weapon suppression from the current position or a suppress-from point.
 - Suppression can use obstructed known-point suppression when explicitly ordered, subject to shot safety.
+- If no launcher or primary support action can be created, the follower answers `Negative`.
 - Command is cleared on consume, rejection, completion, missing enemy/target, blocked lane, or weapon rejection.
 
 ### Need Sniper
@@ -657,7 +660,7 @@ The menu is not authoritative for command behavior. It only controls what the pl
 
 Common command cleanup cases:
 
-- `TryGetActiveCommand(...)` clears command while healing or after timeout.
+- `TryGetActiveCommand(...)` hides queued `PushEnemy` while healing and clears other commands while healing or after timeout.
 - `ContactEnemy:RegisterContactEnemyForFollower` clears most request commands when combat enemy state appears.
 - `FollowerRequestLayer` clears most known-enemy request commands before combat takes over.
 - `GestureCommandAction` clears movement commands on arrival, invalid path, invalid target, danger, healing, grenade/BTR avoidance, and interaction failure.

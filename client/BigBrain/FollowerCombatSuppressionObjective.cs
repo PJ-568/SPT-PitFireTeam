@@ -12,7 +12,7 @@ namespace pitTeam.BigBrain
 
         private bool complete;
         private bool launcherFallbackToWeapon;
-        private bool launcherOnly;
+        private bool negativeSaid;
         private float weaponSwitchRetryUntil;
         private FollowerCombatCommon.GrenadeLauncherSuppressPlan? launcherPlan;
 
@@ -27,7 +27,7 @@ namespace pitTeam.BigBrain
         {
             complete = false;
             launcherFallbackToWeapon = false;
-            launcherOnly = false;
+            negativeSaid = false;
             weaponSwitchRetryUntil = 0f;
             launcherPlan = null;
         }
@@ -40,7 +40,7 @@ namespace pitTeam.BigBrain
         public void Activate(bool requireLauncher)
         {
             Reset();
-            launcherOnly = requireLauncher;
+            _ = requireLauncher;
             ClearObjectiveCommitments();
         }
 
@@ -93,12 +93,6 @@ namespace pitTeam.BigBrain
                 return launcherDecision;
             }
 
-            if (launcherOnly)
-            {
-                complete = true;
-                return Hold("launcherOnlyNoDecision");
-            }
-
             if (CombatCommon.TryCreateOrderedSuppressWeaponFallbackDecision(
                     goalEnemy,
                     ReasonPrefix,
@@ -121,6 +115,7 @@ namespace pitTeam.BigBrain
                 return decision;
             }
 
+            SayNegativeOnce();
             complete = true;
             return Hold("noSuppressionDecision");
         }
@@ -149,13 +144,6 @@ namespace pitTeam.BigBrain
                     if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(currentDecision.Reason) &&
                         ShouldFallbackLauncherSuppressToWeapon(end.Reason))
                     {
-                        if (launcherOnly)
-                        {
-                            complete = true;
-                            ClearObjectiveCommitments();
-                            return end;
-                        }
-
                         launcherFallbackToWeapon = true;
                         CombatCommon.PrepareLauncherSuppressWeaponFallback();
                         return end;
@@ -181,14 +169,8 @@ namespace pitTeam.BigBrain
 
                 if (launcherPlan == null)
                 {
-                    if (launcherOnly)
-                    {
-                        complete = true;
-                        ClearObjectiveCommitments();
-                        return new AICoreActionEndStruct("launcherMovePlanMissing", true);
-                    }
-
                     launcherFallbackToWeapon = true;
+                    CombatCommon.PrepareLauncherSuppressWeaponFallback();
                     return new AICoreActionEndStruct("launcherMovePlanMissing", true);
                 }
 
@@ -220,6 +202,17 @@ namespace pitTeam.BigBrain
             }
 
             return CombatCommon.ShallEndCurrentDecision(currentDecision);
+        }
+
+        private void SayNegativeOnce()
+        {
+            if (negativeSaid)
+            {
+                return;
+            }
+
+            negativeSaid = true;
+            BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
         }
 
         internal static bool IsSuppressionObjectiveReason(string? reason)

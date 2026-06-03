@@ -1,5 +1,6 @@
 using EFT;
 using EFT.Counters;
+using EFT.InventoryLogic;
 
 using Comfort.Common;
 using HarmonyLib;
@@ -398,6 +399,7 @@ namespace pitTeam.Modules
                         continue;
                     }
 
+                    LogFollowerProgressSource(item, pr);
                     FollowerMovementSkillProgress movementProgress = CalculateFollowerMovementSkillProgress(item.GetBot());
                     List<object> skills = new List<object>();
 
@@ -523,15 +525,20 @@ namespace pitTeam.Modules
                 Player player = bot?.GetPlayer;
                 if (player?.Pedometer == null)
                 {
+                    Modules.Logger.LogInfo(
+                        $"[ProgressDebug] Movement skill skipped for '{bot?.Profile?.Nickname ?? bot?.ProfileId ?? "<null>"}': " +
+                        $"playerNull={player == null} pedometerNull={player?.Pedometer == null} " +
+                        $"inventoryNull={player?.InventoryController?.Inventory == null} equipmentNull={player?.InventoryController?.Inventory?.Equipment == null}.");
                     return result;
                 }
 
+                float movementWeight = GetFollowerMovementWeightKg(player);
                 float overweight = CalculatePlayerStyleSkillOverweight(player);
                 if (overweight <= 0f || !Singleton<BackendConfigSettingsClass>.Instantiated)
                 {
                     Modules.Logger.LogInfo(
                         $"[Progress] Follower movement skill for '{player.Profile?.Nickname ?? bot.ProfileId}': " +
-                        $"weight={GetInventoryWeightKg(player):0.0}kg walkOverweight={overweight:0.00}; keeping vanilla movement skill routing.");
+                        $"weight={movementWeight:0.0}kg baseOverweight={overweight:0.00}; keeping vanilla movement skill routing.");
                     return result;
                 }
 
@@ -548,7 +555,7 @@ namespace pitTeam.Modules
                 {
                     Modules.Logger.LogInfo(
                         $"[Progress] Synthetic Strength for '{player.Profile?.Nickname ?? bot.ProfileId}': " +
-                        $"weight={GetInventoryWeightKg(player):0.0}kg walkOverweight={overweight:0.00} " +
+                        $"weight={movementWeight:0.0}kg baseOverweight={overweight:0.00} " +
                         $"run={runDistance:0.0}m sprint={sprintDistance:0.0}m progress={result.StrengthProgress:0.00}");
                 }
 
@@ -566,16 +573,50 @@ namespace pitTeam.Modules
         {
             if (player == null || !Singleton<BackendConfigSettingsClass>.Instantiated)
             {
+                Modules.Logger.LogInfo(
+                    $"[ProgressDebug] Overweight unavailable: playerNull={player == null} backendConfigInstantiated={Singleton<BackendConfigSettingsClass>.Instantiated}.");
                 return 0f;
             }
 
-            float totalWeight = GetInventoryWeightKg(player);
+            float totalWeight = GetFollowerMovementWeightKg(player);
+            float inventoryWeight = GetInventoryWeightKg(player);
+            float equipmentTreeWeight = GetItemTotalWeight(player.InventoryController?.Inventory?.Equipment);
             BackendConfigSettingsClass.GClass1736 stamina = Singleton<BackendConfigSettingsClass>.Instance.Stamina;
             float skillRelative = player.Skills?.CarryingWeightRelativeModifier ?? 1f;
             float healthRelative = player.HealthController?.CarryingWeightRelativeModifier ?? 1f;
             float healthAbsolute = player.HealthController?.CarryingWeightAbsoluteModifier ?? 0f;
-            UnityEngine.Vector2 limits = stamina.WalkOverweightLimits * skillRelative * healthRelative;
-            limits += new UnityEngine.Vector2(healthAbsolute, healthAbsolute);
+            float relative = skillRelative * healthRelative;
+            UnityEngine.Vector2 walkLimits = ApplyCarryingModifiers(stamina.WalkOverweightLimits, relative, healthAbsolute);
+            UnityEngine.Vector2 baseLimits = ApplyCarryingModifiers(stamina.BaseOverweightLimits, relative, healthAbsolute);
+            UnityEngine.Vector2 sprintLimits = ApplyCarryingModifiers(stamina.SprintOverweightLimits, relative, healthAbsolute);
+            UnityEngine.Vector2 walkSpeedLimits = ApplyCarryingModifiers(stamina.WalkSpeedOverweightLimits, relative, healthAbsolute);
+            float uiLowerLimit = UnityEngine.Mathf.Min(walkLimits.x, baseLimits.x, sprintLimits.x, walkSpeedLimits.x);
+            float uiUpperLimit = baseLimits.y;
+            UnityEngine.Vector2 limits = baseLimits;
+
+            Modules.Logger.LogInfo(
+                $"[ProgressDebug] Overweight inputs for '{player.Profile?.Nickname ?? player.ProfileId}': " +
+                $"movementWeight={totalWeight:0.00}kg inventoryWeight={inventoryWeight:0.00}kg equipmentTreeWeight={equipmentTreeWeight:0.00}kg " +
+                $"skillRelative={skillRelative:0.000} healthRelative={healthRelative:0.000} healthAbsolute={healthAbsolute:0.00} " +
+                $"uiLower={uiLowerLimit:0.00}kg uiUpper={uiUpperLimit:0.00}kg baseLimits={limits.x:0.00}-{limits.y:0.00}kg.");
+
+            LogFollowerOverweightLimitDebug(
+                player,
+                inventoryWeight,
+                equipmentTreeWeight,
+                stamina.WalkOverweightLimits,
+                stamina.BaseOverweightLimits,
+                stamina.SprintOverweightLimits,
+                stamina.WalkSpeedOverweightLimits,
+                walkLimits,
+                baseLimits,
+                sprintLimits,
+                walkSpeedLimits);
+
+            if (inventoryWeight <= 0f)
+            {
+                LogFollowerInventoryWeightDebug(player, "zeroTotalWeight");
+            }
 
             if (limits.y <= limits.x)
             {
@@ -585,11 +626,188 @@ namespace pitTeam.Modules
             return UnityEngine.Mathf.Clamp01(UnityEngine.Mathf.InverseLerp(limits.x, limits.y, totalWeight));
         }
 
+        private static float GetFollowerMovementWeightKg(Player player)
+        {
+            float inventoryWeight = GetInventoryWeightKg(player);
+            if (inventoryWeight > 0f)
+            {
+                return inventoryWeight;
+            }
+
+            return GetItemTotalWeight(player?.InventoryController?.Inventory?.Equipment);
+        }
+
+        private static UnityEngine.Vector2 ApplyCarryingModifiers(UnityEngine.Vector2 limits, float relative, float absolute)
+        {
+            return limits * relative + new UnityEngine.Vector2(absolute, absolute);
+        }
+
+        private static float InverseLerp(UnityEngine.Vector2 limits, float weight)
+        {
+            if (limits.y <= limits.x)
+            {
+                return weight > limits.x ? 1f : 0f;
+            }
+
+            return UnityEngine.Mathf.Clamp01(UnityEngine.Mathf.InverseLerp(limits.x, limits.y, weight));
+        }
+
+        private static void LogFollowerOverweightLimitDebug(
+            Player player,
+            float inventoryWeight,
+            float equipmentTreeWeight,
+            UnityEngine.Vector2 rawWalk,
+            UnityEngine.Vector2 rawBase,
+            UnityEngine.Vector2 rawSprint,
+            UnityEngine.Vector2 rawWalkSpeed,
+            UnityEngine.Vector2 walk,
+            UnityEngine.Vector2 baseLimits,
+            UnityEngine.Vector2 sprint,
+            UnityEngine.Vector2 walkSpeed)
+        {
+            try
+            {
+                Modules.Logger.LogInfo(
+                    $"[ProgressDebug] Raw overweight limits for '{player?.Profile?.Nickname ?? player?.ProfileId ?? "<null>"}': " +
+                    $"walk={rawWalk.x:0.00}-{rawWalk.y:0.00}kg base={rawBase.x:0.00}-{rawBase.y:0.00}kg " +
+                    $"sprint={rawSprint.x:0.00}-{rawSprint.y:0.00}kg walkSpeed={rawWalkSpeed.x:0.00}-{rawWalkSpeed.y:0.00}kg.");
+
+                Modules.Logger.LogInfo(
+                    $"[ProgressDebug] Effective overweight limits for '{player?.Profile?.Nickname ?? player?.ProfileId ?? "<null>"}': " +
+                    $"walk={walk.x:0.00}-{walk.y:0.00}kg base={baseLimits.x:0.00}-{baseLimits.y:0.00}kg " +
+                    $"sprint={sprint.x:0.00}-{sprint.y:0.00}kg walkSpeed={walkSpeed.x:0.00}-{walkSpeed.y:0.00}kg.");
+
+                Modules.Logger.LogInfo(
+                    $"[ProgressDebug] Overweight values for '{player?.Profile?.Nickname ?? player?.ProfileId ?? "<null>"}': " +
+                    $"inventoryWeight={inventoryWeight:0.00}kg inventoryBase={InverseLerp(baseLimits, inventoryWeight):0.000} " +
+                    $"inventoryWalk={InverseLerp(walk, inventoryWeight):0.000} inventorySprint={InverseLerp(sprint, inventoryWeight):0.000} " +
+                    $"inventoryWalkSpeed={InverseLerp(walkSpeed, inventoryWeight):0.000}; " +
+                    $"equipmentWeight={equipmentTreeWeight:0.00}kg equipmentBase={InverseLerp(baseLimits, equipmentTreeWeight):0.000} " +
+                    $"equipmentWalk={InverseLerp(walk, equipmentTreeWeight):0.000} equipmentSprint={InverseLerp(sprint, equipmentTreeWeight):0.000} " +
+                    $"equipmentWalkSpeed={InverseLerp(walkSpeed, equipmentTreeWeight):0.000}.");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[ProgressDebug] Failed to log follower overweight limit debug.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
         private static float GetInventoryWeightKg(Player player)
         {
             try
             {
                 return UnityEngine.Mathf.Max(0f, player?.InventoryController?.Inventory?.TotalWeight?.Value ?? 0f);
+            }
+            catch
+            {
+                return 0f;
+            }
+        }
+
+        private static void LogFollowerProgressSource(BotFollowerPlayer follower, Profile profile)
+        {
+            try
+            {
+                BotOwner bot = follower?.GetBot();
+                Player player = bot?.GetPlayer;
+                var inventory = player?.InventoryController?.Inventory;
+                InventoryEquipment equipment = inventory?.Equipment;
+
+                Modules.Logger.LogInfo(
+                    $"[ProgressDebug] Saving progress source for '{profile?.Nickname ?? bot?.Profile?.Nickname ?? bot?.ProfileId ?? "<null>"}': " +
+                    $"profileId={profile?.Id ?? bot?.ProfileId ?? string.Empty} aid={profile?.AccountId ?? string.Empty} " +
+                    $"isSquadMate={follower?.IsSquadMate} botAlive={bot?.HealthController?.IsAlive} " +
+                    $"playerNull={player == null} inventoryNull={inventory == null} equipmentNull={equipment == null} " +
+                    $"inventoryTotalWeight={GetInventoryWeightKg(player):0.00}kg equipmentTotalWeight={GetItemTotalWeight(equipment):0.00}kg " +
+                    $"equipmentItems={CountEquipmentItems(equipment)} run={GetPedometerDistance(player, EPlayerState.Run):0.0}m " +
+                    $"sprint={GetPedometerDistance(player, EPlayerState.Sprint):0.0}m.");
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[ProgressDebug] Failed to log follower progress source.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static void LogFollowerInventoryWeightDebug(Player player, string reason)
+        {
+            try
+            {
+                var inventory = player?.InventoryController?.Inventory;
+                InventoryEquipment equipment = inventory?.Equipment;
+                Modules.Logger.LogInfo(
+                    $"[ProgressDebug] Inventory weight breakdown for '{player?.Profile?.Nickname ?? player?.ProfileId ?? "<null>"}' reason={reason}: " +
+                    $"inventoryNull={inventory == null} equipmentNull={equipment == null} " +
+                    $"inventoryTotalWeight={GetInventoryWeightKg(player):0.00}kg equipmentTotalWeight={GetItemTotalWeight(equipment):0.00}kg " +
+                    $"equipmentWeight={GetItemShellWeight(equipment):0.00}kg equipmentItems={CountEquipmentItems(equipment)}.");
+
+                if (equipment?.Slots == null)
+                {
+                    return;
+                }
+
+                foreach (Slot slot in equipment.Slots)
+                {
+                    Item item = slot?.ContainedItem;
+                    if (item == null)
+                    {
+                        continue;
+                    }
+
+                    Modules.Logger.LogInfo(
+                        $"[ProgressDebug] Equipment slot '{slot.ID}' root='{item.Name.Localized()}' template={item.TemplateId} id={item.Id} " +
+                        $"weight={GetItemShellWeight(item):0.00}kg totalWeight={GetItemTotalWeight(item):0.00}kg children={CountItemTree(item) - 1}.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Modules.Logger.LogError("[ProgressDebug] Failed to log follower inventory weight breakdown.");
+                Modules.Logger.LogError(ex);
+            }
+        }
+
+        private static int CountEquipmentItems(InventoryEquipment equipment)
+        {
+            try
+            {
+                return equipment?.GetAllItems()?.Count() ?? 0;
+            }
+            catch
+            {
+                return -1;
+            }
+        }
+
+        private static int CountItemTree(Item item)
+        {
+            try
+            {
+                return item?.GetAllItems()?.Count() ?? 0;
+            }
+            catch
+            {
+                return -1;
+            }
+        }
+
+        private static float GetItemTotalWeight(Item item)
+        {
+            try
+            {
+                return UnityEngine.Mathf.Max(0f, item?.TotalWeight ?? 0f);
+            }
+            catch
+            {
+                return 0f;
+            }
+        }
+
+        private static float GetItemShellWeight(Item item)
+        {
+            try
+            {
+                return UnityEngine.Mathf.Max(0f, item?.Weight ?? 0f);
             }
             catch
             {

@@ -9000,33 +9000,64 @@ namespace pitTeam.BigBrain
             Vector3 weaponOrigin = botOwner.WeaponRoot != null
                 ? botOwner.WeaponRoot.position
                 : botOwner.Position + Vector3.up * 1.25f;
-            Vector3 bodyOrigin = botOwner.Position + Vector3.up * 1.25f;
 
-            Vector3 bodyTarget = GetPointBlankBodyTarget(goalEnemy, enemyAnchor);
-            Vector3 headTarget = enemyAnchor + Vector3.up * 1.55f;
             Vector3 chestTarget = enemyAnchor + Vector3.up * 1.05f;
 
-            return HasNoHardObstruction(weaponOrigin, bodyTarget) ||
-                   HasNoHardObstruction(weaponOrigin, chestTarget) ||
-                   HasNoHardObstruction(bodyOrigin, bodyTarget) ||
-                   HasNoHardObstruction(bodyOrigin, headTarget);
+            return HasNoHardObstruction(weaponOrigin, chestTarget);
         }
 
-        private static Vector3 GetPointBlankBodyTarget(EnemyInfo goalEnemy, Vector3 fallbackAnchor)
+        internal static bool TryGetPointBlankContactFireTarget(
+            BotOwner? botOwner,
+            EnemyInfo? goalEnemy,
+            out Vector3 target)
         {
-            try
+            target = Vector3.zero;
+            if (botOwner == null ||
+                !HasActiveCombatEnemy(botOwner, goalEnemy) ||
+                goalEnemy == null ||
+                goalEnemy.Distance > PointBlankContactDogFightDistance)
             {
-                Vector3 bodyPart = goalEnemy.GetBodyPartPosition();
-                if (IsFinite(bodyPart) && bodyPart.sqrMagnitude > 0.01f)
-                {
-                    return bodyPart;
-                }
-            }
-            catch
-            {
+                return false;
             }
 
-            return fallbackAnchor + Vector3.up * 1.1f;
+            Vector3 enemyAnchor = GetEnemyCurrentPosition(goalEnemy);
+            if (!IsFinite(enemyAnchor) ||
+                (enemyAnchor - botOwner.Position).sqrMagnitude >
+                PointBlankContactMaxAnchorDistance * PointBlankContactMaxAnchorDistance)
+            {
+                return false;
+            }
+
+            Vector3 weaponOrigin = botOwner.WeaponRoot != null
+                ? botOwner.WeaponRoot.position
+                : botOwner.Position + Vector3.up * 1.25f;
+
+            Vector3 chestTarget = enemyAnchor + Vector3.up * 1.05f;
+
+            if (TryAcceptPointBlankFireTarget(weaponOrigin, chestTarget, out target))
+            {
+                return true;
+            }
+
+            target = Vector3.zero;
+            return false;
+        }
+
+        private static bool TryAcceptPointBlankFireTarget(Vector3 origin, Vector3 candidate, out Vector3 target)
+        {
+            target = Vector3.zero;
+            if (!IsFinite(candidate) || candidate.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            if (!HasNoHardObstruction(origin, candidate))
+            {
+                return false;
+            }
+
+            target = candidate;
+            return true;
         }
 
         private static bool HasNoHardObstruction(Vector3 origin, Vector3 target)

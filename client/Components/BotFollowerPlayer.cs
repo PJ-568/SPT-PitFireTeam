@@ -77,6 +77,8 @@ namespace pitTeam.Components
         private bool _combatIndependent;
         private bool _combatIndependentRequested;
         private bool _combatRegroupUsesBossAnchor;
+        private bool _patrolLeaderSectorAnchorSet;
+        private Vector3 _patrolLeaderSectorAnchor;
         private bool _peaceChangeHooked = false;
         private bool _manualUpdateHooked = false;
         private Vector3 _teleportGraceTarget;
@@ -1021,8 +1023,27 @@ namespace pitTeam.Components
             _canPatrol = value;
             if (!value)
             {
+                ClearPatrolLeaderSectorAnchor();
                 ReleasePatrolMovementState("SetCanPatrol:false");
             }
+        }
+
+        public bool TryGetPatrolLeaderSectorAnchor(out Vector3 anchor)
+        {
+            anchor = _patrolLeaderSectorAnchor;
+            return _patrolLeaderSectorAnchorSet;
+        }
+
+        public void SetPatrolLeaderSectorAnchor(Vector3 anchor)
+        {
+            _patrolLeaderSectorAnchor = anchor;
+            _patrolLeaderSectorAnchorSet = true;
+        }
+
+        public void ClearPatrolLeaderSectorAnchor()
+        {
+            _patrolLeaderSectorAnchor = Vector3.zero;
+            _patrolLeaderSectorAnchorSet = false;
         }
 
         private void ReleasePatrolMovementState(string reason)
@@ -1539,11 +1560,16 @@ namespace pitTeam.Components
 
         public bool TryGetActiveCommand(out FollowerCommandType command, out Vector3 target)
         {
-            if (_bot != null)
+            if (IsHealingOrHealDecision())
             {
-                bool isUsingHeal = _bot.Medecine.FirstAid.Using || _bot.Medecine.SurgicalKit.Using;
-                bool isInHealDecision = _bot.Brain?.Agent?.LastResult().Action == BotLogicDecision.heal;
-                if (isUsingHeal || isInHealDecision)
+                if (_activeCommand == FollowerCommandType.PushEnemy)
+                {
+                    command = FollowerCommandType.None;
+                    target = Vector3.zero;
+                    return false;
+                }
+
+                if (_activeCommand != FollowerCommandType.None)
                 {
                     ClearCommand("TryGetActiveCommand:healing");
                 }
@@ -1557,6 +1583,32 @@ namespace pitTeam.Components
             command = _activeCommand;
             target = _commandTarget;
             return command != FollowerCommandType.None;
+        }
+
+        public bool ClearQueuedPushEnemyWhileHealing(string reason)
+        {
+            if (_activeCommand != FollowerCommandType.PushEnemy || !IsHealingOrHealDecision())
+            {
+                return false;
+            }
+
+            ClearCommand(reason);
+            return true;
+        }
+
+        private bool IsHealingOrHealDecision()
+        {
+            if (_bot == null)
+            {
+                return false;
+            }
+
+            bool isUsingHeal = _bot.Medecine?.FirstAid?.Using == true ||
+                               _bot.Medecine?.SurgicalKit?.Using == true;
+            BotLogicDecision currentDecision = _bot.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            return isUsingHeal ||
+                   currentDecision == BotLogicDecision.heal ||
+                   currentDecision == BotLogicDecision.healStimulators;
         }
 
         public bool TryPeekActiveCommand(out FollowerCommandType command, out Vector3 target, out float untilTime)

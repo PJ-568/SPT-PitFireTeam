@@ -750,6 +750,12 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            if (combatCommon.HasActiveOrPendingHealWork())
+            {
+                reason = "pushNeedHeal";
+                return true;
+            }
+
             if (botOwner.Memory.IsUnderFire || FollowerCombatCommon.WasHitRecently(botOwner, 0.5f))
             {
                 reason = "pushUnderFire";

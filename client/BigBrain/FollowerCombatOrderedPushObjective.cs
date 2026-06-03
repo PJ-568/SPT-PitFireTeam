@@ -89,6 +89,12 @@ namespace pitTeam.BigBrain
                 return healDecision.Value;
             }
 
+            if (CombatCommon.HasActiveOrPendingHealWork())
+            {
+                combatPush.ClearCommittedPush("orderedPushHealPending");
+                return Hold("healPending");
+            }
+
             if (CombatCommon.HasCommittedPosition(
                     out AICoreActionResultStruct<BotLogicDecision, GClass26> pressureHoldDecision))
             {
@@ -115,6 +121,12 @@ namespace pitTeam.BigBrain
         public override AICoreActionEndStruct ShallEndCurrentDecision(
             AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
+            if (currentDecision.Action == BotLogicDecision.heal ||
+                currentDecision.Action == BotLogicDecision.healStimulators)
+            {
+                return CombatCommon.ShallEndCurrentDecision(currentDecision);
+            }
+
             if (!TryGetOrderedTarget(BotOwner.Memory?.GoalEnemy, out _, out string rejectReason))
             {
                 complete = true;

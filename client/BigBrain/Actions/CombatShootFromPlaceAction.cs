@@ -16,6 +16,7 @@ namespace pitTeam.BigBrain.Actions
         private const float MinEnemyDistanceForProne = 80f;
         private const float SameSpotMaxDistanceSqr = 0.75f * 0.75f;
         private const float ProneFireProbeHeight = 0.35f;
+        private const float StandingFireProbeHeight = 1.45f;
         private readonly GClass276 baseLogic;
         private float aimAlignStartedAt;
         private Vector3 startPosition;
@@ -82,18 +83,25 @@ namespace pitTeam.BigBrain.Actions
             }
 
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
-            EnforceSupportedFirePose(allowProne);
+            EnforceSupportedFirePose(goalEnemy, allowProne);
         }
 
         /// <summary>
         /// Keep the final pose consistent with the lane probes after vanilla has updated. This is a
         /// cleanup pass because the underlying EFT node can still request crouch/prone internally.
         /// </summary>
-        private void EnforceSupportedFirePose(bool allowProne)
+        private void EnforceSupportedFirePose(EnemyInfo? goalEnemy, bool allowProne)
         {
             if (!allowProne && BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true)
             {
                 BotOwner.BotLay.GetUp(false);
+            }
+
+            if (BotOwner.Mover.TargetPose < 1f &&
+                !CanUseCrouchFirePose(goalEnemy) &&
+                CanUseStandingFirePose(goalEnemy))
+            {
+                BotOwner.SetPose(1f);
             }
         }
 
@@ -104,7 +112,42 @@ namespace pitTeam.BigBrain.Actions
         /// </summary>
         private bool CanUseFirePose(EnemyInfo? goalEnemy, float probeHeight)
         {
-            if (goalEnemy == null || !goalEnemy.IsVisible || !goalEnemy.CanShoot)
+            if (!CanEvaluateFirePose(goalEnemy, requireShootable: true))
+            {
+                return false;
+            }
+
+            ShootPointClass shootPoint = GetShootFromPlacePoint(goalEnemy!);
+            return FollowerShootPoseSafety.HasReliablePoseLane(BotOwner, shootPoint.Point, probeHeight);
+        }
+
+        private bool CanUseCrouchFirePose(EnemyInfo? goalEnemy)
+        {
+            if (!CanEvaluateFirePose(goalEnemy, requireShootable: false))
+            {
+                return false;
+            }
+
+            ShootPointClass shootPoint = GetShootFromPlacePoint(goalEnemy!);
+            return FollowerShootPoseSafety.HasReliableCrouchLane(BotOwner, shootPoint.Point);
+        }
+
+        private bool CanUseStandingFirePose(EnemyInfo? goalEnemy)
+        {
+            if (!CanEvaluateFirePose(goalEnemy, requireShootable: false))
+            {
+                return false;
+            }
+
+            ShootPointClass shootPoint = GetShootFromPlacePoint(goalEnemy!);
+            return FollowerShootPoseSafety.HasReliablePoseLane(BotOwner, shootPoint.Point, StandingFireProbeHeight);
+        }
+
+        private bool CanEvaluateFirePose(EnemyInfo? goalEnemy, bool requireShootable)
+        {
+            if (goalEnemy == null ||
+                !goalEnemy.IsVisible ||
+                (requireShootable && !goalEnemy.CanShoot))
             {
                 return false;
             }
@@ -114,9 +157,13 @@ namespace pitTeam.BigBrain.Actions
                 return false;
             }
 
-            ShootPointClass shootPoint = BotOwner.CurrentEnemyTargetPosition(false) ??
-                                         new ShootPointClass(goalEnemy.GetBodyPartPosition(), 1f);
-            return FollowerShootPoseSafety.HasReliablePoseLane(BotOwner, shootPoint.Point, probeHeight);
+            return true;
+        }
+
+        private ShootPointClass GetShootFromPlacePoint(EnemyInfo goalEnemy)
+        {
+            return BotOwner.CurrentEnemyTargetPosition(false) ??
+                   new ShootPointClass(goalEnemy.GetBodyPartPosition(), 1f);
         }
 
         /// <summary>

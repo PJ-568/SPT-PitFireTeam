@@ -27,8 +27,9 @@ You can manage your teammates from the in-game **My Squad** screen. From there, 
 - **Dedicated squad screen** - manage your roster, customize teammates, and settings from a separate My Squad interface.
 - **Teammate customization** - change teammate name, appearance, voice, tactic, aggression, and loadout.
 - **Weapon-aware combat** - teammate decisions consider weapon role, caliber, magazine capacity, ammo penetration, and secondary weapon options.
+- **Teammate commands** - issue combat, movement, attention, loot, and door commands through existing Tarkov phrases and gestures.
+- **Objective-based combat orders** - use commands such as **Go Forward**, **Need Help**, **Cover Me**, and **Suppress** to shift squad priorities without directly micromanaging every movement.
 - **Raid group support** - invite teammates into your group manually or use Auto Join to preload selected teammates into your next PMC raid.
-- **teammate commands** - issue combat, movement, attention, loot, and door commands through existing Tarkov phrases and gestures.
 - **Map transitions** - teammates who you spawned with can follow you through map transitions.
 - **Progression system** - teammates gain raid experience and common-skill progress that persists between raids.
 - **Quest assist** - teammate kills can count toward player kill quests when the kill meets the quest criteria.
@@ -117,7 +118,7 @@ The **Kit Loadouts** screen prices the selected kit, including nested weapon par
 
 When a kit is purchased or equipped, the teammate's current kit is returned through the pitFireTeam delivery service instead of being discarded. The new kit becomes the teammate's active equipment and new **Default** kit.
 
-**Realistic** is the only mode where teammate secure containers are fully player-managed. In other modes, secure containers are managed automatically and are not counted as part of kit purchase or loadout editing.
+**Realistic** is the only mode where teammate secure containers are fully player-managed. In other modes, secure containers are managed automatically and are not counted as part of kit purchase or loadout editing. The auto-managed secure container gives saved teammates a Grizzly and a surgery kit for raid use, unless they already carry equivalent supplies in their backpack.
 
 ## Squad Commands
 
@@ -134,7 +135,7 @@ Commands influence teammate behavior but do not force exact actions. teammates w
 - **Regroup** - tells teammates to converge near the boss. In combat, this becomes a combat regroup objective (within 18 meters radius of the boss, Marksman within 24m).
 - **Hold Position** - in combat, temporarily behaves like setting teammate aggression to 0%. The override resets after combat ends or when replaced by another command. Can be applied to an individual teammate by looking at him.
 - **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns teammates to their saved aggression. Can be applied to an individual teammate by looking at him.
-- **Go Forward** - orders teammates with an enemy to push or pressure that enemy. Outside combat, it can send teammates toward the pointed location. Can be applied to an individual teammate by looking at him.
+- **Go Forward** - orders saved teammates with an enemy to focus that enemy as an ordered push objective. They will pressure, move to reachable firing positions, or go in for the kill while still respecting healing, reload, and immediate survival needs. Outside combat, it can send teammates toward the pointed location. Can be applied to an individual teammate by looking at him.
 - **Stop** - stops teammates out of combat without forcing crouch. If the boss moves too far away, teammates resume normal follow behavior. Can be applied to an individual teammate by looking at him.
 - **Suppress** - orders non-Marksman teammates to suppress the current enemy. The teammate must have a suitable suppress-capable weapon: full-auto, a magazine capacity of at least 25 rounds, or a usable grenade launcher. If a follower has a grenade launcher and the shooting lane is safe, he can use it as the suppression method. If ordered without suitable equipment or a safe lane, he will say "negative" and continue normal combat decisions.
     - Supression order can also tell Rifleman to use grenade launcher if available as secondary weapon. You must be facing the direction of the enemy you want them to suppress for this action to work.
@@ -172,7 +173,7 @@ Saved teammates and recruited allies share the basic follower system once they a
 
 ---
 
-In Non-Realistic loadout management mode, saved teammates automatically have ammo (primary weapon only and works best with vanilla ammo) and medical supplies available, in their secure container, and do not require these items in their loadout. Recruited allies found during a raid do not receive this behavior and rely on their existing equipment.
+In Non-Realistic loadout management mode, saved teammates automatically have ammo (primary weapon only and works best with vanilla ammo) and medical supplies available, in their secure container, and do not require these items in their loadout. This automatic medical supply is meant as a baseline, not endless sustain: a Grizzly and surgery kit may not be enough if a teammate goes through many fights, heavy bleeding, repeated blacked limbs, or long combat chains. If you find extra meds during a raid, it is worth giving them to your followers so they can keep treating themselves if their secure-container supplies are depleted or no longer enough. Recruited allies found during a raid do not receive this behavior and rely on their existing equipment.
 teammates still use Tarkov bot movement and navigation. They can choose cover or movement paths that are not exactly where you expected, especially in complex interiors.
 
 ---
@@ -273,7 +274,9 @@ Do not constantly pull teammates back toward you while they are actively fightin
 
 In fights with multiple enemies, you can accidentally disrupt their current engagement and create unstable combat behavior as enemy priorities constantly change.
 
-The default squad style is that you create opportunities for your teammates to engage while you provide support. Use **Status Report** often to keep track of the squad. Your own play should generally be more defensive and less aggressive than your Riflemen, using enemy markers and callouts to set up angles instead of crowding the fight. If you play too aggressively, teammates may collapse onto your position to protect or rescue you, which can create crowding and friendly-fire risk. Use **On Your Own** in combat when you want them to fight independently of your situation. Use **Need Help** to temporarily pull squad attention back to a threat near you, and **Cover Me** when you want them to stop independent behavior and care about your protection again. Use **Go Forward** when you want Rifleman to push the current enemy and go in for the kill.
+The default squad style is that you create opportunities for your teammates to engage while you provide support. Use **Status Report** often to keep track of the squad. Your own play should generally be more defensive and less aggressive than your Riflemen, using enemy markers and callouts to set up angles instead of crowding the fight. If you play too aggressively, teammates may collapse onto your position to protect or rescue you, which can create crowding and friendly-fire risk. Use **On Your Own** in combat when you want them to fight independently of your situation. Use **Need Help** to temporarily pull squad attention back to a threat near you, and **Cover Me** when you want them to stop independent behavior and care about your protection again.
+
+Use **Go Forward** when you want Riflemen to take ownership of the current enemy instead of waiting for you to advance or create another opening. This is a good tactic when an enemy is known, pinned, wounded, isolated, or holding an angle you do not want to personally cross. The ordered teammate keeps that enemy as the objective and works from reachable pressure points until the target dies, becomes unrecoverable, or another explicit order changes the priority. This can let you stay back, cover another lane, heal, loot, or manage the raid while the squad takes care of the fight.
 
 Teammates generally perform better when:
 
@@ -339,15 +342,20 @@ Use it after:
 
 #### Go Forward
 
-Orders teammates to pressure or push their current enemy.
+Orders saved teammates to focus their current enemy as an ordered push objective.
 
 Best used when:
 
 - enemies are pinned
 - enemies are already engaged
+- enemies are wounded, isolated, or holding a dangerous angle
+- you want Riflemen to finish a fight without needing you to personally advance
+- you want time to heal, loot, watch another lane, or manage the raid while the squad handles that enemy
 - the squad is ready to advance
 
-This is not a suicide rush command. teammates still evaluate danger and cover before pushing.
+The ordered teammate keeps that enemy as the objective and may move to reachable firing positions, hold a pressure point, shoot, suppress, or close in for the kill depending on the situation.
+
+This is not a suicide rush command. Teammates still evaluate danger, cover, reloads, healing, and immediate survival before pushing.
 
 #### Suppress
 
@@ -437,6 +445,8 @@ Found in My Squad → Settings
 - **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 
 Switching away from **Simple** also changes profile customization. The saved-loadout dropdown is replaced by **Kit Loadouts**, where saved player equipment builds can be priced, purchased, or equipped using selected stash items. Secure containers are only included in **Realistic** mode.
+
+In non-Realistic modes, the automatically managed secure container provides basic medical support, including a Grizzly and surgery kit. For long raids or repeated fights, supplement this by putting extra meds in the teammate's backpack or giving them useful meds you find in raid.
 
 ## Upcoming
 
