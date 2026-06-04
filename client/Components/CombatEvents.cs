@@ -335,6 +335,28 @@ namespace pitTeam.Components
             destinationClaims.Remove(owner.ProfileId);
         }
 
+        public bool TryReleaseDestinationClaim(BotOwner owner, Vector3 expectedDestination, float maxDistance)
+        {
+            if (!IsValidOwner(owner))
+            {
+                return false;
+            }
+
+            if (!destinationClaims.TryGetValue(owner.ProfileId, out DestinationClaim claim))
+            {
+                return false;
+            }
+
+            float maxDistanceSqr = maxDistance * maxDistance;
+            if ((claim.Position - expectedDestination).sqrMagnitude > maxDistanceSqr)
+            {
+                return false;
+            }
+
+            destinationClaims.Remove(owner.ProfileId);
+            return true;
+        }
+
         public bool TryFindBossSpreadDestination(
             BotOwner owner,
             Vector3 bossPosition,

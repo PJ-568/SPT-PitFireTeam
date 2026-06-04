@@ -47,6 +47,9 @@ namespace pitTeam.BigBrain
         private const float StableVisibleImmediateFireSeconds = 0.3f;
         private const float CoverCommitLockSeconds = 2.5f;
         private const float CoverSearchCooldownSeconds = 0.35f;
+        private const float CombatCoverDestinationSpacing = 2.5f;
+        private const float CombatCoverDestinationClaimTtlSeconds = 3f;
+        private const float CombatCoverClaimReleaseTolerance = 0.5f;
         private const float RunToCoverProgressMinDistance = 0.35f;
         private const float RunToCoverStallSeconds = 4f;
         private const float TacticalPointProgressMinDistance = 0.35f;
@@ -161,6 +164,8 @@ namespace pitTeam.BigBrain
         private string? lastSupportFiringPositionRejectReason;
 
         private CustomNavigationPoint? committedCoverPoint;
+        private bool hasCommittedCoverDestinationClaim;
+        private Vector3 committedCoverClaimPosition;
 
         private CustomNavigationPoint? committedHoldCoverPoint;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedPositionDecision;
@@ -2350,6 +2355,7 @@ namespace pitTeam.BigBrain
             committedCoverMoveReason = null;
             committedCoverSetAt = 0f;
             committedCoverUntil = 0f;
+            ReleaseCombatCoverDestinationClaim();
             ResetRunToCoverProgress();
             ResetTacticalPointProgress();
         }
@@ -3851,6 +3857,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (HasCombatCoverDestinationClaimConflict(cover))
+            {
+                return false;
+            }
+
             BotLogicDecision moveAction = SelectCommittedCoverMoveAction(goalEnemy, cover);
             if (moveAction == (BotLogicDecision)CustomBotDecisions.attackRetreat &&
                 IsPointBlankVisibleShootableThreat(goalEnemy))
@@ -3985,6 +3996,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (HasCombatCoverDestinationClaimConflict(cover))
+            {
+                return false;
+            }
+
             CommitCover(cover, BotLogicDecision.runToCover, "noEnemyHitCover");
             AssignCover(cover);
             decision = CreateCommittedCoverMoveDecision();
@@ -4004,6 +4020,7 @@ namespace pitTeam.BigBrain
             committedCoverSetAt = Time.time;
             committedCoverUntil = Time.time + CoverCommitLockSeconds;
             coverCommitIntents[botOwner.Id] = new CoverCommitIntent(cover.Id, IsCommittedShootingCoverReason(reason));
+            ReserveCombatCoverDestination(cover.Position);
             BattleRecorder.RecordCommitmentEvent(
                 botOwner,
                 "cover",
@@ -4029,6 +4046,54 @@ namespace pitTeam.BigBrain
             }
 
             return cover.IsFreeById(botOwner.Id);
+        }
+
+        private bool HasCombatCoverDestinationClaimConflict(CustomNavigationPoint? cover)
+        {
+            if (cover == null || IsBotNearCombatCoverDestination(cover.Position))
+            {
+                return false;
+            }
+
+            CombatEvents? combatEvents = GetBossCombatEvents();
+            return combatEvents?.HasDestinationClaimConflict(botOwner, cover.Position, CombatCoverDestinationSpacing) == true;
+        }
+
+        private bool IsBotNearCombatCoverDestination(Vector3 position)
+        {
+            return (botOwner.Position - position).sqrMagnitude <= 1f * 1f;
+        }
+
+        private void ReserveCombatCoverDestination(Vector3 position)
+        {
+            CombatEvents? combatEvents = GetBossCombatEvents();
+            if (combatEvents?.UpsertDestinationClaim(botOwner, position, CombatCoverDestinationClaimTtlSeconds) != true)
+            {
+                return;
+            }
+
+            hasCommittedCoverDestinationClaim = true;
+            committedCoverClaimPosition = position;
+        }
+
+        private void ReleaseCombatCoverDestinationClaim()
+        {
+            if (!hasCommittedCoverDestinationClaim)
+            {
+                return;
+            }
+
+            GetBossCombatEvents()?.TryReleaseDestinationClaim(
+                botOwner,
+                committedCoverClaimPosition,
+                CombatCoverClaimReleaseTolerance);
+            hasCommittedCoverDestinationClaim = false;
+            committedCoverClaimPosition = Vector3.zero;
+        }
+
+        private CombatEvents? GetBossCombatEvents()
+        {
+            return (botOwner?.BotFollower?.BossToFollow as pitAIBossPlayer)?.CombatEvents;
         }
 
         private static bool IsCoverAffinedDecision(BotLogicDecision decision)
@@ -7885,6 +7950,11 @@ namespace pitTeam.BigBrain
 
             BotLogicDecision action = BotLogicDecision.attackMoving;
             string movementReason = CreateMovementReason(reason, action);
+            if (HasCombatCoverDestinationClaimConflict(bossCover))
+            {
+                return false;
+            }
+
             SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
             CommitCover(bossCover, action, movementReason);
             AssignCover(bossCover);

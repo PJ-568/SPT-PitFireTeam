@@ -21,6 +21,12 @@ namespace pitTeam.BigBrain.Actions
             baseLogic = new EnemyFacingHoldLogic(botOwner);
         }
 
+        public override void Start()
+        {
+            base.Start();
+            StopStationaryCombatMovement();
+        }
+
         public override void Update(CustomLayer.ActionData data)
         {
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));

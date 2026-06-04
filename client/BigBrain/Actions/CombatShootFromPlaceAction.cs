@@ -29,6 +29,7 @@ namespace pitTeam.BigBrain.Actions
         public override void Start()
         {
             base.Start();
+            StopStationaryCombatMovement();
             startPosition = BotOwner.Position;
         }
 
@@ -72,7 +73,7 @@ namespace pitTeam.BigBrain.Actions
 
             // Wait briefly for aim alignment before letting the EFT node run so it does not fire
             // while visibly off target.
-            if (WaitForEnemyAimAlignment(ref aimAlignStartedAt))
+            if (WaitForEnemyAimAlignment(ref aimAlignStartedAt, maxAngle: 15f, timeout: 0.18f))
             {
                 return;
             }
