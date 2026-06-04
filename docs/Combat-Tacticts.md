@@ -125,7 +125,7 @@ Autonomous suppression remains separate:
 - Point-blank suppression is not allowed to continue just because visibility/shootability is flickering. If the target is within point-blank contact range and there is no confirmed foliage obstruction near the lane, follower suppression clears instead of blind-firing around hard geometry.
 - Ordered/objective suppression can be interrupted after its protected opening burst when the follower needs healing or reload-retreat. The order should create pressure, not pin the follower in place while hurt or empty.
 
-Out of combat, patrol periodically fills reachable magazines with loose ammo, then may temporarily switch across first primary, second primary, and holster slots only for meaningful reload work: better-magazine swaps for external-magazine weapons or chamber/OnlyBarrel top-offs such as single-shot launchers.
+Out of combat, patrol performs one reload-maintenance pass per carried weapon until the next combat-to-patrol handoff. For each first primary, second primary, and holster weapon, it checks compatible loose ammo, tops off inserted and spare magazines for external-magazine weapons with whatever rounds are available, then only switches/reloads an external-magazine weapon if a reachable spare magazine has at least two more rounds than the current magazine. Chamber, revolver, launcher, shotgun, and internal-magazine weapons do not use spare-mag comparison: if compatible loose ammo exists, patrol may switch once, perform the normal reload, then mark that weapon done. Each completed slot decision waits two seconds before the next slot is considered, and all patrol reload flags/timers reset when the patrol layer exits.
 
 ### Need Sniper Order
 
