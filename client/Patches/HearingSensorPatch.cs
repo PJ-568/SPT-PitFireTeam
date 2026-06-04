@@ -322,7 +322,7 @@ namespace pitTeam.Patches
                             {
                                 sourcePos = mainBodyPart.Position;
                             }
-                            bool turned = FollowerAwareness.FakeShot(bot, sourcePos);
+                            bool turned = FollowerAwareness.FakeShot(bot, sourcePos, effectiveDistance);
                             if (!reportEnemy)
                             {
                                 bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible, bot);
@@ -340,7 +340,7 @@ namespace pitTeam.Patches
                         {
                             sourcePos = mainBodyPart.Position;
                         }
-                        bool turned = FollowerAwareness.FakeShot(bot, sourcePos);
+                        bool turned = FollowerAwareness.FakeShot(bot, sourcePos, effectiveDistance);
                         if (!reportEnemy)
                         {
                             bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.NotVisible, bot);

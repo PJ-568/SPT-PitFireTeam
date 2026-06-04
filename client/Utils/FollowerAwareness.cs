@@ -16,6 +16,7 @@ namespace pitTeam.Utils
             public float ThreatenedUntil;
             public bool HasThreatLookPoint;
             public Vector3 ThreatLookPoint;
+            public float ThreatSourceDistance = float.MaxValue;
             public float LastSoundTime;
             public float LastGunshotTime;
             public float NextBulletReactionAt;
@@ -48,6 +49,22 @@ namespace pitTeam.Utils
             if (state == null ||
                 !state.HasThreatLookPoint ||
                 Mathf.Max(state.DamagedUntil, state.ThreatenedUntil) <= Time.time)
+            {
+                return false;
+            }
+
+            lookPoint = state.ThreatLookPoint;
+            return lookPoint != Vector3.zero;
+        }
+
+        public static bool TryGetRecentCloseThreatLookPoint(BotOwner bot, float maxSourceDistance, out Vector3 lookPoint)
+        {
+            lookPoint = Vector3.zero;
+            var state = GetState(bot);
+            if (state == null ||
+                !state.HasThreatLookPoint ||
+                state.ThreatSourceDistance > maxSourceDistance ||
+                state.ThreatenedUntil <= Time.time)
             {
                 return false;
             }
@@ -109,7 +126,7 @@ namespace pitTeam.Utils
             }
         }
 
-        public static bool FakeShot(BotOwner bot, Vector3 lookPoint)
+        public static bool FakeShot(BotOwner bot, Vector3 lookPoint, float sourceDistance = float.MaxValue)
         {
             if (bot == null || bot.IsDead || bot.BotState != EBotState.Active) return false;
             if (bot.Memory.HaveEnemy && bot.Memory.GoalEnemy != null && bot.Memory.GoalEnemy.IsVisible)
@@ -125,7 +142,7 @@ namespace pitTeam.Utils
                 lookPoint = botPos + targetDirection.normalized * 5f;
             }
 
-            RegisterThreatLookPoint(bot, lookPoint, 3f);
+            RegisterThreatLookPoint(bot, lookPoint, 3f, sourceDistance);
             bot.Steering.LookToPoint(lookPoint, CalcTurnSpeed(bot.LookDirection, targetDirection));
             return true;
         }
@@ -148,7 +165,7 @@ namespace pitTeam.Utils
 
                 if (distance <= CombatDistanceConfiguration.Instance.GetSoundHeardDistance())
                 {
-                    FakeShot(bot, lookPoint2);
+                    FakeShot(bot, lookPoint2, distance);
                     if (CanBotShootEnemy(bot, enemy))
                     {
                         bool acquired = TryAutoAcquireCloseThreat(bot, enemy, distance);
@@ -160,7 +177,7 @@ namespace pitTeam.Utils
                 }
                 else if (CanBotShootEnemy(bot, enemy))
                 {
-                    FakeShot(bot, lookPoint2);
+                    FakeShot(bot, lookPoint2, distance);
                     if (hostileToBossGroup)
                     {
                         TryAcquireVisibleHostileOfBossGroup(bot, enemy);
@@ -197,7 +214,7 @@ namespace pitTeam.Utils
 
             if (distance <= CombatDistanceConfiguration.Instance.GetTooCloseDistance())
             {
-                FakeShot(bot, lookPoint);
+                FakeShot(bot, lookPoint, distance);
                 if (CanBotShootEnemy(bot, enemy))
                 {
                     TryAutoAcquireCloseThreat(bot, enemy, distance);
@@ -206,7 +223,7 @@ namespace pitTeam.Utils
             else
             {
                 state.LastSoundTime = Time.time;
-                FakeShot(bot, lookPoint);
+                FakeShot(bot, lookPoint, distance);
             }
         }
 
@@ -275,7 +292,11 @@ namespace pitTeam.Utils
             FakeShot(bot, estimatedShooterPos);
         }
 
-        private static void RegisterThreatLookPoint(BotOwner bot, Vector3 lookPoint, float duration)
+        private static void RegisterThreatLookPoint(
+            BotOwner bot,
+            Vector3 lookPoint,
+            float duration,
+            float sourceDistance = float.MaxValue)
         {
             var state = GetState(bot);
             if (state == null)
@@ -286,6 +307,7 @@ namespace pitTeam.Utils
             state.ThreatenedUntil = Time.time + duration;
             state.ThreatLookPoint = lookPoint;
             state.HasThreatLookPoint = true;
+            state.ThreatSourceDistance = sourceDistance;
         }
 
         private static void RegisterDamage(BotOwner bot, float duration)

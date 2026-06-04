@@ -1,5 +1,6 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
+using pitTeam.Modules;
 using pitTeam.BigBrain;
 using UnityEngine;
 using UnityEngine.AI;
@@ -77,6 +78,11 @@ namespace pitTeam.BigBrain.Actions
 
         public void LookSimple()
         {
+            if (TryLookTowardCloseUnseenThreat(CombatDistanceConfiguration.Instance.GetTooCloseDistance()))
+            {
+                return;
+            }
+
             Vector3 dest = BotOwner.Memory.HaveEnemy ? BotOwner.Memory.GoalEnemy.CurrPosition : BotOwner.Position;
             if (dest != null)
             {

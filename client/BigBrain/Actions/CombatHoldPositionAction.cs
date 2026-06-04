@@ -1,6 +1,7 @@
 using DrakiaXYZ.BigBrain.Brains;
 using EFT;
 using pitTeam.Components;
+using pitTeam.Modules;
 using pitTeam.Utils;
 using System.Collections;
 using UnityEngine;
@@ -93,6 +94,11 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            if (TryLookTowardCloseUnseenThreat())
+            {
+                return;
+            }
+
             if (TryLookTowardEnemy())
             {
                 return;
@@ -111,6 +117,26 @@ namespace pitTeam.BigBrain.Actions
             }
 
             BotOwner_0.LookData.SetLookPointByHearing(null);
+        }
+
+        private bool TryLookTowardCloseUnseenThreat()
+        {
+            EnemyInfo? goalEnemy = BotOwner_0?.Memory?.GoalEnemy;
+            if (goalEnemy?.IsVisible == true && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!FollowerAwareness.TryGetRecentCloseThreatLookPoint(
+                    BotOwner_0,
+                    CombatDistanceConfiguration.Instance.GetTooCloseDistance(),
+                    out Vector3 threatLookPoint))
+            {
+                return false;
+            }
+
+            BotOwner_0.Steering.LookToPoint(threatLookPoint);
+            return true;
         }
 
         private bool TryGetClosestAllyLookPoint(out Vector3 lookPoint)

@@ -395,6 +395,23 @@ namespace pitTeam.BigBrain.Actions
             return false;
         }
 
+        protected bool TryLookTowardCloseUnseenThreat(float maxSourceDistance)
+        {
+            EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
+            if (goalEnemy?.IsVisible == true && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!FollowerAwareness.TryGetRecentCloseThreatLookPoint(BotOwner, maxSourceDistance, out Vector3 lookPoint))
+            {
+                return false;
+            }
+
+            BotOwner.Steering.LookToPoint(lookPoint);
+            return true;
+        }
+
         private Vector3 GetEnemyShootLookPoint(EnemyInfo goalEnemy)
         {
             ShootPointClass? shootPoint = BotOwner.CurrentEnemyTargetPosition(false);
