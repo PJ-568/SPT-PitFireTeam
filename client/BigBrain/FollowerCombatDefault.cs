@@ -2199,7 +2199,8 @@ namespace pitTeam.BigBrain
 
             float navDistance = combatCommon.GetBossNavDistance(bossPosition);
             float directDistance = Vector3.Distance(botOwner.Position, bossPosition);
-            if (IsUrbanDetourRegroup(directDistance, navDistance))
+            if (IsUrbanDetourRegroup(directDistance, navDistance) &&
+                FollowerCombatRegroupObjective.IsSameBossLevel(botOwner.Position, bossPosition))
             {
                 return false;
             }

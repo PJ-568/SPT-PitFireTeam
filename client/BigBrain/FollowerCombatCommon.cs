@@ -47,6 +47,9 @@ namespace pitTeam.BigBrain
         private const float StableVisibleImmediateFireSeconds = 0.3f;
         private const float CoverCommitLockSeconds = 2.5f;
         private const float CoverSearchCooldownSeconds = 0.35f;
+        private const float CombatCoverDestinationSpacing = 2.5f;
+        private const float CombatCoverDestinationClaimTtlSeconds = 3f;
+        private const float CombatCoverClaimReleaseTolerance = 0.5f;
         private const float RunToCoverProgressMinDistance = 0.35f;
         private const float RunToCoverStallSeconds = 4f;
         private const float TacticalPointProgressMinDistance = 0.35f;
@@ -161,6 +164,8 @@ namespace pitTeam.BigBrain
         private string? lastSupportFiringPositionRejectReason;
 
         private CustomNavigationPoint? committedCoverPoint;
+        private bool hasCommittedCoverDestinationClaim;
+        private Vector3 committedCoverClaimPosition;
 
         private CustomNavigationPoint? committedHoldCoverPoint;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedPositionDecision;
@@ -1700,6 +1705,8 @@ namespace pitTeam.BigBrain
                    ContainsCaliber(caliber, "762x39") ||
                    ContainsCaliber(caliber, "762x51") ||
                    ContainsCaliber(caliber, "762x54") ||
+                   ContainsCaliber(caliber, "68x51") ||
+                   ContainsCaliber(caliber, "6.8x51") ||
                    ContainsCaliber(caliber, "300Blackout") ||
                    ContainsCaliber(caliber, "9x39") ||
                    ContainsCaliber(caliber, "366TKM");
@@ -2348,6 +2355,7 @@ namespace pitTeam.BigBrain
             committedCoverMoveReason = null;
             committedCoverSetAt = 0f;
             committedCoverUntil = 0f;
+            ReleaseCombatCoverDestinationClaim();
             ResetRunToCoverProgress();
             ResetTacticalPointProgress();
         }
@@ -2679,9 +2687,7 @@ namespace pitTeam.BigBrain
             }
 
             ShootPointClass shootPoint = new ShootPointClass(suppressTarget, 1f);
-            Vector3 fireOrigin = botOwner.WeaponRoot != null
-                ? botOwner.WeaponRoot.position
-                : botOwner.Position + Vector3.up * 1.2f;
+            Vector3 fireOrigin = GetCurrentSuppressionFireOrigin(botOwner);
 
             if (Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, botOwner.LookSensor.Mask, false) &&
                 !FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, fireOrigin, suppressTarget) &&
@@ -2691,6 +2697,20 @@ namespace pitTeam.BigBrain
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.suppressFire,
                     $"{reasonPrefix}.place");
+                return true;
+            }
+
+            Vector3 standingOrigin = GetStandingSuppressionFireOrigin(botOwner);
+            if ((standingOrigin - fireOrigin).sqrMagnitude > 0.04f &&
+                Utils.Utils.CanShootToTarget(shootPoint, standingOrigin, botOwner.LookSensor.Mask, false) &&
+                !FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, standingOrigin, suppressTarget) &&
+                botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
+            {
+                botOwner.SetPose(1f);
+                botOwner.Steering.LookToPoint(suppressTarget);
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    $"{reasonPrefix}.standPlace");
                 return true;
             }
 
@@ -2714,6 +2734,20 @@ namespace pitTeam.BigBrain
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.suppressFire,
                     $"{reasonPrefix}.softObstructedPlace");
+                return true;
+            }
+
+            if (allowObstructedSuppression &&
+                (standingOrigin - fireOrigin).sqrMagnitude > 0.04f &&
+                IsSoftObstructedSuppressionLane(standingOrigin, suppressTarget, botOwner.LookSensor.Mask) &&
+                !FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, standingOrigin, suppressTarget) &&
+                botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
+            {
+                botOwner.SetPose(1f);
+                botOwner.Steering.LookToPoint(suppressTarget);
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    $"{reasonPrefix}.standSoftObstructedPlace");
                 return true;
             }
 
@@ -3734,8 +3768,8 @@ namespace pitTeam.BigBrain
                         return false;
                     }
 
-                    bool hasDirectLane = Utils.Utils.CanShootToTarget(shootPoint, point.Position, botOwner.LookSensor.Mask, false);
                     Vector3 fireOrigin = point.Position + Vector3.up * 1.2f;
+                    bool hasDirectLane = Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, botOwner.LookSensor.Mask, false);
                     if (!hasDirectLane &&
                         (!allowSoftFoliageLane ||
                          !IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, botOwner.LookSensor.Mask)))
@@ -3754,6 +3788,25 @@ namespace pitTeam.BigBrain
 
             suppressFrom = cover;
             return true;
+        }
+
+        private static Vector3 GetCurrentSuppressionFireOrigin(BotOwner owner)
+        {
+            if (owner == null)
+            {
+                return Vector3.zero;
+            }
+
+            return owner.WeaponRoot != null
+                ? owner.WeaponRoot.position
+                : owner.Position + Vector3.up * 1.2f;
+        }
+
+        private static Vector3 GetStandingSuppressionFireOrigin(BotOwner owner)
+        {
+            return owner != null
+                ? owner.Position + Vector3.up * StandingCoverShotProbeHeight
+                : Vector3.zero;
         }
 
         public bool TryGetSuppressTarget(EnemyInfo goalEnemy, out Vector3 suppressTarget)
@@ -3800,6 +3853,11 @@ namespace pitTeam.BigBrain
             }
 
             if (IsUnsafeFireSupportPath(goalEnemy, cover, reason))
+            {
+                return false;
+            }
+
+            if (HasCombatCoverDestinationClaimConflict(cover))
             {
                 return false;
             }
@@ -3938,6 +3996,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (HasCombatCoverDestinationClaimConflict(cover))
+            {
+                return false;
+            }
+
             CommitCover(cover, BotLogicDecision.runToCover, "noEnemyHitCover");
             AssignCover(cover);
             decision = CreateCommittedCoverMoveDecision();
@@ -3957,6 +4020,7 @@ namespace pitTeam.BigBrain
             committedCoverSetAt = Time.time;
             committedCoverUntil = Time.time + CoverCommitLockSeconds;
             coverCommitIntents[botOwner.Id] = new CoverCommitIntent(cover.Id, IsCommittedShootingCoverReason(reason));
+            ReserveCombatCoverDestination(cover.Position);
             BattleRecorder.RecordCommitmentEvent(
                 botOwner,
                 "cover",
@@ -3982,6 +4046,54 @@ namespace pitTeam.BigBrain
             }
 
             return cover.IsFreeById(botOwner.Id);
+        }
+
+        private bool HasCombatCoverDestinationClaimConflict(CustomNavigationPoint? cover)
+        {
+            if (cover == null || IsBotNearCombatCoverDestination(cover.Position))
+            {
+                return false;
+            }
+
+            CombatEvents? combatEvents = GetBossCombatEvents();
+            return combatEvents?.HasDestinationClaimConflict(botOwner, cover.Position, CombatCoverDestinationSpacing) == true;
+        }
+
+        private bool IsBotNearCombatCoverDestination(Vector3 position)
+        {
+            return (botOwner.Position - position).sqrMagnitude <= 1f * 1f;
+        }
+
+        private void ReserveCombatCoverDestination(Vector3 position)
+        {
+            CombatEvents? combatEvents = GetBossCombatEvents();
+            if (combatEvents?.UpsertDestinationClaim(botOwner, position, CombatCoverDestinationClaimTtlSeconds) != true)
+            {
+                return;
+            }
+
+            hasCommittedCoverDestinationClaim = true;
+            committedCoverClaimPosition = position;
+        }
+
+        private void ReleaseCombatCoverDestinationClaim()
+        {
+            if (!hasCommittedCoverDestinationClaim)
+            {
+                return;
+            }
+
+            GetBossCombatEvents()?.TryReleaseDestinationClaim(
+                botOwner,
+                committedCoverClaimPosition,
+                CombatCoverClaimReleaseTolerance);
+            hasCommittedCoverDestinationClaim = false;
+            committedCoverClaimPosition = Vector3.zero;
+        }
+
+        private CombatEvents? GetBossCombatEvents()
+        {
+            return (botOwner?.BotFollower?.BossToFollow as pitAIBossPlayer)?.CombatEvents;
         }
 
         private static bool IsCoverAffinedDecision(BotLogicDecision decision)
@@ -7838,6 +7950,11 @@ namespace pitTeam.BigBrain
 
             BotLogicDecision action = BotLogicDecision.attackMoving;
             string movementReason = CreateMovementReason(reason, action);
+            if (HasCombatCoverDestinationClaimConflict(bossCover))
+            {
+                return false;
+            }
+
             SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
             CommitCover(bossCover, action, movementReason);
             AssignCover(bossCover);
@@ -8398,9 +8515,14 @@ namespace pitTeam.BigBrain
 
         public bool HasLoadedAutomaticSecondaryForPush()
         {
-            Weapon? primaryWeapon = GetFirstPrimaryWeapon(botOwner);
-            Weapon? secondaryWeapon = GetSecondPrimaryWeapon(botOwner);
-            return IsAutomaticSecondaryUsableForPushCached(primaryWeapon, secondaryWeapon);
+            return HasLoadedAutomaticSecondaryForPush(botOwner);
+        }
+
+        public static bool HasLoadedAutomaticSecondaryForPush(BotOwner? owner)
+        {
+            Weapon? primaryWeapon = GetFirstPrimaryWeapon(owner);
+            Weapon? secondaryWeapon = GetSecondPrimaryWeapon(owner);
+            return IsAutomaticSecondaryUsableForPush(primaryWeapon, secondaryWeapon);
         }
 
         public bool TrySwitchToAutomaticSecondaryForShotgunDistance()
@@ -8512,6 +8634,8 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            // Patrol does not pre-reload launchers, but combat launcher suppression can still
+            // proceed when EFT sees compatible ammo and can perform its normal reload path.
             return owner?.WeaponManager?.SecondWeaponInfo?.CheckHaveAmmoForReload() == true;
         }
 
@@ -9000,33 +9124,64 @@ namespace pitTeam.BigBrain
             Vector3 weaponOrigin = botOwner.WeaponRoot != null
                 ? botOwner.WeaponRoot.position
                 : botOwner.Position + Vector3.up * 1.25f;
-            Vector3 bodyOrigin = botOwner.Position + Vector3.up * 1.25f;
 
-            Vector3 bodyTarget = GetPointBlankBodyTarget(goalEnemy, enemyAnchor);
-            Vector3 headTarget = enemyAnchor + Vector3.up * 1.55f;
             Vector3 chestTarget = enemyAnchor + Vector3.up * 1.05f;
 
-            return HasNoHardObstruction(weaponOrigin, bodyTarget) ||
-                   HasNoHardObstruction(weaponOrigin, chestTarget) ||
-                   HasNoHardObstruction(bodyOrigin, bodyTarget) ||
-                   HasNoHardObstruction(bodyOrigin, headTarget);
+            return HasNoHardObstruction(weaponOrigin, chestTarget);
         }
 
-        private static Vector3 GetPointBlankBodyTarget(EnemyInfo goalEnemy, Vector3 fallbackAnchor)
+        internal static bool TryGetPointBlankContactFireTarget(
+            BotOwner? botOwner,
+            EnemyInfo? goalEnemy,
+            out Vector3 target)
         {
-            try
+            target = Vector3.zero;
+            if (botOwner == null ||
+                !HasActiveCombatEnemy(botOwner, goalEnemy) ||
+                goalEnemy == null ||
+                goalEnemy.Distance > PointBlankContactDogFightDistance)
             {
-                Vector3 bodyPart = goalEnemy.GetBodyPartPosition();
-                if (IsFinite(bodyPart) && bodyPart.sqrMagnitude > 0.01f)
-                {
-                    return bodyPart;
-                }
-            }
-            catch
-            {
+                return false;
             }
 
-            return fallbackAnchor + Vector3.up * 1.1f;
+            Vector3 enemyAnchor = GetEnemyCurrentPosition(goalEnemy);
+            if (!IsFinite(enemyAnchor) ||
+                (enemyAnchor - botOwner.Position).sqrMagnitude >
+                PointBlankContactMaxAnchorDistance * PointBlankContactMaxAnchorDistance)
+            {
+                return false;
+            }
+
+            Vector3 weaponOrigin = botOwner.WeaponRoot != null
+                ? botOwner.WeaponRoot.position
+                : botOwner.Position + Vector3.up * 1.25f;
+
+            Vector3 chestTarget = enemyAnchor + Vector3.up * 1.05f;
+
+            if (TryAcceptPointBlankFireTarget(weaponOrigin, chestTarget, out target))
+            {
+                return true;
+            }
+
+            target = Vector3.zero;
+            return false;
+        }
+
+        private static bool TryAcceptPointBlankFireTarget(Vector3 origin, Vector3 candidate, out Vector3 target)
+        {
+            target = Vector3.zero;
+            if (!IsFinite(candidate) || candidate.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            if (!HasNoHardObstruction(origin, candidate))
+            {
+                return false;
+            }
+
+            target = candidate;
+            return true;
         }
 
         private static bool HasNoHardObstruction(Vector3 origin, Vector3 target)
@@ -9994,6 +10149,18 @@ namespace pitTeam.BigBrain
         {
             bool haveHealWork = botOwner.Medecine.FirstAid.Have2Do || botOwner.Medecine.SurgicalKit.HaveWork;
             bool activelyHealing = botOwner.Medecine.FirstAid.Using || botOwner.Medecine.SurgicalKit.Using;
+            float timeout = botOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
+            if (activelyHealing)
+            {
+                if (healStartedAt > 0f && healStartedAt + timeout < Time.time)
+                {
+                    AbortActiveHeal();
+                    return new AICoreActionEndStruct("healTimedOut", true);
+                }
+
+                return Continue();
+            }
+
             if (!haveHealWork)
             {
                 CompleteActiveHeal();
@@ -10008,13 +10175,6 @@ namespace pitTeam.BigBrain
             {
                 CompleteActiveHeal();
                 return new AICoreActionEndStruct("healIdleTimedOut", true);
-            }
-
-            float timeout = botOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
-            if (healStartedAt > 0f && healStartedAt + timeout < Time.time)
-            {
-                CompleteActiveHeal();
-                return new AICoreActionEndStruct("healTimedOut", true);
             }
 
             return Continue();
@@ -10702,6 +10862,14 @@ namespace pitTeam.BigBrain
         {
             ClearCommittedHealCover();
             FollowerMedical.CompleteHealing(botOwner);
+            healBlockUntil = Time.time + 5f;
+            healStartedAt = 0f;
+        }
+
+        private void AbortActiveHeal()
+        {
+            ClearCommittedHealCover();
+            FollowerMedical.AbortHealing(botOwner, recoverDestroyedSurgeryParts: true);
             healBlockUntil = Time.time + 5f;
             healStartedAt = 0f;
         }

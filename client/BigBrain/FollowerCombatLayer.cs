@@ -69,7 +69,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (lingerArmed && IsLingerExpired() && !HasCurrentLiveGoalEnemy())
+            if (lingerArmed && IsLingerExpired() && !HasCurrentLiveGoalEnemy() && !TryKeepActiveForOrderedPush())
             {
                 CompletePostCombatLinger();
                 return false;
@@ -137,6 +137,7 @@ namespace pitTeam.BigBrain
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             followerData?.ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
             followerData?.ClearActiveCombatIndependent();
+            followerData?.ClearOrderedPushTargetLock("CombatLayer:Stop");
             ClearFollowerCommandOnCombatTransition("CombatLayer:Stop");
             currentDecision = null;
             lastDecision = null;
@@ -169,6 +170,7 @@ namespace pitTeam.BigBrain
             {
                 // As soon as live enemy is gone, hand off to a short linger hold while the
                 // combat layer remains active for release/handoff timing.
+                BossPlayers.Instance?.GetFollower(BotOwner)?.ClearOrderedPushTargetLock("CombatLayer:Inactive");
                 if (!combatLogicResetForInactive)
                 {
                     combatLogic.Reset();
@@ -384,6 +386,11 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            if (TryKeepActiveForOrderedPush())
+            {
+                return true;
+            }
+
             if (HasLiveEnemy())
             {
                 return true;
@@ -415,6 +422,121 @@ namespace pitTeam.BigBrain
 
             return BotOwner?.Memory?.IsUnderFire == true &&
                    Time.time - BotOwner.Memory.LastTimeHit <= 2f;
+        }
+
+        private bool TryKeepActiveForOrderedPush()
+        {
+            if (BotOwner == null || !currentDecision.HasValue)
+            {
+                return false;
+            }
+
+            if (!IsOrderedPushMovementContinuation(currentDecision.Value))
+            {
+                return false;
+            }
+
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData == null ||
+                followerData.HasOrderedPushCancelRequest ||
+                !followerData.TryGetOrderedPushTargetLock(out string targetProfileId, out Vector3 lastKnownPosition))
+            {
+                return false;
+            }
+
+            EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (IsGoalEnemyAlive(goalEnemy))
+            {
+                if (string.Equals(goalEnemy!.ProfileId, targetProfileId, StringComparison.Ordinal))
+                {
+                    followerData.RefreshOrderedPushTargetLock(goalEnemy);
+                    return true;
+                }
+
+                if (IsImmediateVisibleSelfDefenseThreat(goalEnemy))
+                {
+                    return true;
+                }
+            }
+
+            return TryRestoreOrderedPushGoalEnemy(followerData, targetProfileId, lastKnownPosition);
+        }
+
+        private bool TryRestoreOrderedPushGoalEnemy(
+            BotFollowerPlayer followerData,
+            string targetProfileId,
+            Vector3 lastKnownPosition)
+        {
+            if (string.IsNullOrEmpty(targetProfileId))
+            {
+                return false;
+            }
+
+            Player? target = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(targetProfileId);
+            if (target?.HealthController?.IsAlive != true)
+            {
+                followerData.ClearOrderedPushTargetLock("OrderedPushTargetDead");
+                return false;
+            }
+
+            EnemyInfo? restored = Enemy.MakeEnemy(
+                BotOwner,
+                target,
+                EBotEnemyCause.checkAddTODO,
+                countSharedSeenAsPersonal: false);
+            if (restored == null)
+            {
+                return false;
+            }
+
+            restored.PriorityIndex = 0;
+            restored.IgnoreUntilAggression = false;
+            restored.SetVisible(restored.IsVisible);
+            Vector3 rememberedPosition = IsFinite(lastKnownPosition) && lastKnownPosition.sqrMagnitude > 0.01f
+                ? lastKnownPosition
+                : target.Position;
+            if (IsFinite(rememberedPosition) && rememberedPosition.sqrMagnitude > 0.01f)
+            {
+                restored.PersonalLastPos = rememberedPosition;
+                if (restored.GroupInfo != null)
+                {
+                    restored.GroupInfo.EnemyLastPosition = rememberedPosition;
+                }
+            }
+
+            BotOwner.Memory.IsPeace = false;
+            BotOwner.Memory.GoalEnemy = restored;
+            followerData.RefreshOrderedPushTargetLock(target);
+            return IsGoalEnemyAlive(restored);
+        }
+
+        private static bool IsOrderedPushMovementContinuation(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            return IsOrderedPushReason(decision.Reason) &&
+                   (IsMovementOrPushDecision(decision.Action) ||
+                    decision.Action == BotLogicDecision.search);
+        }
+
+        private static bool IsOrderedPushReason(string? reason)
+        {
+            return reason != null &&
+                   reason.StartsWith("push.ordered", StringComparison.Ordinal);
+        }
+
+        private static bool IsImmediateVisibleSelfDefenseThreat(EnemyInfo goalEnemy)
+        {
+            return FollowerImmediateFirePolicy.IsLocalSelfDefenseThreat(goalEnemy);
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         private static bool IsGoalEnemyAlive(EnemyInfo? goalEnemy)

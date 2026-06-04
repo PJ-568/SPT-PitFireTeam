@@ -290,7 +290,8 @@ namespace pitTeam.Utils
         public static EnemyInfo? MakeEnemy(
             BotOwner bot,
             Player enemy,
-            EBotEnemyCause cause = EBotEnemyCause.addPlayerToBoss)
+            EBotEnemyCause cause = EBotEnemyCause.addPlayerToBoss,
+            bool countSharedSeenAsPersonal = true)
         {
             if (bot == null || enemy == null) return null;
             if (bot.BotsGroup == null || bot.Memory == null || bot.EnemiesController == null) return null;
@@ -354,7 +355,8 @@ namespace pitTeam.Utils
             }
 
             info.IgnoreUntilAggression = false;
-            RepairPersonalMemory(info, enemy.Transform.position, info.IsVisible || info.CanShoot || info.HaveSeen);
+            bool countAsSeen = info.IsVisible || info.CanShoot || (countSharedSeenAsPersonal && info.HaveSeen);
+            RepairPersonalMemory(info, enemy.Transform.position, countAsSeen);
 
             return info;
 

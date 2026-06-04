@@ -50,6 +50,7 @@ namespace pitTeam.BigBrain
         public void Reset()
         {
             ClearCommittedPush("reset");
+            nextUrbanDetourPushCheckAt = 0f;
         }
 
         public void HandleDecisionChanged(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
@@ -166,7 +167,6 @@ namespace pitTeam.BigBrain
             committedPushActionableVisibleSince = 0f;
             stalledPushLastPosition = Vector3.zero;
             stalledPushSince = 0f;
-            nextUrbanDetourPushCheckAt = 0f;
         }
 
         public bool IsPushCommittedDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
@@ -522,7 +522,7 @@ namespace pitTeam.BigBrain
             return true;
         }
 
-        private static bool IsLowCapacityAutoPushWeapon(Weapon activeWeapon, MagazineItemClass? magazine)
+        private bool IsLowCapacityAutoPushWeapon(Weapon activeWeapon, MagazineItemClass? magazine)
         {
             int magazineCapacity = magazine?.MaxCount ?? activeWeapon.GetMaxMagazineCount();
             if (magazineCapacity <= 0 || magazineCapacity >= StandardAutoPushMagazineCapacity)
@@ -531,6 +531,13 @@ namespace pitTeam.BigBrain
             }
 
             if (FollowerCombatCommon.IsShotgunWeapon(activeWeapon))
+            {
+                return false;
+            }
+
+            // A smaller magazine is not the same as low remaining ammo for full-auto weapons.
+            // Loaded ammo quality and target armor are handled by the ammo-profile threat policy.
+            if (FollowerCombatCommon.IsAutomaticWeapon(activeWeapon))
             {
                 return false;
             }
@@ -747,6 +754,12 @@ namespace pitTeam.BigBrain
             {
                 PreparePushVisibilityFireDecision(goalEnemy);
                 reason = "pushEnemyVisible";
+                return true;
+            }
+
+            if (combatCommon.HasActiveOrPendingHealWork())
+            {
+                reason = "pushNeedHeal";
                 return true;
             }
 

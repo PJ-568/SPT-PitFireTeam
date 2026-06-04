@@ -77,6 +77,8 @@ namespace pitTeam.Components
         private bool _combatIndependent;
         private bool _combatIndependentRequested;
         private bool _combatRegroupUsesBossAnchor;
+        private bool _patrolLeaderSectorAnchorSet;
+        private Vector3 _patrolLeaderSectorAnchor;
         private bool _peaceChangeHooked = false;
         private bool _manualUpdateHooked = false;
         private Vector3 _teleportGraceTarget;
@@ -89,6 +91,14 @@ namespace pitTeam.Components
         private FollowerCommandType _activeCommand = FollowerCommandType.None;
         private Vector3 _commandTarget;
         private float _commandUntilTime;
+        private bool _suppressEnemyRequiresLauncher;
+        private bool _suppressEnemyForceWeapon;
+        private bool _suppressEnemyUseAutomaticSecondary;
+        private bool _orderedPushCancelRequested;
+        private string? _orderedPushCancelReason;
+        private bool _orderedPushTargetLockActive;
+        private string? _orderedPushTargetProfileId;
+        private Vector3 _orderedPushTargetPosition;
         private bool _holdPositionShouldCrouch = true;
         private bool _resumeHoldAfterComeCloser;
         private bool _resumeHoldAfterTakeLoot;
@@ -1018,8 +1028,27 @@ namespace pitTeam.Components
             _canPatrol = value;
             if (!value)
             {
+                ClearPatrolLeaderSectorAnchor();
                 ReleasePatrolMovementState("SetCanPatrol:false");
             }
+        }
+
+        public bool TryGetPatrolLeaderSectorAnchor(out Vector3 anchor)
+        {
+            anchor = _patrolLeaderSectorAnchor;
+            return _patrolLeaderSectorAnchorSet;
+        }
+
+        public void SetPatrolLeaderSectorAnchor(Vector3 anchor)
+        {
+            _patrolLeaderSectorAnchor = anchor;
+            _patrolLeaderSectorAnchorSet = true;
+        }
+
+        public void ClearPatrolLeaderSectorAnchor()
+        {
+            _patrolLeaderSectorAnchor = Vector3.zero;
+            _patrolLeaderSectorAnchorSet = false;
         }
 
         private void ReleasePatrolMovementState(string reason)
@@ -1239,7 +1268,7 @@ namespace pitTeam.Components
 
             _activeCommand = FollowerCommandType.PushEnemy;
             _commandTarget = Vector3.zero;
-            _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _commandUntilTime = float.PositiveInfinity;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;
             _resumeHoldAfterTakeLootCrouch = false;
@@ -1253,6 +1282,26 @@ namespace pitTeam.Components
 
         public void SetSuppressEnemy(float duration, Vector3 orderTarget)
         {
+            SetSuppressEnemy(duration, orderTarget, requireLauncher: false);
+        }
+
+        public void SetSuppressEnemy(float duration, Vector3 orderTarget, bool requireLauncher)
+        {
+            SetSuppressEnemy(duration, orderTarget, requireLauncher, forceWeapon: false);
+        }
+
+        public void SetSuppressEnemy(float duration, Vector3 orderTarget, bool requireLauncher, bool forceWeapon)
+        {
+            SetSuppressEnemy(duration, orderTarget, requireLauncher, forceWeapon, useAutomaticSecondary: false);
+        }
+
+        public void SetSuppressEnemy(
+            float duration,
+            Vector3 orderTarget,
+            bool requireLauncher,
+            bool forceWeapon,
+            bool useAutomaticSecondary)
+        {
             if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.SuppressEnemy)
             {
                 ClearCommand($"SetSuppressEnemy:replace({_activeCommand})");
@@ -1261,6 +1310,9 @@ namespace pitTeam.Components
             _activeCommand = FollowerCommandType.SuppressEnemy;
             _commandTarget = orderTarget;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
+            _suppressEnemyRequiresLauncher = requireLauncher;
+            _suppressEnemyForceWeapon = forceWeapon;
+            _suppressEnemyUseAutomaticSecondary = useAutomaticSecondary;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;
             _resumeHoldAfterTakeLootCrouch = false;
@@ -1530,11 +1582,16 @@ namespace pitTeam.Components
 
         public bool TryGetActiveCommand(out FollowerCommandType command, out Vector3 target)
         {
-            if (_bot != null)
+            if (IsHealingOrHealDecision())
             {
-                bool isUsingHeal = _bot.Medecine.FirstAid.Using || _bot.Medecine.SurgicalKit.Using;
-                bool isInHealDecision = _bot.Brain?.Agent?.LastResult().Action == BotLogicDecision.heal;
-                if (isUsingHeal || isInHealDecision)
+                if (_activeCommand == FollowerCommandType.PushEnemy)
+                {
+                    command = FollowerCommandType.None;
+                    target = Vector3.zero;
+                    return false;
+                }
+
+                if (_activeCommand != FollowerCommandType.None)
                 {
                     ClearCommand("TryGetActiveCommand:healing");
                 }
@@ -1550,12 +1607,164 @@ namespace pitTeam.Components
             return command != FollowerCommandType.None;
         }
 
+        public bool ClearQueuedPushEnemyWhileHealing(string reason)
+        {
+            if (_activeCommand != FollowerCommandType.PushEnemy || !IsHealingOrHealDecision())
+            {
+                return false;
+            }
+
+            ClearCommand(reason);
+            return true;
+        }
+
+        private bool IsHealingOrHealDecision()
+        {
+            if (_bot == null)
+            {
+                return false;
+            }
+
+            bool isUsingHeal = _bot.Medecine?.FirstAid?.Using == true ||
+                               _bot.Medecine?.SurgicalKit?.Using == true;
+            BotLogicDecision currentDecision = _bot.Brain?.Agent?.LastResult().Action ?? BotLogicDecision.holdPosition;
+            return isUsingHeal ||
+                   currentDecision == BotLogicDecision.heal ||
+                   currentDecision == BotLogicDecision.healStimulators;
+        }
+
         public bool TryPeekActiveCommand(out FollowerCommandType command, out Vector3 target, out float untilTime)
         {
             command = _activeCommand;
             target = _commandTarget;
             untilTime = _commandUntilTime;
             return command != FollowerCommandType.None;
+        }
+
+        public bool SuppressEnemyRequiresLauncher =>
+            _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyRequiresLauncher;
+
+        public bool SuppressEnemyForceWeapon =>
+            _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyForceWeapon;
+
+        public bool SuppressEnemyUseAutomaticSecondary =>
+            _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyUseAutomaticSecondary;
+
+        public void RequestOrderedPushCancel(string reason)
+        {
+            _orderedPushCancelRequested = true;
+            _orderedPushCancelReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
+            if (_activeCommand == FollowerCommandType.PushEnemy)
+            {
+                ClearCommand($"OrderedPushCancel:{_orderedPushCancelReason}");
+            }
+        }
+
+        public bool HasOrderedPushCancelRequest => _orderedPushCancelRequested;
+
+        public bool TryConsumeOrderedPushCancelRequest(out string reason)
+        {
+            reason = _orderedPushCancelReason ?? "unspecified";
+            if (!_orderedPushCancelRequested)
+            {
+                return false;
+            }
+
+            _orderedPushCancelRequested = false;
+            _orderedPushCancelReason = null;
+            return true;
+        }
+
+        public bool HasOrderedPushTargetLock =>
+            _orderedPushTargetLockActive &&
+            !string.IsNullOrEmpty(_orderedPushTargetProfileId);
+
+        public bool TryGetOrderedPushTargetLock(out string profileId, out Vector3 lastKnownPosition)
+        {
+            profileId = _orderedPushTargetProfileId ?? string.Empty;
+            lastKnownPosition = _orderedPushTargetPosition;
+            return HasOrderedPushTargetLock;
+        }
+
+        public void ActivateOrderedPushTargetLock(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null || string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                ClearOrderedPushTargetLock("activateMissingTarget");
+                return;
+            }
+
+            _orderedPushTargetLockActive = true;
+            _orderedPushTargetProfileId = goalEnemy.ProfileId;
+            _orderedPushTargetPosition = GetOrderedPushTargetPosition(goalEnemy);
+        }
+
+        public void RefreshOrderedPushTargetLock(EnemyInfo? goalEnemy)
+        {
+            if (!HasOrderedPushTargetLock ||
+                goalEnemy == null ||
+                !string.Equals(goalEnemy.ProfileId, _orderedPushTargetProfileId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Vector3 position = GetOrderedPushTargetPosition(goalEnemy);
+            if (IsFinite(position) && position.sqrMagnitude > 0.01f)
+            {
+                _orderedPushTargetPosition = position;
+            }
+        }
+
+        public void RefreshOrderedPushTargetLock(Player target)
+        {
+            if (!HasOrderedPushTargetLock ||
+                target == null ||
+                !string.Equals(target.ProfileId, _orderedPushTargetProfileId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (IsFinite(target.Position) && target.Position.sqrMagnitude > 0.01f)
+            {
+                _orderedPushTargetPosition = target.Position;
+            }
+        }
+
+        public void ClearOrderedPushTargetLock(string reason = "unspecified")
+        {
+            _orderedPushTargetLockActive = false;
+            _orderedPushTargetProfileId = null;
+            _orderedPushTargetPosition = Vector3.zero;
+        }
+
+        private static Vector3 GetOrderedPushTargetPosition(EnemyInfo goalEnemy)
+        {
+            if (IsFinite(goalEnemy.CurrPosition) && goalEnemy.CurrPosition.sqrMagnitude > 0.01f)
+            {
+                return goalEnemy.CurrPosition;
+            }
+
+            if (IsFinite(goalEnemy.EnemyLastPositionReal) && goalEnemy.EnemyLastPositionReal.sqrMagnitude > 0.01f)
+            {
+                return goalEnemy.EnemyLastPositionReal;
+            }
+
+            if (IsFinite(goalEnemy.PersonalLastPos) && goalEnemy.PersonalLastPos.sqrMagnitude > 0.01f)
+            {
+                return goalEnemy.PersonalLastPos;
+            }
+
+            return goalEnemy.Person?.Position ?? Vector3.zero;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         public void SetCombatTacticFromString(string? tactic)
@@ -1963,6 +2172,9 @@ namespace pitTeam.Components
             _activeCommand = FollowerCommandType.None;
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
+            _suppressEnemyRequiresLauncher = false;
+            _suppressEnemyForceWeapon = false;
+            _suppressEnemyUseAutomaticSecondary = false;
             _holdPositionShouldCrouch = true;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;
@@ -2279,6 +2491,11 @@ namespace pitTeam.Components
 
         private void OnBeingHit(DamageInfoStruct arg1, EBodyPart arg2, float arg3)
         {
+            if (_activeCommand == FollowerCommandType.PushEnemy)
+            {
+                return;
+            }
+
             ClearCommand("OnBeingHit");
         }
 

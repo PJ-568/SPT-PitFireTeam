@@ -20,9 +20,7 @@ namespace pitTeam.BigBrain.Actions
                 return false;
             }
 
-            Vector3 lookPoint = goalEnemy.IsVisible
-                ? goalEnemy.GetBodyPartPosition()
-                : goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
+            Vector3 lookPoint = GetThreatLookPoint(goalEnemy);
 
             Vector3 lookDirection = lookPoint - botOwner.Position;
             if (lookDirection.sqrMagnitude < 0.01f)
@@ -52,9 +50,7 @@ namespace pitTeam.BigBrain.Actions
                 return 180f;
             }
 
-            Vector3 lookPoint = goalEnemy.IsVisible
-                ? goalEnemy.GetBodyPartPosition()
-                : goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
+            Vector3 lookPoint = GetThreatLookPoint(goalEnemy);
             Vector3 lookDirection = lookPoint - botOwner.Position;
             if (lookDirection.sqrMagnitude < 0.01f)
             {
@@ -62,6 +58,29 @@ namespace pitTeam.BigBrain.Actions
             }
 
             return Vector3.Angle(botOwner.LookDirection, lookDirection);
+        }
+
+        private static Vector3 GetThreatLookPoint(EnemyInfo goalEnemy)
+        {
+            try
+            {
+                Vector3 bodyPoint = goalEnemy.GetBodyPartPosition();
+                if (FollowerCombatCommon.IsFinite(bodyPoint) && bodyPoint.sqrMagnitude > 0.01f)
+                {
+                    return bodyPoint;
+                }
+            }
+            catch
+            {
+            }
+
+            Vector3 currentPosition = FollowerCombatCommon.GetEnemyCurrentPosition(goalEnemy);
+            if (FollowerCombatCommon.IsFinite(currentPosition) && currentPosition.sqrMagnitude > 0.01f)
+            {
+                return currentPosition + Vector3.up * 0.8f;
+            }
+
+            return goalEnemy.EnemyLastPositionReal + Vector3.up * 0.6f;
         }
     }
 }

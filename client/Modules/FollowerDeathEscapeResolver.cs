@@ -102,6 +102,14 @@ namespace pitTeam.Modules
                     .Where(follower => follower?.GetBot() != null && follower.IsSquadMate)
                     .ToList();
 
+                if (squadmates.Count > 0)
+                {
+                    // Team Escape is a player-death raid-end path; persist raid-earned progress here
+                    // while live follower state is still available. Boss cleanup may call this again,
+                    // but BossPlayers de-duplicates per follower profile for the raid.
+                    BossPlayers.SaveFollowersProgress(squadmates);
+                }
+
                 List<BotFollowerPlayer> aliveSquadmates = squadmates
                     .Where(follower =>
                     {

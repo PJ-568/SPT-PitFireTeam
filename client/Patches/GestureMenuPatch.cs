@@ -282,9 +282,107 @@ namespace pitTeam.Patches
         [PatchPostfix]
         private static void PatchPostfix(GesturesMenu __instance)
         {
+            GestureMenuUnsupportedCommandVisibility.Track(__instance);
             var hashSet_1 = (HashSet<EPhraseTrigger>)AccessTools.Field(typeof(GesturesMenu), "hashSet_1").GetValue(__instance);
             hashSet_1.Add((EPhraseTrigger)CustomPhrases.TeamStatus);
             hashSet_1.Add((EPhraseTrigger)CustomPhrases.ViewBackpack);
+        }
+    }
+
+    internal static class GestureMenuUnsupportedCommandVisibility
+    {
+        private static readonly FieldInfo AudioGroupsField = AccessTools.Field(typeof(GesturesMenu), "list_1");
+        private static readonly FieldInfo AllItemsField = AccessTools.Field(typeof(GesturesMenu), "list_2");
+        private static readonly List<WeakReference<GesturesMenu>> TrackedMenus = new List<WeakReference<GesturesMenu>>();
+
+        public static void Track(GesturesMenu menu)
+        {
+            if (menu == null)
+            {
+                return;
+            }
+
+            for (int index = TrackedMenus.Count - 1; index >= 0; index--)
+            {
+                if (!TrackedMenus[index].TryGetTarget(out GesturesMenu tracked) || tracked == null)
+                {
+                    TrackedMenus.RemoveAt(index);
+                    continue;
+                }
+
+                if (ReferenceEquals(tracked, menu))
+                {
+                    return;
+                }
+            }
+
+            TrackedMenus.Add(new WeakReference<GesturesMenu>(menu));
+        }
+
+        public static void RefreshTrackedMenus()
+        {
+            for (int index = TrackedMenus.Count - 1; index >= 0; index--)
+            {
+                if (!TrackedMenus[index].TryGetTarget(out GesturesMenu menu) || menu == null)
+                {
+                    TrackedMenus.RemoveAt(index);
+                    continue;
+                }
+
+                RefreshMenu(menu);
+            }
+        }
+
+        public static void ClearTrackedMenus()
+        {
+            TrackedMenus.Clear();
+        }
+
+        private static void RefreshMenu(GesturesMenu menu)
+        {
+            try
+            {
+                bool wasShowing = menu.IsShowing;
+                if (wasShowing)
+                {
+                    menu.Close();
+                }
+
+                ClearPhraseGroups(menu);
+                menu.InitPhraseGroups();
+
+                if (wasShowing)
+                {
+                    menu.Show();
+                }
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log?.LogWarning($"[UI] Failed to refresh gesture command visibility after Hide Unsupported Commands changed: {ex}");
+            }
+        }
+
+        private static void ClearPhraseGroups(GesturesMenu menu)
+        {
+            if (AudioGroupsField.GetValue(menu) is List<GesturesAudioItem> audioGroups)
+            {
+                for (int index = audioGroups.Count - 1; index >= 0; index--)
+                {
+                    GesturesAudioItem group = audioGroups[index];
+                    if (group != null)
+                    {
+                        group.gameObject.SetActive(false);
+                        UnityEngine.Object.Destroy(group.gameObject);
+                    }
+                }
+
+                audioGroups.Clear();
+            }
+
+            if (AllItemsField.GetValue(menu) is List<GestureBaseItem> allItems)
+            {
+                allItems.RemoveAll(item => item == null || item is GesturesAudioSubItem);
+            }
         }
     }
 

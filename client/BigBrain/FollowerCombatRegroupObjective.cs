@@ -26,6 +26,8 @@ namespace pitTeam.BigBrain
         private const float RegroupWithdrawMinProgressDistance = 0.35f;
         private const float RegroupWithdrawStalledSeconds = 2f;
         internal const string RegroupReasonPrefix = "regroup.";
+        private const string RegroupArrivedReason = "regroup.arrived";
+        private const string RegroupUrbanDetourReason = "regroup.urbanDetour";
         private const string RegroupWithdrawBackwardReason = "regroup.withdraw.backward";
         private const string RegroupWithdrawForwardReason = "regroup.withdraw.forward";
         private const string RegroupWithdrawSideReason = "regroup.withdraw.side";
@@ -138,7 +140,7 @@ namespace pitTeam.BigBrain
 
             if (ShouldAvoidUrbanDetourRegroup(bossPosition))
             {
-                return GetArrivedSettleDecision();
+                return GetArrivedSettleDecision(RegroupUrbanDetourReason);
             }
 
             if (TryGetCommittedRegroupMove(goalEnemy, bossPosition, out AICoreActionResultStruct<BotLogicDecision, GClass26> committedMove))
@@ -184,7 +186,7 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("regroupEnemyMissing", true);
             }
 
-            if (string.Equals(currentDecision.Reason, "regroup.arrived", System.StringComparison.Ordinal))
+            if (IsRegroupSettleReason(currentDecision.Reason))
             {
                 if (Time.time < arrivedSettleUntil)
                 {
@@ -296,7 +298,7 @@ namespace pitTeam.BigBrain
             return CombatCommon.ShallEndCurrentDecision(currentDecision);
         }
 
-        private AICoreActionResultStruct<BotLogicDecision, GClass26> GetArrivedSettleDecision()
+        private AICoreActionResultStruct<BotLogicDecision, GClass26> GetArrivedSettleDecision(string reason = RegroupArrivedReason)
         {
             ClearCurrentTarget();
             ClearCommittedRegroupMove();
@@ -306,7 +308,7 @@ namespace pitTeam.BigBrain
             }
 
             CombatCommon.HoldFor(Mathf.Max(0.1f, arrivedSettleUntil - Time.time));
-            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, "regroup.arrived");
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.holdPosition, reason);
         }
 
         private bool TryGetCommittedRegroupMove(
@@ -658,8 +660,7 @@ namespace pitTeam.BigBrain
 
         private bool HasReachedBoss(Vector3 bossPosition)
         {
-            float verticalDiff = Mathf.Abs(BotOwner.Position.y - bossPosition.y);
-            if (verticalDiff > CombatRegroupSameLevelTolerance)
+            if (!IsSameBossLevel(BotOwner.Position, bossPosition))
             {
                 return false;
             }
@@ -670,6 +671,13 @@ namespace pitTeam.BigBrain
 
         private bool ShouldAvoidUrbanDetourRegroup(Vector3 bossPosition)
         {
+            if (!IsSameBossLevel(BotOwner.Position, bossPosition))
+            {
+                // A long path is expected when the follower is on a different floor. Treating that
+                // as "close enough" strands the bot above/below the squad instead of routing home.
+                return false;
+            }
+
             float directDistance = Vector3.Distance(BotOwner.Position, bossPosition);
             if (!Utils.Utils.TryGetCompletePathDistance(BotOwner.Position, bossPosition, out float pathDistance))
             {
@@ -681,8 +689,7 @@ namespace pitTeam.BigBrain
 
         private bool IsWithinHotRegroupSettleEnvelope(Vector3 bossPosition)
         {
-            float verticalDiff = Mathf.Abs(BotOwner.Position.y - bossPosition.y);
-            if (verticalDiff > CombatRegroupSameLevelTolerance)
+            if (!IsSameBossLevel(BotOwner.Position, bossPosition))
             {
                 return false;
             }
@@ -758,6 +765,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (!IsSameBossLevel(cover.Position, bossPosition))
+            {
+                return false;
+            }
+
             if (ShouldRejectDetourTarget(cover.Position, bossPosition))
             {
                 return false;
@@ -781,6 +793,13 @@ namespace pitTeam.BigBrain
 
         private bool ShouldRejectDetourTarget(Vector3 targetPosition, Vector3 bossPosition)
         {
+            if (!IsSameBossLevel(BotOwner.Position, bossPosition))
+            {
+                // When separated by floors, the stair/ramp path back to the boss is the objective,
+                // not a detour to reject.
+                return false;
+            }
+
             float directBossDistance = Vector3.Distance(BotOwner.Position, bossPosition);
             if (!Utils.Utils.TryGetCompletePathDistance(BotOwner.Position, targetPosition, out float targetPathDistance))
             {
@@ -876,6 +895,17 @@ namespace pitTeam.BigBrain
 
             float sectorRadius = CombatDistanceConfiguration.Instance.GetRegroupBossMoveRefreshDistance();
             return (bossPosition - bossSectorAnchor).sqrMagnitude > sectorRadius * sectorRadius;
+        }
+
+        internal static bool IsSameBossLevel(Vector3 followerPosition, Vector3 bossPosition)
+        {
+            return Mathf.Abs(followerPosition.y - bossPosition.y) <= CombatRegroupSameLevelTolerance;
+        }
+
+        private static bool IsRegroupSettleReason(string? reason)
+        {
+            return string.Equals(reason, RegroupArrivedReason, System.StringComparison.Ordinal) ||
+                   string.Equals(reason, RegroupUrbanDetourReason, System.StringComparison.Ordinal);
         }
 
         private static bool IsHealingDecision(BotLogicDecision decision)

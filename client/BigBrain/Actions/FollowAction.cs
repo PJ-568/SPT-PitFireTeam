@@ -22,6 +22,16 @@ namespace pitTeam.BigBrain.Actions
         private const float MaxBossSpeedForSettle = 0.35f;
         private const float SettleSpacing = 2.5f;
         private const float SettleSpacingSqr = SettleSpacing * SettleSpacing;
+        private const float SettlePathSpacing = 1.5f;
+        private const float SettlePathSpacingSqr = SettlePathSpacing * SettlePathSpacing;
+        private const float SettlePathStartPadding = 0.75f;
+        private const float SettlePathEndPadding = 0.4f;
+        private const float SettleDestinationClaimTtlSeconds = 3f;
+        private const float SettleDestinationClaimReleaseTolerance = 0.5f;
+        // Patrol camp sector size. This is a grid-cell boundary check used to decide
+        // whether the boss/player has left the remembered On Your Own sector; it is
+        // not a direct "player must move this many meters" distance threshold.
+        private const float PatrolCampRadius = 20f;
 
         private Player? bossPlayer;
         private pitAIBossPlayer? bossData;
@@ -36,11 +46,12 @@ namespace pitTeam.BigBrain.Actions
         private bool movingToPatrolPoint;
         private bool movingToSettlePoint;
         private bool patrolEnabled;
+        private bool hasClaimedSettleDestination;
+        private Vector3 claimedSettleDestination;
 
-        private Vector3? lastLeaderPatrolGridPos;
-        private Vector3? lastLeaderCampGridPos;
-        private float resumeFollowUntil;
         private bool isPatrolCampInitialized;
+        private Vector3 activePatrolCampCenter;
+        private bool returningToLeaderSector;
 
         private CustomNavigationPoint? lastCoverPoint;
         private bool noCoverFound;
@@ -68,22 +79,24 @@ namespace pitTeam.BigBrain.Actions
         public override void Start()
         {
             base.Start();
+            ReleaseSettleDestinationClaim();
             isPathBlocked = false;
             isPatrolCampInitialized = false;
             movingToPatrolPoint = false;
             movingToSettlePoint = false;
             patrolEnabled = false;
+            hasClaimedSettleDestination = false;
+            claimedSettleDestination = Vector3.zero;
 
             nextFollowUpdateAt = 0f;
             nextSettlePointAt = 0f;
-            resumeFollowUntil = 0f;
             holdPositionUntil = 0f;
             nextPatrolUpdateAt = 0f;
+            activePatrolCampCenter = Vector3.zero;
+            returningToLeaderSector = false;
 
             poseCorrected = false;
 
-            lastLeaderPatrolGridPos = null;
-            lastLeaderCampGridPos = null;
             lastCoverPoint = null;
             noCoverFound = false;
 
@@ -132,6 +145,7 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Stop()
         {
+            ReleaseSettleDestinationClaim();
             followerData?.SetBackpackInspectionActive(false);
             base.Stop();
         }
@@ -141,8 +155,8 @@ namespace pitTeam.BigBrain.Actions
             movingToPatrolPoint = false;
             movingToSettlePoint = false;
             patrolEnabled = false;
+            ReleaseSettleDestinationClaim();
             holdPositionUntil = 0f;
-            resumeFollowUntil = 0f;
             isPatrolCampInitialized = false;
             nextPatrolUpdateAt = 0f;
             nextFollowUpdateAt = 0f;
@@ -205,6 +219,7 @@ namespace pitTeam.BigBrain.Actions
             // after combat, looting, or a hold command.
             if (movingToSettlePoint)
             {
+                RefreshSettleDestinationClaim();
                 BotOwner.GoToSomePointData.UpdateToGo(false);
             }
             else if (BotOwner.Mover.TargetPose != 1f && !poseCorrected)
@@ -230,6 +245,8 @@ namespace pitTeam.BigBrain.Actions
                 // hold the existing one. This is patrol stabilization, not combat cover selection.
                 if (isPathBlocked)
                 {
+                    movingToSettlePoint = false;
+                    ReleaseSettleDestinationClaim();
                     BotOwner.StopMove();
                     return;
                 }
@@ -242,12 +259,16 @@ namespace pitTeam.BigBrain.Actions
                 if (coverCommitment.SectorChanged(leaderPosition))
                 {
                     coverCommitment.OnSectorChange(leaderPosition);
+                    movingToSettlePoint = false;
+                    ReleaseSettleDestinationClaim();
                 }
 
                 // Validate committed cover; clear if no longer valid
                 if (coverCommitment.IsCommitted && !coverCommitment.IsCoverStillValid(BotOwner, leaderPosition))
                 {
                     coverCommitment.ClearCommitment();
+                    movingToSettlePoint = false;
+                    ReleaseSettleDestinationClaim();
                 }
 
                 // Determine current strategy
@@ -303,6 +324,7 @@ namespace pitTeam.BigBrain.Actions
                         if (BotOwner.GoToSomePointData.IsCome())
                         {
                             movingToSettlePoint = false;
+                            ReleaseSettleDestinationClaim();
                             BotOwner.StopMove();
                         }
                         return;
@@ -316,6 +338,7 @@ namespace pitTeam.BigBrain.Actions
 
             // OUT OF RANGE: Chase boss
             movingToSettlePoint = false;
+            ReleaseSettleDestinationClaim();
             UpdateFollowPath(leaderPosition);
 
             // Normal follow is allowed to sprint when the boss has opened distance. Once close enough,
@@ -378,6 +401,8 @@ namespace pitTeam.BigBrain.Actions
                 if (!point.IsFreeById(BotOwner.Id)) continue;
                 if (point.IsSpotted) continue;
                 if (!IsSettlePositionClear(point.Position)) continue;
+                if (!IsSettlePathClear(point.Position)) continue;
+                if (HasSettleDestinationClaimConflict(point.Position)) continue;
 
                 // Must be within max distance of boss
                 if ((point.Position - bossPosition).sqrMagnitude > maxBossDist * maxBossDist)
@@ -401,7 +426,16 @@ namespace pitTeam.BigBrain.Actions
                 return distA.CompareTo(distB);
             });
 
-            return validCandidates[0];
+            for (int i = 0; i < validCandidates.Count; i++)
+            {
+                CustomNavigationPoint candidate = validCandidates[i];
+                if (TryReserveSettleDestination(candidate.Position))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         private bool TryGetRandomSettlePoint(Vector3 leaderPosition, float settleDistance, out Vector3 settlePosition)
@@ -419,6 +453,14 @@ namespace pitTeam.BigBrain.Actions
                     settlePosition = default;
                     return false;
                 }
+
+                if (!IsSettlePathClear(navMeshHit.position) ||
+                    !TryReserveSettleDestination(navMeshHit.position))
+                {
+                    settlePosition = default;
+                    return false;
+                }
+
                 settlePosition = navMeshHit.position;
                 return true;
             }
@@ -449,49 +491,185 @@ namespace pitTeam.BigBrain.Actions
             return true;
         }
 
+        private bool IsSettlePathClear(Vector3 destination)
+        {
+            Vector3 start = BotOwner.Position;
+            if ((destination - start).sqrMagnitude <= 0.01f)
+            {
+                return true;
+            }
+
+            if (bossPlayer != null &&
+                IsPointTooCloseToSettlePath(bossPlayer.Transform.position, start, destination))
+            {
+                return false;
+            }
+
+            if (bossData != null)
+            {
+                foreach (BotOwner follower in bossData.Followers)
+                {
+                    if (follower == null || follower == BotOwner || follower.GetPlayer == null || follower.IsDead) continue;
+                    if (IsPointTooCloseToSettlePath(follower.GetPlayer.Transform.position, start, destination))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsPointTooCloseToSettlePath(Vector3 point, Vector3 start, Vector3 end)
+        {
+            return DistancePointToSegmentSqrXZ(
+                point,
+                start,
+                end,
+                SettlePathStartPadding,
+                SettlePathEndPadding) < SettlePathSpacingSqr;
+        }
+
+        private static float DistancePointToSegmentSqrXZ(
+            Vector3 point,
+            Vector3 start,
+            Vector3 end,
+            float startPadding,
+            float endPadding)
+        {
+            Vector2 segment = new Vector2(end.x - start.x, end.z - start.z);
+            float lengthSqr = segment.sqrMagnitude;
+            if (lengthSqr <= 0.001f)
+            {
+                float dx = point.x - start.x;
+                float dz = point.z - start.z;
+                return dx * dx + dz * dz;
+            }
+
+            Vector2 pointFromStart = new Vector2(point.x - start.x, point.z - start.z);
+            float t = Mathf.Clamp01(Vector2.Dot(pointFromStart, segment) / lengthSqr);
+            float length = Mathf.Sqrt(lengthSqr);
+            if (t * length <= startPadding || (1f - t) * length <= endPadding)
+            {
+                return float.MaxValue;
+            }
+
+            float closestX = start.x + segment.x * t;
+            float closestZ = start.z + segment.y * t;
+            float dxToClosest = point.x - closestX;
+            float dzToClosest = point.z - closestZ;
+            return dxToClosest * dxToClosest + dzToClosest * dzToClosest;
+        }
+
+        private bool HasSettleDestinationClaimConflict(Vector3 destination)
+        {
+            return bossData?.CombatEvents.HasDestinationClaimConflict(BotOwner, destination, SettleSpacing) == true;
+        }
+
+        private bool TryReserveSettleDestination(Vector3 destination)
+        {
+            if (!IsSettlePositionClear(destination) ||
+                !IsSettlePathClear(destination) ||
+                HasSettleDestinationClaimConflict(destination))
+            {
+                return false;
+            }
+
+            if (bossData?.CombatEvents.UpsertDestinationClaim(BotOwner, destination, SettleDestinationClaimTtlSeconds) != true)
+            {
+                return false;
+            }
+
+            hasClaimedSettleDestination = true;
+            claimedSettleDestination = destination;
+            return true;
+        }
+
+        private void RefreshSettleDestinationClaim()
+        {
+            if (!hasClaimedSettleDestination)
+            {
+                return;
+            }
+
+            GetCombatEvents()?.UpsertDestinationClaim(BotOwner, claimedSettleDestination, SettleDestinationClaimTtlSeconds);
+        }
+
+        private void ReleaseSettleDestinationClaim()
+        {
+            if (!hasClaimedSettleDestination)
+            {
+                return;
+            }
+
+            GetCombatEvents()?.TryReleaseDestinationClaim(
+                BotOwner,
+                claimedSettleDestination,
+                SettleDestinationClaimReleaseTolerance);
+            hasClaimedSettleDestination = false;
+            claimedSettleDestination = Vector3.zero;
+        }
+
+        private CombatEvents? GetCombatEvents()
+        {
+            return bossData?.CombatEvents ??
+                   (BotOwner?.BotFollower?.BossToFollow as pitAIBossPlayer)?.CombatEvents;
+        }
+
         private void Patrol()
         {
             if (bossPlayer == null || bossData == null) return;
 
-            if (resumeFollowUntil > Time.time)
+            movingToSettlePoint = false;
+            ReleaseSettleDestinationClaim();
+
+            Vector3 leaderPosition = bossPlayer.Transform.position;
+            Vector3 botPosition = BotOwner.GetPlayer.Transform.position;
+            float followDistance = GetEffectiveFollowDistance();
+            Vector3 leaderSector = GetPatrolCampCenter(leaderPosition);
+            Vector3 botSector = GetPatrolCampCenter(botPosition);
+
+            if (followerData == null)
             {
                 Follow();
                 return;
             }
 
-            movingToSettlePoint = false;
+            if (!followerData.TryGetPatrolLeaderSectorAnchor(out Vector3 leaderAnchor))
+            {
+                followerData.SetPatrolLeaderSectorAnchor(leaderSector);
+                activePatrolCampCenter = botSector;
+                isPatrolCampInitialized = true;
+            }
+            else if (leaderAnchor != leaderSector)
+            {
+                followerData.SetPatrolLeaderSectorAnchor(leaderSector);
+                activePatrolCampCenter = leaderSector;
+                returningToLeaderSector = true;
+                isPatrolCampInitialized = false;
+                movingToPatrolPoint = false;
+                holdPositionUntil = 0f;
+            }
 
-            Vector3 leaderPosition = bossPlayer.Transform.position;
-            Vector3 botPosition = BotOwner.GetPlayer.Transform.position;
-            float followDistance = GetEffectiveFollowDistance();
+            if (returningToLeaderSector)
+            {
+                float distanceToLeader = Mathf.Abs((leaderPosition - botPosition).magnitude);
+                if (distanceToLeader >= followDistance)
+                {
+                    Follow(true, distanceToLeader);
+                    return;
+                }
+
+                returningToLeaderSector = false;
+                isPatrolCampInitialized = true;
+                activePatrolCampCenter = leaderSector;
+                movingToPatrolPoint = false;
+                holdPositionUntil = 0f;
+            }
 
             if (!isPatrolCampInitialized)
             {
-                Vector3 leaderGridPosition = new Vector3(
-                    Mathf.Floor(leaderPosition.x / 3f) * 3f,
-                    Mathf.Floor(leaderPosition.y / 3f) * 3f,
-                    Mathf.Floor(leaderPosition.z / 3f) * 3f
-                );
-
-                float distanceToLeader = Mathf.Abs((leaderGridPosition - botPosition).magnitude);
-                bool inRange = distanceToLeader < followDistance;
-
-                if (!inRange)
-                {
-                    Follow(true, distanceToLeader);
-                    resumeFollowUntil = Time.time + 5f;
-                    return;
-                }
-
-                if (lastLeaderPatrolGridPos.HasValue && lastLeaderPatrolGridPos.Value != leaderGridPosition)
-                {
-                    lastLeaderPatrolGridPos = leaderGridPosition;
-                    Follow(true, distanceToLeader);
-                    resumeFollowUntil = Time.time + 5f;
-                    return;
-                }
-
-                lastLeaderPatrolGridPos = leaderGridPosition;
+                activePatrolCampCenter = botSector;
                 isPatrolCampInitialized = true;
             }
 
@@ -499,25 +677,7 @@ namespace pitTeam.BigBrain.Actions
             if (nextPatrolUpdateAt > Time.time) return;
 
             nextPatrolUpdateAt = Time.time + 1.5f;
-            const float campRadius = 30f;
-
-            Vector3 campCenter = new Vector3(
-                Mathf.Floor(leaderPosition.x / campRadius) * campRadius,
-                Mathf.Floor(leaderPosition.y / campRadius) * campRadius,
-                Mathf.Floor(leaderPosition.z / campRadius) * campRadius
-            );
-
-            if (lastLeaderCampGridPos.HasValue && campCenter != lastLeaderCampGridPos.Value)
-            {
-                lastLeaderCampGridPos = null;
-                isPatrolCampInitialized = false;
-                resumeFollowUntil = Time.time + 5f;
-                BotOwner.Mover.SetTargetMoveSpeed(1f);
-                Follow();
-                return;
-            }
-
-            lastLeaderCampGridPos = campCenter;
+            Vector3 campCenter = activePatrolCampCenter;
 
             if (holdPositionUntil > Time.time)
             {
@@ -605,6 +765,17 @@ namespace pitTeam.BigBrain.Actions
             }
         }
 
+        private static Vector3 GetPatrolCampCenter(Vector3 position)
+        {
+            // Match the old camp-sector behavior: snap world position into a fixed grid
+            // cell, then compare cells. Crossing a cell edge can happen before/after
+            // 20m of travel depending on where the player started inside the cell.
+            return new Vector3(
+                Mathf.Floor(position.x / PatrolCampRadius) * PatrolCampRadius,
+                Mathf.Floor(position.y / PatrolCampRadius) * PatrolCampRadius,
+                Mathf.Floor(position.z / PatrolCampRadius) * PatrolCampRadius);
+        }
+
 
         private NavMeshPathStatus GoToPosition(Vector3 position)
         {
@@ -656,9 +827,11 @@ namespace pitTeam.BigBrain.Actions
             {
                 movingToPatrolPoint = false;
                 holdPositionUntil = 0f;
-                resumeFollowUntil = 0f;
                 isPatrolCampInitialized = false;
+                activePatrolCampCenter = Vector3.zero;
+                returningToLeaderSector = false;
                 nextPatrolUpdateAt = 0f;
+                ReleaseSettleDestinationClaim();
             }
         }
 

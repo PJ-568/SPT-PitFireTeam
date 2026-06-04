@@ -158,6 +158,23 @@ namespace pitTeam.BigBrain.Actions
             }
         }
 
+        protected void StopStationaryCombatMovement()
+        {
+            if (BotOwner == null)
+            {
+                return;
+            }
+
+            BotOwner.GoToSomePointData?.SetPoint(BotOwner.Position);
+            BotOwner.GoToSomePointData?.UpdateToGo(false);
+            BotOwner.StopMove();
+
+            if (BotOwner.Mover?.Sprinting == true)
+            {
+                BotOwner.Mover.Sprint(false, false);
+            }
+        }
+
         protected bool StopUnownedGrenadeLauncherFire(string? reason, EnemyInfo? goalEnemy = null)
         {
             if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(reason))
@@ -309,7 +326,11 @@ namespace pitTeam.BigBrain.Actions
                    FollowerCombatCommon.IsUsingAutomaticSecondaryOverNonAutomaticPrimary(BotOwner);
         }
 
-        protected bool WaitForEnemyAimAlignment(ref float startedAt, float maxAngle = 32f, float timeout = 0.12f)
+        protected bool WaitForEnemyAimAlignment(
+            ref float startedAt,
+            float maxAngle = 32f,
+            float timeout = 0.12f,
+            float wayOffAngle = 25f)
         {
             EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
             if (goalEnemy?.Person?.HealthController?.IsAlive != true || !goalEnemy.CanShoot)
@@ -354,15 +375,17 @@ namespace pitTeam.BigBrain.Actions
             }
 
             float alignmentDot = Vector3.Dot(currentLook, toEnemy) / denominator;
-            float requiredDot = Mathf.Cos(maxAngle * Mathf.Deg2Rad);
-            if (alignmentDot >= requiredDot)
+            float alignedDot = Mathf.Cos(maxAngle * Mathf.Deg2Rad);
+            if (alignmentDot >= alignedDot)
             {
                 startedAt = 0f;
                 return false;
             }
 
-            bool keepWaiting = Time.time - startedAt < timeout;
-            if (keepWaiting)
+            float elapsed = Time.time - startedAt;
+            float wayOffDot = Mathf.Cos(wayOffAngle * Mathf.Deg2Rad);
+            bool stillWayOff = alignmentDot < wayOffDot;
+            if (elapsed < timeout || stillWayOff)
             {
                 StopCombatShooting();
                 return true;
@@ -370,6 +393,23 @@ namespace pitTeam.BigBrain.Actions
 
             startedAt = 0f;
             return false;
+        }
+
+        protected bool TryLookTowardCloseUnseenThreat(float maxSourceDistance)
+        {
+            EnemyInfo? goalEnemy = BotOwner?.Memory?.GoalEnemy;
+            if (goalEnemy?.IsVisible == true && goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            if (!FollowerAwareness.TryGetRecentCloseThreatLookPoint(BotOwner, maxSourceDistance, out Vector3 lookPoint))
+            {
+                return false;
+            }
+
+            BotOwner.Steering.LookToPoint(lookPoint);
+            return true;
         }
 
         private Vector3 GetEnemyShootLookPoint(EnemyInfo goalEnemy)

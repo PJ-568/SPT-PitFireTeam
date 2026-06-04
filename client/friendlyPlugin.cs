@@ -155,7 +155,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.1")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.2")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -478,6 +478,12 @@ namespace pitTeam
 
         private void OnDestroy()
         {
+            if (hideUnsupportedCommands != null)
+            {
+                hideUnsupportedCommands.SettingChanged -= OnHideUnsupportedCommandsChanged;
+            }
+
+            GestureMenuUnsupportedCommandVisibility.ClearTrackedMenus();
             BattleRecorder.Shutdown();
         }
 
@@ -799,6 +805,7 @@ namespace pitTeam
             goToDistance = Config.Bind("", "26 GoToDistance", 50, new ConfigDescription(optionsLang.goToDistance["Description"], new AcceptableValueRange<int>(10, 150), CreateConfigAttributes(-1016, false, optionsLang.goToDistance)));
 
             hideUnsupportedCommands = Config.Bind("", "HideUnSupportedCommands", false, new ConfigDescription(optionsLang.hideUnsupportedCommands["Description"], null, CreateConfigAttributes(-1017, false, optionsLang.hideUnsupportedCommands)));
+            hideUnsupportedCommands.SettingChanged += OnHideUnsupportedCommandsChanged;
 
             bool showBattleRecorderSettings = IsDebugBuild;
             battleRecorderEnabled = Config.Bind("Miscellaneous", "27 BattleRecorder", false, new ConfigDescription(optionsLang.battleRecorder["Description"], null, CreateConfigAttributes(-9998, showBattleRecorderSettings, optionsLang.battleRecorder)));
@@ -809,6 +816,11 @@ namespace pitTeam
             Config.SaveOnConfigSet = true;
             Config.Save();
             SyncServerSettings();
+        }
+
+        private void OnHideUnsupportedCommandsChanged(object sender, EventArgs e)
+        {
+            GestureMenuUnsupportedCommandVisibility.RefreshTrackedMenus();
         }
 
         internal static void SyncServerSettingsNow()
