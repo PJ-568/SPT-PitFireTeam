@@ -92,8 +92,13 @@ namespace pitTeam.Components
         private Vector3 _commandTarget;
         private float _commandUntilTime;
         private bool _suppressEnemyRequiresLauncher;
+        private bool _suppressEnemyForceWeapon;
+        private bool _suppressEnemyUseAutomaticSecondary;
         private bool _orderedPushCancelRequested;
         private string? _orderedPushCancelReason;
+        private bool _orderedPushTargetLockActive;
+        private string? _orderedPushTargetProfileId;
+        private Vector3 _orderedPushTargetPosition;
         private bool _holdPositionShouldCrouch = true;
         private bool _resumeHoldAfterComeCloser;
         private bool _resumeHoldAfterTakeLoot;
@@ -1282,6 +1287,21 @@ namespace pitTeam.Components
 
         public void SetSuppressEnemy(float duration, Vector3 orderTarget, bool requireLauncher)
         {
+            SetSuppressEnemy(duration, orderTarget, requireLauncher, forceWeapon: false);
+        }
+
+        public void SetSuppressEnemy(float duration, Vector3 orderTarget, bool requireLauncher, bool forceWeapon)
+        {
+            SetSuppressEnemy(duration, orderTarget, requireLauncher, forceWeapon, useAutomaticSecondary: false);
+        }
+
+        public void SetSuppressEnemy(
+            float duration,
+            Vector3 orderTarget,
+            bool requireLauncher,
+            bool forceWeapon,
+            bool useAutomaticSecondary)
+        {
             if (_activeCommand != FollowerCommandType.None && _activeCommand != FollowerCommandType.SuppressEnemy)
             {
                 ClearCommand($"SetSuppressEnemy:replace({_activeCommand})");
@@ -1291,6 +1311,8 @@ namespace pitTeam.Components
             _commandTarget = orderTarget;
             _commandUntilTime = Time.time + Mathf.Max(4f, duration);
             _suppressEnemyRequiresLauncher = requireLauncher;
+            _suppressEnemyForceWeapon = forceWeapon;
+            _suppressEnemyUseAutomaticSecondary = useAutomaticSecondary;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;
             _resumeHoldAfterTakeLootCrouch = false;
@@ -1622,6 +1644,12 @@ namespace pitTeam.Components
         public bool SuppressEnemyRequiresLauncher =>
             _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyRequiresLauncher;
 
+        public bool SuppressEnemyForceWeapon =>
+            _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyForceWeapon;
+
+        public bool SuppressEnemyUseAutomaticSecondary =>
+            _activeCommand == FollowerCommandType.SuppressEnemy && _suppressEnemyUseAutomaticSecondary;
+
         public void RequestOrderedPushCancel(string reason)
         {
             _orderedPushCancelRequested = true;
@@ -1645,6 +1673,98 @@ namespace pitTeam.Components
             _orderedPushCancelRequested = false;
             _orderedPushCancelReason = null;
             return true;
+        }
+
+        public bool HasOrderedPushTargetLock =>
+            _orderedPushTargetLockActive &&
+            !string.IsNullOrEmpty(_orderedPushTargetProfileId);
+
+        public bool TryGetOrderedPushTargetLock(out string profileId, out Vector3 lastKnownPosition)
+        {
+            profileId = _orderedPushTargetProfileId ?? string.Empty;
+            lastKnownPosition = _orderedPushTargetPosition;
+            return HasOrderedPushTargetLock;
+        }
+
+        public void ActivateOrderedPushTargetLock(EnemyInfo? goalEnemy)
+        {
+            if (goalEnemy == null || string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                ClearOrderedPushTargetLock("activateMissingTarget");
+                return;
+            }
+
+            _orderedPushTargetLockActive = true;
+            _orderedPushTargetProfileId = goalEnemy.ProfileId;
+            _orderedPushTargetPosition = GetOrderedPushTargetPosition(goalEnemy);
+        }
+
+        public void RefreshOrderedPushTargetLock(EnemyInfo? goalEnemy)
+        {
+            if (!HasOrderedPushTargetLock ||
+                goalEnemy == null ||
+                !string.Equals(goalEnemy.ProfileId, _orderedPushTargetProfileId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Vector3 position = GetOrderedPushTargetPosition(goalEnemy);
+            if (IsFinite(position) && position.sqrMagnitude > 0.01f)
+            {
+                _orderedPushTargetPosition = position;
+            }
+        }
+
+        public void RefreshOrderedPushTargetLock(Player target)
+        {
+            if (!HasOrderedPushTargetLock ||
+                target == null ||
+                !string.Equals(target.ProfileId, _orderedPushTargetProfileId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (IsFinite(target.Position) && target.Position.sqrMagnitude > 0.01f)
+            {
+                _orderedPushTargetPosition = target.Position;
+            }
+        }
+
+        public void ClearOrderedPushTargetLock(string reason = "unspecified")
+        {
+            _orderedPushTargetLockActive = false;
+            _orderedPushTargetProfileId = null;
+            _orderedPushTargetPosition = Vector3.zero;
+        }
+
+        private static Vector3 GetOrderedPushTargetPosition(EnemyInfo goalEnemy)
+        {
+            if (IsFinite(goalEnemy.CurrPosition) && goalEnemy.CurrPosition.sqrMagnitude > 0.01f)
+            {
+                return goalEnemy.CurrPosition;
+            }
+
+            if (IsFinite(goalEnemy.EnemyLastPositionReal) && goalEnemy.EnemyLastPositionReal.sqrMagnitude > 0.01f)
+            {
+                return goalEnemy.EnemyLastPositionReal;
+            }
+
+            if (IsFinite(goalEnemy.PersonalLastPos) && goalEnemy.PersonalLastPos.sqrMagnitude > 0.01f)
+            {
+                return goalEnemy.PersonalLastPos;
+            }
+
+            return goalEnemy.Person?.Position ?? Vector3.zero;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         public void SetCombatTacticFromString(string? tactic)
@@ -2053,6 +2173,8 @@ namespace pitTeam.Components
             _commandTarget = Vector3.zero;
             _commandUntilTime = 0f;
             _suppressEnemyRequiresLauncher = false;
+            _suppressEnemyForceWeapon = false;
+            _suppressEnemyUseAutomaticSecondary = false;
             _holdPositionShouldCrouch = true;
             _resumeHoldAfterComeCloser = false;
             _resumeHoldAfterTakeLoot = false;

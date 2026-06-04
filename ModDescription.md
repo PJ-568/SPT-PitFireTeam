@@ -137,8 +137,8 @@ Commands influence teammate behavior but do not force exact actions. teammates w
 - **Go Go Go** - clears the temporary Hold Position combat-aggression override and returns teammates to their saved aggression. Can be applied to an individual teammate by looking at him.
 - **Go Forward** - orders saved teammates with an enemy to focus that enemy as an ordered push objective. They will pressure, move to reachable firing positions, or go in for the kill while still respecting healing, reload, and immediate survival needs. Outside combat, it can send teammates toward the pointed location. Can be applied to an individual teammate by looking at him.
 - **Stop** - stops teammates out of combat without forcing crouch. If the boss moves too far away, teammates resume normal follow behavior. Can be applied to an individual teammate by looking at him.
-- **Suppress** - orders non-Marksman teammates to suppress the current enemy. The teammate must have a suitable suppress-capable weapon: full-auto, a magazine capacity of at least 25 rounds, or a usable grenade launcher. If a follower has a grenade launcher and the shooting lane is safe, he can use it as the suppression method. If ordered without suitable equipment or a safe lane, he will say "negative" and continue normal combat decisions.
-    - Supression order can also tell Rifleman to use grenade launcher if available as secondary weapon. You must be facing the direction of the enemy you want them to suppress for this action to work.
+- **Suppress** - orders teammates to create short pressure on a known enemy position. If you are looking directly at a teammate, only that teammate tries to suppress using his own current enemy or a boss-visible contact. If you are not looking at a teammate, eligible squadmates can suppress together while avoiding teammates who are already shooting, healing, under immediate pressure, or in a close fight. Riflemen are the normal suppression role. A Marksman can join only when no Rifleman is active and he has a loaded automatic second primary.
+    - Riflemen need a suppress-capable weapon: full-auto, a magazine capacity of at least 25 rounds, or a usable grenade launcher in the second primary slot. Squad suppression allows only one grenadier, chosen by position, enemy target, launch lane, and friendly safety. If no safe lane or suitable equipment exists, the teammate can say "negative" and continue normal combat decisions.
 - **On Your Own** - lets teammates spread out and act more independently instead of staying tied to your position. Outside combat, they patrol around you using Patrol Radius. In combat, they fight from their own area or stay near another squadmate instead of constantly trying to return to you.
     - **Regroup** during combat still calls them back to you for that order, but it does not cancel On Your Own. Use **Cover Me** during combat if you want them to start watching your position again. Outside combat, **Cover Me**, **Regroup**, or **Follow Me** returns them to normal follow behavior.
 
@@ -359,7 +359,7 @@ This is not a suicide rush command. Teammates still evaluate danger, cover, relo
 
 #### Suppress
 
-Orders Riflemen to provide suppressive fire.
+Orders teammates to create short pressure on a known enemy position.
 
 Useful for:
 
@@ -368,7 +368,19 @@ Useful for:
 - supporting a push
 - forcing fire through bushes or foliage when bots hesitate to shoot
 
-Marksmen generally ignore suppression because their role is precision support, not volume fire. Riflemen need a weapon that can actually support suppression, such as full-auto fire, enough magazine capacity, or a suitable grenade launcher secondary. If a follower has a grenade launcher and the shooting lane is safe, he can use it as the suppression method. If the teammate does not have appropriate equipment or a safe lane, he can reject the order.
+How to use it:
+
+- Look directly at a teammate before ordering **Suppress** if you want only that teammate to create pressure. Because you are looking at the teammate, he chooses from his own current enemy or from enemies visible to you.
+- Give **Suppress** without looking at a teammate if you want eligible squadmates to suppress together. The squad will avoid interrupting teammates who are already shooting, healing, under immediate pressure, dogfighting, or committed to emergency combat movement.
+- Use it before or during **Go Forward** when you want pressure on an enemy position before Riflemen move.
+
+Riflemen are the main suppression role. They need a weapon that can actually support suppression, such as full-auto fire, at least 25 rounds in the current magazine, or a usable grenade launcher in the second primary slot.
+
+Only one teammate will use a grenade launcher for a squad suppression order. The grenadier is chosen by position, usable enemy target, launch lane, and friendly safety. Launcher suppression checks the target area and will not fire if the impact point or lane is unsafe for you or other teammates.
+
+Marksmen are precision support, not normal suppressors. A Marksman can join squad suppression only when there is no active Rifleman available and he has a loaded automatic second primary weapon. Do not expect a Marksman with only a sniper rifle or DMR to provide useful suppressive fire.
+
+If the teammate does not have appropriate equipment, does not have a usable enemy target, is busy surviving the current fight, or cannot find a safe lane, he can reject the order.
 
 Bushes and dense foliage can make bots hesitate to shoot, especially when SAIN is installed. If a teammate has enemy contact but will not fire through a bush, order **Suppress**. Suppression targets the enemy's known location and can make Riflemen shoot through the foliage; this often wounds or kills the hidden enemy even when normal aimed fire is being delayed.
 
@@ -474,7 +486,7 @@ The mod changes bot grouping, teammate ownership, commands, and combat routing. 
 - SAIN can interfere with teleportation, teleporting the bot back to previous location. You may need to trigger teleportation multiple times for it to stick.
 - Teammates can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix.
 - Teammates may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.
-- Bushes are cursed with SAIN. Teammates can hesitate or refuse to shoot through bushes even when they know where the enemy is. Use **Suppress** with Riflemen to force fire at the enemy location through foliage.
+- Bushes are cursed with SAIN. Teammates can hesitate or refuse to shoot through bushes even when they know where the enemy is. Use **Suppress** with suitable suppression weapons to force fire at the enemy location through foliage.
 - If you have problems with My Squad screen and are not on English lanuage, switch to it, to see if that works. If so, post the issue along with the language that you originally tried.
 
 If a teammate appears stuck, try Attention or teleportation before assuming the raid is unrecoverable.

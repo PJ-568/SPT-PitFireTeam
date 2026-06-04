@@ -163,14 +163,16 @@ namespace pitTeam.BigBrain.Actions
                 target = CorrectCloseThreatSuppressPoint(target.Value);
             }
 
+            bool standingSuppress = IsStandingSuppressReason(reason);
+            if (launcherSuppress || standingSuppress)
+            {
+                BotOwner.SetPose(1f);
+            }
+
             Vector3 fireOrigin = BotOwner.WeaponRoot != null
                 ? BotOwner.WeaponRoot.position
                 : BotOwner.Position + Vector3.up * 1.2f;
             BotOwner.Steering.LookToPoint(target.Value);
-            if (launcherSuppress)
-            {
-                BotOwner.SetPose(1f);
-            }
 
             if (launcherSuppress && FollowerShotSafety.IsFriendlyNearImpact(BotOwner, target.Value, launcherUnsafeRadius))
             {
@@ -280,6 +282,12 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            if (standingSuppress && !CanSuppressFromCurrentPosition(fireOrigin, target.Value))
+            {
+                StopCombatShooting();
+                return;
+            }
+
             if (launcherSuppress && !CanSuppressFromCurrentPosition(fireOrigin, target.Value))
             {
                 StopCombatShooting();
@@ -344,6 +352,12 @@ namespace pitTeam.BigBrain.Actions
         private static float GetLauncherSuppressUnsafeRadius(string? reason)
         {
             return FollowerCombatCommon.IsAutoSuppressReason(reason) ? 18f : 12f;
+        }
+
+        private static bool IsStandingSuppressReason(string? reason)
+        {
+            return reason != null &&
+                   reason.IndexOf(".stand", System.StringComparison.Ordinal) >= 0;
         }
 
         private bool ShouldAbortFinalSuppressShot(

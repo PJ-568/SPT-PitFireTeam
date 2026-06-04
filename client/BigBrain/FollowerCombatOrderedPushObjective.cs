@@ -64,6 +64,8 @@ namespace pitTeam.BigBrain
                 return Hold(rejectReason);
             }
 
+            BossPlayers.Instance?.GetFollower(BotOwner)?.RefreshOrderedPushTargetLock(orderedEnemy);
+
             if (CombatCommon.TryGetReloadRetreatDecision(
                     orderedEnemy,
                     out AICoreActionResultStruct<BotLogicDecision, GClass26> reloadRetreatDecision))

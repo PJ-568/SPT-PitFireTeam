@@ -8,11 +8,14 @@ namespace pitTeam.BigBrain
     {
         internal const string ReasonPrefix = "objectiveSuppress";
         private const string WeaponSwitchToPrimaryReason = "objectiveSuppress.weaponSwitchToPrimary";
+        private const string AutomaticSecondarySwitchReason = "objectiveSuppress.autoSecondarySwitch";
         private const float WeaponSwitchRetrySeconds = 0.25f;
 
         private bool complete;
         private bool launcherFallbackToWeapon;
         private bool negativeSaid;
+        private bool forceWeaponSuppress;
+        private bool useAutomaticSecondarySuppress;
         private float weaponSwitchRetryUntil;
         private FollowerCombatCommon.GrenadeLauncherSuppressPlan? launcherPlan;
 
@@ -28,6 +31,8 @@ namespace pitTeam.BigBrain
             complete = false;
             launcherFallbackToWeapon = false;
             negativeSaid = false;
+            forceWeaponSuppress = false;
+            useAutomaticSecondarySuppress = false;
             weaponSwitchRetryUntil = 0f;
             launcherPlan = null;
         }
@@ -37,10 +42,12 @@ namespace pitTeam.BigBrain
             Activate(requireLauncher: false);
         }
 
-        public void Activate(bool requireLauncher)
+        public void Activate(bool requireLauncher, bool forceWeapon = false, bool useAutomaticSecondary = false)
         {
             Reset();
             _ = requireLauncher;
+            forceWeaponSuppress = forceWeapon;
+            useAutomaticSecondarySuppress = useAutomaticSecondary;
             ClearObjectiveCommitments();
         }
 
@@ -87,10 +94,16 @@ namespace pitTeam.BigBrain
                 return healDecision.Value;
             }
 
-            if (!launcherFallbackToWeapon &&
+            if (!forceWeaponSuppress &&
+                !launcherFallbackToWeapon &&
                 TryGetLauncherDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> launcherDecision))
             {
                 return launcherDecision;
+            }
+
+            if (TryGetAutomaticSecondarySwitchDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> switchDecision))
+            {
+                return switchDecision;
             }
 
             if (CombatCommon.TryCreateOrderedSuppressWeaponFallbackDecision(
@@ -185,7 +198,8 @@ namespace pitTeam.BigBrain
 
             if (currentDecision.Action == BotLogicDecision.holdPosition)
             {
-                if (string.Equals(currentDecision.Reason, WeaponSwitchToPrimaryReason, StringComparison.Ordinal))
+                if (string.Equals(currentDecision.Reason, WeaponSwitchToPrimaryReason, StringComparison.Ordinal) ||
+                    string.Equals(currentDecision.Reason, AutomaticSecondarySwitchReason, StringComparison.Ordinal))
                 {
                     if (Time.time >= weaponSwitchRetryUntil)
                     {
@@ -256,6 +270,34 @@ namespace pitTeam.BigBrain
             launcherFallbackToWeapon = true;
             CombatCommon.PrepareLauncherSuppressWeaponFallback();
             return false;
+        }
+
+        private bool TryGetAutomaticSecondarySwitchDecision(
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!useAutomaticSecondarySuppress ||
+                CombatCommon.CanCurrentWeaponSuppress() ||
+                !CombatCommon.HasLoadedAutomaticSecondaryForPush())
+            {
+                return false;
+            }
+
+            if (!CombatCommon.TrySwitchToAutomaticSecondaryForPush(out bool changedToSecondary))
+            {
+                return false;
+            }
+
+            if (!changedToSecondary)
+            {
+                return false;
+            }
+
+            weaponSwitchRetryUntil = Time.time + WeaponSwitchRetrySeconds;
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.holdPosition,
+                AutomaticSecondarySwitchReason);
+            return true;
         }
 
         private static bool IsLauncherMoveReason(string? reason)

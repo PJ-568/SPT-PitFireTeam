@@ -522,7 +522,7 @@ namespace pitTeam.BigBrain
             return true;
         }
 
-        private static bool IsLowCapacityAutoPushWeapon(Weapon activeWeapon, MagazineItemClass? magazine)
+        private bool IsLowCapacityAutoPushWeapon(Weapon activeWeapon, MagazineItemClass? magazine)
         {
             int magazineCapacity = magazine?.MaxCount ?? activeWeapon.GetMaxMagazineCount();
             if (magazineCapacity <= 0 || magazineCapacity >= StandardAutoPushMagazineCapacity)
@@ -531,6 +531,13 @@ namespace pitTeam.BigBrain
             }
 
             if (FollowerCombatCommon.IsShotgunWeapon(activeWeapon))
+            {
+                return false;
+            }
+
+            // A smaller magazine is not the same as low remaining ammo for full-auto weapons.
+            // Loaded ammo quality and target armor are handled by the ammo-profile threat policy.
+            if (FollowerCombatCommon.IsAutomaticWeapon(activeWeapon))
             {
                 return false;
             }

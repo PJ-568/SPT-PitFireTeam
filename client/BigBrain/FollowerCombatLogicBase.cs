@@ -64,7 +64,9 @@ namespace pitTeam.BigBrain
 
         public virtual void Reset()
         {
-            BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            followerData?.SetCombatRegroupBossAnchor(false);
+            followerData?.ClearOrderedPushTargetLock("CombatLogic:Reset");
             combatCommon.Reset();
             defaultObjective.Reset();
             sniperObjective.Reset();
@@ -150,7 +152,7 @@ namespace pitTeam.BigBrain
                 goalEnemy != null &&
                 ShouldConsumeSuppressCommand(followerData, goalEnemy))
             {
-                if (!combatCommon.CanCurrentWeaponSuppressOrUseGrenadeLauncher())
+                if (!CanSatisfySuppressionOrder(followerData))
                 {
                     followerData?.ClearCommand("CombatObjective:RejectSuppressionWeapon");
                     BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
@@ -501,6 +503,7 @@ namespace pitTeam.BigBrain
 
         private void ActivateRegroupObjective(BotFollowerPlayer followerData)
         {
+            followerData.ClearOrderedPushTargetLock("CombatObjective:Regroup");
             followerData.ClearCommand("CombatObjective:ConsumeRegroup");
             ActivateRegroupObjective(forceReset: true, "activateRegroupOrder");
             followerData.SetCombatRegroupBossAnchor(true);
@@ -515,6 +518,7 @@ namespace pitTeam.BigBrain
             }
 
             followerData.ClearCommand("CombatObjective:ConsumePush");
+            followerData.ActivateOrderedPushTargetLock(goalEnemy);
             orderedPushObjective.Activate(goalEnemy);
             currentObjective = CombatObjectiveKind.OrderedPush;
             BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateOrderedPush");
@@ -536,13 +540,14 @@ namespace pitTeam.BigBrain
 
         private void ActivateSuppressionObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)
         {
+            followerData.ClearOrderedPushTargetLock("CombatObjective:Suppression");
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
             {
                 followerData.ClearCommand("CombatObjective:RejectSuppression");
                 return;
             }
 
-            if (!combatCommon.CanCurrentWeaponSuppressOrUseGrenadeLauncher())
+            if (!CanSatisfySuppressionOrder(followerData))
             {
                 followerData.ClearCommand("CombatObjective:RejectSuppressionWeapon");
                 BotOwner.BotTalk?.TrySay(EPhraseTrigger.Negative, false);
@@ -552,30 +557,46 @@ namespace pitTeam.BigBrain
 
             Vector3 suppressTarget = Vector3.zero;
             bool suppressRequiresLauncher = false;
+            bool suppressForceWeapon = false;
+            bool suppressUseAutomaticSecondary = false;
             if (followerData.TryPeekActiveCommand(out FollowerCommandType command, out Vector3 target, out _) &&
                 command == FollowerCommandType.SuppressEnemy)
             {
                 suppressTarget = target;
                 suppressRequiresLauncher = followerData.SuppressEnemyRequiresLauncher;
+                suppressForceWeapon = followerData.SuppressEnemyForceWeapon;
+                suppressUseAutomaticSecondary = followerData.SuppressEnemyUseAutomaticSecondary;
             }
 
             followerData.ClearCommand("CombatObjective:ConsumeSuppression");
             if (currentObjective != CombatObjectiveKind.Suppression)
             {
-                suppressionObjective.Activate(suppressRequiresLauncher);
+                suppressionObjective.Activate(suppressRequiresLauncher, suppressForceWeapon, suppressUseAutomaticSecondary);
                 currentObjective = CombatObjectiveKind.Suppression;
                 BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateSuppression");
             }
             else
             {
-                suppressionObjective.Activate(suppressRequiresLauncher);
+                suppressionObjective.Activate(suppressRequiresLauncher, suppressForceWeapon, suppressUseAutomaticSecondary);
             }
 
             combatCommon.SetOrderedSuppressTarget(suppressTarget);
         }
 
+        private bool CanSatisfySuppressionOrder(BotFollowerPlayer? followerData)
+        {
+            if (combatCommon.CanCurrentWeaponSuppressOrUseGrenadeLauncher())
+            {
+                return true;
+            }
+
+            return followerData?.SuppressEnemyUseAutomaticSecondary == true &&
+                   combatCommon.HasLoadedAutomaticSecondaryForPush();
+        }
+
         private void ActivateNeedSniperObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)
         {
+            followerData.ClearOrderedPushTargetLock("CombatObjective:NeedSniper");
             if (ShouldRejectNeedSniperObjective(goalEnemy))
             {
                 followerData.ClearCommand("CombatObjective:RejectNeedSniper");
@@ -614,6 +635,11 @@ namespace pitTeam.BigBrain
             if (currentObjective == CombatObjectiveKind.Default)
             {
                 return;
+            }
+
+            if (currentObjective == CombatObjectiveKind.OrderedPush)
+            {
+                BossPlayers.Instance?.GetFollower(BotOwner)?.ClearOrderedPushTargetLock($"CombatObjective:{reason}");
             }
 
             regroupObjective.Deactivate();

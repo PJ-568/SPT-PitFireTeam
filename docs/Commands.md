@@ -518,17 +518,17 @@ Command state:
 
 Targeting:
 
-- Optional focused follower if boss is looking at one; otherwise nearest valid Rifleman/default follower to the boss wins.
-- Rifleman/default only; marksman followers are skipped.
-- Requires a suppress-capable current weapon or a usable second-primary grenade launcher.
-- Ensures a target by using the follower's current enemy, boss-visible enemies, or boss order-ray launcher targets.
-- One additional Rifleman/default can also receive the order when it has a usable second-primary grenade launcher and is within `80m` of a hostile target on the boss order ray. This secondary order is launcher-preferred; if the launcher cannot support, the suppression objective falls back to primary weapon suppression before giving up.
+- If the boss is looking at a follower, only that follower receives the order and chooses from its own current enemy or boss-visible contact; the boss look ray is not reused as a launcher target.
+- If no follower is focused, eligible followers may suppress together, but the boss skips followers already healing, under immediate fire pressure, actively shooting, dogfighting, or moving/fighting in an emergency.
+- Squad suppression allows no more than one grenadier. The selected grenadier is scored by usable hostile target distance, direct launch lane, friendly impact safety, and friendly lane safety.
+- Rifleman/default followers use suppress-capable current weapons. Marksman followers only join squad suppression when there is no active Rifleman/default in the squad and the marksman has a loaded automatic second primary.
+- Ensures a target by using the follower's current enemy, boss-visible enemies, or, for unfocused launcher selection only, boss order-ray launcher targets within `120m`.
 
 Core behavior:
 
 - `FollowerPmcCombatLogic` marks `SuppressEnemy` consumable.
 - `FollowerCombatLogicBase` validates weapon/enemy and activates `FollowerCombatSuppressionObjective`.
-- The objective tries dogfight/heal first, then launcher support from the current position or a suppress-from point, then primary weapon suppression from the current position or a suppress-from point.
+- The objective tries dogfight/heal first, then launcher support from the current position or a suppress-from point, then weapon suppression from the current position or a suppress-from point. Marksman fallback suppression can switch to a loaded automatic second primary before planning the weapon burst.
 - Suppression can use obstructed known-point suppression when explicitly ordered, subject to shot safety.
 - If no launcher or primary support action can be created, the follower answers `Negative`.
 - Command is cleared on consume, rejection, completion, missing enemy/target, blocked lane, or weapon rejection.

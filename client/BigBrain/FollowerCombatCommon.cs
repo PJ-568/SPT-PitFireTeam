@@ -1700,6 +1700,8 @@ namespace pitTeam.BigBrain
                    ContainsCaliber(caliber, "762x39") ||
                    ContainsCaliber(caliber, "762x51") ||
                    ContainsCaliber(caliber, "762x54") ||
+                   ContainsCaliber(caliber, "68x51") ||
+                   ContainsCaliber(caliber, "6.8x51") ||
                    ContainsCaliber(caliber, "300Blackout") ||
                    ContainsCaliber(caliber, "9x39") ||
                    ContainsCaliber(caliber, "366TKM");
@@ -2679,9 +2681,7 @@ namespace pitTeam.BigBrain
             }
 
             ShootPointClass shootPoint = new ShootPointClass(suppressTarget, 1f);
-            Vector3 fireOrigin = botOwner.WeaponRoot != null
-                ? botOwner.WeaponRoot.position
-                : botOwner.Position + Vector3.up * 1.2f;
+            Vector3 fireOrigin = GetCurrentSuppressionFireOrigin(botOwner);
 
             if (Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, botOwner.LookSensor.Mask, false) &&
                 !FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, fireOrigin, suppressTarget) &&
@@ -2691,6 +2691,20 @@ namespace pitTeam.BigBrain
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.suppressFire,
                     $"{reasonPrefix}.place");
+                return true;
+            }
+
+            Vector3 standingOrigin = GetStandingSuppressionFireOrigin(botOwner);
+            if ((standingOrigin - fireOrigin).sqrMagnitude > 0.04f &&
+                Utils.Utils.CanShootToTarget(shootPoint, standingOrigin, botOwner.LookSensor.Mask, false) &&
+                !FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, standingOrigin, suppressTarget) &&
+                botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
+            {
+                botOwner.SetPose(1f);
+                botOwner.Steering.LookToPoint(suppressTarget);
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    $"{reasonPrefix}.standPlace");
                 return true;
             }
 
@@ -2714,6 +2728,20 @@ namespace pitTeam.BigBrain
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                     BotLogicDecision.suppressFire,
                     $"{reasonPrefix}.softObstructedPlace");
+                return true;
+            }
+
+            if (allowObstructedSuppression &&
+                (standingOrigin - fireOrigin).sqrMagnitude > 0.04f &&
+                IsSoftObstructedSuppressionLane(standingOrigin, suppressTarget, botOwner.LookSensor.Mask) &&
+                !FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, standingOrigin, suppressTarget) &&
+                botOwner.SuppressShoot.InitToPoint(suppressTarget, null))
+            {
+                botOwner.SetPose(1f);
+                botOwner.Steering.LookToPoint(suppressTarget);
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    $"{reasonPrefix}.standSoftObstructedPlace");
                 return true;
             }
 
@@ -3734,8 +3762,8 @@ namespace pitTeam.BigBrain
                         return false;
                     }
 
-                    bool hasDirectLane = Utils.Utils.CanShootToTarget(shootPoint, point.Position, botOwner.LookSensor.Mask, false);
                     Vector3 fireOrigin = point.Position + Vector3.up * 1.2f;
+                    bool hasDirectLane = Utils.Utils.CanShootToTarget(shootPoint, fireOrigin, botOwner.LookSensor.Mask, false);
                     if (!hasDirectLane &&
                         (!allowSoftFoliageLane ||
                          !IsSoftObstructedSuppressionLane(fireOrigin, suppressTarget, botOwner.LookSensor.Mask)))
@@ -3754,6 +3782,25 @@ namespace pitTeam.BigBrain
 
             suppressFrom = cover;
             return true;
+        }
+
+        private static Vector3 GetCurrentSuppressionFireOrigin(BotOwner owner)
+        {
+            if (owner == null)
+            {
+                return Vector3.zero;
+            }
+
+            return owner.WeaponRoot != null
+                ? owner.WeaponRoot.position
+                : owner.Position + Vector3.up * 1.2f;
+        }
+
+        private static Vector3 GetStandingSuppressionFireOrigin(BotOwner owner)
+        {
+            return owner != null
+                ? owner.Position + Vector3.up * StandingCoverShotProbeHeight
+                : Vector3.zero;
         }
 
         public bool TryGetSuppressTarget(EnemyInfo goalEnemy, out Vector3 suppressTarget)
@@ -8398,9 +8445,14 @@ namespace pitTeam.BigBrain
 
         public bool HasLoadedAutomaticSecondaryForPush()
         {
-            Weapon? primaryWeapon = GetFirstPrimaryWeapon(botOwner);
-            Weapon? secondaryWeapon = GetSecondPrimaryWeapon(botOwner);
-            return IsAutomaticSecondaryUsableForPushCached(primaryWeapon, secondaryWeapon);
+            return HasLoadedAutomaticSecondaryForPush(botOwner);
+        }
+
+        public static bool HasLoadedAutomaticSecondaryForPush(BotOwner? owner)
+        {
+            Weapon? primaryWeapon = GetFirstPrimaryWeapon(owner);
+            Weapon? secondaryWeapon = GetSecondPrimaryWeapon(owner);
+            return IsAutomaticSecondaryUsableForPush(primaryWeapon, secondaryWeapon);
         }
 
         public bool TrySwitchToAutomaticSecondaryForShotgunDistance()

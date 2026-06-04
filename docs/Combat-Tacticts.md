@@ -21,7 +21,7 @@ Core combat is objective-routed.
 - Shared state and primitives live in `FollowerCombatCommon`.
 - Push selection and push commitment live in `FollowerCombatPush`.
 
-Objective ownership matters: heal, dogfight, grenade, and immediate fire can interrupt the current objective, but they do not automatically change the owning objective. Explicit combat regroup activates the regroup objective. Explicit suppression activates the suppression objective for Rifleman/default followers. Explicit Need Sniper activates the marksman support objective for Marksman followers. Explicit push returns control to the active tactic's primary objective and lets that tactic build a push plan.
+Objective ownership matters: heal, dogfight, grenade, and immediate fire can interrupt the current objective, but they do not automatically change the owning objective. Explicit combat regroup activates the regroup objective. Explicit suppression activates the suppression objective for eligible followers: Rifleman/default followers by default, and Marksman followers only for the automatic-secondary fallback case. Explicit Need Sniper activates the marksman support objective for Marksman followers. Explicit push returns control to the active tactic's primary objective and lets that tactic build a push plan.
 
 ## Boss Combat Commands
 
@@ -30,7 +30,7 @@ Combat command state lives on `BotFollowerPlayer` and is intentionally separate 
 - `EPhraseTrigger.HoldPosition` applies a temporary `0%` effective combat-aggression override in combat.
 - `EPhraseTrigger.Gogogo` clears that temporary override and returns each follower to its saved aggression.
 - `EPhraseTrigger.GoForward` becomes `PushEnemy` when the follower has an active combat enemy.
-- `EPhraseTrigger.Suppress` becomes `SuppressEnemy` for Rifleman/default combat.
+- `EPhraseTrigger.Suppress` becomes `SuppressEnemy` for focused followers or eligible squad suppressors.
 - `EPhraseTrigger.NeedSniper` becomes `NeedSniper` for Marksman combat.
 - `EPhraseTrigger.NeedHelp` fakes a boss-under-attack event against the closest valid enemy.
 - Core combat reads `EffectiveCombatAggression` through `FollowerCombatCommon.GetAggression01()`.
@@ -93,12 +93,15 @@ Marksman behavior:
 
 ### Suppression Order
 
-Combat `Suppress` becomes `SuppressEnemy` and is consumed by `FollowerCombatSuppressionObjective` for Rifleman/default followers.
+Combat `Suppress` becomes `SuppressEnemy` and is consumed by `FollowerCombatSuppressionObjective` for eligible followers.
 
 Objective behavior:
 
-- The boss order is not broadcast to every Rifleman. The boss selects the nearest active Rifleman/default follower that can prepare a suppression target, measured by distance to the boss.
-- One additional Rifleman/default follower may also receive the order only when that follower has a usable grenade launcher in the second primary slot and is within `80m` of a hostile target on the boss order ray. This second follower is launcher-preferred; if launcher setup fails, it falls back into primary weapon suppression before giving up.
+- If the boss is looking at a follower, only that follower receives the order. Because the boss is looking at the follower rather than the enemy, the follower chooses from its current enemy or boss-visible contact instead of using the boss look ray as the suppress target.
+- If no follower is focused, the order can fan out to eligible suppressors instead of picking only the nearest Rifleman/default.
+- Squad suppression skips followers already healing, recently damaged, under fire, dogfighting, actively shooting, in close visible contact, or already committed to emergency/fight movement.
+- Squad suppression allows no more than one grenadier. The grenadier is chosen from launcher-capable Rifleman/default followers by usable hostile target distance, direct launch lane, friendly impact safety, and friendly lane safety. Boss order-ray launcher targets are considered within `120m`; boss-visible contacts are a fallback for scoring.
+- Rifleman/default followers suppress with suppress-capable current weapons. If there is no active Rifleman/default in the squad, a Marksman with a loaded automatic second primary may join squad suppression and can switch to that secondary for the ordered burst.
 - The command is consumed into an objective, like regroup, so it is not polled inside the normal Default decision tree.
 - It does not interrupt active healing or an already active fight action; it waits until that action's normal end logic allows a switch.
 - It targets the current enemy's best known shoot/suppress point.
