@@ -8564,6 +8564,8 @@ namespace pitTeam.BigBrain
                 return true;
             }
 
+            // Patrol does not pre-reload launchers, but combat launcher suppression can still
+            // proceed when EFT sees compatible ammo and can perform its normal reload path.
             return owner?.WeaponManager?.SecondWeaponInfo?.CheckHaveAmmoForReload() == true;
         }
 

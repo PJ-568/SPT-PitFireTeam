@@ -526,9 +526,7 @@ namespace pitTeam.BigBrain
 
         private static bool IsImmediateVisibleSelfDefenseThreat(EnemyInfo goalEnemy)
         {
-            return goalEnemy.IsVisible &&
-                   goalEnemy.CanShoot &&
-                   goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance();
+            return FollowerImmediateFirePolicy.IsLocalSelfDefenseThreat(goalEnemy);
         }
 
         private static bool IsFinite(Vector3 value)

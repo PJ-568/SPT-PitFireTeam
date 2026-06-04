@@ -270,13 +270,21 @@ For a stable beginner squad:
 
 ### Important Combat Advice
 
-Do not constantly pull teammates back toward you while they are actively fighting another enemy.
+Do not constantly pull teammates back toward you while they are already fighting another enemy. In fights with multiple enemies, this can disrupt their current engagement and make combat unstable, because their enemy priority keeps changing.
 
-In fights with multiple enemies, you can accidentally disrupt their current engagement and create unstable combat behavior as enemy priorities constantly change.
+The default squad style is that you create opportunities for your teammates to fight while you provide support. Use **Status Report** often to keep track of the squad. Your own play should usually be more defensive and less aggressive than your Riflemen. Use enemy markers, callouts, and angles instead of crowding the fight.
 
-The default squad style is that you create opportunities for your teammates to engage while you provide support. Use **Status Report** often to keep track of the squad. Your own play should generally be more defensive and less aggressive than your Riflemen, using enemy markers and callouts to set up angles instead of crowding the fight. If you play too aggressively, teammates may collapse onto your position to protect or rescue you, which can create crowding and friendly-fire risk. Use **On Your Own** in combat when you want them to fight independently of your situation. Use **Need Help** to temporarily pull squad attention back to a threat near you, and **Cover Me** when you want them to stop independent behavior and care about your protection again.
+If you play too aggressively, teammates may collapse onto your position to protect or rescue you. This can create crowding, blocked lines of fire, and friendly-fire risk.
 
-Use **Go Forward** when you want Riflemen to take ownership of the current enemy instead of waiting for you to advance or create another opening. This is a good tactic when an enemy is known, pinned, wounded, isolated, or holding an angle you do not want to personally cross. The ordered teammate keeps that enemy as the objective and works from reachable pressure points until the target dies, becomes unrecoverable, or another explicit order changes the priority. This can let you stay back, cover another lane, heal, loot, or manage the raid while the squad takes care of the fight.
+Use **On Your Own** in combat when you want teammates to fight independently of your situation.
+
+Use **Need Help** when you want to temporarily pull squad attention toward a threat near you.
+
+Use **Cover Me** when you want them to stop acting independently and care about protecting you again.
+
+Use **Go Forward** when you want Riflemen to take ownership of the current enemy instead of waiting for you to advance or create another opening. This is useful when an enemy is known, pinned, wounded, isolated, or holding an angle you do not want to cross yourself.
+
+The ordered teammate will keep that enemy as the objective and work from reachable pressure points until the target dies, becomes unreachable, or another explicit order changes the priority. This lets you stay back, cover another lane, heal, loot, or manage the raid while the squad handles the fight.
 
 Teammates generally perform better when:
 

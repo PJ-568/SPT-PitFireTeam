@@ -688,7 +688,7 @@ namespace pitTeam.BigBrain
             // Chamber/OnlyBarrel support weapons do not always report magazine-style reload counts.
             if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
             {
-                // Chamber, revolver, launcher, shotgun, and internal-mag weapons rely on EFT's normal
+                // Chamber, revolver, shotgun, and internal-mag weapons rely on EFT's normal
                 // reload path once compatible loose ammo exists.
                 return FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(BotOwner, currentWeapon);
             }
@@ -969,6 +969,13 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (IsLauncherWeapon(weapon))
+            {
+                // EFT's launcher reload checks can trigger automatic weapon switching when a
+                // one-shot launcher cannot reload. Launcher use stays owned by combat objectives.
+                return false;
+            }
+
             // External-mag weapons are allowed to reload only through a prepared better magazine.
             // Other reload modes only need compatible loose ammo and then use EFT's normal reload.
             if (HasBetterMagazine(botOwner, weapon))
@@ -1042,7 +1049,7 @@ namespace pitTeam.BigBrain
                     IsLauncherWeapon(weapon) ||
                     weapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
                 {
-                    // Chamber/internal weapons have no magazine top-off stage; their normal reload consumes loose ammo.
+                    // Chamber/internal non-launcher weapons have no magazine top-off stage; their normal reload consumes loose ammo.
                     continue;
                 }
 

@@ -1,6 +1,7 @@
 using EFT;
 using pitTeam.Components;
 using pitTeam.Modules;
+using pitTeam.Utils;
 using System;
 
 namespace pitTeam.BigBrain
@@ -97,6 +98,14 @@ namespace pitTeam.BigBrain
                 return Hold("healPending");
             }
 
+            if (TryGetRecoveryDecision(
+                    orderedEnemy,
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> recoveryDecision))
+            {
+                combatPush.ClearCommittedPush("orderedPushRecovery");
+                return recoveryDecision;
+            }
+
             if (CombatCommon.HasCommittedPosition(
                     out AICoreActionResultStruct<BotLogicDecision, GClass26> pressureHoldDecision))
             {
@@ -166,9 +175,7 @@ namespace pitTeam.BigBrain
 
             if (currentGoalEnemy?.Person?.HealthController?.IsAlive == true &&
                 !string.Equals(currentGoalEnemy.ProfileId, targetProfileId, StringComparison.Ordinal) &&
-                currentGoalEnemy.IsVisible &&
-                currentGoalEnemy.CanShoot &&
-                currentGoalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance())
+                FollowerImmediateFirePolicy.IsLocalSelfDefenseThreat(currentGoalEnemy))
             {
                 orderedEnemy = currentGoalEnemy;
                 return true;
@@ -185,6 +192,73 @@ namespace pitTeam.BigBrain
             }
 
             return true;
+        }
+
+        private bool TryGetRecoveryDecision(
+            EnemyInfo orderedEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (BotOwner.Memory.IsInCover)
+            {
+                return false;
+            }
+
+            bool pressured =
+                BotOwner.Memory.IsUnderFire ||
+                FollowerCombatCommon.WasHitRecently(BotOwner, 1f) ||
+                FollowerAwareness.WasRecentlyDamaged(BotOwner);
+            if (!pressured)
+            {
+                return false;
+            }
+
+            if (FollowerImmediateFirePolicy.IsLocalSelfDefenseThreat(orderedEnemy))
+            {
+                return false;
+            }
+
+            if (CombatCommon.HasCommittedPosition(out decision))
+            {
+                return true;
+            }
+
+            if (CombatCommon.HasCommittedCover() && CombatCommon.IsBotInCommittedCover())
+            {
+                CombatCommon.ArmCommittedArrivalHold("orderedPushRecovery");
+                if (CombatCommon.HasCommittedPosition(out decision))
+                {
+                    return true;
+                }
+
+                CombatCommon.HoldCoverForMaxDuration();
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.holdPosition,
+                    "objectivePush.recoveryCoverHold");
+                return true;
+            }
+
+            bool requireShootLane = orderedEnemy.IsVisible && orderedEnemy.CanShoot;
+            if (CombatCommon.TryCommitCombatCover(
+                    orderedEnemy,
+                    requireShootLane,
+                    CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(),
+                    out string coverReason,
+                    avoidBossFireLane: true))
+            {
+                decision = CombatCommon.CreateMoveToCommittedCoverDecision($"objectivePush.recovery.{coverReason}");
+                return true;
+            }
+
+            if (orderedEnemy.IsVisible && orderedEnemy.CanShoot)
+            {
+                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.suppressFire,
+                    "objectivePush.recoveryNoCoverSuppress");
+                return true;
+            }
+
+            return false;
         }
 
         private static AICoreActionResultStruct<BotLogicDecision, GClass26> MarkOrderedPushDecision(

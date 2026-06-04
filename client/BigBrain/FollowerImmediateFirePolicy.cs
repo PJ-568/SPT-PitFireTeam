@@ -1,4 +1,5 @@
 using EFT;
+using pitTeam.Modules;
 using pitTeam.Utils;
 using UnityEngine;
 
@@ -62,6 +63,15 @@ namespace pitTeam.BigBrain
             }
 
             return false;
+        }
+
+        public static bool IsLocalSelfDefenseThreat(EnemyInfo goalEnemy)
+        {
+            return goalEnemy != null &&
+                   goalEnemy.IsVisible &&
+                   goalEnemy.CanShoot &&
+                   (goalEnemy.Distance <= CombatDistanceConfiguration.Instance.GetCloseQuarterDistance() ||
+                    HasReliableImmediateFireLane(goalEnemy.Owner, goalEnemy));
         }
 
         public static bool HasDirectFireLane(BotOwner botOwner, Vector3 target)
