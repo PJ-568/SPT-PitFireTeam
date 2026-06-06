@@ -346,6 +346,7 @@ Current behavior:
 - Heal completion refreshes movement penalties without restoring full max health.
 - The explicit force-heal hotkey restores body-part health and clears active light/heavy bleeding effects.
 - First-aid refresh corrects vanilla med selection for active bleeding: if the selected med advertises bleed treatment but lacks enough remaining resource for the bleed-removal cost, followers prefer another usable med instead of looping the depleted one.
+- Out of combat, patrol healing tops off recoverable missing limb HP even after vanilla first aid considers the limb above its combat heal threshold. This still uses real first-aid items and does not run while a visible/active enemy, bleeding, or surgery work is present.
 - When retreating to heal but sprint/mobility is poor, recent contact can choose visible fire or suppression instead of walking with no pressure.
 
 Heal-cover exception: arriving at heal cover hands off to healing instead of normal cover hold.
@@ -438,9 +439,7 @@ Regroup movement also has its own short commitment so the bot does not recalcula
 
 The battle recorder is separate from normal plugin logging.
 
-It records combat-only JSONL timelines under:
-
-`E:\SPTarkov\BepInEx\plugins\pitFireTeam\BattleRecords`
+It records combat-only JSONL timelines under the live client plugin folder's `BattleRecords/` directory. See `LOCAL.md` for the machine-local live client plugin folder.
 
 It is intended to compare observed behavior with code behavior:
 

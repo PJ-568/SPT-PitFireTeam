@@ -155,7 +155,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.2")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.3")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -309,9 +309,12 @@ namespace pitTeam
             new TeammateBackpackChangedContainerPatch().Enable();
             new TeammateBackpackObserverStatePatch().Enable();
             new TeammateBackpackExaminedPatch().Enable();
+            new TeammateBackpackKnownItemPatch().Enable();
+            new TeammateBackpackSearchedItemPatch().Enable();
+            new TeammateBackpackUnknownContentsPatch().Enable();
             new TeammateBackpackSimpleStashLabelPatch().Enable();
-            new TeammateCorpseContainersPanelDogtagPatch().Enable();
-            new TeammateCorpseEquipmentTabDogtagPatch().Enable();
+            new TeammateCorpseContainersPanelSearchPatch().Enable();
+            new TeammateCorpseEquipmentTabSearchPatch().Enable();
             new TeammateCorpseDogtagMovePatch().Enable();
             new FollowerBotReceiverHardAimIgnorePatch().Enable();
             new FollowerBotReceiverTiltIgnorePatch().Enable();

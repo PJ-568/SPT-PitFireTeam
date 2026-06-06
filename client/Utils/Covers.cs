@@ -2,7 +2,6 @@ using EFT;
 using pitTeam.Components;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -46,7 +45,7 @@ namespace pitTeam.Utils
             {
                 return extraChecks == null ? true : extraChecks(point);
 
-            }, CombatFriendSpacing, friendsPositions.ToArray());
+            }, CombatFriendSpacing, friendsPositions);
 
             botOwner.Memory.SetCoverPoints(pt);
 
@@ -72,9 +71,9 @@ namespace pitTeam.Utils
                 // ensure point is between the two points
                 if (!IsPointBetween(point.Position, pointA, pointB)) return false;
                 // ensure point is not too close to teammates to avoid clustering
-                if (!Utils.IsDangerPositionFarEnough(point.Position, friendsPositions, CombatFriendSpacing * CombatFriendSpacing)) return false;
+                if (!IsFarEnoughFromPositions(point.Position, friendsPositions, CombatFriendSpacing * CombatFriendSpacing)) return false;
                 // ensure point is not too close to the enemy
-                if (!Utils.IsDangerPositionFarEnough(point.Position, new Vector3[] { shootPointClass.Point }, safeDistance * safeDistance)) return false;
+                if ((point.Position - shootPointClass.Point).sqrMagnitude < safeDistance * safeDistance) return false;
 
                 if (eligibilityCheck != null && !eligibilityCheck(point.GroupPoint)) return false;
 
@@ -131,7 +130,7 @@ namespace pitTeam.Utils
                 }
 
                 return eligibilityCheck == null || eligibilityCheck(point);
-            }, CombatFriendSpacing, friendsPositions.ToArray());
+            }, CombatFriendSpacing, friendsPositions);
 
             botOwner.Memory.SetCoverPoints(pt);
 
@@ -231,15 +230,18 @@ namespace pitTeam.Utils
 
             pitAIBossPlayer boss = botOwner.BotFollower.HaveBoss ? botOwner.BotFollower.BossToFollow as pitAIBossPlayer : null;
 
-            List<Vector3> friendsPositions = new List<Vector3>();
+            List<Vector3> friendsPositions = new List<Vector3>((boss?.Followers?.Count ?? 0) + 1);
             if (boss != null)
             {
                 friendsPositions.Add(boss.realPlayer.Transform.position);
-                boss.Followers.ForEach(follower =>
+                for (int i = 0; i < boss.Followers.Count; i++)
                 {
+                    BotOwner follower = boss.Followers[i];
                     if (follower != botOwner)
+                    {
                         friendsPositions.Add(follower.GetPlayer.Transform.position);
-                });
+                    }
+                }
             }
             ;
 
@@ -261,7 +263,7 @@ namespace pitTeam.Utils
             List<CustomNavigationPoint> areaPoints,
             Func<CustomNavigationPoint, bool> eligibleCheck,
             float safeDistance = 5f,
-            Vector3[] dangerPositions = null
+            IReadOnlyList<Vector3>? dangerPositions = null
         )
         {
             CustomNavigationPoint closest = null;
@@ -273,7 +275,7 @@ namespace pitTeam.Utils
                 if (
                     !(point.CoverLevel == CoverLevel.Sit || point.CoverLevel == CoverLevel.Stay) ||
                     !point.IsFreeById(botOwnerId) ||
-                    (dangerPositions != null && !Utils.IsDangerPositionFarEnough(point.Position, dangerPositions, safeDistance * safeDistance)) ||
+                    !IsFarEnoughFromPositions(point.Position, dangerPositions, safeDistance * safeDistance) ||
                     !eligibleCheck(point)
                 )
                 {
@@ -293,20 +295,21 @@ namespace pitTeam.Utils
 
         private static List<Vector3> GetFriendsPositions(BotOwner botOwner, pitAIBossPlayer? boss)
         {
-            List<Vector3> friendsPositions = new List<Vector3>();
+            List<Vector3> friendsPositions = new List<Vector3>((boss?.Followers?.Count ?? 0) + 1);
             if (boss == null)
             {
                 return friendsPositions;
             }
 
             friendsPositions.Add(boss.realPlayer.Transform.position);
-            boss.Followers.ForEach(follower =>
+            for (int i = 0; i < boss.Followers.Count; i++)
             {
+                BotOwner follower = boss.Followers[i];
                 if (follower != botOwner)
                 {
                     friendsPositions.Add(follower.GetPlayer.Transform.position);
                 }
-            });
+            }
             return friendsPositions;
         }
 
@@ -322,11 +325,20 @@ namespace pitTeam.Utils
         {
             searchRadius = Math.Min(searchRadius, STATIC_DISTANCE);
             int takeCount = maxCandidates ?? MAX_COVERS_IRT;
-            List<CustomNavigationPoint> areaCovers = botOwner.BotsGroup.CoverPointMaster
-                .GetClosePoints(centerPosition, botOwner, searchRadius)
-                .OrderBy(cover => (cover.Position - (pointToBeClose ?? centerPosition)).sqrMagnitude)
-                .Take(takeCount)
-                .ToList();
+            Vector3 closePoint = pointToBeClose ?? centerPosition;
+            List<CustomNavigationPoint> areaCovers = new List<CustomNavigationPoint>(Math.Max(0, takeCount));
+            if (takeCount > 0)
+            {
+                foreach (CustomNavigationPoint cover in botOwner.BotsGroup.CoverPointMaster.GetClosePoints(centerPosition, botOwner, searchRadius))
+                {
+                    if (cover == null)
+                    {
+                        continue;
+                    }
+
+                    InsertClosestCandidate(areaCovers, cover, closePoint, takeCount);
+                }
+            }
 
             CoverSearchData searchData = BuildCoverSearchData(botOwner, centerPosition, searchRadius, shootPoint, pointToBeClose, label, maxCandidates, searchTypeOverride);
             float searchRadiusSqr = searchRadius * searchRadius;
@@ -339,6 +351,50 @@ namespace pitTeam.Utils
             }
 
             return areaCovers;
+        }
+
+        private static void InsertClosestCandidate(List<CustomNavigationPoint> candidates, CustomNavigationPoint cover, Vector3 closePoint, int maxCount)
+        {
+            float score = (cover.Position - closePoint).sqrMagnitude;
+            int insertAt = candidates.Count;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                float existingScore = (candidates[i].Position - closePoint).sqrMagnitude;
+                if (score < existingScore)
+                {
+                    insertAt = i;
+                    break;
+                }
+            }
+
+            if (insertAt >= maxCount)
+            {
+                return;
+            }
+
+            candidates.Insert(insertAt, cover);
+            if (candidates.Count > maxCount)
+            {
+                candidates.RemoveAt(candidates.Count - 1);
+            }
+        }
+
+        private static bool IsFarEnoughFromPositions(Vector3 positionToCheck, IReadOnlyList<Vector3>? positionsIMustCare, float minSqrDistance)
+        {
+            if (positionsIMustCare == null)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < positionsIMustCare.Count; i++)
+            {
+                if ((positionsIMustCare[i] - positionToCheck).sqrMagnitude < minSqrDistance)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static CoverSearchData BuildCoverSearchData(
@@ -436,7 +492,7 @@ namespace pitTeam.Utils
                 if (!NavMesh.SamplePosition(scanPosition, out navMeshHit, 10f, NavMesh.AllAreas)) continue;
 
                 // - check if the position is valid based on conditions
-                if (!Utils.IsDangerPositionFarEnough(navMeshHit.position, new Vector3[] { targetPosition }, minDistance * minDistance)) continue;
+                if ((navMeshHit.position - targetPosition).sqrMagnitude < minDistance * minDistance) continue;
                 if (!IsNavigablePoint(botPosition, navMeshHit.position, 150f, mesh)) continue;
 
                 // - check if position meets the eligibility requirements

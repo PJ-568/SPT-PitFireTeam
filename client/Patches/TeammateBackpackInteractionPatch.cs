@@ -34,9 +34,10 @@ namespace pitTeam.Patches
         private static void PatchPostfix(ItemAddress address, ref GClass1802 changedContainer, ref bool __result)
         {
             // Stock transfer validation rejects moves into or out of a parent searchable container that is not
-            // searched. The teammate backpack screen presents an already-searched view, so this override is
-            // limited to addresses inside the active inspected backpack.
-            if (!__result || !TeammateBackpackInspection.ShouldTreatAddressSearched(address))
+            // searched. Teammate backpacks and fallen teammate corpse equipment are presented as already-searched.
+            if (!__result ||
+                (!TeammateBackpackInspection.ShouldTreatAddressSearched(address) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatAddressSearched(address)))
             {
                 return;
             }
@@ -59,7 +60,8 @@ namespace pitTeam.Patches
             // Grid item views and CanModifyItem use observer state in addition to searchable-container state.
             // Without this, visible backpack items can still behave like unknown search results.
             if (__result == EObserverItemState.Known ||
-                !TeammateBackpackInspection.ShouldTreatObservedItemKnown(item, address))
+                (!TeammateBackpackInspection.ShouldTreatObservedItemKnown(item, address) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatObservedItemKnown(item, address)))
             {
                 return;
             }
@@ -80,12 +82,77 @@ namespace pitTeam.Patches
         {
             // Moving an item into a normal grid requires template examination. This is a temporary UI/session
             // answer only; it intentionally does not mutate the player's encyclopedia.
-            if (__result || !TeammateBackpackInspection.ShouldTreatItemExamined(__instance, item))
+            if (__result ||
+                (!TeammateBackpackInspection.ShouldTreatItemExamined(__instance, item) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatItemExamined(__instance, item)))
             {
                 return;
             }
 
             __result = true;
+        }
+    }
+
+    internal class TeammateBackpackKnownItemPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(PlayerSearchControllerClass), nameof(PlayerSearchControllerClass.IsItemKnown));
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(PlayerSearchControllerClass __instance, Item item, ItemAddress itemAddress, ref bool __result)
+        {
+            if (__result ||
+                (!TeammateBackpackInspection.ShouldTreatObservedItemKnown(item, itemAddress) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatItemKnown(__instance, item)))
+            {
+                return;
+            }
+
+            __result = true;
+        }
+    }
+
+    internal class TeammateBackpackSearchedItemPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass2235), nameof(GClass2235.IsSearched));
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(GClass2235 __instance, SearchableItemItemClass item, ref bool __result)
+        {
+            if (__result ||
+                (!TeammateBackpackInspection.IsActiveBackpack(item) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatSearchableSearched(__instance, item)))
+            {
+                return;
+            }
+
+            __result = true;
+        }
+    }
+
+    internal class TeammateBackpackUnknownContentsPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GClass2235), nameof(GClass2235.ContainsUnknownItems));
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(GClass2235 __instance, SearchableItemItemClass item, ref bool __result)
+        {
+            if (!__result ||
+                (!TeammateBackpackInspection.IsActiveBackpack(item) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatSearchableContentsKnown(__instance, item)))
+            {
+                return;
+            }
+
+            __result = false;
         }
     }
 

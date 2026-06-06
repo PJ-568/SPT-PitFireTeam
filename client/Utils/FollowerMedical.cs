@@ -18,6 +18,7 @@ namespace pitTeam.Utils
         private const float RecentMedicalWindow = 8f;
         private const float FirstAidMinVisibleNormalizedHealth = 0.06f;
         private const float EmergencySurgeryHealthPenalty = 0.5f;
+        private const float FirstAidTopOffMinMissingHealth = 0.5f;
 
         private static readonly EBodyPart[] SurgeryRecoveryParts =
         {
@@ -455,6 +456,193 @@ namespace pitTeam.Utils
                    (bot.Medecine.FirstAid?.Using == true ||
                     bot.Medecine.SurgicalKit?.Using == true ||
                     bot.Medecine.Stimulators?.Using == true);
+        }
+
+        public static bool HasRecoverableFirstAidDamage(BotOwner bot)
+        {
+            try
+            {
+                return TryFindFirstAidTopOffTarget(bot, out _, out _);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool TryStartFirstAidTopOff(BotOwner bot)
+        {
+            try
+            {
+                if (bot?.Medecine?.FirstAid == null ||
+                    bot.Medecine.Using ||
+                    bot.Medecine.FirstAid.Using ||
+                    bot.Medecine.SurgicalKit?.HaveWork == true ||
+                    bot.Medecine.SurgicalKit?.Using == true ||
+                    bot.WeaponManager?.Grenades?.ThrowindNow == true ||
+                    bot.WeaponManager?.Reload?.Reloading == true ||
+                    !bot.Medecine.FirstAid.method_1())
+                {
+                    return false;
+                }
+
+                if (!TryFindFirstAidTopOffTarget(bot, out EBodyPart bodyPart, out MedsItemClass med))
+                {
+                    return false;
+                }
+
+                BotFirstAidClass firstAid = bot.Medecine.FirstAid;
+                firstAid.CurUsingMeds = med;
+                firstAid.Nullable_0 = bodyPart;
+                firstAid.Bool_3 = false;
+                firstAid.Bool_4 = false;
+                firstAid.Damaged = true;
+                firstAid.TryApplyToCurrentPart();
+                return firstAid.Using;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryFindFirstAidTopOffTarget(BotOwner bot, out EBodyPart bodyPart, out MedsItemClass med)
+        {
+            bodyPart = default;
+            med = null;
+
+            Player player = bot?.GetPlayer;
+            BotFirstAidClass firstAid = bot?.Medecine?.FirstAid;
+            if (player?.HealthController == null ||
+                player.ActiveHealthController == null ||
+                firstAid == null ||
+                bot.HealthController?.IsAlive != true ||
+                bot.Settings?.FileSettings?.Mind?.CAN_USE_MEDS != true ||
+                bot.Memory?.HaveEnemy == true ||
+                HasVisibleKnownEnemy(bot) ||
+                firstAid.Using ||
+                bot.Medecine.SurgicalKit?.HaveWork == true ||
+                bot.Medecine.SurgicalKit?.Using == true ||
+                TryGetActiveBleeding(player, out _))
+            {
+                return false;
+            }
+
+            EquipmentSlot[] searchSlots = firstAid.Bool_2 ? BotMedecine.secureSlots : BotMedecine.anySlots;
+            List<MedsItemClass> meds = new List<MedsItemClass>();
+            player.InventoryController.GetAcceptableItemsNonAlloc<MedsItemClass>(searchSlots, meds, null, null);
+            if (meds.Count == 0)
+            {
+                return false;
+            }
+
+            float bestNormalized = float.MaxValue;
+            float bestMissing = 0f;
+            float bestMedScore = float.MaxValue;
+            foreach (EBodyPart part in GClass3058.RealBodyParts)
+            {
+                if (player.ActiveHealthController.IsBodyPartDestroyed(part))
+                {
+                    continue;
+                }
+
+                ValueStruct health = player.HealthController.GetBodyPartHealth(part, false);
+                float missing = health.Maximum - health.Current;
+                if (health.Maximum <= 0f || missing <= FirstAidTopOffMinMissingHealth)
+                {
+                    continue;
+                }
+
+                if (!TrySelectTopOffMed(player, meds, part, missing, out MedsItemClass candidateMed, out float medScore))
+                {
+                    continue;
+                }
+
+                float normalized = health.Current / health.Maximum;
+                bool betterPart = normalized < bestNormalized - 0.001f ||
+                                  (Mathf.Abs(normalized - bestNormalized) <= 0.001f && missing > bestMissing + 0.1f);
+                bool samePartBetterMed = Mathf.Abs(normalized - bestNormalized) <= 0.001f &&
+                                         Mathf.Abs(missing - bestMissing) <= 0.1f &&
+                                         medScore < bestMedScore;
+
+                if (!betterPart && !samePartBetterMed)
+                {
+                    continue;
+                }
+
+                bodyPart = part;
+                med = candidateMed;
+                bestNormalized = normalized;
+                bestMissing = missing;
+                bestMedScore = medScore;
+            }
+
+            return med != null;
+        }
+
+        private static bool TrySelectTopOffMed(
+            Player player,
+            List<MedsItemClass> meds,
+            EBodyPart bodyPart,
+            float missingHealth,
+            out MedsItemClass selected,
+            out float selectedScore)
+        {
+            selected = null;
+            selectedScore = float.MaxValue;
+
+            for (int i = 0; i < meds.Count; i++)
+            {
+                MedsItemClass med = meds[i];
+                if (med == null ||
+                    !med.TryGetItemComponent<MedKitComponent>(out MedKitComponent medKit) ||
+                    medKit.HpResource <= 0f ||
+                    player.HealthController.CanApplyItem(med, bodyPart) != true)
+                {
+                    continue;
+                }
+
+                float score = medKit.HpResource >= missingHealth
+                    ? medKit.HpResource - missingHealth
+                    : 10000f - medKit.HpResource;
+                if (score >= selectedScore)
+                {
+                    continue;
+                }
+
+                selected = med;
+                selectedScore = score;
+            }
+
+            return selected != null;
+        }
+
+        private static bool HasVisibleKnownEnemy(BotOwner bot)
+        {
+            try
+            {
+                var infos = bot?.EnemiesController?.EnemyInfos;
+                if (infos == null || infos.Count == 0)
+                {
+                    return false;
+                }
+
+                foreach (var kv in infos)
+                {
+                    EnemyInfo info = kv.Value;
+                    if (info?.IsVisible == true &&
+                        info.Person?.HealthController?.IsAlive == true)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
         }
 
         private static bool TryRecoverStuckMedicalHands(BotOwner bot, string reason)

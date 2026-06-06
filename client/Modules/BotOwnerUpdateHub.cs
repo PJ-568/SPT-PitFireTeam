@@ -1,7 +1,6 @@
 using EFT;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 
 namespace pitTeam.Modules
@@ -10,6 +9,7 @@ namespace pitTeam.Modules
     {
         private static readonly Dictionary<string, Action<BotOwner>> Subscribers = new Dictionary<string, Action<BotOwner>>();
         private static readonly object SyncRoot = new object();
+        private static Action<BotOwner>[] _callbackSnapshot = Array.Empty<Action<BotOwner>>();
         private static int _subscriberCount;
 
         internal static bool HasSubscribers => Volatile.Read(ref _subscriberCount) > 0;
@@ -21,7 +21,7 @@ namespace pitTeam.Modules
             lock (SyncRoot)
             {
                 Subscribers[id] = callback;
-                _subscriberCount = Subscribers.Count;
+                RefreshSnapshot();
             }
         }
 
@@ -32,7 +32,7 @@ namespace pitTeam.Modules
             lock (SyncRoot)
             {
                 Subscribers.Remove(id);
-                _subscriberCount = Subscribers.Count;
+                RefreshSnapshot();
             }
         }
 
@@ -40,17 +40,8 @@ namespace pitTeam.Modules
         {
             if (!HasSubscribers) return;
 
-            Action<BotOwner>[] callbacks;
-            lock (SyncRoot)
-            {
-                if (Subscribers.Count == 0)
-                {
-                    _subscriberCount = 0;
-                    return;
-                }
-
-                callbacks = Subscribers.Values.ToArray();
-            }
+            Action<BotOwner>[] callbacks = Volatile.Read(ref _callbackSnapshot);
+            if (callbacks.Length == 0) return;
 
             foreach (Action<BotOwner> callback in callbacks)
             {
@@ -64,6 +55,25 @@ namespace pitTeam.Modules
                     Logger.LogError(ex);
                 }
             }
+        }
+
+        private static void RefreshSnapshot()
+        {
+            Action<BotOwner>[] snapshot = CopyCallbacks();
+            Volatile.Write(ref _callbackSnapshot, snapshot);
+            Volatile.Write(ref _subscriberCount, snapshot.Length);
+        }
+
+        private static Action<BotOwner>[] CopyCallbacks()
+        {
+            if (Subscribers.Count == 0)
+            {
+                return Array.Empty<Action<BotOwner>>();
+            }
+
+            Action<BotOwner>[] callbacks = new Action<BotOwner>[Subscribers.Count];
+            Subscribers.Values.CopyTo(callbacks, 0);
+            return callbacks;
         }
     }
 }

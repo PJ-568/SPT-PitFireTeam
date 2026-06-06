@@ -37,6 +37,7 @@ namespace pitTeam.Modules
         private static string? currentFilePath;
         private static int eventSequence;
         private static bool initialized;
+        private static bool updateHubSubscribed;
         private static bool writeErrorLogged;
 
         public static void Initialize()
@@ -46,7 +47,6 @@ namespace pitTeam.Modules
                 return;
             }
 
-            BotOwnerUpdateHub.Register(UpdateHubSubscriptionId, OnBotManualUpdate);
             initialized = true;
         }
 
@@ -57,9 +57,9 @@ namespace pitTeam.Modules
                 return;
             }
 
-            BotOwnerUpdateHub.Unregister(UpdateHubSubscriptionId);
-            initialized = false;
             EndRaid("pluginShutdown");
+            UnregisterUpdateHub();
+            initialized = false;
         }
 
         public static void StartRaid(string? locationId)
@@ -98,6 +98,7 @@ namespace pitTeam.Modules
                     file = currentFilePath,
                     snapshotIntervalMs = GetSnapshotIntervalMs()
                 });
+                RegisterUpdateHub();
             }
             catch (Exception ex)
             {
@@ -133,6 +134,7 @@ namespace pitTeam.Modules
                 currentFilePath = null;
                 eventSequence = 0;
                 writeErrorLogged = false;
+                UnregisterUpdateHub();
             }
         }
 
@@ -491,6 +493,12 @@ namespace pitTeam.Modules
 
         private static void OnBotManualUpdate(BotOwner owner)
         {
+            if (!IsEnabled())
+            {
+                EndRaid("disabled");
+                return;
+            }
+
             if (!CanRecordBot(owner))
             {
                 return;
@@ -1004,25 +1012,30 @@ namespace pitTeam.Modules
 
             try
             {
-                var envelope = new
-                {
-                    seq = ++eventSequence,
-                    time = SanitizeFloat(Time.time),
-                    utc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                    raidId = currentRaidId,
-                    locationId = currentLocationId,
-                    eventType,
-                    bot = bot != null ? new
-                    {
-                        profileId = bot.ProfileId,
-                        nickname = bot.Profile?.Nickname,
-                        brain = bot.Brain?.BaseBrain?.ShortName()
-                    } : null,
-                    payload
-                };
-
                 lock (SyncRoot)
                 {
+                    if (!IsRecording() || writer == null)
+                    {
+                        return;
+                    }
+
+                    var envelope = new
+                    {
+                        seq = ++eventSequence,
+                        time = SanitizeFloat(Time.time),
+                        utc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                        raidId = currentRaidId,
+                        locationId = currentLocationId,
+                        eventType,
+                        bot = bot != null ? new
+                        {
+                            profileId = bot.ProfileId,
+                            nickname = bot.Profile?.Nickname,
+                            brain = bot.Brain?.BaseBrain?.ShortName()
+                        } : null,
+                        payload
+                    };
+
                     writer.WriteLine(JsonConvert.SerializeObject(envelope, JsonSettings));
                 }
             }
@@ -1040,9 +1053,32 @@ namespace pitTeam.Modules
         {
             lock (SyncRoot)
             {
+                writer?.Flush();
                 writer?.Dispose();
                 writer = null;
             }
+        }
+
+        private static void RegisterUpdateHub()
+        {
+            if (updateHubSubscribed)
+            {
+                return;
+            }
+
+            BotOwnerUpdateHub.Register(UpdateHubSubscriptionId, OnBotManualUpdate);
+            updateHubSubscribed = true;
+        }
+
+        private static void UnregisterUpdateHub()
+        {
+            if (!updateHubSubscribed)
+            {
+                return;
+            }
+
+            BotOwnerUpdateHub.Unregister(UpdateHubSubscriptionId);
+            updateHubSubscribed = false;
         }
 
         private static void SafeLogRecorderError(string message, Exception ex)

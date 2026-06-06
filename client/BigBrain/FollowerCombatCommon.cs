@@ -1323,13 +1323,14 @@ namespace pitTeam.BigBrain
 
         public bool IsInFight(BotLogicDecision decision)
         {
-            bool engaged = new List<BotLogicDecision>
+            bool engaged = decision switch
             {
-                BotLogicDecision.shootFromStationary,
-                BotLogicDecision.shootFromCover,
-                BotLogicDecision.shootFromPlace,
-                BotLogicDecision.suppressGrenade,
-            }.Contains(decision);
+                BotLogicDecision.shootFromStationary or
+                BotLogicDecision.shootFromCover or
+                BotLogicDecision.shootFromPlace or
+                BotLogicDecision.suppressGrenade => true,
+                _ => false
+            };
 
             if (!engaged && decision == BotLogicDecision.suppressFire && IsEnemyVisibleAndShootable())
             {

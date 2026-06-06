@@ -8,7 +8,7 @@ You must think like a maintainer of a fragile gameplay-AI integration project, n
 
 ## Terminology
 
-- **SAIN Plugin** (or "SAIN mod", "SAIN") — the third-party SAIN mod by Sol (`me.sol.sain`), located at `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`. This is an external dependency.
+- **SAIN Plugin** (or "SAIN mod", "SAIN") — the third-party SAIN mod by Sol (`me.sol.sain`). This is an external dependency. See `LOCAL.md` for the machine-local source path when source inspection is needed.
 - **SAIN Addon** — our own addon DLL (`addon/`, plugin ID `xyz.pit.fireteam.sainaddon`) that integrates SAIN brain layers with followers. This is our code.
 
 Never confuse these two. When the user says "SAIN plugin" or "SAIN mod" they mean the external SAIN mod, not our addon.
@@ -18,6 +18,8 @@ Never confuse these two. When the user says "SAIN plugin" or "SAIN mod" they mea
 Read code first. Assume nothing.
 
 Check `LOCAL.md` for machine-local deployment paths and current local runtime notes. `LOCAL.md` is intentionally ignored by git; do not treat it as shared project documentation.
+
+Use the current-version release notes file listed in `LOCAL.md` to note user-facing changes for the version currently in progress. When a change is intended for the current beta/release line, add it under the matching version heading there before building or packaging.
 
 Check `docs/Localization.md` before adding or changing user-facing text. UI/server text must use the centralized pitFireTeam language model and embedded English fallback instead of hardcoded per-callsite fallback strings.
 
@@ -170,10 +172,10 @@ Current verified custom teammate feature state:
 
 ## 0) Project Context
 
-- Old plugin codebase: `F:/Projects/SPT-Tarkov/friendlypmc`
-- Old client reference (3.11): `F:/Projects/SPT-Tarkov/Client-Decompiled-3.11`
-- New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
-- SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`
+- Old plugin codebase: see `LOCAL.md` reference paths.
+- Old client reference (3.11): see `LOCAL.md` reference paths.
+- New client reference (4.x): see `LOCAL.md` reference paths.
+- SAIN plugin reference: see `LOCAL.md` reference paths.
 - Positioning:
     - `pitFireTeam` is both:
         - a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment,
@@ -962,10 +964,10 @@ Request/gesture movement:
 
 ## 0) Project Context & References
 
-- Old plugin codebase: `F:/Projects/SPT-Tarkov/friendlypmc`
-- Old client reference (3.11): `F:/Projects/SPT-Tarkov/Client-Decompiled-3.11`
-- New client reference (4.x): `F:/Projects/SPT-Tarkov/Client-Decompiled-4.x`
-- SAIN plugin reference: `F:/Projects/SPT-Tarkov/SAIN-4.4.0/SAIN`
+- Old plugin codebase: see `LOCAL.md` reference paths.
+- Old client reference (3.11): see `LOCAL.md` reference paths.
+- New client reference (4.x): see `LOCAL.md` reference paths.
+- SAIN plugin reference: see `LOCAL.md` reference paths.
 
 **Positioning:** `pitFireTeam` is both a conversion of legacy `friendlypmc` behavior to the 4.x/BigBrain environment and an alternative plugin implementation with new BigBrain-native follower layers/actions.
 
@@ -1017,7 +1019,7 @@ Request/gesture movement:
 
 # Known Issues & Tracking
 
-See detailed tracking: `../FOLLOWER-BUGS.md`
+See the local bug-tracker file listed in `LOCAL.md`.
 
 **Currently Active Risk Areas:**
 
@@ -1040,7 +1042,9 @@ See detailed tracking: `../FOLLOWER-BUGS.md`
 - prefer to check client sources first when some method, class, or property is not clear, rather then making assumptions
 - Debug console command: `fs_spawnfollower` spawns one follower in-raid using game-side `ISession.LoadBots` profile flow (NOT BE-dependent)
 
-## BUGS are tracked in : F:\Projects\SPT-Tarkov\FOLLOWER-BUGS.md
+## Bugs
+
+Bugs are tracked in the local bug-tracker file listed in `LOCAL.md`.
 
 - `BotGroupAddEnemyPatch`
 - `BotGroupReportEnemyPatch`
@@ -1236,9 +1240,7 @@ SAIN integration:
 
 ## 8) Known Open Issues
 
-See:
-
-- `../FOLLOWER-BUGS.md`
+See the local bug-tracker file listed in `LOCAL.md`.
 
 Examples currently tracked there:
 

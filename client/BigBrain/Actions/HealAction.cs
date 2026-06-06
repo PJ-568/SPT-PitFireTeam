@@ -27,6 +27,11 @@ namespace pitTeam.BigBrain.Actions
             }
 
             baseLogic.UpdateNodeByBrain(data);
+
+            if (BotOwner?.Medecine?.Using != true)
+            {
+                FollowerMedical.TryStartFirstAidTopOff(BotOwner);
+            }
         }
     }
 }

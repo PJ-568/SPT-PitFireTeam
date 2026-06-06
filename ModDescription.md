@@ -486,6 +486,10 @@ The following are planned features in reaching a release version (1.0.0)
 
 The mod changes bot grouping, teammate ownership, commands, and combat routing. Mods that heavily change bot AI, spawning, hostility, senses, or group behavior can conflict with it.
 
+Mods that add custom gear like belts should not be used on teammates, it can cause game crashes.
+
+Career Log mod is not compatible with this mod as it causes the "add teammate" button to not work. 
+
 - Teammates can linger after combat. Use **Attention** to reset them.
 - Teammates might not heal their health all the way. It is a game issue, use the Heal key to force heal.
 - Teleporting teammates while they are interacting with doors or other objects can leave them in a bad state.
