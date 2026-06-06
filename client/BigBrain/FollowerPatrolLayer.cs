@@ -286,8 +286,9 @@ namespace pitTeam.BigBrain
 
                 bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
                 bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
+                bool hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
 
-                if (isUsingHeal || hasPendingHealWork)
+                if (isUsingHeal || hasPendingHealWork || hasRecoverableTopOffWork)
                 {
                     if (!isHealing)
                     {
@@ -339,7 +340,7 @@ namespace pitTeam.BigBrain
                     }
 
                     RefreshHealWorkIfNeeded();
-                    if (HasPendingHealWork())
+                    if (HasPendingHealWork() || Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner))
                     {
                         return true;
                     }
@@ -426,6 +427,7 @@ namespace pitTeam.BigBrain
 
             bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
             bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
+            bool hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
             bool canStartHeal = CanStartVanillaHealNode();
 
             float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
@@ -441,10 +443,15 @@ namespace pitTeam.BigBrain
             }
 
             // Old EndHeal equivalent: no pending heal work -> end heal action.
-            if (!hasPendingHealWork)
+            if (!hasPendingHealWork && !hasRecoverableTopOffWork)
             {
                 CompleteHealing();
                 return true;
+            }
+
+            if (!hasPendingHealWork && hasRecoverableTopOffWork)
+            {
+                return false;
             }
 
             if (!canStartHeal && healNodeEnteredAt > 0f && healNodeEnteredAt + HealNodeStartTimeout < Time.time)

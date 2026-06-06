@@ -34,9 +34,10 @@ namespace pitTeam.Patches
         private static void PatchPostfix(ItemAddress address, ref GClass1802 changedContainer, ref bool __result)
         {
             // Stock transfer validation rejects moves into or out of a parent searchable container that is not
-            // searched. The teammate backpack screen presents an already-searched view, so this override is
-            // limited to addresses inside the active inspected backpack.
-            if (!__result || !TeammateBackpackInspection.ShouldTreatAddressSearched(address))
+            // searched. Teammate backpacks and fallen teammate corpse equipment are presented as already-searched.
+            if (!__result ||
+                (!TeammateBackpackInspection.ShouldTreatAddressSearched(address) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatAddressSearched(address)))
             {
                 return;
             }
@@ -59,7 +60,8 @@ namespace pitTeam.Patches
             // Grid item views and CanModifyItem use observer state in addition to searchable-container state.
             // Without this, visible backpack items can still behave like unknown search results.
             if (__result == EObserverItemState.Known ||
-                !TeammateBackpackInspection.ShouldTreatObservedItemKnown(item, address))
+                (!TeammateBackpackInspection.ShouldTreatObservedItemKnown(item, address) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatObservedItemKnown(item, address)))
             {
                 return;
             }
@@ -80,7 +82,9 @@ namespace pitTeam.Patches
         {
             // Moving an item into a normal grid requires template examination. This is a temporary UI/session
             // answer only; it intentionally does not mutate the player's encyclopedia.
-            if (__result || !TeammateBackpackInspection.ShouldTreatItemExamined(__instance, item))
+            if (__result ||
+                (!TeammateBackpackInspection.ShouldTreatItemExamined(__instance, item) &&
+                 !TeammateCorpseDogtagGuard.ShouldTreatItemExamined(__instance, item)))
             {
                 return;
             }
