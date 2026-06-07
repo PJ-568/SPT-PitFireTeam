@@ -37,7 +37,7 @@ namespace pitTeam.Patches
             // searched. Teammate backpacks and fallen teammate corpse equipment are presented as already-searched.
             if (!__result ||
                 (!TeammateBackpackInspection.ShouldTreatAddressSearched(address) &&
-                 !TeammateCorpseDogtagGuard.ShouldTreatAddressSearched(address)))
+                 !TeammateCorpseLootGuard.ShouldTreatAddressSearched(address)))
             {
                 return;
             }
@@ -61,7 +61,7 @@ namespace pitTeam.Patches
             // Without this, visible backpack items can still behave like unknown search results.
             if (__result == EObserverItemState.Known ||
                 (!TeammateBackpackInspection.ShouldTreatObservedItemKnown(item, address) &&
-                 !TeammateCorpseDogtagGuard.ShouldTreatObservedItemKnown(item, address)))
+                 !TeammateCorpseLootGuard.ShouldTreatObservedItemKnown(item, address)))
             {
                 return;
             }
@@ -84,7 +84,7 @@ namespace pitTeam.Patches
             // answer only; it intentionally does not mutate the player's encyclopedia.
             if (__result ||
                 (!TeammateBackpackInspection.ShouldTreatItemExamined(__instance, item) &&
-                 !TeammateCorpseDogtagGuard.ShouldTreatItemExamined(__instance, item)))
+                 !TeammateCorpseLootGuard.ShouldTreatItemExamined(__instance, item)))
             {
                 return;
             }
@@ -105,7 +105,7 @@ namespace pitTeam.Patches
         {
             if (__result ||
                 (!TeammateBackpackInspection.ShouldTreatObservedItemKnown(item, itemAddress) &&
-                 !TeammateCorpseDogtagGuard.ShouldTreatItemKnown(__instance, item)))
+                 !TeammateCorpseLootGuard.ShouldTreatItemKnown(__instance, item)))
             {
                 return;
             }
@@ -126,7 +126,7 @@ namespace pitTeam.Patches
         {
             if (__result ||
                 (!TeammateBackpackInspection.IsActiveBackpack(item) &&
-                 !TeammateCorpseDogtagGuard.ShouldTreatSearchableSearched(__instance, item)))
+                 !TeammateCorpseLootGuard.ShouldTreatSearchableSearched(__instance, item)))
             {
                 return;
             }
@@ -147,7 +147,7 @@ namespace pitTeam.Patches
         {
             if (!__result ||
                 (!TeammateBackpackInspection.IsActiveBackpack(item) &&
-                 !TeammateCorpseDogtagGuard.ShouldTreatSearchableContentsKnown(__instance, item)))
+                 !TeammateCorpseLootGuard.ShouldTreatSearchableContentsKnown(__instance, item)))
             {
                 return;
             }
