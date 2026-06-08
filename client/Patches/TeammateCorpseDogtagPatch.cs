@@ -48,4 +48,27 @@ namespace pitTeam.Patches
             return false;
         }
     }
+
+    internal sealed class TeammateCorpseDogtagRemovePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(
+                typeof(InteractionsHandlerClass),
+                nameof(InteractionsHandlerClass.Remove),
+                new[] { typeof(Item), typeof(TraderControllerClass), typeof(bool) });
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(Item item, bool simulate, ref GStruct154<GClass3410> __result)
+        {
+            if (!simulate || !TeammateCorpseDogtagGuard.IsTeammateCorpseDogtag(item))
+            {
+                return true;
+            }
+
+            __result = new InteractionsHandlerClass.GClass1606(item);
+            return false;
+        }
+    }
 }

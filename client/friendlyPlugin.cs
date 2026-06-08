@@ -316,6 +316,7 @@ namespace pitTeam
             new TeammateCorpseContainersPanelSearchPatch().Enable();
             new TeammateCorpseEquipmentTabSearchPatch().Enable();
             new TeammateCorpseDogtagMovePatch().Enable();
+            new TeammateCorpseDogtagRemovePatch().Enable();
             new FollowerBotReceiverHardAimIgnorePatch().Enable();
             new FollowerBotReceiverTiltIgnorePatch().Enable();
             new FollowerBotReceiverPhraseIgnorePatch().Enable();
