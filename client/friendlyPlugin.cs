@@ -451,6 +451,11 @@ namespace pitTeam
             new LoadoutEditorRepairExecuteInteractionPatch().Enable();
             new LoadoutEditorRepairByKitPatch().Enable();
             new LoadoutEditorRepairByTraderPatch().Enable();
+            new LoadoutEditorLockContextInteractionPatch().Enable();
+            new LoadoutEditorLockExecuteInteractionPatch().Enable();
+            new LoadoutEditorLockedContainerOpenPatch().Enable();
+            new LoadoutEditorLockedItemMovePatch().Enable();
+            new LoadoutEditorLockedDestinationPatch().Enable();
             new TeammateEquipmentBuildsScreenShowPatch().Enable();
             new TeammateEquipmentBuildsScreenVisualPatch().Enable();
             new TeammateEquipmentBuildsScreenSelectionPatch().Enable();

@@ -75,6 +75,9 @@ namespace pitTeam.BigBrain
         private const float CloseThreatDogFightDistance = 8f;
         private const float CloseThreatAdvanceBreakDistance = 18f;
         private const float CloseThreatRecentSeenSeconds = 0.75f;
+        private const float FollowerRegularGrenadeMinDistance = 15f;
+        private const float FollowerRegularGrenadeMaxDistance = 32f;
+        private const float FollowerRegularGrenadeUnsafeRadius = 8f;
         private const float ReloadRetreatThreatDistance = 18f;
         private const float ReloadRetreatAmmoRatio = 0.25f;
         private const int ReloadRetreatMinMagazineAmmo = 5;
@@ -156,8 +159,6 @@ namespace pitTeam.BigBrain
         private string? committedMovementEnemyProfileId;
         private Vector3 committedMovementTarget;
         private int? committedMovementCoverId;
-        private string? lastFollowerGrenadeRejectReason;
-        private float nextFollowerGrenadeRejectRecordAt;
         private string? lastGrenadeLauncherSuppressRejectReason;
         private float nextGrenadeLauncherSuppressRejectRecordAt;
         private string? lastSupportFiringCoverRejectReason;
@@ -3079,7 +3080,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!TryGetGrenadeLauncherTargetPosition(enemyInfo, out Vector3 enemyAnchor))
+            if (!TryGetGrenadeTargetPosition(enemyInfo, out Vector3 enemyAnchor))
             {
                 rejectReason = "targetPositionUnknown";
                 return false;
@@ -3367,7 +3368,7 @@ namespace pitTeam.BigBrain
                     enemyOwner.Memory?.GoalEnemy?.ProfileId == botOwner.ProfileId);
         }
 
-        private bool TryGetGrenadeLauncherTargetPosition(EnemyInfo enemyInfo, out Vector3 target)
+        private bool TryGetGrenadeTargetPosition(EnemyInfo enemyInfo, out Vector3 target)
         {
             target = Vector3.zero;
             if (enemyInfo == null)
@@ -10598,8 +10599,8 @@ namespace pitTeam.BigBrain
         }
 
         /// <summary>
-        /// Initializes the vanilla suppress-grenade flow only when the target is visible, not already
-        /// a clean gunfight, and the throw is safe for the boss/followers.
+        /// Initializes the vanilla suppress-grenade flow when the target has a reliable known position,
+        /// is not already a clean gunfight, and the throw is safe for the boss/followers.
         /// </summary>
         public bool TryActivateFollowerGrenade(
             EnemyInfo goalEnemy,
@@ -10612,12 +10613,12 @@ namespace pitTeam.BigBrain
                 return RejectFollowerGrenade("disabled", goalEnemy: goalEnemy);
             }
 
-            if (goalEnemy == null || !goalEnemy.IsVisible || goalEnemy.Person == null)
+            if (!TryGetFollowerGrenadeTarget(goalEnemy, out Vector3 goalTargetPosition, out string? targetRejectReason))
             {
-                return RejectFollowerGrenade("noVisibleEnemy", goalEnemy: goalEnemy);
+                return RejectFollowerGrenade(targetRejectReason ?? "targetPositionUnknown", goalEnemy: goalEnemy);
             }
 
-            if (goalEnemy.Distance < 15f || goalEnemy.Distance > 28f)
+            if (!IsFollowerRegularGrenadeDistance(goalTargetPosition))
             {
                 return RejectFollowerGrenade("distance", goalEnemy: goalEnemy);
             }
@@ -10642,7 +10643,7 @@ namespace pitTeam.BigBrain
                 return RejectFollowerGrenade("medicine", goalEnemy: goalEnemy);
             }
 
-            if (!IsSafeGrenadeThrowPosition(goalEnemy))
+            if (!IsSafeGrenadeThrowPosition(goalEnemy, goalTargetPosition))
             {
                 return RejectFollowerGrenade("unsafePosition", goalEnemy: goalEnemy);
             }
@@ -10673,18 +10674,26 @@ namespace pitTeam.BigBrain
             }
 
             EnemyInfo suppressEnemy = GetSuppressGrenadeTarget(goalEnemy, out ThrowWeapType? preferredThrowType);
-            Vector3 targetPosition = suppressEnemy.CurrPosition;
-            if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, 8f))
+            if (!TryGetFollowerGrenadeTarget(suppressEnemy, out Vector3 targetPosition, out targetRejectReason))
+            {
+                return RejectFollowerGrenade(targetRejectReason ?? "targetPositionUnknown", suppressEnemy, cancelPending: true, disableGate: true);
+            }
+
+            if (!IsFollowerRegularGrenadeDistance(targetPosition))
+            {
+                return RejectFollowerGrenade("distance", suppressEnemy, cancelPending: true, disableGate: true);
+            }
+
+            if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, FollowerRegularGrenadeUnsafeRadius))
             {
                 return RejectFollowerGrenade("friendlyTooClose", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
             if (preferredThrowType != null &&
                 botOwner.WeaponManager.Grenades.HaveGrenadeOfType(preferredThrowType.Value) &&
-                botOwner.SuppressGrenade.Init(suppressEnemy, preferredThrowType, null, AIGreandeAng.ang45))
+                TryInitFollowerSuppressGrenade(suppressEnemy, preferredThrowType.Value, targetPosition))
             {
                 FollowerGrenadeCooldowns.RecordThrow(botOwner);
-                BattleRecorder.RecordGrenadeEvent(botOwner, "init", "SupGrenade", goalEnemy: suppressEnemy);
                 HoldFor(botOwner.Settings.FileSettings.Boss.KILLA_AFTER_GRENADE_SUPPRESS_DELAY);
                 decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade");
                 CommitGrenadeDecision(decision);
@@ -10694,10 +10703,9 @@ namespace pitTeam.BigBrain
             ThrowWeapType throwType = ThrowWeapType.frag_grenade;
             if (botOwner.WeaponManager.Grenades.HaveGrenadeOfType(throwType))
             {
-                if (botOwner.SuppressGrenade.Init(suppressEnemy, throwType, null, AIGreandeAng.ang45))
+                if (TryInitFollowerSuppressGrenade(suppressEnemy, throwType, targetPosition))
                 {
                     FollowerGrenadeCooldowns.RecordThrow(botOwner);
-                    BattleRecorder.RecordGrenadeEvent(botOwner, "init", "SupGrenade2", goalEnemy: suppressEnemy);
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade2");
                     CommitGrenadeDecision(decision);
                     return true;
@@ -10707,10 +10715,9 @@ namespace pitTeam.BigBrain
             {
                 throwType = ThrowWeapType.stun_grenade;
                 if (botOwner.WeaponManager.Grenades.HaveGrenadeOfType(throwType) &&
-                    botOwner.SuppressGrenade.Init(suppressEnemy, throwType, null, AIGreandeAng.ang45))
+                    TryInitFollowerSuppressGrenade(suppressEnemy, throwType, targetPosition))
                 {
                     FollowerGrenadeCooldowns.RecordThrow(botOwner);
-                    BattleRecorder.RecordGrenadeEvent(botOwner, "init", "SupGrenade3", goalEnemy: suppressEnemy);
                     decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade3");
                     CommitGrenadeDecision(decision);
                     return true;
@@ -10720,7 +10727,74 @@ namespace pitTeam.BigBrain
             return RejectFollowerGrenade("initFailedOrNoGrenade", suppressEnemy, cancelPending: true, disableGate: true);
         }
 
-        private bool IsSafeGrenadeThrowPosition(EnemyInfo goalEnemy)
+        private bool TryGetFollowerGrenadeTarget(EnemyInfo? enemyInfo, out Vector3 targetPosition, out string? rejectReason)
+        {
+            targetPosition = Vector3.zero;
+            rejectReason = null;
+
+            if (!IsTrackedEnemyAlive(enemyInfo))
+            {
+                rejectReason = "targetNotAlive";
+                return false;
+            }
+
+            if (enemyInfo!.Person == null)
+            {
+                rejectReason = "targetPersonMissing";
+                return false;
+            }
+
+            if (IsFriendlyGrenadeLauncherTarget(enemyInfo))
+            {
+                rejectReason = "targetFriendly";
+                return false;
+            }
+
+            if (!TryGetGrenadeTargetPosition(enemyInfo, out targetPosition))
+            {
+                rejectReason = "targetPositionUnknown";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool IsFollowerRegularGrenadeDistance(Vector3 targetPosition)
+        {
+            if (!IsFinite(targetPosition) || targetPosition.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            float targetDistanceSqr = (targetPosition - botOwner.Position).sqrMagnitude;
+            return targetDistanceSqr >= FollowerRegularGrenadeMinDistance * FollowerRegularGrenadeMinDistance &&
+                   targetDistanceSqr <= FollowerRegularGrenadeMaxDistance * FollowerRegularGrenadeMaxDistance;
+        }
+
+        private bool TryInitFollowerSuppressGrenade(
+            EnemyInfo suppressEnemy,
+            ThrowWeapType throwType,
+            Vector3 targetPosition)
+        {
+            if (botOwner.SuppressGrenade == null ||
+                botOwner.WeaponManager?.Grenades == null ||
+                !IsFinite(targetPosition))
+            {
+                return false;
+            }
+
+            Vector3 throwTarget = targetPosition + BotOwner.STAY_HEIGHT;
+            if (!botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang45))
+            {
+                return false;
+            }
+
+            botOwner.SuppressGrenade.method_0(suppressEnemy, null);
+            botOwner.WeaponManager.Grenades.AIGreanageThrowData.GrenadeType = throwType;
+            return true;
+        }
+
+        private bool IsSafeGrenadeThrowPosition(EnemyInfo goalEnemy, Vector3 enemyAnchor)
         {
             if (goalEnemy == null || botOwner.Memory.IsUnderFire || WasHitRecently(botOwner, 2f))
             {
@@ -10737,7 +10811,6 @@ namespace pitTeam.BigBrain
                 return !goalEnemy.CanShoot;
             }
 
-            Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
             return !IsFinite(enemyAnchor) ||
                    botOwner.Memory.CurCustomCoverPoint.CanIHideFromPos(0f, true, false, enemyAnchor);
         }
@@ -10758,21 +10831,7 @@ namespace pitTeam.BigBrain
                 FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
             }
 
-            RecordFollowerGrenadeReject(reason, goalEnemy);
             return false;
-        }
-
-        private void RecordFollowerGrenadeReject(string reason, EnemyInfo? goalEnemy)
-        {
-            if (string.Equals(lastFollowerGrenadeRejectReason, reason, StringComparison.Ordinal) &&
-                Time.time < nextFollowerGrenadeRejectRecordAt)
-            {
-                return;
-            }
-
-            lastFollowerGrenadeRejectReason = reason;
-            nextFollowerGrenadeRejectRecordAt = Time.time + 2f;
-            BattleRecorder.RecordGrenadeEvent(botOwner, "reject", reason, goalEnemy: goalEnemy);
         }
 
         private bool IsGrenadeThrowUnsafe(EnemyInfo? goalEnemy)

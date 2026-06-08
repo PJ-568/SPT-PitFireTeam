@@ -60,7 +60,6 @@ namespace pitTeam.Modules
             bool ownsThrowWindow = ExplicitThrowOwnerByGroupKey.TryGetValue(groupKey, out ownerProfileId) &&
                                    ownerProfileId == bot.ProfileId;
             SetThrowState(bot, enabled: ownsThrowWindow, disabled: !ownsThrowWindow);
-
             RefreshFollowerGroup(bot);
         }
 
@@ -91,7 +90,6 @@ namespace pitTeam.Modules
                 FollowerGrenadeCooldowns.CancelPending(bot);
             }
 
-            //BattleRecorder.RecordGrenadeEvent(bot, "finish", completed ? "completed" : "canceled", completed);
             RefreshFollowerGroup(bot);
         }
 
@@ -103,7 +101,6 @@ namespace pitTeam.Modules
             }
 
             ReleasedThrowByProfileId.Add(bot.ProfileId);
-            //BattleRecorder.RecordGrenadeEvent(bot, "released", "throwReleased");
         }
 
         public static bool ConsumeThrowReleased(BotOwner bot)

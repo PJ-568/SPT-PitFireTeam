@@ -153,4 +153,138 @@ namespace pitTeam.Patches
             }
         }
     }
+
+    internal sealed class LoadoutEditorLockContextInteractionPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ContextInteractionsAbstractClass), nameof(ContextInteractionsAbstractClass.IsActive));
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(ContextInteractionsAbstractClass __instance, EItemInfoButton button, ref bool __result)
+        {
+            Item item = __instance?.Item_0;
+            if (item == null || OtherPlayerProfileScreenPatch.LoadoutEditorOverlayRoot == null)
+            {
+                return;
+            }
+
+            if (button == EItemInfoButton.Open && OtherPlayerProfileScreenPatch.ShouldBlockLoadoutEditorContainerOpen(item))
+            {
+                __result = false;
+                return;
+            }
+
+            if (OtherPlayerProfileScreenPatch.IsLoadoutEditorPinLockInteraction(button)
+                && OtherPlayerProfileScreenPatch.IsLoadoutEditorStashItem(item))
+            {
+                __result = false;
+            }
+        }
+    }
+
+    internal sealed class LoadoutEditorLockExecuteInteractionPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ContextInteractionsAbstractClass), nameof(ContextInteractionsAbstractClass.ExecuteInteractionInternal));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(ContextInteractionsAbstractClass __instance, EItemInfoButton interaction)
+        {
+            Item item = __instance?.Item_0;
+            if (item == null || OtherPlayerProfileScreenPatch.LoadoutEditorOverlayRoot == null)
+            {
+                return true;
+            }
+
+            if (interaction == EItemInfoButton.Open && OtherPlayerProfileScreenPatch.ShouldBlockLoadoutEditorContainerOpen(item))
+            {
+                __instance.Action_6?.Invoke();
+                LoadoutEditorLockUi.ShowLockedContainerNotification();
+                return false;
+            }
+
+            if (OtherPlayerProfileScreenPatch.IsLoadoutEditorPinLockInteraction(interaction)
+                && OtherPlayerProfileScreenPatch.IsLoadoutEditorStashItem(item))
+            {
+                __instance.Action_6?.Invoke();
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    internal sealed class LoadoutEditorLockedContainerOpenPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(ItemUiContext), nameof(ItemUiContext.OpenItem));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(CompoundItem item)
+        {
+            if (!OtherPlayerProfileScreenPatch.ShouldBlockLoadoutEditorContainerOpen(item))
+            {
+                return true;
+            }
+
+            LoadoutEditorLockUi.ShowLockedContainerNotification();
+            return false;
+        }
+    }
+
+    internal sealed class LoadoutEditorLockedItemMovePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(InteractionsHandlerClass), nameof(InteractionsHandlerClass.CanModifyItem));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(Item item, ref Error error, ref bool __result)
+        {
+            if (!OtherPlayerProfileScreenPatch.TryFindLoadoutEditorLockedItemInPath(item, out Item lockedItem))
+            {
+                return true;
+            }
+
+            error = new InteractionsHandlerClass.GClass1606(lockedItem ?? item);
+            __result = false;
+            return false;
+        }
+    }
+
+    internal sealed class LoadoutEditorLockedDestinationPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(InteractionsHandlerClass), "smethod_24");
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(ItemAddress to, ref Error error, ref bool __result)
+        {
+            if (!OtherPlayerProfileScreenPatch.TryFindLoadoutEditorLockedItemInAddress(to, out Item lockedItem))
+            {
+                return true;
+            }
+
+            error = new InteractionsHandlerClass.GClass1606(lockedItem);
+            __result = false;
+            return false;
+        }
+    }
+
+    internal static class LoadoutEditorLockUi
+    {
+        public static void ShowLockedContainerNotification()
+        {
+            NotificationManagerClass.DisplayWarningNotification("Container is locked".Localized(null), ENotificationDurationType.Default);
+        }
+    }
 }

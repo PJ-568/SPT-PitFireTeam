@@ -395,6 +395,8 @@ namespace pitTeam.Patches
         public static ItemContextAbstractClass LoadoutEditorEquipmentContext { get; set; }
         public static FlatItemsDataClass[] LoadoutEditorInitialEquipmentItems { get; set; }
         public static FlatItemsDataClass[] LoadoutEditorInitialStashItems { get; set; }
+        private static Dictionary<string, EItemPinLockState> LoadoutEditorOriginalPinLockStates { get; } =
+            new Dictionary<string, EItemPinLockState>(StringComparer.OrdinalIgnoreCase);
         public static string ActiveTeammateLoadoutId { get; set; }
         public static string ActiveTeammateLoadoutName { get; set; }
         public static string LoadoutEditorSourceLoadoutId { get; set; }
@@ -469,6 +471,167 @@ namespace pitTeam.Patches
                 .GetAllItemsFromCollection()
                 .FirstOrDefault(candidate => string.Equals(candidate?.Id, itemId, StringComparison.Ordinal));
             return item != null;
+        }
+
+        internal static bool IsLoadoutEditorStashItem(Item item)
+        {
+            return IsItemInLoadoutEditorRoot(item, LoadoutEditorProfile?.Inventory?.Stash);
+        }
+
+        internal static bool IsLoadoutEditorItem(Item item)
+        {
+            return IsItemInLoadoutEditorRoot(item, LoadoutEditorProfile?.Inventory?.Stash)
+                || IsItemInLoadoutEditorRoot(item, LoadoutEditorProfile?.Inventory?.Equipment);
+        }
+
+        internal static bool IsLoadoutEditorPinLockInteraction(EItemInfoButton button)
+        {
+            return button == EItemInfoButton.SetPin
+                || button == EItemInfoButton.SetLock
+                || button == EItemInfoButton.SetUnPin
+                || button == EItemInfoButton.SetUnLock;
+        }
+
+        internal static void CaptureLoadoutEditorOriginalPinLocks(Item root)
+        {
+            LoadoutEditorOriginalPinLockStates.Clear();
+            foreach (Item item in EnumerateItemTree(root))
+            {
+                LoadoutEditorOriginalPinLockStates[item.Id.ToString()] = item.PinLockState;
+            }
+        }
+
+        internal static void ApplyLoadoutEditorOriginalPinLocks(Item root)
+        {
+            if (LoadoutEditorOriginalPinLockStates.Count == 0)
+            {
+                return;
+            }
+
+            foreach (Item item in EnumerateItemTree(root))
+            {
+                if (LoadoutEditorOriginalPinLockStates.TryGetValue(item.Id.ToString(), out EItemPinLockState state))
+                {
+                    item.PinLockState = state;
+                }
+            }
+        }
+
+        internal static void ClearLoadoutEditorOriginalPinLocks()
+        {
+            LoadoutEditorOriginalPinLockStates.Clear();
+        }
+
+        internal static bool ShouldBlockLoadoutEditorContainerOpen(Item item)
+        {
+            return item is CompoundItem
+                && TryFindLoadoutEditorLockedItemInPath(item, out _);
+        }
+
+        internal static bool TryFindLoadoutEditorLockedItemInPath(Item item, out Item lockedItem)
+        {
+            lockedItem = null;
+            if (item == null || LoadoutEditorOverlayRoot == null || !IsLoadoutEditorItem(item))
+            {
+                return false;
+            }
+
+            if (IsLoadoutEditorLockedItem(item))
+            {
+                lockedItem = item;
+                return true;
+            }
+
+            foreach (Item parent in item.GetAllParentItems())
+            {
+                if (parent == null)
+                {
+                    continue;
+                }
+
+                if (IsLoadoutEditorLockedItem(parent))
+                {
+                    lockedItem = parent;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool TryFindLoadoutEditorLockedItemInAddress(ItemAddress address, out Item lockedItem)
+        {
+            lockedItem = null;
+            if (address == null || LoadoutEditorOverlayRoot == null)
+            {
+                return false;
+            }
+
+            foreach (Item parent in address.GetAllParentItems())
+            {
+                if (parent == null || !IsLoadoutEditorItem(parent))
+                {
+                    continue;
+                }
+
+                if (IsLoadoutEditorLockedItem(parent))
+                {
+                    lockedItem = parent;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsLoadoutEditorLockedItem(Item item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            return item.PinLockState == EItemPinLockState.Locked
+                || (LoadoutEditorOriginalPinLockStates.TryGetValue(item.Id.ToString(), out EItemPinLockState originalState)
+                    && originalState == EItemPinLockState.Locked);
+        }
+
+        private static bool IsItemInLoadoutEditorRoot(Item item, Item root)
+        {
+            if (item == null || root == null || LoadoutEditorOverlayRoot == null)
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(item, root) || item.Id == root.Id)
+            {
+                return true;
+            }
+
+            return root is GClass3248 collection
+                && collection.GetAllItemsFromCollection()
+                    .Any(candidate => ReferenceEquals(candidate, item) || candidate.Id == item.Id);
+        }
+
+        private static IEnumerable<Item> EnumerateItemTree(Item root)
+        {
+            if (root == null)
+            {
+                yield break;
+            }
+
+            yield return root;
+
+            if (root is GClass3248 collection)
+            {
+                foreach (Item item in collection.GetAllItemsFromCollection())
+                {
+                    if (item != null)
+                    {
+                        yield return item;
+                    }
+                }
+            }
         }
 
         private static readonly Dictionary<EMenuType, EStateSwitcher> DisabledSettingsTaskBarButton =

@@ -176,6 +176,7 @@ Commitment types:
 
 - `initialDecision`: one-shot opener prepared when combat starts.
 - `committedGrenadeDecision`: active grenade throw sequence; stays latched until throw completes or is canceled for immediate danger.
+- Regular follower grenade throws use a conservative reliable-position window from `15m` to `32m`; direct visibility is not required, but the follower must have a known enemy position and the throw must pass friendly safety checks. Launcher suppression owns longer grenade-like pressure.
 - `suppressionObjective`: ordered Rifleman suppression state; owns ordered suppress-fire setup and completion.
 - `needSniperObjective`: ordered Marksman support state; owns ordered firing-position search and settle.
 - `committedPushDecision`: push/search pressure chosen by `FollowerCombatPush`.

@@ -677,7 +677,7 @@ namespace pitTeam.Patches
 
                 if (GClass3130.TryGetCurrencyType(new MongoID?(item.TemplateId), out ECurrencyType currencyType)
                     && currencyType == ECurrencyType.RUB
-                    && item.PinLockState != EItemPinLockState.Locked)
+                    && !IsLockedForStashUse(item))
                 {
                     total += Mathf.Max(1, item.StackObjectsCount);
                 }
@@ -2107,6 +2107,7 @@ namespace pitTeam.Patches
                 if (item == null
                     || ReferenceEquals(item, stash)
                     || IsIgnoredKitRequirementItem(item)
+                    || IsLockedForStashUse(item)
                     || string.IsNullOrWhiteSpace(item.TemplateId))
                 {
                     continue;
@@ -2124,6 +2125,29 @@ namespace pitTeam.Patches
             }
 
             return counts;
+        }
+
+        private static bool IsLockedForStashUse(Item item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            if (item.PinLockState == EItemPinLockState.Locked)
+            {
+                return true;
+            }
+
+            foreach (Item parent in item.GetAllParentItems())
+            {
+                if (parent?.PinLockState == EItemPinLockState.Locked)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static int CalculateItemsMarketRoublePrice(IEnumerable<Item> items)

@@ -342,6 +342,16 @@ namespace pitTeam.Patches
 
             try
             {
+                bool preserveRealItemIds = IsRealDefaultLoadoutEditorCommit();
+                if (preserveRealItemIds)
+                {
+                    CaptureLoadoutEditorOriginalPinLocks(ActiveProfileSession?.Profile?.Inventory?.Stash);
+                }
+                else
+                {
+                    ClearLoadoutEditorOriginalPinLocks();
+                }
+
                 Profile baseProfile = ActiveProfileSession?.Profile?.Clone();
                 InventoryEquipment editorEquipment = ResolveLoadoutEditorSourceEquipment(profile);
                 if (baseProfile?.Inventory == null || editorEquipment == null)
@@ -351,7 +361,6 @@ namespace pitTeam.Patches
 
                 // Player stash ids are preserved only for real default commits, where Done describes actual
                 // ownership movement between the player's stash and teammate gear.
-                bool preserveRealItemIds = IsRealDefaultLoadoutEditorCommit();
                 Item editorStash = preserveRealItemIds
                     ? baseProfile.Inventory.Stash.CloneItemWithSameId()
                     : baseProfile.Inventory.Stash.CloneItem(null);
@@ -363,6 +372,11 @@ namespace pitTeam.Patches
                 };
 
                 baseProfile.Inventory = inventoryDescriptor.ToInventory();
+                if (preserveRealItemIds)
+                {
+                    ApplyLoadoutEditorOriginalPinLocks(baseProfile.Inventory?.Stash);
+                }
+
                 editorProfile = baseProfile;
                 editorInventoryController = new InventoryController(editorProfile, false);
                 CaptureLoadoutEditorInitialState(editorProfile, preserveRealItemIds);
@@ -794,6 +808,7 @@ namespace pitTeam.Patches
             LoadoutEditorSourceLoadoutName = null;
             LoadoutEditorInitialEquipmentItems = null;
             LoadoutEditorInitialStashItems = null;
+            ClearLoadoutEditorOriginalPinLocks();
 
             RestoreProfileItemUiContext();
         }
