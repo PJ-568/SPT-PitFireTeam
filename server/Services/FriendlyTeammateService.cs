@@ -1106,6 +1106,11 @@ public class FriendlyTeammateService(
             allowGeneratedSlotDescendants: true);
         ValidateNoRealCommitOverlap(replacementEquipmentItems, replacementStashItems, playerStashRootId);
         ValidateNoEquippedPlayerItemCommit(playerPmc, replacementEquipmentItems, currentPlayerStashIds);
+        ValidateLockedPlayerStashItemsUnchanged(
+            playerPmc.Inventory.Items,
+            replacementEquipmentItems,
+            replacementStashItems,
+            playerStashRootId);
 
         var originalPlayerItems = cloner.Clone(playerPmc.Inventory.Items) ?? playerPmc.Inventory.Items.ToList();
         var originalTeammateItems = cloner.Clone(teammate.Inventory.Items) ?? teammate.Inventory.Items.ToList();
@@ -1915,6 +1920,7 @@ public class FriendlyTeammateService(
 
         string playerStashRootId = GetPlayerStashRootId(profile);
         var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
+        var inventoryById = ToItemDictionary(profile.Inventory.Items);
         var consumedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var countedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -1937,6 +1943,7 @@ public class FriendlyTeammateService(
                     || countedIds.Contains(candidate.Id.ToString())
                     || !stashIds.Contains(candidate.Id.ToString())
                     || IsIgnoredKitRequirementItem(candidate)
+                    || IsLockedForStashUse(candidate, inventoryById)
                     || !string.Equals(candidate.Template.ToString(), requirement.Key, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -2018,9 +2025,11 @@ public class FriendlyTeammateService(
 
         string playerStashRootId = GetPlayerStashRootId(profile);
         var stashIds = GetItemTreeIds(profile.Inventory.Items, playerStashRootId);
+        var inventoryById = ToItemDictionary(profile.Inventory.Items);
         int available = profile.Inventory.Items
             .Where(item => item?.Id != null
                 && stashIds.Contains(item.Id.ToString())
+                && !IsLockedForStashUse(item, inventoryById)
                 && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.Currency.Roubles, StringComparison.OrdinalIgnoreCase))
             .Sum(GetItemStackCount);
         if (available < amount)
@@ -2039,6 +2048,7 @@ public class FriendlyTeammateService(
 
             if (money?.Id == null
                 || !stashIds.Contains(money.Id.ToString())
+                || IsLockedForStashUse(money, inventoryById)
                 || !string.Equals(money.Template.ToString(), FriendlyItemTemplateIds.Currency.Roubles, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -2145,6 +2155,134 @@ public class FriendlyTeammateService(
         {
             AddItemTreeIds(items, child.Id.ToString(), treeIds);
         }
+    }
+
+    private static Dictionary<string, Item> ToItemDictionary(IEnumerable<Item>? items)
+    {
+        return (items ?? [])
+            .Where(item => item?.Id != null)
+            .GroupBy(item => item.Id.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLockedForStashUse(Item item, IReadOnlyDictionary<string, Item> inventoryById)
+    {
+        if (item == null)
+        {
+            return false;
+        }
+
+        if (item.Upd?.PinLockState == PinLockState.Locked)
+        {
+            return true;
+        }
+
+        string? parentId = item.ParentId;
+        while (!string.IsNullOrWhiteSpace(parentId))
+        {
+            if (!inventoryById.TryGetValue(parentId, out Item? parent))
+            {
+                return false;
+            }
+
+            if (parent.Upd?.PinLockState == PinLockState.Locked)
+            {
+                return true;
+            }
+
+            parentId = parent.ParentId;
+        }
+
+        return false;
+    }
+
+    private static void ValidateLockedPlayerStashItemsUnchanged(
+        List<Item> currentPlayerItems,
+        List<Item> replacementEquipmentItems,
+        List<Item> replacementStashItems,
+        string playerStashRootId)
+    {
+        var currentById = ToItemDictionary(currentPlayerItems);
+        var replacementStashById = ToItemDictionary(replacementStashItems);
+        var replacementEquipmentIds = replacementEquipmentItems
+            .Where(item => item?.Id != null)
+            .Select(item => item.Id.ToString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var currentStashIds = GetItemTreeIds(currentPlayerItems, playerStashRootId);
+        var blockedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in currentPlayerItems)
+        {
+            if (item?.Id == null
+                || item.Upd?.PinLockState != PinLockState.Locked
+                || !currentStashIds.Contains(item.Id.ToString()))
+            {
+                continue;
+            }
+
+            blockedIds.UnionWith(GetItemTreeIds(currentPlayerItems, item.Id.ToString()));
+        }
+
+        foreach (string id in blockedIds)
+        {
+            if (!currentById.TryGetValue(id, out Item? currentItem)
+                || !currentStashIds.Contains(id))
+            {
+                continue;
+            }
+
+            if (replacementEquipmentIds.Contains(id))
+            {
+                throw new FriendlyTeammateException(
+                    $"Locked player stash item cannot be moved to teammate equipment: id={currentItem.Id}, tpl={currentItem.Template}");
+            }
+
+            if (!replacementStashById.TryGetValue(id, out Item? replacementItem))
+            {
+                throw new FriendlyTeammateException(
+                    $"Locked player stash item cannot be removed during teammate equipment edit: id={currentItem.Id}, tpl={currentItem.Template}");
+            }
+
+            if (!LockedStashItemStateEquals(currentItem, replacementItem))
+            {
+                throw new FriendlyTeammateException(
+                    $"Locked player stash item cannot be moved or modified during teammate equipment edit: id={currentItem.Id}, tpl={currentItem.Template}");
+            }
+
+            PreservePinLockState(currentItem, replacementItem);
+        }
+    }
+
+    private static bool LockedStashItemStateEquals(Item currentItem, Item replacementItem)
+    {
+        return currentItem != null
+            && replacementItem != null
+            && string.Equals(currentItem.Template.ToString(), replacementItem.Template.ToString(), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(currentItem.ParentId, replacementItem.ParentId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(currentItem.SlotId, replacementItem.SlotId, StringComparison.OrdinalIgnoreCase)
+            && JsonValueEquals(currentItem.Location, replacementItem.Location)
+            && GetItemStackCount(currentItem) == GetItemStackCount(replacementItem);
+    }
+
+    private static void PreservePinLockState(Item currentItem, Item replacementItem)
+    {
+        if (currentItem?.Upd?.PinLockState == null || replacementItem == null)
+        {
+            return;
+        }
+
+        replacementItem.Upd ??= new Upd();
+        replacementItem.Upd.PinLockState = currentItem.Upd.PinLockState;
+    }
+
+    private static bool JsonValueEquals(object? left, object? right)
+    {
+        if (left == null || right == null)
+        {
+            return left == right;
+        }
+
+        return string.Equals(JsonSerializer.Serialize(left), JsonSerializer.Serialize(right), StringComparison.Ordinal);
     }
 
     private static List<Item> PruneSubmittedEquipmentToRootTree(List<Item> items, out int prunedCount)

@@ -203,7 +203,9 @@ namespace pitTeam.Patches
     {
         private const string KillMessageRoute = "/singleplayer/pitfireteam/postraid/kill-message";
         private static readonly HashSet<string> RecordedKillMessageVictims = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> RecordedDeadSquadmates = new HashSet<string>(StringComparer.Ordinal);
         private static readonly object RecordedKillMessageLock = new object();
+        private static readonly object RecordedDeadSquadmatesLock = new object();
         private static FieldInfo _questControllerProfileField;
         private static bool _questControllerProfileFieldPrepared;
 
@@ -303,7 +305,7 @@ namespace pitTeam.Patches
             }
         }
 
-        private static void TryRecordDeadSquadmate(
+        internal static void TryRecordDeadSquadmate(
             Player player,
             IPlayer aggressor,
             EBodyPart bodyPart,
@@ -316,10 +318,23 @@ namespace pitTeam.Patches
                     return;
                 }
 
+                lock (RecordedDeadSquadmatesLock)
+                {
+                    if (!RecordedDeadSquadmates.Add(player.ProfileId))
+                    {
+                        return;
+                    }
+                }
+
                 BotFollowerPlayer deadFollower = BossPlayers.GetFollowers()
                     .Find(follower => follower?.GetBot()?.ProfileId == player.ProfileId);
                 if (deadFollower == null || !deadFollower.IsSquadMate)
                 {
+                    lock (RecordedDeadSquadmatesLock)
+                    {
+                        RecordedDeadSquadmates.Remove(player.ProfileId);
+                    }
+
                     return;
                 }
 
@@ -336,6 +351,19 @@ namespace pitTeam.Patches
             {
                 Modules.Logger.LogError("Failed to record dead squadmate for loadout loss");
                 Modules.Logger.LogError(ex);
+            }
+        }
+
+        internal static void ReleaseDeadSquadmateRecord(Player player)
+        {
+            if (player == null || string.IsNullOrWhiteSpace(player.ProfileId))
+            {
+                return;
+            }
+
+            lock (RecordedDeadSquadmatesLock)
+            {
+                RecordedDeadSquadmates.Remove(player.ProfileId);
             }
         }
 
@@ -558,6 +586,31 @@ namespace pitTeam.Patches
             FieldInfo attributesField = typeof(FieldInfo).GetField("m_fieldAttributes", BindingFlags.NonPublic | BindingFlags.Instance);
             attributesField?.SetValue(_questControllerProfileField, _questControllerProfileField.Attributes & ~FieldAttributes.InitOnly);
             return _questControllerProfileField;
+        }
+    }
+
+    internal sealed class PlayerDeadFallbackPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(Player), "OnDead");
+        }
+
+        [PatchPostfix]
+        private static void PatchPostfix(Player __instance, EDamageType damageType)
+        {
+            try
+            {
+                PlayerKilledPatch.TryRecordDeadSquadmate(
+                    __instance,
+                    aggressor: null,
+                    bodyPart: EBodyPart.Common,
+                    lethalDamageType: damageType);
+            }
+            finally
+            {
+                PlayerKilledPatch.ReleaseDeadSquadmateRecord(__instance);
+            }
         }
     }
 

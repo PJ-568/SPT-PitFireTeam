@@ -155,7 +155,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.2")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.3")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -309,10 +309,14 @@ namespace pitTeam
             new TeammateBackpackChangedContainerPatch().Enable();
             new TeammateBackpackObserverStatePatch().Enable();
             new TeammateBackpackExaminedPatch().Enable();
+            new TeammateBackpackKnownItemPatch().Enable();
+            new TeammateBackpackSearchedItemPatch().Enable();
+            new TeammateBackpackUnknownContentsPatch().Enable();
             new TeammateBackpackSimpleStashLabelPatch().Enable();
-            new TeammateCorpseContainersPanelDogtagPatch().Enable();
-            new TeammateCorpseEquipmentTabDogtagPatch().Enable();
+            new TeammateCorpseContainersPanelSearchPatch().Enable();
+            new TeammateCorpseEquipmentTabSearchPatch().Enable();
             new TeammateCorpseDogtagMovePatch().Enable();
+            new TeammateCorpseDogtagRemovePatch().Enable();
             new FollowerBotReceiverHardAimIgnorePatch().Enable();
             new FollowerBotReceiverTiltIgnorePatch().Enable();
             new FollowerBotReceiverPhraseIgnorePatch().Enable();
@@ -355,6 +359,7 @@ namespace pitTeam
             new PlayerVoicePhraseAvailabilityInitPatch().Enable();
             new PlayerVoicePhraseAvailabilityReplacePatch().Enable();
             new PlayerKilledPatch().Enable();
+            new PlayerDeadFallbackPatch().Enable();
             new PlayerShotPatch().Enable();
             new AddTeammateBackButtonPatch().Enable();
             new AddTeammateSideSelectionStateClosePatch().Enable();
@@ -446,6 +451,11 @@ namespace pitTeam
             new LoadoutEditorRepairExecuteInteractionPatch().Enable();
             new LoadoutEditorRepairByKitPatch().Enable();
             new LoadoutEditorRepairByTraderPatch().Enable();
+            new LoadoutEditorLockContextInteractionPatch().Enable();
+            new LoadoutEditorLockExecuteInteractionPatch().Enable();
+            new LoadoutEditorLockedContainerOpenPatch().Enable();
+            new LoadoutEditorLockedItemMovePatch().Enable();
+            new LoadoutEditorLockedDestinationPatch().Enable();
             new TeammateEquipmentBuildsScreenShowPatch().Enable();
             new TeammateEquipmentBuildsScreenVisualPatch().Enable();
             new TeammateEquipmentBuildsScreenSelectionPatch().Enable();

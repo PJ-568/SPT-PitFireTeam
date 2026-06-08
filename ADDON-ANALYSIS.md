@@ -4,6 +4,10 @@
 > Treat this file as deferred reference material, not as the authoritative description of release behavior.
 > When addon work resumes, re-verify each section against live `addon/` code before relying on it.
 
+## Deferred TODOs
+
+- Performance: `SAINFollowerRuntimeBridge.OnBossGroupStaticUpdate` currently rebuilds scratch dictionaries/sets and uses `Keys.ToList()` during search-party leader maintenance. SAIN is disabled for the current release path, but when addon work resumes, reuse scratch collections or switch to non-allocating removal passes before profiling larger squads.
+
 **File:** `addon/` directory  
 **Plugin ID:** `xyz.pit.fireteam.sainaddon`  
 **Dependencies:** BigBrain, SAIN (hard), core pitFireTeam (hard)  
