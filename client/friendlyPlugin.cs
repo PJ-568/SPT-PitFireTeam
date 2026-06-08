@@ -359,6 +359,7 @@ namespace pitTeam
             new PlayerVoicePhraseAvailabilityInitPatch().Enable();
             new PlayerVoicePhraseAvailabilityReplacePatch().Enable();
             new PlayerKilledPatch().Enable();
+            new PlayerDeadFallbackPatch().Enable();
             new PlayerShotPatch().Enable();
             new AddTeammateBackButtonPatch().Enable();
             new AddTeammateSideSelectionStateClosePatch().Enable();
