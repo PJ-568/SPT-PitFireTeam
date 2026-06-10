@@ -56,6 +56,10 @@ namespace pitTeam.BigBrain
             preparedBreakDecision = null;
             noActionFallbackUntil = 0f;
             nextFiringPositionAllowedTime = 0f;
+            if (!CombatCommon.HasActiveCombatEnemy())
+            {
+                CombatCommon.TrySwitchBackToPrimaryFromAutomaticSecondary();
+            }
         }
 
         public void DecisionChanged(

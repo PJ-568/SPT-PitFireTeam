@@ -406,7 +406,7 @@ Marksman behavior:
 - ignores generic assault push behavior unless marksman policy asks for close support/search
 - can switch to automatic secondary for close-quarter fights
 - does not run proactive automatic close-search while temporary boss `HoldPosition` aggression override is active
-- can switch back to primary when returning to real marksman decisions
+- can switch back to primary when returning to real marksman decisions, and when combat drops before patrol reload maintenance starts
 - supports team push/search through firing-position support, not blind rushing
 - hands boss-distance regroup to the shared regroup objective
 

@@ -388,6 +388,12 @@ namespace pitTeam.Patches
         /** Fetch Follower Profile data along with custom appearance from server */
         private async Task<Profile> FetchMemberProfile(string aid, Profile boss, BotCreator botCreator, EPlayerSide side, WildSpawnType role, BotSpawnParams spawnParams)
         {
+            if (FollowerTransitStateCache.TryConsumeProfile(aid, role, out Profile transitProfile))
+            {
+                await LoadFollowerProfileBundles(transitProfile);
+                return transitProfile;
+            }
+
             IProfileData data = new IProfileData(side, role, BotDifficulty.hard, 0f, spawnParams);
 
             Dictionary<string, dynamic> customization = new Dictionary<string, dynamic>();
@@ -440,11 +446,22 @@ namespace pitTeam.Patches
 
             Profile profile = result.Select(new Func<ProfileResult, Profile>(ProfileEndpointFactoryAbstractClass.Class1550.class1550_0.method_10)).ToList<Profile>().Random();
             // process backend result
-            await Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(PoolManagerClass.PoolsCategory.Raid, PoolManagerClass.AssemblyType.Local, profile.GetAllPrefabPaths(false).ToArray<ResourceKey>(), JobPriorityClass.General, null, PoolManagerClass.DefaultCancellationToken);
+            await LoadFollowerProfileBundles(profile);
 
             Modules.Logger.LogInfo("Generated Follower Profile " + profile.Nickname + " with level " + profile.Info.Level);
 
             return profile;
+        }
+
+        private static Task LoadFollowerProfileBundles(Profile profile)
+        {
+            return Singleton<PoolManagerClass>.Instance.LoadBundlesAndCreatePools(
+                PoolManagerClass.PoolsCategory.Raid,
+                PoolManagerClass.AssemblyType.Local,
+                profile.GetAllPrefabPaths(false).ToArray<ResourceKey>(),
+                JobPriorityClass.General,
+                null,
+                PoolManagerClass.DefaultCancellationToken);
         }
         /** 
          * Task for creating Follower Profiles along with applying custom equipment (if specified) to them 
@@ -728,36 +745,43 @@ namespace pitTeam.Patches
 
                     InteractableObjects.StoreEquipment(profile);
 
-                    // normalize boss followers health
-                    foreach (EBodyPart part in Enum.GetValues(typeof(EBodyPart)))
+                    if (!FollowerTransitStateCache.IsTransitSpawnProfile(profile.ProfileId))
                     {
-                        profile.Health.BodyParts.TryGetValue(part, out var bodyPart);
-                        if (bodyPart != null)
+                        // normalize boss followers health
+                        foreach (EBodyPart part in Enum.GetValues(typeof(EBodyPart)))
                         {
-                            float adjuster = 1f;
-                            switch (part)
+                            profile.Health.BodyParts.TryGetValue(part, out var bodyPart);
+                            if (bodyPart != null)
                             {
-                                case EBodyPart.Head:
-                                    adjuster = 1.5f;
-                                    break;
-                                case EBodyPart.RightArm:
-                                case EBodyPart.LeftArm:
-                                    adjuster = 1.3f;
-                                    break;
-                                case EBodyPart.RightLeg:
-                                case EBodyPart.LeftLeg:
-                                    adjuster = 1.7f;
-                                    break;
+                                float adjuster = 1f;
+                                switch (part)
+                                {
+                                    case EBodyPart.Head:
+                                        adjuster = 1.5f;
+                                        break;
+                                    case EBodyPart.RightArm:
+                                    case EBodyPart.LeftArm:
+                                        adjuster = 1.3f;
+                                        break;
+                                    case EBodyPart.RightLeg:
+                                    case EBodyPart.LeftLeg:
+                                        adjuster = 1.7f;
+                                        break;
 
-                                default:
-                                    adjuster = 1f;
-                                    break;
+                                    default:
+                                        adjuster = 1f;
+                                        break;
+                                }
+
+                                bodyPart.Health.Minimum = Mathf.Round(adjuster * bodyPart.Health.Minimum);
+                                bodyPart.Health.Maximum = Mathf.Round(adjuster * bodyPart.Health.Maximum);
+                                bodyPart.Health.Current = Mathf.Round(adjuster * bodyPart.Health.Current);
                             }
-
-                            bodyPart.Health.Minimum = Mathf.Round(adjuster * bodyPart.Health.Minimum);
-                            bodyPart.Health.Maximum = Mathf.Round(adjuster * bodyPart.Health.Maximum);
-                            bodyPart.Health.Current = Mathf.Round(adjuster * bodyPart.Health.Current);
                         }
+                    }
+                    else
+                    {
+                        Modules.Logger.LogInfo($"[Transit] Preserving carried health for boss follower '{profile.Nickname ?? profile.ProfileId}'.");
                     }
 
                     WildSpawnType botRole = profile.Info.Settings.Role;
@@ -780,7 +804,14 @@ namespace pitTeam.Patches
                                 // prevent attack of player on spawn
                                 me.Memory.DeleteInfoAboutEnemy(player.Player());
 
-                                me.GetPlayer.ActiveHealthController.RestoreFullHealth(); // ensure bot has full health
+                                if (!FollowerTransitStateCache.IsTransitSpawnProfile(me.ProfileId))
+                                {
+                                    me.GetPlayer.ActiveHealthController.RestoreFullHealth(); // ensure bot has full health
+                                }
+                                else
+                                {
+                                    Modules.Logger.LogInfo($"[Transit] Preserved carried health for '{me.Profile?.Nickname ?? me.ProfileId}'.");
+                                }
 
                                 me.Memory.IsPeace = true;
 
@@ -1022,7 +1053,14 @@ namespace pitTeam.Patches
                         {
                             me.Memory.DeleteInfoAboutEnemy(player.Player()); // prevent attack of player on spawn
 
-                            me.GetPlayer.ActiveHealthController.RestoreFullHealth(); // ensure bot has full health
+                            if (!FollowerTransitStateCache.IsTransitSpawnProfile(me.ProfileId))
+                            {
+                                me.GetPlayer.ActiveHealthController.RestoreFullHealth(); // ensure bot has full health
+                            }
+                            else
+                            {
+                                Modules.Logger.LogInfo($"[Transit] Preserved carried health for '{me.Profile?.Nickname ?? me.ProfileId}'.");
+                            }
 
                             string tactic = null;
                             profileTactic.TryGetValue(me.Profile.ProfileId, out tactic);
@@ -1682,6 +1720,7 @@ namespace pitTeam.Patches
                 SpawnHelper.spawnMemberIds.Clear();
                 SpawnHelper.spawnMemberIdsScav.Clear();
                 SpawnHelper.spawnMemberIdsBoss.Clear();
+                FollowerTransitStateCache.Clear();
             }
 
 

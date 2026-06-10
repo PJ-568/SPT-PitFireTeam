@@ -490,6 +490,8 @@ Mods that add custom gear like belts should not be used on teammates, it can cau
 
 Career Log mod is not compatible with this mod as it causes the "add teammate" button to not work. 
 
+The Labyrinth is a special map with special AI, not meant to AI followers. Do not spawn with your teammates there.
+
 - Teammates can linger after combat. Use **Attention** to reset them.
 - Teammates might not heal their health all the way. It is a game issue, use the Heal key to force heal.
 - Teleporting teammates while they are interacting with doors or other objects can leave them in a bad state.
