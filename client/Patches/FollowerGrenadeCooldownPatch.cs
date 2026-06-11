@@ -37,18 +37,6 @@ namespace pitTeam.Patches
                 return false;
             }
 
-            BotRequest? currentRequest = bot.BotRequestController?.CurRequest;
-            bool explicitGrenadeSequence =
-                __instance.ThrowindNow ||
-                __instance.ReadyToThrow ||
-                bot.SuppressGrenade?.Bool_0 == true ||
-                currentRequest?.BotRequestType == BotRequestType.throwGrenade ||
-                currentRequest?.BotRequestType == BotRequestType.throwGrenadeFromPlace;
-            if (explicitGrenadeSequence)
-            {
-                return true;
-            }
-
             if (FollowerGrenadeCooldowns.CanProceedToThrow(bot))
             {
                 return true;
@@ -93,8 +81,8 @@ namespace pitTeam.Patches
             return AccessTools.Method(typeof(BotGrenadeController), "method_11");
         }
 
-        [PatchPostfix]
-        private static void PatchPostfix(BotGrenadeController __instance, Result<IHandsThrowController> throwResult)
+        [PatchPrefix]
+        private static void PatchPrefix(BotGrenadeController __instance, Result<IHandsThrowController> throwResult)
         {
             BotOwner bot = BotOwnerField?.GetValue(__instance) as BotOwner;
             if (bot == null || !BossPlayers.IsFollower(bot))
@@ -104,7 +92,11 @@ namespace pitTeam.Patches
 
             if (throwResult.Succeed && throwResult.Value != null)
             {
-                FollowerGrenadeRuntimeGate.MarkThrowReleased(bot);
+                bool firstRelease = FollowerGrenadeRuntimeGate.MarkThrowReleased(bot);
+                if (firstRelease)
+                {
+                    BattleRecorder.RecordGrenadeEvent(bot, "release", "cooldownStart");
+                }
             }
         }
     }

@@ -383,6 +383,35 @@ Execution:
 - Stores item through `InteractableObjects.StoreItem(...)` for squadmates.
 - Clears command on success/failure/invalid state.
 
+### View Backpack Quick Interaction
+
+Input:
+
+- custom `EPhraseTrigger` value `CustomPhrases.ViewBackpack`
+- exposed through the lower-left quick interaction panel as `View Backpack`
+
+Targeting:
+
+- Uses `TeammateBackpackInspection.CanShowQuickInteraction(...)`.
+- Requires the player to look at an alive spawned squadmate within the close interaction range.
+- Filters to `BotFollowerPlayer.IsSquadMate`, so recruited/picked-up allies are not valid backpack targets.
+- Requires the target to have a searchable item in the `Backpack` equipment slot.
+- Does not overlap with follower healing or active/pending follower loot-pickup work.
+
+Execution:
+
+- `QuickPanelPatch` keeps the custom phrase available and refreshes whether it can be shown.
+- `QuickMumbleStartViewBackpackPatch` and `PlayerPatch.PlayPhraseOrGesture` route the phrase to `TeammateBackpackInspection.TryOpenFromQuickInteraction(...)`.
+- Opens the target follower's live backpack through `GamePlayerOwner.ShowInventoryScreenLoot(...)`.
+- Marks the backpack tree searched/known only for this local inspection session, without permanently examining unknown templates for the player.
+- Sets `BotFollowerPlayer.IsBackpackInspectionActive`, which makes follow/patrol logic hold the follower still while the backpack screen is open.
+- Closes the inspection if the player dies, the target becomes invalid, the follower starts healing/pickup work, or combat pressure appears (`HasKnownEnemy`, `Memory.HaveEnemy`, or `Memory.IsUnderFire`).
+
+Loot tracking:
+
+- On close, new items placed into the follower backpack are registered through `InteractableObjects.StoreItem(...)` so they behave like handed-over follower loot.
+- Previously tracked items removed from the backpack are unregistered through `InteractableObjects.RemoveStoredItem(...)` so post-raid return handling does not duplicate items the player already took back.
+
 ### Open Door Phrase
 
 Input:

@@ -70,20 +70,29 @@ namespace pitTeam.BigBrain
         private const float PointBlankContactDogFightDistance = 3f;
         private const float PointBlankContactMaxAnchorDistance = 4.5f;
         private const float CloseVisibleThreatBreakDistance = 18f;
-        private const float CloseVisibleDogFightStartDistance = 15f;
-        private const float CloseVisibleDogFightEndDistance = 15f;
+        private const float CloseVisibleDogFightStartDistance = CloseVisibleThreatBreakDistance;
+        private const float CloseVisibleDogFightEndDistance = CloseVisibleThreatBreakDistance;
         private const float CloseThreatDogFightDistance = 8f;
         private const float CloseThreatAdvanceBreakDistance = 18f;
         private const float CloseThreatRecentSeenSeconds = 0.75f;
+        private const float CloseRecentContactFireSeconds = 1f;
         private const float FollowerRegularGrenadeMinDistance = 15f;
-        private const float FollowerRegularGrenadeMaxDistance = 32f;
+        private const float FollowerRegularGrenadeMaxDistance = 40f;
+        private const float FollowerRegularTimedGrenadeMinFuseSeconds = 1.5f;
+        private const float FollowerRegularTimedGrenadeMaxFuseSeconds = 3.5f;
+        private const float FollowerRegularTimedGrenadeMinFuseMaxDistance = 28f;
+        private const float FollowerRegularGrenadeImpactDelayThreshold = 0.25f;
         private const float FollowerRegularGrenadeUnsafeRadius = 8f;
+        private const float FollowerRegularGrenadeFreshContactDelaySeconds = 0.75f;
+        private const float FollowerRegularGrenadeRejectRecordSeconds = 2f;
         private const float ReloadRetreatThreatDistance = 18f;
         private const float ReloadRetreatAmmoRatio = 0.25f;
         private const int ReloadRetreatMinMagazineAmmo = 5;
         private const int AutomaticSecondaryMaxPenetrationDeficit = 15;
         private const float AmmoProfileCacheMaxAgeSeconds = 1f;
         private const float NoSprintHealSuppressRecentSeenSeconds = 3f;
+        private const float HealContactThreatDistance = 25f;
+        private const float HealContactRetreatMaxNavDistance = 10f;
         private const float HealCoverStallBlacklistSeconds = 10f;
         private const float HealHidePointMinDistance = 4f;
         private const float HealHidePointMaxNavDistance = 35f;
@@ -159,6 +168,8 @@ namespace pitTeam.BigBrain
         private string? committedMovementEnemyProfileId;
         private Vector3 committedMovementTarget;
         private int? committedMovementCoverId;
+        private string? lastFollowerGrenadeRejectReason;
+        private float nextFollowerGrenadeRejectRecordAt;
         private string? lastGrenadeLauncherSuppressRejectReason;
         private float nextGrenadeLauncherSuppressRejectRecordAt;
         private string? lastSupportFiringCoverRejectReason;
@@ -3016,7 +3027,7 @@ namespace pitTeam.BigBrain
 
             int rejectedTargets = 0;
             string? firstRejectReason = null;
-            int requiredTargets = Mathf.Max(1, botOwner.Settings.FileSettings.Boss.BIG_PIPE_ARTILLERY_COUNT + 1);
+            int requiredTargets = 1;
             foreach (EnemyInfo enemyInfo in botOwner.EnemiesController.EnemyInfos.Values)
             {
                 if (!TryGetGrenadeLauncherTarget(
@@ -6445,6 +6456,11 @@ namespace pitTeam.BigBrain
                 return new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.heal, "healInCover");
             }
 
+            if (TryGetVisibleHealContactDecision(goalEnemy, ref coverTried, out AICoreActionResultStruct<BotLogicDecision, GClass26> visibleContactDecision))
+            {
+                return visibleContactDecision;
+            }
+
             if (TryGetNoSprintHealContactFireDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> contactFireDecision))
             {
                 return contactFireDecision;
@@ -6558,6 +6574,30 @@ namespace pitTeam.BigBrain
 
             healBlockUntil = Time.time + 3f;
             return null;
+        }
+
+        private bool TryGetVisibleHealContactDecision(
+            EnemyInfo? goalEnemy,
+            ref bool coverTried,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!IsCloseVisibleHealThreat(goalEnemy))
+            {
+                return false;
+            }
+
+            if (TryAssignCloseSuppressedHealCover(goalEnemy!, ref coverTried))
+            {
+                decision = CreateCommittedHealMoveDecision(goalEnemy);
+                return true;
+            }
+
+            ClearCommittedHealCover();
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.shootFromPlace,
+                "healRetreatFightItOut");
+            return true;
         }
 
         public static bool IsEnemyMarksman(EnemyInfo? goalEnemy)
@@ -6932,6 +6972,52 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        private bool TryAssignCloseSuppressedHealCover(EnemyInfo goalEnemy, ref bool coverTried)
+        {
+            if (coverTried)
+            {
+                return false;
+            }
+
+            coverTried = true;
+
+            if (IsCommittedHealCoverValid(goalEnemy) &&
+                IsHealCoverCloseEnoughForContact(committedHealCover))
+            {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
+                SetCover(committedHealCover);
+                CommitSuppressedHealRetreat();
+                return true;
+            }
+
+            if (TryFindHealCover(goalEnemy, out CustomNavigationPoint? healCover, HealContactRetreatMaxNavDistance))
+            {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
+                SetCover(healCover);
+                committedHealCover = healCover;
+                hasCommittedHealPoint = false;
+                committedHealPoint = Vector3.zero;
+                CommitSuppressedHealRetreat();
+                return true;
+            }
+
+            float closeRetreatMaxDistanceSqr = HealContactRetreatMaxNavDistance * HealContactRetreatMaxNavDistance;
+            if (TryAssignRetreatAttackCover(goalEnemy, false, closeRetreatMaxDistanceSqr) &&
+                !IsBlockedHealCover(botOwner.Memory.CurCustomCoverPoint) &&
+                IsHealCoverCloseEnoughForContact(botOwner.Memory.CurCustomCoverPoint))
+            {
+                SetCoverTactic(BotsGroup.BotCurrentTactic.Ambush);
+                committedHealCover = botOwner.Memory.CurCustomCoverPoint;
+                hasCommittedHealPoint = false;
+                committedHealPoint = Vector3.zero;
+                CommitSuppressedHealRetreat();
+                return true;
+            }
+
+            SetCover(null);
+            return false;
+        }
+
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? TryGetCommittedHealMoveDecision(EnemyInfo? goalEnemy)
         {
             if (goalEnemy == null || botOwner.Memory.IsInCover)
@@ -6983,6 +7069,12 @@ namespace pitTeam.BigBrain
 
             committedHealMoveAction = (BotLogicDecision)CustomBotDecisions.attackRetreat;
             committedHealMoveReason = canSprintToHealCover ? "moveToHeal.retreat" : "moveToHeal.noSprintRetreat";
+        }
+
+        private void CommitSuppressedHealRetreat()
+        {
+            committedHealMoveAction = (BotLogicDecision)CustomBotDecisions.attackRetreat;
+            committedHealMoveReason = "moveToHeal.retreatSuppress";
         }
 
         private void CommitHealPointMove(EnemyInfo? goalEnemy, Vector3 healPoint)
@@ -7144,7 +7236,10 @@ namespace pitTeam.BigBrain
             };
         }
 
-        private bool TryFindHealCover(EnemyInfo goalEnemy, out CustomNavigationPoint? cover)
+        private bool TryFindHealCover(
+            EnemyInfo goalEnemy,
+            out CustomNavigationPoint? cover,
+            float? maxNavDistanceOverride = null)
         {
             cover = null;
             Vector3 enemyAnchor = GetEnemyAnchor(goalEnemy);
@@ -7168,7 +7263,7 @@ namespace pitTeam.BigBrain
 
             float healCoverRetreatDistance = CombatDistanceConfiguration.Instance.GetHealCoverRetreatDistance();
             float healCoverSearchRadius = CombatDistanceConfiguration.Instance.GetHealCoverSearchRadius();
-            float healCoverMaxNavDistance = CombatDistanceConfiguration.Instance.GetHealCoverMaxNavDistance();
+            float healCoverMaxNavDistance = maxNavDistanceOverride ?? CombatDistanceConfiguration.Instance.GetHealCoverMaxNavDistance();
             CoverSearchType healSearchType = SetCoverTacticAndGetSearchType(
                 BotsGroup.BotCurrentTactic.Ambush,
                 CoverShootType.hide,
@@ -7211,6 +7306,17 @@ namespace pitTeam.BigBrain
                 healSearchType);
 
             return cover != null;
+        }
+
+        private bool IsHealCoverCloseEnoughForContact(CustomNavigationPoint? cover)
+        {
+            if (cover == null || !IsFinite(cover.Position))
+            {
+                return false;
+            }
+
+            float navDistance = Utils.Utils.GetNavDistance(botOwner.Position, cover.Position);
+            return IsFinite(navDistance) && navDistance <= HealContactRetreatMaxNavDistance;
         }
 
         private bool TryFindHealHidePoint(EnemyInfo goalEnemy, out Vector3 point)
@@ -9169,6 +9275,61 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        internal static bool TryGetCloseRecentContactFireTarget(
+            BotOwner? botOwner,
+            EnemyInfo? goalEnemy,
+            out Vector3 target)
+        {
+            target = Vector3.zero;
+            if (botOwner == null ||
+                !HasActiveCombatEnemy(botOwner, goalEnemy) ||
+                goalEnemy == null ||
+                goalEnemy.Distance > CloseVisibleThreatBreakDistance ||
+                !HasRecentPersonalContact(goalEnemy, CloseRecentContactFireSeconds))
+            {
+                return false;
+            }
+
+            Vector3 enemyAnchor = IsFinite(goalEnemy.EnemyLastPositionReal) &&
+                                  goalEnemy.EnemyLastPositionReal.sqrMagnitude > 0.01f
+                ? goalEnemy.EnemyLastPositionReal
+                : GetEnemyAnchor(goalEnemy);
+            if (!IsFinite(enemyAnchor) || enemyAnchor.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            Vector3 weaponOrigin = botOwner.WeaponRoot != null
+                ? botOwner.WeaponRoot.position
+                : botOwner.Position + Vector3.up * 1.25f;
+
+            Vector3 chestTarget = enemyAnchor + Vector3.up * 1.05f;
+            if (TryAcceptPointBlankFireTarget(weaponOrigin, chestTarget, out target))
+            {
+                return true;
+            }
+
+            target = Vector3.zero;
+            return false;
+        }
+
+        private static bool HasRecentPersonalContact(EnemyInfo goalEnemy, float recentSeconds)
+        {
+            return IsRecentTimestamp(goalEnemy.PersonalSeenTime, recentSeconds) ||
+                   IsRecentTimestamp(goalEnemy.PersonalLastSeenTime, recentSeconds);
+        }
+
+        private static bool IsRecentTimestamp(float timestamp, float recentSeconds)
+        {
+            if (!IsFinite(timestamp) || timestamp <= 0f)
+            {
+                return false;
+            }
+
+            float elapsed = Time.time - timestamp;
+            return elapsed >= 0f && elapsed <= recentSeconds;
+        }
+
         private static bool TryAcceptPointBlankFireTarget(Vector3 origin, Vector3 candidate, out Vector3 target)
         {
             target = Vector3.zero;
@@ -9746,6 +9907,12 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("visibleCloseFireBreakCoverMove", true);
             }
 
+            if (isRunToHeal && IsCloseVisibleHealThreat(botOwner.Memory.GoalEnemy))
+            {
+                ClearCommittedHealCover();
+                return new AICoreActionEndStruct("healVisibleContactBreakCoverMove", true);
+            }
+
             if ((!isRunToHeal && ShouldBreakRunToCoverForImmediateFire()) ||
                 (isRunToHeal && IsPointBlankVisibleShootableThreat(botOwner.Memory.GoalEnemy)))
             {
@@ -10049,6 +10216,14 @@ namespace pitTeam.BigBrain
                    goalEnemy.IsVisible &&
                    goalEnemy.CanShoot &&
                    goalEnemy.Distance <= PointBlankRetreatBlockDistance;
+        }
+
+        private static bool IsCloseVisibleHealThreat(EnemyInfo? goalEnemy)
+        {
+            return goalEnemy != null &&
+                   goalEnemy.IsVisible &&
+                   goalEnemy.CanShoot &&
+                   goalEnemy.Distance <= HealContactThreatDistance;
         }
 
         private static bool IsCloseVisibleShootableThreat(EnemyInfo? goalEnemy)
@@ -10618,9 +10793,9 @@ namespace pitTeam.BigBrain
                 return RejectFollowerGrenade(targetRejectReason ?? "targetPositionUnknown", goalEnemy: goalEnemy);
             }
 
-            if (!IsFollowerRegularGrenadeDistance(goalTargetPosition))
+            if (!IsFollowerRegularGrenadeEnvelopeDistance(goalTargetPosition, out string? distanceRejectReason))
             {
-                return RejectFollowerGrenade("distance", goalEnemy: goalEnemy);
+                return RejectFollowerGrenade(distanceRejectReason ?? "distance", goalEnemy: goalEnemy);
             }
 
             if (botOwner.WeaponManager == null || botOwner.WeaponManager.IsMelee)
@@ -10656,12 +10831,12 @@ namespace pitTeam.BigBrain
             if (IsDogFightActive() ||
                 botOwner.Memory.IsUnderFire ||
                 WasHitRecently(botOwner, 2f) ||
-                Time.time - goalEnemy.FirstTimeSeen < 1.5f)
+                Time.time - goalEnemy.FirstTimeSeen < FollowerRegularGrenadeFreshContactDelaySeconds)
             {
                 return RejectFollowerGrenade("dogfightOrPressure", goalEnemy, cancelPending: true);
             }
 
-            if (goalEnemy.CanShoot && botOwner.LookSensor.EnoughDistToShoot(out _))
+            if (FollowerImmediateFirePolicy.HasReliableImmediateFireLane(botOwner, goalEnemy))
             {
                 return RejectFollowerGrenade("cleanShot", goalEnemy, cancelPending: true);
             }
@@ -10679,9 +10854,9 @@ namespace pitTeam.BigBrain
                 return RejectFollowerGrenade(targetRejectReason ?? "targetPositionUnknown", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
-            if (!IsFollowerRegularGrenadeDistance(targetPosition))
+            if (!IsFollowerRegularGrenadeEnvelopeDistance(targetPosition, out distanceRejectReason))
             {
-                return RejectFollowerGrenade("distance", suppressEnemy, cancelPending: true, disableGate: true);
+                return RejectFollowerGrenade(distanceRejectReason ?? "distance", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
             if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, FollowerRegularGrenadeUnsafeRadius))
@@ -10689,42 +10864,102 @@ namespace pitTeam.BigBrain
                 return RejectFollowerGrenade("friendlyTooClose", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
+            string? candidateRejectReason = null;
+
             if (preferredThrowType != null &&
-                botOwner.WeaponManager.Grenades.HaveGrenadeOfType(preferredThrowType.Value) &&
-                TryInitFollowerSuppressGrenade(suppressEnemy, preferredThrowType.Value, targetPosition))
+                TryStartFollowerGrenadeCandidate(
+                    suppressEnemy,
+                    preferredThrowType.Value,
+                    targetPosition,
+                    "SupGrenade",
+                    holdAfterThrow: true,
+                    out decision,
+                    out candidateRejectReason))
             {
-                FollowerGrenadeCooldowns.RecordThrow(botOwner);
-                HoldFor(botOwner.Settings.FileSettings.Boss.KILLA_AFTER_GRENADE_SUPPRESS_DELAY);
-                decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade");
-                CommitGrenadeDecision(decision);
                 return true;
             }
 
-            ThrowWeapType throwType = ThrowWeapType.frag_grenade;
-            if (botOwner.WeaponManager.Grenades.HaveGrenadeOfType(throwType))
+            if (preferredThrowType != ThrowWeapType.frag_grenade)
             {
-                if (TryInitFollowerSuppressGrenade(suppressEnemy, throwType, targetPosition))
+                if (TryStartFollowerGrenadeCandidate(
+                    suppressEnemy,
+                    ThrowWeapType.frag_grenade,
+                    targetPosition,
+                    "SupGrenade2",
+                    holdAfterThrow: false,
+                    out decision,
+                    out string? fragRejectReason))
                 {
-                    FollowerGrenadeCooldowns.RecordThrow(botOwner);
-                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade2");
-                    CommitGrenadeDecision(decision);
                     return true;
                 }
-            }
-            else
-            {
-                throwType = ThrowWeapType.stun_grenade;
-                if (botOwner.WeaponManager.Grenades.HaveGrenadeOfType(throwType) &&
-                    TryInitFollowerSuppressGrenade(suppressEnemy, throwType, targetPosition))
-                {
-                    FollowerGrenadeCooldowns.RecordThrow(botOwner);
-                    decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, "SupGrenade3");
-                    CommitGrenadeDecision(decision);
-                    return true;
-                }
+
+                candidateRejectReason = fragRejectReason ?? candidateRejectReason;
             }
 
-            return RejectFollowerGrenade("initFailedOrNoGrenade", suppressEnemy, cancelPending: true, disableGate: true);
+            if (preferredThrowType != ThrowWeapType.stun_grenade)
+            {
+                if (TryStartFollowerGrenadeCandidate(
+                    suppressEnemy,
+                    ThrowWeapType.stun_grenade,
+                    targetPosition,
+                    "SupGrenade3",
+                    holdAfterThrow: false,
+                    out decision,
+                    out string? stunRejectReason))
+                {
+                    return true;
+                }
+
+                candidateRejectReason = stunRejectReason ?? candidateRejectReason;
+            }
+
+            return RejectFollowerGrenade(candidateRejectReason ?? "initFailedOrNoGrenade", suppressEnemy, cancelPending: true, disableGate: true);
+        }
+
+        private bool TryStartFollowerGrenadeCandidate(
+            EnemyInfo suppressEnemy,
+            ThrowWeapType throwType,
+            Vector3 targetPosition,
+            string decisionReason,
+            bool holdAfterThrow,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision,
+            out string? rejectReason)
+        {
+            decision = default;
+            rejectReason = null;
+
+            if (!TryGetFollowerGrenadeByType(throwType, out ThrowWeapItemClass? grenade) || grenade == null)
+            {
+                rejectReason = $"noGrenade:{throwType}";
+                return false;
+            }
+
+            if (!IsFollowerRegularGrenadeDistance(targetPosition, grenade, out rejectReason))
+            {
+                RecordFollowerGrenadeReject(rejectReason ?? "distance", suppressEnemy);
+                return false;
+            }
+
+            if (!TryInitFollowerSuppressGrenade(suppressEnemy, throwType, targetPosition))
+            {
+                rejectReason = $"initFailed:{throwType}";
+                return false;
+            }
+
+            if (holdAfterThrow)
+            {
+                HoldFor(botOwner.Settings.FileSettings.Boss.KILLA_AFTER_GRENADE_SUPPRESS_DELAY);
+            }
+
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(BotLogicDecision.suppressGrenade, decisionReason);
+            BattleRecorder.RecordGrenadeEvent(
+                botOwner,
+                "init",
+                CreateFollowerGrenadeRecorderReason(decisionReason, grenade, targetPosition),
+                goalEnemy: suppressEnemy,
+                target: targetPosition);
+            CommitGrenadeDecision(decision);
+            return true;
         }
 
         private bool TryGetFollowerGrenadeTarget(EnemyInfo? enemyInfo, out Vector3 targetPosition, out string? rejectReason)
@@ -10759,16 +10994,118 @@ namespace pitTeam.BigBrain
             return true;
         }
 
-        private bool IsFollowerRegularGrenadeDistance(Vector3 targetPosition)
+        private bool TryGetFollowerGrenadeByType(ThrowWeapType throwType, out ThrowWeapItemClass? grenade)
         {
-            if (!IsFinite(targetPosition) || targetPosition.sqrMagnitude <= 0.01f)
+            grenade = null;
+
+            Inventory inventory = botOwner.GetPlayer?.InventoryController?.Inventory;
+            if (inventory == null)
             {
                 return false;
             }
 
+            foreach (Item item in inventory.GetPlayerItems(EPlayerItems.Equipment))
+            {
+                if (item is ThrowWeapItemClass throwWeapItem &&
+                    throwWeapItem.ThrowType == throwType)
+                {
+                    grenade = throwWeapItem;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsFollowerRegularGrenadeEnvelopeDistance(Vector3 targetPosition, out string? rejectReason)
+        {
+            rejectReason = null;
+            if (!IsFinite(targetPosition) || targetPosition.sqrMagnitude <= 0.01f)
+            {
+                rejectReason = "distanceInvalid";
+                return false;
+            }
+
             float targetDistanceSqr = (targetPosition - botOwner.Position).sqrMagnitude;
-            return targetDistanceSqr >= FollowerRegularGrenadeMinDistance * FollowerRegularGrenadeMinDistance &&
-                   targetDistanceSqr <= FollowerRegularGrenadeMaxDistance * FollowerRegularGrenadeMaxDistance;
+            if (targetDistanceSqr < FollowerRegularGrenadeMinDistance * FollowerRegularGrenadeMinDistance)
+            {
+                rejectReason = "distanceTooClose:min15";
+                return false;
+            }
+
+            if (targetDistanceSqr > FollowerRegularGrenadeMaxDistance * FollowerRegularGrenadeMaxDistance)
+            {
+                rejectReason = "distanceTooFar:max40";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool IsFollowerRegularGrenadeDistance(Vector3 targetPosition, ThrowWeapItemClass grenade, out string? rejectReason)
+        {
+            rejectReason = null;
+            if (!IsFollowerRegularGrenadeEnvelopeDistance(targetPosition, out rejectReason))
+            {
+                return false;
+            }
+
+            float maxDistance = GetFollowerRegularGrenadeMaxDistance(grenade);
+            float targetDistanceSqr = (targetPosition - botOwner.Position).sqrMagnitude;
+            if (targetDistanceSqr > maxDistance * maxDistance)
+            {
+                rejectReason = $"distanceTooFar:{GetFollowerGrenadeTimerLabel(grenade)}:max{Mathf.RoundToInt(maxDistance)}";
+                return false;
+            }
+
+            return true;
+        }
+
+        private float GetFollowerRegularGrenadeMaxDistance(ThrowWeapItemClass grenade)
+        {
+            if (IsFollowerImpactGrenade(grenade))
+            {
+                return FollowerRegularGrenadeMaxDistance;
+            }
+
+            float fuseRange = Mathf.InverseLerp(
+                FollowerRegularTimedGrenadeMinFuseSeconds,
+                FollowerRegularTimedGrenadeMaxFuseSeconds,
+                GetFollowerGrenadeExplDelay(grenade));
+            return Mathf.Lerp(
+                FollowerRegularTimedGrenadeMinFuseMaxDistance,
+                FollowerRegularGrenadeMaxDistance,
+                fuseRange);
+        }
+
+        private bool IsFollowerImpactGrenade(ThrowWeapItemClass grenade)
+        {
+            return GetFollowerGrenadeExplDelay(grenade) <= FollowerRegularGrenadeImpactDelayThreshold;
+        }
+
+        private static float GetFollowerGrenadeExplDelay(ThrowWeapItemClass grenade)
+        {
+            return Mathf.Max(0f, grenade.GetExplDelay);
+        }
+
+        private string CreateFollowerGrenadeRecorderReason(
+            string decisionReason,
+            ThrowWeapItemClass grenade,
+            Vector3 targetPosition)
+        {
+            float distance = Vector3.Distance(botOwner.Position, targetPosition);
+            float maxDistance = GetFollowerRegularGrenadeMaxDistance(grenade);
+            return $"{decisionReason}:{grenade.ThrowType}:{GetFollowerGrenadeTimerLabel(grenade)}:d{Mathf.RoundToInt(distance)}:max{Mathf.RoundToInt(maxDistance)}";
+        }
+
+        private string GetFollowerGrenadeTimerLabel(ThrowWeapItemClass grenade)
+        {
+            if (IsFollowerImpactGrenade(grenade))
+            {
+                return "impact";
+            }
+
+            return $"fuse{Mathf.RoundToInt(GetFollowerGrenadeExplDelay(grenade) * 10f)}";
         }
 
         private bool TryInitFollowerSuppressGrenade(
@@ -10784,7 +11121,7 @@ namespace pitTeam.BigBrain
             }
 
             Vector3 throwTarget = targetPosition + BotOwner.STAY_HEIGHT;
-            if (!botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang45))
+            if (!TryInitFollowerSuppressGrenadeAtAnyAngle(throwTarget))
             {
                 return false;
             }
@@ -10794,6 +11131,14 @@ namespace pitTeam.BigBrain
             return true;
         }
 
+        private bool TryInitFollowerSuppressGrenadeAtAnyAngle(Vector3 throwTarget)
+        {
+            return botOwner.SuppressGrenade != null &&
+                   (botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang25) ||
+                    botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang45) ||
+                    botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang65));
+        }
+
         private bool IsSafeGrenadeThrowPosition(EnemyInfo goalEnemy, Vector3 enemyAnchor)
         {
             if (goalEnemy == null || botOwner.Memory.IsUnderFire || WasHitRecently(botOwner, 2f))
@@ -10801,7 +11146,8 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (botOwner.Mover?.HasPathAndNoComplete == true)
+            if (botOwner.Mover?.HasPathAndNoComplete == true &&
+                botOwner.GoToSomePointData?.IsCome() != true)
             {
                 return false;
             }
@@ -10831,7 +11177,21 @@ namespace pitTeam.BigBrain
                 FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
             }
 
+            RecordFollowerGrenadeReject(reason, goalEnemy);
             return false;
+        }
+
+        private void RecordFollowerGrenadeReject(string reason, EnemyInfo? goalEnemy)
+        {
+            if (string.Equals(lastFollowerGrenadeRejectReason, reason, StringComparison.Ordinal) &&
+                Time.time < nextFollowerGrenadeRejectRecordAt)
+            {
+                return;
+            }
+
+            lastFollowerGrenadeRejectReason = reason;
+            nextFollowerGrenadeRejectRecordAt = Time.time + FollowerRegularGrenadeRejectRecordSeconds;
+            BattleRecorder.RecordGrenadeEvent(botOwner, "reject", reason, goalEnemy: goalEnemy);
         }
 
         private bool IsGrenadeThrowUnsafe(EnemyInfo? goalEnemy)

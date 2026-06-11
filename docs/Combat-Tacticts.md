@@ -79,7 +79,7 @@ Rifleman/default behavior:
 - Riflemen with a shotgun first primary can latch a loaded automatic second primary for mid-or-farther fights; once latched it stays through the fight to avoid distance-bucket weapon churn, unless the automatic secondary runs dry with no reload ammo, at which point the fight is locked back to first primary.
 - Automatic-secondary switching is penetration-guarded against the first primary's current ammo: the secondary ammo may trail by up to 15 penetration, matching EFT's armor-resistance penetration window, so small gaps like 35 vs 40 still allow rate of fire to compensate while gaps like 20 vs 40 stay on the primary.
 - Rifleman weapon switching is owned by combat decisions only: if EFT automatically swaps to a support weapon, such as pistol fallback instead of reload, follower combat should not force an immediate primary swap back unless this tactic explicitly made the secondary switch first.
-- Riflemen with a usable grenade launcher in the second primary can use it for suppression decisions: ordered suppress follows the old plugin's boss-order ray scan for hostile player bodies and does not require `EnemyInfo.IsVisible`, but ray hits must still be in front of and close to the order ray so broad scan results cannot choose a sideways/backward target. If that order ray finds no valid hostile, ordered launcher suppression may fall back to the follower's current `GoalEnemy` target. Autonomous use follows the old plugin's visible-enemy collection and requires multiple visible hostile targets. Launcher targets keep the old safety band (`27m` to `130m`), reject impact points near the boss or followers, require a clean suppress lane or suppress-from point, wait for the launcher aim to align with the selected impact point, and emit artillery warnings only after the launch position and action are confirmed.
+- Riflemen with a usable grenade launcher in the second primary can use it for suppression decisions: ordered suppress follows the old plugin's boss-order ray scan for hostile player bodies and does not require `EnemyInfo.IsVisible`, but ray hits must still be in front of and close to the order ray so broad scan results cannot choose a sideways/backward target. If that order ray finds no valid hostile, ordered launcher suppression may fall back to the follower's current `GoalEnemy` target. Autonomous use can now act on a single visible hostile target instead of requiring a clustered multi-target opportunity. Launcher targets keep the old safety band (`27m` to `130m`), reject impact points near the boss or followers, require a clean suppress lane or suppress-from point, wait for the launcher aim to align with the selected impact point, and emit artillery warnings only after the launch position and action are confirmed.
 - Grenade-launcher suppression emits a short squad combat event. While that event is active, other followers do not start or continue autonomous pushes around the same impact area, even if their current enemy identity is different. Explicit player push orders still remain command-owned.
 - Other nearby Riflemen can react to the push event as support instead of starting a duplicate independent push: shoot from current cover, take a support shot, move to push-support cover, or move to a firing point.
 
@@ -176,7 +176,7 @@ Commitment types:
 
 - `initialDecision`: one-shot opener prepared when combat starts.
 - `committedGrenadeDecision`: active grenade throw sequence; stays latched until throw completes or is canceled for immediate danger.
-- Regular follower grenade throws use a conservative reliable-position window from `15m` to `32m`; direct visibility is not required, but the follower must have a known enemy position and the throw must pass friendly safety checks. Launcher suppression owns longer grenade-like pressure.
+- Regular follower grenade throws keep a hard `15m` minimum and a `40m` outer envelope, but the usable far limit is selected-grenade aware: impact grenades can use the full envelope, while timed grenades scale by fuse length so short `1.5s` fuses do not try far throws that longer `3s` to `3.5s` fuses can support. Direct visibility is not required, but the follower must have a known enemy position and the throw must pass friendly safety checks. Launcher suppression owns longer grenade-like pressure.
 - `suppressionObjective`: ordered Rifleman suppression state; owns ordered suppress-fire setup and completion.
 - `needSniperObjective`: ordered Marksman support state; owns ordered firing-position search and settle.
 - `committedPushDecision`: push/search pressure chosen by `FollowerCombatPush`.
@@ -322,16 +322,18 @@ New grenade activation is checked after support/protection and before push. Once
 Grenade activation requires:
 
 - grenade config enabled
-- visible enemy with a valid person
-- distance roughly between 15m and 28m
+- valid combat enemy with a known position/person
+- distance at least 15m, with the far limit decided from the selected grenade's timer/fuse up to the 40m outer envelope
 - no active bot request or medical use
 - safe throw position
 - cooldown reservation
 - not dogfighting, under fire, recently hit, or in a fresh first-seen window
-- not already in a clean gunfight
+- not already holding a reliable immediate-fire lane
 - boss/followers not too close to the target
 
-Committed grenade can still cancel if the throw becomes unsafe before release, combat enemy disappears before release, the grenade controller disappears, or the sequence times out.
+Committed grenade can still cancel if the throw becomes unsafe before release, combat enemy disappears before release, the grenade controller disappears, or the sequence times out. Regular grenade accepts and rejects are recorded as `grenadeEvent` entries so battle records can distinguish distance, timer/fuse, pressure, cooldown, controller, and trajectory failures.
+
+Cooldown is tied to the actual throw release, not just grenade decision initialization. The explicit runtime gate allows the chosen grenade action to attempt the throw, but `DoThrow` still respects follower individual and group cooldowns so one suppress-grenade action cannot chain multiple throws.
 
 ## Healing And Stims
 
@@ -375,7 +377,7 @@ Default situational behavior:
 - under damage pressure, prefer recovery or suppressive retreat over exposed standing fire
 - if visible and shootable, shoot immediately using the corrected follower `EnemyInfo` senses
 - if visible but not shootable, prefer firing cover or pressure movement
-- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. While dogfight is active, movement may step forward, backward, or sideways, but look/aim stays locked to the live fight target body/current position, falling back to the last known point only if live target data is unavailable. At point-blank range, if normal `CanShoot` flickers off but the muzzle has no hard obstruction to the live target chest, dogfight can use a direct close-contact shot after aim alignment and friendly-lane safety pass. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
+- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. While dogfight is active, movement may step forward, backward, or sideways, but look/aim stays locked to the live fight target body/current position, falling back to the last known point only if live target data is unavailable. At point-blank range, if normal `CanShoot` flickers off but the muzzle has no hard obstruction to the live target chest, dogfight can use a direct close-contact shot after aim alignment and friendly-lane safety pass. In the close visible dogfight window, recent personal contact can also use a short SAIN-like continuity shot toward the last known/contact chest point when the enemy flickers out of `IsVisible`/`CanShoot`, but only if the weapon lane has no hard obstruction and friendly-lane safety passes. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
 - heal-cover movement is sticky against non-visible recent-hit pressure; it only breaks for immediate fire on a true point-blank visible shootable threat.
 - if heal-cover movement reaches its committed cover but EFT has not yet marked the bot in cover and the bot is still under fire, keep the `runToHeal` action alive instead of ending/reselecting it every tick. Existing stall handling can still reject the cover if it remains ineffective.
 - if enemy is unseen but recent enough, push/search can continue using retained enemy memory
