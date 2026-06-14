@@ -75,7 +75,7 @@ namespace pitTeam.Localization
                     "Team Escape",
                     "Allow surviving squadmates to attempt an escape after you die. Escaped teammates can return eligible follower loot and recoverable gear that would otherwise be lost."),
                 teamEscapeUseAnyExtract = Entry(
-                    "Use Any Extraction Point",
+                    "Team Escape: Use Any Extraction Point",
                     "Allow the squad escape simulation to choose any usable extraction point on the map. Disable this to restrict escape routes to extraction points assigned to the player."),
                 memberTactic = Entry(
                     "Squad Member {0} Tactic",

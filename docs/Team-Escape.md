@@ -105,7 +105,7 @@ The Team Escape resolver also posts squadmate progress itself before sending esc
 
 The resolver chooses an available extract snapshot and measures direct distance from the player death position.
 
-The `Use Any Extraction Point` raid setting controls the extract pool:
+The `Team Escape: Use Any Extraction Point` raid setting controls the extract pool:
 
 - enabled by default: route selection can use any normal map extraction point that is present and usable
 - disabled: route selection is restricted to extraction points assigned to the player by the raid profile/spawn entry point
