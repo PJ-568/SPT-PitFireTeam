@@ -40,7 +40,7 @@ There are three execution paths:
    - `FollowerCombatLogicBase` owns objective selection and command handoff.
    - `RegroupNearBoss`, `SuppressEnemy`, and `NeedSniper` are consumed into combat objectives.
    - `PushEnemy` is consumed into the ordered-push objective.
-   - Combat gesture commands (`CombatComeToBossCover`, `CombatMoveToPointTactical`) break hold commitments, but are dropped if the follower is already moving.
+   - Combat gesture commands (`CombatComeToBossCover`, `CombatMoveToPointTactical`) break hold commitments and ordinary combat movement, while protected movement such as heal relocation is allowed to finish.
 
 3. **SAIN addon combat**
    - Only active when SAIN plugin and the pitFireTeam SAIN addon are both present.
@@ -618,14 +618,14 @@ Command state:
 
 Core behavior:
 
-- This command is only accepted from hold/settle states.
+- This command interrupts hold/settle states and ordinary combat movement.
 - Hold end paths break for the command:
   - committed arrival holds
   - default cover holds
   - default committed holders
   - marksman holds
   - base combat hold
-- If the follower is already in any movement decision, the command is cleared and ignored.
+- Heal-related relocation is protected and can defer the command until the command expires or movement finishes.
 - On consume, `FollowerCombatCommon.TryCreateBossCoverAttackMovingDecision(...)` finds boss-local cover using `CombatDistanceConfiguration.GetBossCoverSearchRadius()`.
 - The decision is forced to `BotLogicDecision.attackMoving` because the action expects a cover point.
 - If no valid boss-local cover exists, the follower says `Negative` and plays `NoGesture`.
@@ -648,8 +648,8 @@ Targeting:
 
 Core behavior:
 
-- Same hold/settle and movement-ignore rules as combat `ComeWithMe`.
-- On consume, `FollowerCombatCommon.TryCreateBossCommandTacticalPointDecision(...)` sets `GoToSomePointData` and returns `BotLogicDecision.goToPointTactical`.
+- Same hold/settle and movement-interrupt rules as combat `ComeWithMe`.
+- On consume, `FollowerCombatCommon.TryCreateBossCommandTacticalPointDecision(...)` sets `GoToSomePointData` and returns direct `BotLogicDecision.goToPoint`; the command name remains `CombatMoveToPointTactical` for compatibility.
 - Invalid target produces `Negative` and `NoGesture`.
 
 ## Receiver Patches And Vanilla Forwarding

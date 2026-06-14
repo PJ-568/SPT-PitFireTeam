@@ -1,6 +1,7 @@
 using Comfort.Common;
 using EFT;
 using UnityEngine;
+using pitTeam.Components;
 using pitTeam.Modules;
 
 namespace pitTeam.Utils
@@ -94,7 +95,8 @@ namespace pitTeam.Utils
                     lookPoint = bodyPart.Position;
                 }
 
-                if (CanBotShootEnemy(bot, shooter))
+                if (!TryPromoteIncomingThreat(bot, shooter, "directHit", countAsVisible: false) &&
+                    CanBotShootEnemy(bot, shooter))
                 {
                     TryAcquireVisibleHostileOfBossGroup(bot, shooter);
                 }
@@ -369,7 +371,7 @@ namespace pitTeam.Utils
 
             EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
             enemyInfo?.SetVisible(true);
-            return enemyInfo != null;
+            return TryPromoteIncomingThreat(bot, enemy, "closeThreat", countAsVisible: true, enemyInfo);
         }
 
         private static bool TryAcquireVisibleHostileOfBossGroup(BotOwner bot, Player enemy)
@@ -378,6 +380,136 @@ namespace pitTeam.Utils
             EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
             enemyInfo?.SetVisible(true);
             return enemyInfo != null;
+        }
+
+        private static bool TryPromoteIncomingThreat(
+            BotOwner bot,
+            Player enemy,
+            string reason,
+            bool countAsVisible,
+            EnemyInfo? existingInfo = null)
+        {
+            if (bot?.Memory == null || enemy == null || enemy.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+
+            if (!IsKnownOrBossGroupHostile(bot, enemy))
+            {
+                return false;
+            }
+
+            EnemyInfo? enemyInfo = existingInfo ?? Enemy.MakeEnemy(
+                bot,
+                enemy,
+                EBotEnemyCause.checkAddTODO,
+                countSharedSeenAsPersonal: countAsVisible);
+            if (enemyInfo == null)
+            {
+                return false;
+            }
+
+            if (countAsVisible)
+            {
+                enemyInfo.SetVisible(true);
+            }
+
+            EnemyInfo? currentGoal = bot.Memory.GoalEnemy;
+            bool alreadyGoal = string.Equals(currentGoal?.ProfileId, enemy.ProfileId, System.StringComparison.Ordinal);
+            if (!alreadyGoal && !ShouldReplaceGoalWithIncomingThreat(bot, currentGoal, enemy))
+            {
+                return false;
+            }
+
+            if (!alreadyGoal)
+            {
+                FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(bot);
+                bot.Memory.GoalEnemy = null;
+                bot.Memory.LastEnemy = null;
+            }
+
+            enemyInfo.PriorityIndex = 0;
+            enemyInfo.IgnoreUntilAggression = false;
+            Enemy.RepairPersonalMemory(enemyInfo, enemy.Transform.position, countAsVisible || enemyInfo.HaveSeen);
+            bot.Memory.IsPeace = false;
+            bot.Memory.GoalEnemy = enemyInfo;
+            FollowerContactEnemyRetention.Register(bot, enemy, countAsVisible || enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
+            bool orderedPushInterrupted = TryInterruptOrderedPushForIncomingThreat(bot, enemy, reason);
+
+            BattleRecorder.RecordObjectiveDiagnostic(
+                bot,
+                "FollowerAwareness",
+                "promoteIncomingThreat",
+                reason,
+                new
+                {
+                    enemyProfileId = enemy.ProfileId,
+                    previousGoalProfileId = currentGoal?.ProfileId,
+                    previousGoalVisible = currentGoal?.IsVisible,
+                    previousGoalCanShoot = currentGoal?.CanShoot,
+                    previousGoalDistance = currentGoal != null ? GetPlanarDistance(bot.Position, currentGoal.Person?.Position ?? currentGoal.CurrPosition) : (float?)null,
+                    incomingDistance = GetPlanarDistance(bot.Position, enemy.Position),
+                    orderedPushInterrupted
+                });
+
+            return true;
+        }
+
+        private static bool TryInterruptOrderedPushForIncomingThreat(BotOwner bot, Player enemy, string reason)
+        {
+            if (!string.Equals(reason, "directHit", System.StringComparison.Ordinal) ||
+                string.IsNullOrEmpty(enemy?.ProfileId))
+            {
+                return false;
+            }
+
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(bot);
+            if (followerData == null ||
+                !followerData.TryGetOrderedPushTargetLock(out string targetProfileId, out _) ||
+                string.Equals(targetProfileId, enemy.ProfileId, System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            followerData.RequestOrderedPushCancel("incomingThreat:directHit");
+            followerData.ClearOrderedPushTargetLock("incomingThreat:directHit");
+            return true;
+        }
+
+        private static bool ShouldReplaceGoalWithIncomingThreat(BotOwner bot, EnemyInfo? currentGoal, Player incomingEnemy)
+        {
+            if (currentGoal == null || currentGoal.Person?.HealthController?.IsAlive != true)
+            {
+                return true;
+            }
+
+            if (!currentGoal.IsVisible && !currentGoal.CanShoot)
+            {
+                return true;
+            }
+
+            float incomingDistance = GetPlanarDistance(bot.Position, incomingEnemy.Position);
+            float currentDistance = GetPlanarDistance(bot.Position, currentGoal.Person?.Position ?? currentGoal.CurrPosition);
+            return incomingDistance + 8f < currentDistance;
+        }
+
+        private static bool IsKnownOrBossGroupHostile(BotOwner bot, Player enemy)
+        {
+            if (bot?.EnemiesController == null || bot.BotsGroup == null || enemy == null)
+            {
+                return false;
+            }
+
+            return bot.EnemiesController.IsEnemy(enemy) ||
+                   bot.BotsGroup.IsEnemy(enemy) ||
+                   IsHostileToBossGroup(bot, enemy);
+        }
+
+        private static float GetPlanarDistance(Vector3 a, Vector3 b)
+        {
+            a.y = 0f;
+            b.y = 0f;
+            return Vector3.Distance(a, b);
         }
 
         public static bool IsHostileToBossGroupForReaction(BotOwner followerBot, Player enemyPlayer)

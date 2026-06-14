@@ -143,9 +143,9 @@ namespace pitTeam.BigBrain
 
             if (goalEnemy != null &&
                 HasActiveCombatGestureOrder(followerData) &&
-                FollowerCombatCommon.IsMovementDecision(currentDecision))
+                CanInterruptForCombatGestureOrder(currentDecision))
             {
-                followerData?.ClearCommand("CombatCommand:IgnoreWhileMoving");
+                return new AICoreActionEndStruct("combatGestureBreakMovement", true);
             }
 
             if (currentObjective != CombatObjectiveKind.Suppression &&
@@ -378,11 +378,6 @@ namespace pitTeam.BigBrain
 
             if (command == FollowerCommandType.CombatComeToBossCover)
             {
-                if (ShouldDropCombatGestureCommandBecauseMoving(followerData))
-                {
-                    return false;
-                }
-
                 if (!combatCommon.TryCreateBossCoverAttackMovingDecision(
                         goalEnemy,
                         CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(),
@@ -402,11 +397,6 @@ namespace pitTeam.BigBrain
 
             if (command == FollowerCommandType.CombatMoveToPointTactical)
             {
-                if (ShouldDropCombatGestureCommandBecauseMoving(followerData))
-                {
-                    return false;
-                }
-
                 if (!combatCommon.TryCreateBossCommandTacticalPointDecision(
                         target,
                         "command.thereTactical",
@@ -426,20 +416,21 @@ namespace pitTeam.BigBrain
             return false;
         }
 
-        private bool ShouldDropCombatGestureCommandBecauseMoving(BotFollowerPlayer followerData)
+        private bool CanInterruptForCombatGestureOrder(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
-            if (BotOwner.Brain?.Agent == null)
+            if (!FollowerCombatCommon.IsMovementDecision(currentDecision))
             {
                 return false;
             }
 
-            AICoreActionResultStruct<BotLogicDecision, GClass26> lastDecision = BotOwner.Brain.Agent.LastResult();
-            if (!FollowerCombatCommon.IsMovementDecision(lastDecision))
+            string? reason = currentDecision.Reason;
+            if (!string.IsNullOrEmpty(reason) &&
+                reason.IndexOf("heal", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 return false;
             }
 
-            followerData.ClearCommand("CombatCommand:DropAfterMovement");
             return true;
         }
 
