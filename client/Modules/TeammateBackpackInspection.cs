@@ -422,7 +422,10 @@ namespace pitTeam.Modules
 
         public static bool ShouldTreatObservedItemKnown(Item item, ItemAddress address)
         {
-            return IsItemInsideActiveBackpack(item) || IsAddressInsideActiveBackpack(address);
+            // PlayerSearchControllerClass is address-sensitive. If EFT asks whether an item will be known at
+            // a specific destination address, do not answer from the item's current teammate-backpack address;
+            // stock add logic needs that false result so it can mark the item known at the new player address.
+            return address != null ? IsAddressInsideActiveBackpack(address) : IsItemInsideActiveBackpack(item);
         }
 
         public static bool IsActiveBackpack(CompoundItem item)
