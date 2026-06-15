@@ -79,7 +79,9 @@ namespace pitTeam.BigBrain
             if (hasCommand &&
                 (command == FollowerCommandType.PushEnemy ||
                  command == FollowerCommandType.SuppressEnemy ||
-                 command == FollowerCommandType.NeedSniper))
+                 command == FollowerCommandType.NeedSniper ||
+                 command == FollowerCommandType.CombatComeToBossCover ||
+                 command == FollowerCommandType.CombatMoveToPointTactical))
             {
                 return false;
             }
@@ -107,7 +109,9 @@ namespace pitTeam.BigBrain
 
                 if (command == FollowerCommandType.PushEnemy ||
                     command == FollowerCommandType.SuppressEnemy ||
-                    command == FollowerCommandType.NeedSniper)
+                    command == FollowerCommandType.NeedSniper ||
+                    command == FollowerCommandType.CombatComeToBossCover ||
+                    command == FollowerCommandType.CombatMoveToPointTactical)
                 {
                     return false;
                 }

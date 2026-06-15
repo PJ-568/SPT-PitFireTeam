@@ -416,7 +416,10 @@ namespace pitTeam.Utils
 
             EnemyInfo? currentGoal = bot.Memory.GoalEnemy;
             bool alreadyGoal = string.Equals(currentGoal?.ProfileId, enemy.ProfileId, System.StringComparison.Ordinal);
-            if (!alreadyGoal && !ShouldReplaceGoalWithIncomingThreat(bot, currentGoal, enemy))
+            bool orderedPushInterrupted = TryInterruptOrderedPushForIncomingThreat(bot, enemy, reason);
+            if (!alreadyGoal &&
+                !orderedPushInterrupted &&
+                !ShouldReplaceGoalWithIncomingThreat(bot, currentGoal, enemy))
             {
                 return false;
             }
@@ -434,7 +437,6 @@ namespace pitTeam.Utils
             bot.Memory.IsPeace = false;
             bot.Memory.GoalEnemy = enemyInfo;
             FollowerContactEnemyRetention.Register(bot, enemy, countAsVisible || enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
-            bool orderedPushInterrupted = TryInterruptOrderedPushForIncomingThreat(bot, enemy, reason);
 
             BattleRecorder.RecordObjectiveDiagnostic(
                 bot,

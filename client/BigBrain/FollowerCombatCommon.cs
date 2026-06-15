@@ -9002,7 +9002,7 @@ namespace pitTeam.BigBrain
             botOwner.GoToSomePointData.SetPoint(target);
             SetCoverTactic(BotsGroup.BotCurrentTactic.Attack);
             decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
-                BotLogicDecision.goToPoint,
+                BotLogicDecision.goToPointTactical,
                 reason);
             return true;
         }

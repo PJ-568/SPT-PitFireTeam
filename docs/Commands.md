@@ -649,7 +649,7 @@ Targeting:
 Core behavior:
 
 - Same hold/settle and movement-interrupt rules as combat `ComeWithMe`.
-- On consume, `FollowerCombatCommon.TryCreateBossCommandTacticalPointDecision(...)` sets `GoToSomePointData` and returns direct `BotLogicDecision.goToPoint`; the command name remains `CombatMoveToPointTactical` for compatibility.
+- On consume, `FollowerCombatCommon.TryCreateBossCommandTacticalPointDecision(...)` sets `GoToSomePointData` and returns `BotLogicDecision.goToPointTactical`.
 - Invalid target produces `Negative` and `NoGesture`.
 
 ## Receiver Patches And Vanilla Forwarding
