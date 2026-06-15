@@ -249,6 +249,14 @@ For `Realistic` / internal `Extreme`:
 - no protected meds or ammo are injected
 - the edit-loadout panel shows the secure container slot so the player can add, remove, or change it through the staged `Default` editor
 
+## In-Raid Backpack Inspection
+
+Spawned squadmates can expose their live `Backpack` slot through the lower-left `View Backpack` quick interaction while the player is close and looking at them. Recruited allies are not eligible because the interaction is scoped to saved squadmates.
+
+The screen is the follower's actual live backpack, not a cloned editor surface. The inspection session is intentionally out-of-combat only: active enemy/under-fire state, follower medical work, follower loot-pickup work, target invalidation, or player death closes the screen.
+
+Items placed into the inspected backpack during the session are registered as tracked follower loot when the screen closes. Items that were already tracked and are removed from the backpack are unregistered immediately, so normal post-raid return handling does not try to return something the player already took back.
+
 ## Protected Extraction Filtering
 
 `Simple` and `Restricted` allow teammate gear to be physically looted in raid so the player can inspect, reorganize, or recover from inventory edge cases without special slot locks. To prevent gear farming, extraction cleanup strips protected teammate item ids from the extracted player profile.

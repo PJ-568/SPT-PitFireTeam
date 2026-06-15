@@ -34,6 +34,18 @@ namespace pitTeam.BigBrain.Actions
         private const float WallFacingFallbackDebounceSeconds = 0.2f;
         private const float LookCommitMinSeconds = 0.2f;
         private const float LookCommitMaxSeconds = 0.4f;
+        private const float EnemyLookLeaseSeconds = 0.75f;
+        private const float NavigationLookCheckInterval = 0.25f;
+        private const float NavigationLookSustainSeconds = 0.65f;
+        private const float NavigationLookMinEnemyDistance = 32f;
+        private const float NavigationLookBadPathAngle = 75f;
+        private const float NavigationLookPathExtraDistance = 15f;
+        private const float NavigationLookPathDistanceRatio = 1.35f;
+        private const float StaleLocalLookMinAge = 4f;
+        private const float StaleLocalLookMaxDistance = 5f;
+        private const float StaleLocalLookBackpedalAngle = 120f;
+        private const float ActualMoveDirectionMinDeltaSqr = 0.0009f;
+        private const float ActualMoveDirectionMaxAge = 0.35f;
         private const int LargeMagazineLowAmmoThreshold = 20;
         private const int PistolLargeMagazineLowAmmoThreshold = 10;
 
@@ -49,6 +61,13 @@ namespace pitTeam.BigBrain.Actions
         private float committedLookModeUntil;
         private float wallFacingSince;
         private bool wallFacingActive;
+        private float enemyLookLeaseUntil;
+        private float navigationLookCandidateSince;
+        private float nextNavigationLookCheckTime;
+        private bool cachedShouldPreferNavigationLook;
+        private Vector3 lastActualMovePosition;
+        private Vector3 recentActualMoveDirection;
+        private float recentActualMoveDirectionTime;
 
         public CombatGoToEnemyAction(BotOwner botOwner) : base(botOwner)
         {
@@ -69,6 +88,13 @@ namespace pitTeam.BigBrain.Actions
             committedLookModeUntil = 0f;
             wallFacingSince = 0f;
             wallFacingActive = false;
+            enemyLookLeaseUntil = 0f;
+            navigationLookCandidateSince = 0f;
+            nextNavigationLookCheckTime = 0f;
+            cachedShouldPreferNavigationLook = false;
+            lastActualMovePosition = BotOwner.Position;
+            recentActualMoveDirection = Vector3.zero;
+            recentActualMoveDirectionTime = 0f;
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -87,12 +113,14 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
+            RefreshEnemyLookLease(goalEnemy);
             SetCombatSprint(shouldSprint);
 
             // Push destinations are sticky, but nav/pathing in EFT can stall around rocks, stairs,
             // and tight walls. Track progress every update cycle and refresh when the committed point
             // is no longer making the bot advance.
             RefreshProgressState();
+            RefreshActualMovementDirection();
             NotMovingCheck();
             bool hasPath = BotOwner.Mover.HasPathAndNoComplete;
 
@@ -101,8 +129,12 @@ namespace pitTeam.BigBrain.Actions
             if (goalEnemy.IsVisible && goalEnemy.CanShoot)
             {
                 BotOwner.SetPose(1f);
-                CommitLookMode(AdvanceLookMode.EnemyOwned);
-                TryApplyCommittedLook(goalEnemy);
+                if (!ShouldPreferNavigationLook(goalEnemy))
+                {
+                    CommitLookMode(AdvanceLookMode.EnemyOwned);
+                    TryApplyCommittedLook(goalEnemy);
+                }
+
                 if (!hasPath)
                 {
                     AimingAndShoot(data);
@@ -255,15 +287,29 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            if (TryApplyCommittedLook(goalEnemy))
+            bool preferNavigationLook = ShouldPreferNavigationLook(goalEnemy);
+            if (!preferNavigationLook && TryApplyCommittedLook(goalEnemy))
             {
                 return;
             }
 
-            if (TryGetOwnedEnemyLookDirection(goalEnemy, out Vector3 lookDirection))
+            if (preferNavigationLook && TryLookTowardAdvancePoint())
+            {
+                return;
+            }
+
+            if (!preferNavigationLook &&
+                TryGetOwnedEnemyLookDirection(goalEnemy, out Vector3 lookDirection))
             {
                 CommitLookMode(AdvanceLookMode.EnemyOwned);
                 BotOwner.Steering.LookToDirection(lookDirection.normalized);
+                return;
+            }
+
+            if (ShouldPreferMovingDirectionOverStaleLocalLook(goalEnemy))
+            {
+                CommitLookMode(AdvanceLookMode.MovingDirection);
+                BotOwner.Steering.LookToMovingDirection();
                 return;
             }
 
@@ -281,6 +327,87 @@ namespace pitTeam.BigBrain.Actions
 
             CommitLookMode(AdvanceLookMode.KeepCurrent);
             BotOwner.Steering.LookToDirection(BotOwner.LookDirection);
+        }
+
+        private void RefreshEnemyLookLease(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy?.Person?.HealthController?.IsAlive == true &&
+                (goalEnemy.IsVisible || goalEnemy.CanShoot))
+            {
+                enemyLookLeaseUntil = Mathf.Max(enemyLookLeaseUntil, Time.time + EnemyLookLeaseSeconds);
+            }
+        }
+
+        private bool ShouldPreferNavigationLook(EnemyInfo goalEnemy)
+        {
+            if (Time.time < nextNavigationLookCheckTime)
+            {
+                return cachedShouldPreferNavigationLook;
+            }
+
+            nextNavigationLookCheckTime = Time.time + NavigationLookCheckInterval;
+            if (!HasNavigationLookEvidence(goalEnemy))
+            {
+                navigationLookCandidateSince = 0f;
+                cachedShouldPreferNavigationLook = false;
+                return false;
+            }
+
+            if (navigationLookCandidateSince <= 0f)
+            {
+                navigationLookCandidateSince = Time.time;
+                cachedShouldPreferNavigationLook = false;
+                return false;
+            }
+
+            cachedShouldPreferNavigationLook = Time.time - navigationLookCandidateSince >= NavigationLookSustainSeconds;
+            return cachedShouldPreferNavigationLook;
+        }
+
+        private bool HasNavigationLookEvidence(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy == null || !BotOwner.Mover.HasPathAndNoComplete)
+            {
+                return false;
+            }
+
+            if (!TryGetMoveTargetDirection(out Vector3 toMoveTarget) ||
+                !TryGetEnemyLookDirection(goalEnemy, out Vector3 toEnemy, out float enemyDistance))
+            {
+                return false;
+            }
+
+            if (enemyDistance < NavigationLookMinEnemyDistance ||
+                Vector3.Angle(toMoveTarget, toEnemy) < NavigationLookBadPathAngle)
+            {
+                return false;
+            }
+
+            if (!TryGetEnemyPathAnchor(goalEnemy, out Vector3 enemyAnchor) ||
+                !Utils.Utils.TryGetCompletePathDistance(BotOwner.Position, enemyAnchor, out float pathDistance))
+            {
+                return false;
+            }
+
+            float directDistance = Flatten(enemyAnchor - BotOwner.Position).magnitude;
+            if (directDistance <= 0.01f)
+            {
+                return false;
+            }
+
+            bool indirectPath =
+                pathDistance >= directDistance + NavigationLookPathExtraDistance &&
+                pathDistance >= directDistance * NavigationLookPathDistanceRatio;
+            if (!indirectPath)
+            {
+                return false;
+            }
+
+            // Recent contact gets a short lease so one-frame visibility/can-shoot flicker does not
+            // turn ordinary strafing into path-looking. A sustained indirect route is allowed to win.
+            return Time.time >= enemyLookLeaseUntil ||
+                   navigationLookCandidateSince > 0f &&
+                   Time.time - navigationLookCandidateSince >= NavigationLookSustainSeconds;
         }
 
         private bool TryLookTowardAdvancePoint()
@@ -449,6 +576,38 @@ namespace pitTeam.BigBrain.Actions
             nextProgressCheckTime = Time.time + ProgressCheckInterval;
         }
 
+        private void RefreshActualMovementDirection()
+        {
+            Vector3 currentPosition = BotOwner.Position;
+            Vector3 delta = Flatten(currentPosition - lastActualMovePosition);
+            if (delta.sqrMagnitude > ActualMoveDirectionMinDeltaSqr)
+            {
+                recentActualMoveDirection = delta.normalized;
+                recentActualMoveDirectionTime = Time.time;
+                lastActualMovePosition = currentPosition;
+                return;
+            }
+
+            if (Time.time - recentActualMoveDirectionTime > ActualMoveDirectionMaxAge)
+            {
+                recentActualMoveDirection = Vector3.zero;
+                lastActualMovePosition = currentPosition;
+            }
+        }
+
+        private bool TryGetRecentActualMovementDirection(out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            if (Time.time - recentActualMoveDirectionTime > ActualMoveDirectionMaxAge ||
+                recentActualMoveDirection.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            direction = recentActualMoveDirection;
+            return true;
+        }
+
         private void CommitAdvancePoint(Vector3 point)
         {
             committedAdvancePoint = point;
@@ -574,6 +733,87 @@ namespace pitTeam.BigBrain.Actions
             return true;
         }
 
+        private bool TryGetMoveTargetDirection(out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            Vector3? advanceTarget = GetAdvanceTargetPoint();
+            if (!advanceTarget.HasValue)
+            {
+                return false;
+            }
+
+            direction = Flatten(advanceTarget.Value - BotOwner.Position);
+            if (direction.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            direction.Normalize();
+            return true;
+        }
+
+        private bool TryGetEnemyLookDirection(EnemyInfo goalEnemy, out Vector3 direction, out float distance)
+        {
+            direction = Vector3.zero;
+            distance = float.MaxValue;
+            if (!TryGetEnemyLookAnchor(goalEnemy, out Vector3 enemyAnchor))
+            {
+                return false;
+            }
+
+            direction = Flatten(enemyAnchor - BotOwner.Position);
+            if (direction.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            distance = direction.magnitude;
+            direction /= distance;
+            return true;
+        }
+
+        private bool TryGetEnemyLookAnchor(EnemyInfo goalEnemy, out Vector3 enemyAnchor)
+        {
+            enemyAnchor = Vector3.zero;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            if (goalEnemy.IsVisible)
+            {
+                enemyAnchor = goalEnemy.GetBodyPartPosition();
+            }
+            else if (Enemy.TryGetReliableKnownPosition(BotOwner, goalEnemy, out Vector3 knownPosition))
+            {
+                enemyAnchor = knownPosition + Vector3.up * 0.8f;
+            }
+            else
+            {
+                enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy) + Vector3.up * 0.8f;
+            }
+
+            return IsFinite(enemyAnchor);
+        }
+
+        private bool TryGetEnemyPathAnchor(EnemyInfo goalEnemy, out Vector3 enemyAnchor)
+        {
+            enemyAnchor = Vector3.zero;
+            if (goalEnemy == null)
+            {
+                return false;
+            }
+
+            enemyAnchor = FollowerCombatCommon.GetEnemyAnchor(goalEnemy);
+            if (IsFinite(enemyAnchor))
+            {
+                return true;
+            }
+
+            enemyAnchor = goalEnemy.CurrPosition;
+            return IsFinite(enemyAnchor);
+        }
+
         private void StopAdvance()
         {
             ClearCommittedAdvancePoint();
@@ -665,14 +905,17 @@ namespace pitTeam.BigBrain.Actions
             if (Time.time - goalEnemy.PersonalLastSeenTime <= 12f)
             {
                 Vector3 personalLastPos = goalEnemy.PersonalLastPos;
-                if ((personalLastPos - BotOwner.Position).sqrMagnitude > 0.01f)
+                bool preferMovementOverPersonal = ShouldPreferMovingDirectionOverStaleLocalLook(goalEnemy);
+                if (!preferMovementOverPersonal &&
+                    (personalLastPos - BotOwner.Position).sqrMagnitude > 0.01f)
                 {
                     lookDirection = personalLastPos - BotOwner.Position;
                     return true;
                 }
 
                 Vector3 lastKnownPosition = goalEnemy.EnemyLastPositionReal;
-                if ((lastKnownPosition - BotOwner.Position).sqrMagnitude > 0.01f)
+                if ((lastKnownPosition - BotOwner.Position).sqrMagnitude > 0.01f &&
+                    (!preferMovementOverPersonal || !IsSameLocalLookPoint(personalLastPos, lastKnownPosition)))
                 {
                     lookDirection = lastKnownPosition - BotOwner.Position;
                     return true;
@@ -680,6 +923,57 @@ namespace pitTeam.BigBrain.Actions
             }
 
             return false;
+        }
+
+        private bool ShouldPreferMovingDirectionOverStaleLocalLook(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy == null ||
+                goalEnemy.IsVisible ||
+                goalEnemy.CanShoot ||
+                !BotOwner.Mover.HasPathAndNoComplete ||
+                !TryGetRecentActualMovementDirection(out Vector3 movementDirection) ||
+                !TryGetAdvanceLookPoint(out Vector3 advancePoint))
+            {
+                return false;
+            }
+
+            Vector3 personalLastPos = goalEnemy.PersonalLastPos;
+            if (!IsFinite(personalLastPos) ||
+                Time.time - goalEnemy.PersonalLastSeenTime < StaleLocalLookMinAge)
+            {
+                return false;
+            }
+
+            Vector3 toPersonal = Flatten(personalLastPos - BotOwner.Position);
+            if (toPersonal.sqrMagnitude <= 0.01f ||
+                toPersonal.sqrMagnitude > StaleLocalLookMaxDistance * StaleLocalLookMaxDistance)
+            {
+                return false;
+            }
+
+            Vector3 toAdvancePoint = Flatten(advancePoint - BotOwner.Position);
+            if (toAdvancePoint.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            return Vector3.Angle(movementDirection, toAdvancePoint.normalized) >= StaleLocalLookBackpedalAngle;
+        }
+
+        private static bool IsSameLocalLookPoint(Vector3 first, Vector3 second)
+        {
+            if (!IsFinite(first) || !IsFinite(second))
+            {
+                return false;
+            }
+
+            return Flatten(first - second).sqrMagnitude <= 1f;
+        }
+
+        private static Vector3 Flatten(Vector3 value)
+        {
+            value.y = 0f;
+            return value;
         }
 
         private static bool IsFinite(Vector3 value)

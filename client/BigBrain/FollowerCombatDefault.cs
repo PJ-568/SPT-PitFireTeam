@@ -76,7 +76,11 @@ namespace pitTeam.BigBrain
             combatCommon.ClearCommittedMovement();
             shootCoverSettlePhase.Reset();
             ClearCoverIntent();
-            autoSuppressRetryUntil = 0f;
+            if (!combatCommon.HasActiveCombatEnemy())
+            {
+                autoSuppressRetryUntil = 0f;
+            }
+
             holdPositionSupportRetryUntil = 0f;
             preparedAllySupportDecision = null;
             preparedAdvanceDecision = null;
@@ -1590,12 +1594,18 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (combatCommon.TryCreateGrenadeLauncherSuppressDecision(
-                    goalEnemy,
-                    "autoSuppress",
-                    out decision,
-                    ordered: false))
+            if (combatCommon.IsGrenadeLauncherSuppressCooldownActive(ordered: false, out _))
             {
+                combatCommon.RecordGrenadeLauncherSuppressCooldownSkip(
+                    ordered: false,
+                    "autoSuppress");
+            }
+            else if (combatCommon.HasAutonomousGrenadeLauncherTarget(goalEnemy, out _))
+            {
+                autoSuppressRetryUntil = Time.time +
+                                         FollowerCombatGrenadierObjective.OpportunityWindowSeconds +
+                                         AutoSuppressRetryCooldownSeconds;
+                decision = FollowerCombatGrenadierObjective.CreateAutonomousActivationDecision();
                 return true;
             }
 

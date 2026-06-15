@@ -1591,6 +1591,22 @@ namespace pitTeam.Components
                     return false;
                 }
 
+                if (_activeCommand == FollowerCommandType.CombatComeToBossCover ||
+                    _activeCommand == FollowerCommandType.CombatMoveToPointTactical)
+                {
+                    if (Time.time > _commandUntilTime)
+                    {
+                        ClearCommand("TryGetActiveCommand:timeout");
+                        command = FollowerCommandType.None;
+                        target = Vector3.zero;
+                        return false;
+                    }
+
+                    command = _activeCommand;
+                    target = _commandTarget;
+                    return true;
+                }
+
                 if (_activeCommand != FollowerCommandType.None)
                 {
                     ClearCommand("TryGetActiveCommand:healing");

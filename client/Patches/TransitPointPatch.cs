@@ -5,6 +5,7 @@ using pitTeam.Components;
 using pitTeam.Modules;
 using HarmonyLib;
 using SPT.Reflection.Patching;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 
@@ -13,13 +14,17 @@ namespace pitTeam.Patches
     /** On extracting via transit point, remember bots the player was with so we can re-spawn them **/
     internal class TransitPointPatch : ModulePatch
     {
+        private const string LabyrinthLocationId = "6733700029c367a3d40b02af";
+        private const string LabyrinthLocationName = "Labyrinth";
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(TransitPoint), "method_6");
         }
 
         [PatchPostfix]
-        private static void PatchPostfix(string groupId,
+        private static void PatchPostfix(TransitPoint __instance,
+                        string groupId,
                         HashSet<string> __result,
                         HashSet<string> singlePlayers,
                         HashSet<string> partyPlayers,
@@ -32,6 +37,17 @@ namespace pitTeam.Patches
             Utils.SpawnHelper.spawnMemberIdsScav.Clear();
             Utils.SpawnHelper.spawnMemberIds.Clear();
             Utils.SpawnHelper.spawnMemberIdsBoss.Clear();
+            FollowerTransitStateCache.Clear();
+
+            if (IsLabyrinthTransit(__instance))
+            {
+                Modules.Logger.LogInfo(
+                    $"[Transit] Target '{__instance?.parameters?.location ?? __instance?.parameters?.target ?? "unknown"}' does not allow teammate transit. " +
+                    "Squadmates will resolve as escaped with their carried loot.");
+                return;
+            }
+
+            Dictionary<string, List<string>> protectedEquipmentByProfileId = InteractableObjects.GetStoredEquipment();
 
             foreach (IPlayer player in groupPlayers)
             {
@@ -40,18 +56,23 @@ namespace pitTeam.Patches
                     pitAIBossPlayer boss = BossPlayers.GetBoss(player.ProfileId);
                     BossPlayers.GetFollowersByBoss(player.ProfileId).ForEach(follower =>
                     {
-                        BotOwner bot = follower.GetBot();
+                        BotOwner bot = follower?.GetBot();
 
-                        if (follower != null && !bot.IsDead &&
+                        if (follower != null && bot != null && !bot.IsDead &&
                             (
                                 follower.IsSquadMate ||
                                 (Utils.Props.BossFollowersType.Contains(bot.Profile.Info.Settings.Role) && !Utils.Utils.FlagGet("questGoons"))
                             )
                         )
                         {
-                            InfoClass info = bot.Profile.Info;
+                            protectedEquipmentByProfileId.TryGetValue(bot.ProfileId, out List<string> protectedEquipmentIds);
+                            List<string> trackedReturnItemIds = InteractableObjects.GetStoredItems(bot.ProfileId);
+                            Profile transitProfile = FollowerTransitStateCache.TryCapture(bot, protectedEquipmentIds, trackedReturnItemIds, out Profile capturedProfile)
+                                ? capturedProfile
+                                : bot.Profile;
+                            InfoClass info = transitProfile.Info;
 
-                            bool isBoss = Utils.Props.BossFollowersType.Contains(bot.Profile.Info.Settings.Role);
+                            bool isBoss = Utils.Props.BossFollowersType.Contains(transitProfile.Info.Settings.Role);
 
                             LastPlayerStateClass playerVisualization = new LastPlayerStateClass(new GClass1410
                             {
@@ -60,35 +81,35 @@ namespace pitTeam.Patches
                                 SelectedMemberCategory = isBoss ? EMemberCategory.Sherpa : info.SelectedMemberCategory,
                                 Nickname = info.Nickname,
                                 Side = info.Side,
-                                Health = bot.Profile.Health
-                            }, bot.Profile.Customization, bot.Profile.Inventory.Equipment);
+                                Health = transitProfile.Health
+                            }, transitProfile.Customization, transitProfile.Inventory.Equipment);
 
                             MainMenuControllerPatch.TransitPlayers.Add(new GroupPlayerViewModelClass(new GroupPlayerDataClass
                             {
                                 AccountId = bot.AccountId,
-                                Id = bot.Profile.Id,
+                                Id = transitProfile.Id,
                                 Info = new GClass1410
                                 {
                                     Level = isBoss ? 60 : info.Level,
                                     PrestigeLevel = info.PrestigeLevel,
                                     MemberCategory = isBoss ? EMemberCategory.Sherpa : info.MemberCategory,
                                     SelectedMemberCategory = isBoss ? EMemberCategory.Sherpa : info.SelectedMemberCategory,
-                                    Nickname = bot.Profile.GetCorrectedNickname(),
+                                    Nickname = transitProfile.GetCorrectedNickname(),
                                     Side = info.Side,
                                     SavageLockTime = player.Profile.Info.SavageLockTime,
                                     SavageNickname = player.Profile.Info.Nickname,
                                     GameVersion = info.GameVersion,
                                     HasCoopExtension = info.HasCoopExtension,
-                                    Health = bot.Profile.Health,
+                                    Health = transitProfile.Health,
                                 },
                                 PlayerVisualRepresentation = playerVisualization
                             }));
 
                             if (player.Profile.Side == EPlayerSide.Savage) Utils.SpawnHelper.spawnMemberIdsScav.Add(bot.AccountId);
-                            else if (isBoss) Utils.SpawnHelper.spawnMemberIdsBoss.Add(bot.Profile.Info.Settings.Role);
+                            else if (isBoss) Utils.SpawnHelper.spawnMemberIdsBoss.Add(transitProfile.Info.Settings.Role);
                             else Utils.SpawnHelper.spawnMemberIds.Add(bot.AccountId);
 
-                            Modules.Logger.LogInfo("Transitioning with " + bot.Profile.Nickname);
+                            Modules.Logger.LogInfo("Transitioning with " + transitProfile.Nickname);
 
                             Utils.Utils.FlagSet("RaidTransit", true);
                             Utils.SpawnHelper.ScavSquadSize = 0;
@@ -97,6 +118,15 @@ namespace pitTeam.Patches
 
                 }
             }
+        }
+
+        private static bool IsLabyrinthTransit(TransitPoint transitPoint)
+        {
+            LocationSettingsClass.Location.TransitParameters parameters = transitPoint?.parameters;
+            if (parameters == null) return false;
+
+            return string.Equals(parameters.target, LabyrinthLocationId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(parameters.location, LabyrinthLocationName, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

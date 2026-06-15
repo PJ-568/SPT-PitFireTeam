@@ -681,6 +681,7 @@ namespace pitTeam.Modules
         private static object CreateGrenadeContext(BotOwner bot, EnemyInfo? goalEnemy)
         {
             BotGrenadeController? grenades = bot.WeaponManager?.Grenades;
+            ThrowWeapItemClass? selectedGrenade = grenades?.Grenade;
             BotRequest? request = bot.BotRequestController?.CurRequest;
             float now = Time.time;
 
@@ -714,7 +715,10 @@ namespace pitTeam.Modules
                 {
                     runtimeGateAllowed = FollowerGrenadeRuntimeGate.IsThrowAllowed(bot),
                     controllerPresent = grenades != null,
-                    selectedGrenadePresent = grenades?.Grenade != null,
+                    selectedGrenadePresent = selectedGrenade != null,
+                    selectedGrenadeType = selectedGrenade?.ThrowType.ToString(),
+                    selectedGrenadeExplDelay = selectedGrenade != null ? SanitizeFloat(selectedGrenade.GetExplDelay) : null,
+                    selectedGrenadeMinContactExplode = selectedGrenade != null ? SanitizeFloat(selectedGrenade.MinTimeToContactExplode) : null,
                     haveGrenade = grenades?.HaveGrenade,
                     haveFrag = grenades?.HaveGrenadeOfType(ThrowWeapType.frag_grenade),
                     haveStun = grenades?.HaveGrenadeOfType(ThrowWeapType.stun_grenade),

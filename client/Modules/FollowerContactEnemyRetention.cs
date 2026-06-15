@@ -123,10 +123,15 @@ namespace pitTeam.Modules
 
             if (Time.time <= contact.Until)
             {
+                if (TryAdoptDifferentLiveVisibleGoal(follower, contact.EnemyProfileId, out _, out _))
+                {
+                    return true;
+                }
+
                 Player enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(contact.EnemyProfileId);
                 if (enemy?.HealthController?.IsAlive == true)
                 {
-                    return !HasDifferentLiveVisibleGoal(follower, contact.EnemyProfileId);
+                    return true;
                 }
             }
 
@@ -154,10 +159,11 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            if (HasDifferentLiveVisibleGoal(follower, contact.EnemyProfileId))
+            if (TryAdoptDifferentLiveVisibleGoal(follower, contact.EnemyProfileId, out _, out Player? adoptedEnemy))
             {
-                RetainedByFollowerId.Remove(follower.ProfileId);
-                return false;
+                enemy = adoptedEnemy;
+                prioritized = true;
+                return enemy != null;
             }
 
             enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(contact.EnemyProfileId);
@@ -192,6 +198,11 @@ namespace pitTeam.Modules
 
             if (Time.time > contact.Until || currentGoal.ProfileId != contact.EnemyProfileId)
             {
+                if (TryAdoptDifferentLiveVisibleGoal(follower, contact.EnemyProfileId, out _, out _))
+                {
+                    return true;
+                }
+
                 return false;
             }
 
@@ -230,10 +241,10 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            if (HasDifferentLiveVisibleGoal(follower, contact.EnemyProfileId))
+            if (TryAdoptDifferentLiveVisibleGoal(follower, contact.EnemyProfileId, out EnemyInfo? adoptedInfo, out _))
             {
-                RetainedByFollowerId.Remove(follower.ProfileId);
-                return false;
+                restored = adoptedInfo;
+                return restored != null;
             }
 
             Player enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(contact.EnemyProfileId);
@@ -272,8 +283,15 @@ namespace pitTeam.Modules
             return true;
         }
 
-        private static bool HasDifferentLiveVisibleGoal(BotOwner follower, string retainedEnemyProfileId)
+        private static bool TryAdoptDifferentLiveVisibleGoal(
+            BotOwner follower,
+            string retainedEnemyProfileId,
+            out EnemyInfo? adoptedInfo,
+            out Player? adoptedEnemy)
         {
+            adoptedInfo = null;
+            adoptedEnemy = null;
+
             EnemyInfo? goalEnemy = follower?.Memory?.GoalEnemy;
             if (goalEnemy == null ||
                 string.Equals(goalEnemy.ProfileId, retainedEnemyProfileId, StringComparison.Ordinal) ||
@@ -282,7 +300,41 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            return goalEnemy.IsVisible || goalEnemy.CanShoot;
+            if (!goalEnemy.IsVisible && !goalEnemy.CanShoot)
+            {
+                return false;
+            }
+
+            Player? enemy = goalEnemy.Person as Player;
+            if (enemy?.HealthController?.IsAlive != true && !string.IsNullOrEmpty(goalEnemy.ProfileId))
+            {
+                enemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(goalEnemy.ProfileId);
+            }
+
+            if (enemy?.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+
+            Register(follower, enemy, visible: true, prioritized: true);
+            adoptedInfo = goalEnemy;
+            adoptedEnemy = enemy;
+
+            BattleRecorder.RecordObjectiveDiagnostic(
+                follower,
+                "FollowerContactEnemyRetention",
+                "adoptVisibleGoal",
+                "differentVisibleGoal",
+                new
+                {
+                    previousRetainedEnemyProfileId = retainedEnemyProfileId,
+                    adoptedEnemyProfileId = goalEnemy.ProfileId,
+                    adoptedVisible = goalEnemy.IsVisible,
+                    adoptedCanShoot = goalEnemy.CanShoot,
+                    adoptedDistance = goalEnemy.Distance
+                });
+
+            return true;
         }
 
         public static void Clear(BotOwner follower)

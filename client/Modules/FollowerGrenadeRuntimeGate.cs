@@ -93,14 +93,20 @@ namespace pitTeam.Modules
             RefreshFollowerGroup(bot);
         }
 
-        public static void MarkThrowReleased(BotOwner bot)
+        public static bool MarkThrowReleased(BotOwner bot)
         {
             if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
             {
-                return;
+                return false;
             }
 
-            ReleasedThrowByProfileId.Add(bot.ProfileId);
+            bool firstRelease = ReleasedThrowByProfileId.Add(bot.ProfileId);
+            if (firstRelease)
+            {
+                FollowerGrenadeCooldowns.RecordThrow(bot);
+            }
+
+            return firstRelease;
         }
 
         public static bool ConsumeThrowReleased(BotOwner bot)

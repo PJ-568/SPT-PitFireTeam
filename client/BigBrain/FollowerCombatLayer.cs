@@ -625,7 +625,9 @@ namespace pitTeam.BigBrain
                 (command == FollowerCommandType.PushEnemy ||
                  command == FollowerCommandType.SuppressEnemy ||
                  command == FollowerCommandType.RegroupNearBoss ||
-                 command == FollowerCommandType.NeedSniper))
+                 command == FollowerCommandType.NeedSniper ||
+                 command == FollowerCommandType.CombatComeToBossCover ||
+                 command == FollowerCommandType.CombatMoveToPointTactical))
             {
                 return;
             }
@@ -642,6 +644,8 @@ namespace pitTeam.BigBrain
                    decision == BotLogicDecision.attackMovingWithSuppress ||
                    decision == BotLogicDecision.suppressFire ||
                    decision == (BotLogicDecision)CustomBotDecisions.attackRetreat ||
+                   decision == BotLogicDecision.goToPoint ||
+                   decision == BotLogicDecision.goToPointTactical ||
                    decision == BotLogicDecision.goToCoverPoint ||
                    decision == BotLogicDecision.goToCoverPointTactical;
         }

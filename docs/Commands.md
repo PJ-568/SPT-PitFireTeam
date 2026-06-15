@@ -40,7 +40,7 @@ There are three execution paths:
    - `FollowerCombatLogicBase` owns objective selection and command handoff.
    - `RegroupNearBoss`, `SuppressEnemy`, and `NeedSniper` are consumed into combat objectives.
    - `PushEnemy` is consumed into the ordered-push objective.
-   - Combat gesture commands (`CombatComeToBossCover`, `CombatMoveToPointTactical`) break hold commitments, but are dropped if the follower is already moving.
+   - Combat gesture commands (`CombatComeToBossCover`, `CombatMoveToPointTactical`) break hold commitments and ordinary combat movement, while protected movement such as heal relocation is allowed to finish.
 
 3. **SAIN addon combat**
    - Only active when SAIN plugin and the pitFireTeam SAIN addon are both present.
@@ -383,6 +383,35 @@ Execution:
 - Stores item through `InteractableObjects.StoreItem(...)` for squadmates.
 - Clears command on success/failure/invalid state.
 
+### View Backpack Quick Interaction
+
+Input:
+
+- custom `EPhraseTrigger` value `CustomPhrases.ViewBackpack`
+- exposed through the lower-left quick interaction panel as `View Backpack`
+
+Targeting:
+
+- Uses `TeammateBackpackInspection.CanShowQuickInteraction(...)`.
+- Requires the player to look at an alive spawned squadmate within the close interaction range.
+- Filters to `BotFollowerPlayer.IsSquadMate`, so recruited/picked-up allies are not valid backpack targets.
+- Requires the target to have a searchable item in the `Backpack` equipment slot.
+- Does not overlap with follower healing or active/pending follower loot-pickup work.
+
+Execution:
+
+- `QuickPanelPatch` keeps the custom phrase available and refreshes whether it can be shown.
+- `QuickMumbleStartViewBackpackPatch` and `PlayerPatch.PlayPhraseOrGesture` route the phrase to `TeammateBackpackInspection.TryOpenFromQuickInteraction(...)`.
+- Opens the target follower's live backpack through `GamePlayerOwner.ShowInventoryScreenLoot(...)`.
+- Marks the backpack tree searched/known only for this local inspection session, without permanently examining unknown templates for the player.
+- Sets `BotFollowerPlayer.IsBackpackInspectionActive`, which makes follow/patrol logic hold the follower still while the backpack screen is open.
+- Closes the inspection if the player dies, the target becomes invalid, the follower starts healing/pickup work, or combat pressure appears (`HasKnownEnemy`, `Memory.HaveEnemy`, or `Memory.IsUnderFire`).
+
+Loot tracking:
+
+- On close, new items placed into the follower backpack are registered through `InteractableObjects.StoreItem(...)` so they behave like handed-over follower loot.
+- Previously tracked items removed from the backpack are unregistered through `InteractableObjects.RemoveStoredItem(...)` so post-raid return handling does not duplicate items the player already took back.
+
 ### Open Door Phrase
 
 Input:
@@ -589,14 +618,14 @@ Command state:
 
 Core behavior:
 
-- This command is only accepted from hold/settle states.
+- This command interrupts hold/settle states and ordinary combat movement.
 - Hold end paths break for the command:
   - committed arrival holds
   - default cover holds
   - default committed holders
   - marksman holds
   - base combat hold
-- If the follower is already in any movement decision, the command is cleared and ignored.
+- Heal-related relocation is protected and can defer the command until the command expires or movement finishes.
 - On consume, `FollowerCombatCommon.TryCreateBossCoverAttackMovingDecision(...)` finds boss-local cover using `CombatDistanceConfiguration.GetBossCoverSearchRadius()`.
 - The decision is forced to `BotLogicDecision.attackMoving` because the action expects a cover point.
 - If no valid boss-local cover exists, the follower says `Negative` and plays `NoGesture`.
@@ -619,7 +648,7 @@ Targeting:
 
 Core behavior:
 
-- Same hold/settle and movement-ignore rules as combat `ComeWithMe`.
+- Same hold/settle and movement-interrupt rules as combat `ComeWithMe`.
 - On consume, `FollowerCombatCommon.TryCreateBossCommandTacticalPointDecision(...)` sets `GoToSomePointData` and returns `BotLogicDecision.goToPointTactical`.
 - Invalid target produces `Negative` and `NoGesture`.
 

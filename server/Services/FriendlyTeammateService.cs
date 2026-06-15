@@ -1892,8 +1892,7 @@ public class FriendlyTeammateService(
 
     private static bool IsPocketsSlotItem(Item item)
     {
-        return string.Equals(item.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
-            && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.EquipmentContainer.Pockets, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(item?.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPermanentTeammateEquipmentSlot(string? slotId, bool keepSecureContainer)
@@ -2087,8 +2086,7 @@ public class FriendlyTeammateService(
             return true;
         }
 
-        return string.Equals(item.SlotId, nameof(EquipmentSlots.Pockets), StringComparison.OrdinalIgnoreCase)
-            && string.Equals(item.Template.ToString(), FriendlyItemTemplateIds.EquipmentContainer.Pockets, StringComparison.OrdinalIgnoreCase);
+        return IsPocketsSlotItem(item);
     }
 
     private static int GetItemStackCount(Item item)

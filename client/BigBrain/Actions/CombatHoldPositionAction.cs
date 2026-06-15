@@ -30,6 +30,14 @@ namespace pitTeam.BigBrain.Actions
 
         public override void Update(CustomLayer.ActionData data)
         {
+            if (StopUnownedGrenadeLauncherFire(
+                    GetReason(data) ?? BotOwner.Brain?.Agent?.LastResult().Reason,
+                    BotOwner.Memory?.GoalEnemy,
+                    blockWhenWaiting: false))
+            {
+                return;
+            }
+
             baseLogic.UpdateNodeByBrain(GetData<GClass28>(data));
 
             FollowerCombatCommon.TryRaiseForStandingCoverShot(BotOwner, out _);

@@ -493,21 +493,30 @@ namespace pitTeam.Modules
 
             try
             {
-                SendEscapedFollowerDefaultLoadoutOutcomes();
-                NpcMessage.SendLostTeammateOutcomes();
-
-                if (!SendStoreItems())
+                bool raidTransit = Utils.Utils.FlagGet("RaidTransit");
+                if (raidTransit)
                 {
-                    NpcMessage.NpcSendThankYou();
+                    NpcMessage.SendLostTeammateOutcomes();
+                    Logger.LogInfo("[Transit] Skipped post-raid follower item return and escaped loadout persistence; carried follower state will continue into the next map.");
                 }
                 else
                 {
-                    string? id = NpcMessage.GetNpcType("boss");
-                    if (id == null) id = NpcMessage.GetNpcType("ally");
+                    SendEscapedFollowerDefaultLoadoutOutcomes();
+                    NpcMessage.SendLostTeammateOutcomes();
 
-                    if (id != null)
+                    if (!SendStoreItems())
                     {
-                        NpcMessage.NpcSendThankYou(id);
+                        NpcMessage.NpcSendThankYou();
+                    }
+                    else
+                    {
+                        string? id = NpcMessage.GetNpcType("boss");
+                        if (id == null) id = NpcMessage.GetNpcType("ally");
+
+                        if (id != null)
+                        {
+                            NpcMessage.NpcSendThankYou(id);
+                        }
                     }
                 }
             }
@@ -1386,6 +1395,16 @@ namespace pitTeam.Modules
 
             if (!Instance._followersEquipment.ContainsKey(profile.ProfileId))
             {
+                if (FollowerTransitStateCache.TryConsumeProtectedEquipmentIds(profile, out List<string> carriedProtectedItems))
+                {
+                    Instance._followersEquipment.Add(profile.ProfileId, carriedProtectedItems);
+                    RestoreTransitTrackedReturnItems(profile);
+                    Logger.LogInfo(
+                        $"[Transit] Restored carried follower protected-equipment set for '{profile.Nickname ?? profile.ProfileId}' " +
+                        $"protectedEquipmentIds={carriedProtectedItems.Count}.");
+                    return;
+                }
+
                 HashSet<string> items = new HashSet<string>(StringComparer.Ordinal);
                 foreach (EquipmentSlot slotType in Enum.GetValues(typeof(EquipmentSlot)))
                 {
@@ -1416,6 +1435,58 @@ namespace pitTeam.Modules
                     // because the backend already owns that prepared equipment graph.
                 }
             }
+        }
+
+        private static void RestoreTransitTrackedReturnItems(Profile profile)
+        {
+            if (Instance?._lootedItems == null ||
+                Instance._followersWithLoot == null ||
+                profile == null ||
+                string.IsNullOrWhiteSpace(profile.ProfileId))
+            {
+                return;
+            }
+
+            if (!FollowerTransitStateCache.TryConsumeTrackedReturnItemIds(profile, out List<string> trackedReturnItemIds) ||
+                trackedReturnItemIds == null ||
+                trackedReturnItemIds.Count == 0)
+            {
+                return;
+            }
+
+            if (!Instance._lootedItems.TryGetValue(profile.ProfileId, out List<string> storedItems))
+            {
+                storedItems = new List<string>();
+                Instance._lootedItems.Add(profile.ProfileId, storedItems);
+            }
+
+            foreach (string itemId in trackedReturnItemIds)
+            {
+                if (!string.IsNullOrWhiteSpace(itemId) && !storedItems.Contains(itemId))
+                {
+                    storedItems.Add(itemId);
+                }
+            }
+
+            if (!Instance._followersWithLoot.ContainsKey(profile.ProfileId))
+            {
+                Instance._followersWithLoot.Add(profile.ProfileId, new Dictionary<string, object> {
+                    { "_id" , profile.ProfileId  },
+                    { "aid" , profile.AccountId },
+                    {
+                        "Info" , new Dictionary<string, object>{
+                            { "Level", profile.Info.Level },
+                            { "MemberCategory", profile.Info.MemberCategory },
+                            { "Nickname",  profile.Info.Nickname },
+                            { "Side",  profile.Info.Side },
+                        }
+                    },
+                });
+            }
+
+            Logger.LogInfo(
+                $"[Transit] Restored carried follower return-item tracking for '{profile.Nickname ?? profile.ProfileId}' " +
+                $"trackedReturnItemIds={trackedReturnItemIds.Count}.");
         }
 
 

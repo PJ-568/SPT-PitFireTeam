@@ -20,6 +20,9 @@ namespace pitTeam.BigBrain.Actions
         private const float UnsafeCloseThreatLookAngle = 70f;
         private const float FastFireDistance = 8f;
         private const float FastFireAngle = 35f;
+        private const float CloseContactFireDistance = 18f;
+        private const float CloseContactFireAngle = 18f;
+        private const float RecentContactFireAngle = 15f;
         private const float PointBlankContactFireAngle = 55f;
 
         private readonly GClass178 shootLogic;
@@ -68,12 +71,21 @@ namespace pitTeam.BigBrain.Actions
             bool hasConfirmedShot = goalEnemy != null && goalEnemy.CanShoot && goalEnemy.IsVisible;
             bool hasPointBlankContactShot = false;
             Vector3 pointBlankContactTarget = Vector3.zero;
+            bool hasRecentContactShot = false;
+            Vector3 recentContactTarget = Vector3.zero;
             if (!hasConfirmedShot)
             {
                 hasPointBlankContactShot = FollowerCombatCommon.TryGetPointBlankContactFireTarget(
                     BotOwner,
                     goalEnemy,
                     out pointBlankContactTarget);
+                if (!hasPointBlankContactShot)
+                {
+                    hasRecentContactShot = FollowerCombatCommon.TryGetCloseRecentContactFireTarget(
+                        BotOwner,
+                        goalEnemy,
+                        out recentContactTarget);
+                }
             }
             if (ShouldLockDogFightLook(goalEnemy))
             {
@@ -84,11 +96,11 @@ namespace pitTeam.BigBrain.Actions
             ApplyDogFightPose(goalEnemy);
             BotOwner.Sprint(false, true);
 
-            if (goalEnemy == null || !hasConfirmedShot && !hasPointBlankContactShot)
+            if (goalEnemy == null || !hasConfirmedShot && !hasPointBlankContactShot && !hasRecentContactShot)
             {
                 // Dogfight movement can step forward, backward, or sideways, but aim should stay
-                // locked to the fight target. If visibility flickers, stop firing and keep looking
-                // at the live/current threat point rather than letting the movement target own look.
+                // locked to the fight target. If visibility flickers without a safe recent-contact
+                // lane, stop firing and keep looking rather than letting movement own look.
                 if (ShouldLockDogFightLook(goalEnemy))
                 {
                     MaintainThreatFacing(goalEnemy!, GetDogFightThreatLookPoint(goalEnemy!), allowHardTurn: true);
@@ -117,7 +129,9 @@ namespace pitTeam.BigBrain.Actions
 
             Vector3 shootPoint = hasPointBlankContactShot && !hasConfirmedShot
                 ? pointBlankContactTarget
-                : shootLogic.GetTarget() ?? GetDogFightThreatLookPoint(goalEnemy);
+                : hasRecentContactShot && !hasConfirmedShot
+                    ? recentContactTarget
+                    : shootLogic.GetTarget() ?? GetDogFightThreatLookPoint(goalEnemy);
             MaintainThreatFacing(goalEnemy, shootPoint, allowHardTurn: true);
 
             // Close retreat movement is dangerous if it turns the bot away from the attacker. Stop
@@ -151,6 +165,26 @@ namespace pitTeam.BigBrain.Actions
                 }
 
                 return;
+            }
+
+            if (hasRecentContactShot && !hasConfirmedShot)
+            {
+                if (GetLookAngleToPoint(shootPoint) <= RecentContactFireAngle)
+                {
+                    BotOwner.ShootData.Shoot();
+                }
+                else
+                {
+                    StopCombatShooting();
+                }
+
+                return;
+            }
+
+            if (goalEnemy.Distance <= CloseContactFireDistance &&
+                GetLookAngleToPoint(shootPoint) <= CloseContactFireAngle)
+            {
+                BotOwner.ShootData.Shoot();
             }
 
             if (goalEnemy.Distance <= FastFireDistance &&

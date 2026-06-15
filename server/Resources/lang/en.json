@@ -23,7 +23,7 @@
 	"maximumPickup": { "Name": "Maximum Pickup", "Description": "Maximum number of non-squad same-side bots you can pick up during a raid." },
 	"recruitPickup": { "Name": "Recruit Pickup", "Description": "Allow picked-up followers that were successfully extracted with to send friend requests. This uses player-vs-bot level difference rules when deciding." },
 	"teamEscape": { "Name": "Team Escape", "Description": "Allow surviving squadmates to attempt an escape after you die. Escaped teammates can return eligible follower loot and recoverable gear that would otherwise be lost." },
-	"teamEscapeUseAnyExtract": { "Name": "Use Any Extraction Point", "Description": "Allow the squad escape simulation to choose any usable extraction point on the map. Disable this to restrict escape routes to extraction points assigned to the player." },
+	"teamEscapeUseAnyExtract": { "Name": "Team Escape: Use Any Extraction Point", "Description": "Allow the squad escape simulation to choose any usable extraction point on the map. Disable this to restrict escape routes to extraction points assigned to the player." },
 	"memberTactic": { "Name": "Squad Member {0} Tactic", "Description": "Set Squad member fight tactic." },
 	"memberEquipment": { "Name": "Squad Member {0} Equipment", "Description": "Set Squad member equipment." },
 	"memberName": { "Name": "Squad Member {0} Nickname", "Description": "Set a custom nickname for this Squad member. Leave blank for default" },
