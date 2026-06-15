@@ -3650,7 +3650,7 @@ namespace pitTeam.BigBrain
                 goalEnemy.ProfileId,
                 target,
                 reason ?? string.Empty,
-                IsAutoSuppressReason(reason) ? GrenadeLauncherAutoUnsafeRadius : GrenadeLauncherOrderedUnsafeRadius,
+                IsAutonomousSuppressReason(reason) ? GrenadeLauncherAutoUnsafeRadius : GrenadeLauncherOrderedUnsafeRadius,
                 GrenadeLauncherSuppressEventSeconds);
         }
 
@@ -4182,6 +4182,24 @@ namespace pitTeam.BigBrain
             float unsafeRadius,
             out string rejectReason)
         {
+            return TryCanFireGrenadeLauncherAtTarget(
+                botOwner,
+                fireOrigin,
+                target,
+                unsafeRadius,
+                out rejectReason,
+                out _);
+        }
+
+        internal static bool TryCanFireGrenadeLauncherAtTarget(
+            BotOwner botOwner,
+            Vector3 fireOrigin,
+            Vector3 target,
+            float unsafeRadius,
+            out string rejectReason,
+            out Vector3 acceptedFireOrigin)
+        {
+            acceptedFireOrigin = fireOrigin;
             if (!IsFinite(fireOrigin) || !IsFinite(target))
             {
                 rejectReason = "launcherLaneInvalid";
@@ -4197,6 +4215,8 @@ namespace pitTeam.BigBrain
             if ((standingFireOrigin - fireOrigin).sqrMagnitude > 0.04f &&
                 TryCanFireGrenadeLauncherFromOrigin(botOwner, standingFireOrigin, target, unsafeRadius, out _))
             {
+                acceptedFireOrigin = standingFireOrigin;
+                rejectReason = string.Empty;
                 return true;
             }
 
@@ -11292,7 +11312,7 @@ namespace pitTeam.BigBrain
         {
             bool ordered = IsOrderedSuppressReason(reason) ||
                            FollowerCombatSuppressionObjective.IsSuppressionObjectiveReason(reason) ||
-                           FollowerCombatGrenadierObjective.IsGrenadierReason(reason);
+                           FollowerCombatGrenadierObjective.IsOrderedGrenadierReason(reason);
             bool commandOwned = IsOrderedSuppressReason(reason);
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(botOwner);
             if (commandOwned &&
@@ -11412,7 +11432,8 @@ namespace pitTeam.BigBrain
             Vector3 fireOrigin = botOwner.WeaponRoot != null
                 ? botOwner.WeaponRoot.position
                 : botOwner.Position + Vector3.up * 1.2f;
-            float launcherUnsafeRadius = IsAutoSuppressReason(reason) ? GrenadeLauncherAutoUnsafeRadius : GrenadeLauncherOrderedUnsafeRadius;
+            float launcherUnsafeRadius = IsAutonomousSuppressReason(reason) ? GrenadeLauncherAutoUnsafeRadius : GrenadeLauncherOrderedUnsafeRadius;
+            Vector3 acceptedLauncherFireOrigin = fireOrigin;
             bool hasLauncherSuppressLane = false;
             string launcherLaneRejectReason = string.Empty;
             if (launcherSuppress)
@@ -11422,7 +11443,8 @@ namespace pitTeam.BigBrain
                     fireOrigin,
                     point.Value,
                     launcherUnsafeRadius,
-                    out launcherLaneRejectReason);
+                    out launcherLaneRejectReason,
+                    out acceptedLauncherFireOrigin);
             }
 
             if (launcherSuppress &&
@@ -11441,7 +11463,8 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("launcherImpactUnsafe", true);
             }
 
-            if (ShouldBreakFollowerSuppressForPointBlankContact(goalEnemy, point.Value, fireOrigin))
+            Vector3 suppressFireOrigin = launcherSuppress ? acceptedLauncherFireOrigin : fireOrigin;
+            if (ShouldBreakFollowerSuppressForPointBlankContact(goalEnemy, point.Value, suppressFireOrigin))
             {
                 followerData?.ClearCommand("SuppressEnemy:pointBlankNonFoliageContact");
                 return new AICoreActionEndStruct("pointBlankNonFoliageContact", true);
@@ -11599,6 +11622,12 @@ namespace pitTeam.BigBrain
         public static bool IsAutoSuppressReason(string? reason)
         {
             return reason != null && reason.StartsWith("autoSuppress", StringComparison.Ordinal);
+        }
+
+        public static bool IsAutonomousSuppressReason(string? reason)
+        {
+            return IsAutoSuppressReason(reason) ||
+                   FollowerCombatGrenadierObjective.IsAutonomousGrenadierReason(reason);
         }
 
         public AICoreActionEndStruct EndSuppressGrenade()

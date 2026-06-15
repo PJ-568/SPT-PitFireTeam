@@ -10,6 +10,8 @@ namespace pitTeam.BigBrain
     {
         internal const float OpportunityWindowSeconds = 5f;
         internal const string ReasonPrefix = "objectiveGrenadier";
+        private const string OrderedReasonPrefix = ReasonPrefix + ".ordered";
+        private const string AutonomousReasonPrefix = ReasonPrefix + ".auto";
         private const string RetryHoldReason = "objectiveGrenadier.retry";
         private const string AutonomousActivationReason = "objectiveGrenadier.activateAuto";
         private const float RetryScanSeconds = 0.25f;
@@ -220,7 +222,7 @@ namespace pitTeam.BigBrain
             launcherPlan = null;
             if (!CombatCommon.TryPrepareGrenadeLauncherSuppressPlan(
                     goalEnemy,
-                    ReasonPrefix,
+                    GetModeReasonPrefix(),
                     ordered,
                     out FollowerCombatCommon.GrenadeLauncherSuppressPlan? preparedPlan) ||
                 preparedPlan == null)
@@ -406,9 +408,25 @@ namespace pitTeam.BigBrain
             return reason != null && reason.StartsWith(ReasonPrefix, StringComparison.Ordinal);
         }
 
+        internal static bool IsOrderedGrenadierReason(string? reason)
+        {
+            return reason != null && reason.StartsWith(OrderedReasonPrefix, StringComparison.Ordinal);
+        }
+
+        internal static bool IsAutonomousGrenadierReason(string? reason)
+        {
+            return reason != null && reason.StartsWith(AutonomousReasonPrefix, StringComparison.Ordinal);
+        }
+
+        private string GetModeReasonPrefix()
+        {
+            return ordered ? OrderedReasonPrefix : AutonomousReasonPrefix;
+        }
+
         private static bool IsLauncherMoveReason(string? reason)
         {
-            return string.Equals(reason, $"{ReasonPrefix}.launcherMove", StringComparison.Ordinal);
+            return IsGrenadierReason(reason) &&
+                   reason.EndsWith(".launcherMove", StringComparison.Ordinal);
         }
 
         private static bool IsRetryHoldReason(string? reason)

@@ -41,6 +41,11 @@ namespace pitTeam.BigBrain.Actions
         private const float NavigationLookBadPathAngle = 75f;
         private const float NavigationLookPathExtraDistance = 15f;
         private const float NavigationLookPathDistanceRatio = 1.35f;
+        private const float StaleLocalLookMinAge = 4f;
+        private const float StaleLocalLookMaxDistance = 5f;
+        private const float StaleLocalLookBackpedalAngle = 120f;
+        private const float ActualMoveDirectionMinDeltaSqr = 0.0009f;
+        private const float ActualMoveDirectionMaxAge = 0.35f;
         private const int LargeMagazineLowAmmoThreshold = 20;
         private const int PistolLargeMagazineLowAmmoThreshold = 10;
 
@@ -60,6 +65,9 @@ namespace pitTeam.BigBrain.Actions
         private float navigationLookCandidateSince;
         private float nextNavigationLookCheckTime;
         private bool cachedShouldPreferNavigationLook;
+        private Vector3 lastActualMovePosition;
+        private Vector3 recentActualMoveDirection;
+        private float recentActualMoveDirectionTime;
 
         public CombatGoToEnemyAction(BotOwner botOwner) : base(botOwner)
         {
@@ -84,6 +92,9 @@ namespace pitTeam.BigBrain.Actions
             navigationLookCandidateSince = 0f;
             nextNavigationLookCheckTime = 0f;
             cachedShouldPreferNavigationLook = false;
+            lastActualMovePosition = BotOwner.Position;
+            recentActualMoveDirection = Vector3.zero;
+            recentActualMoveDirectionTime = 0f;
         }
 
         public override void Update(CustomLayer.ActionData data)
@@ -109,6 +120,7 @@ namespace pitTeam.BigBrain.Actions
             // and tight walls. Track progress every update cycle and refresh when the committed point
             // is no longer making the bot advance.
             RefreshProgressState();
+            RefreshActualMovementDirection();
             NotMovingCheck();
             bool hasPath = BotOwner.Mover.HasPathAndNoComplete;
 
@@ -291,6 +303,13 @@ namespace pitTeam.BigBrain.Actions
             {
                 CommitLookMode(AdvanceLookMode.EnemyOwned);
                 BotOwner.Steering.LookToDirection(lookDirection.normalized);
+                return;
+            }
+
+            if (ShouldPreferMovingDirectionOverStaleLocalLook(goalEnemy))
+            {
+                CommitLookMode(AdvanceLookMode.MovingDirection);
+                BotOwner.Steering.LookToMovingDirection();
                 return;
             }
 
@@ -555,6 +574,38 @@ namespace pitTeam.BigBrain.Actions
 
             lastProgressPosition = BotOwner.Position;
             nextProgressCheckTime = Time.time + ProgressCheckInterval;
+        }
+
+        private void RefreshActualMovementDirection()
+        {
+            Vector3 currentPosition = BotOwner.Position;
+            Vector3 delta = Flatten(currentPosition - lastActualMovePosition);
+            if (delta.sqrMagnitude > ActualMoveDirectionMinDeltaSqr)
+            {
+                recentActualMoveDirection = delta.normalized;
+                recentActualMoveDirectionTime = Time.time;
+                lastActualMovePosition = currentPosition;
+                return;
+            }
+
+            if (Time.time - recentActualMoveDirectionTime > ActualMoveDirectionMaxAge)
+            {
+                recentActualMoveDirection = Vector3.zero;
+                lastActualMovePosition = currentPosition;
+            }
+        }
+
+        private bool TryGetRecentActualMovementDirection(out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            if (Time.time - recentActualMoveDirectionTime > ActualMoveDirectionMaxAge ||
+                recentActualMoveDirection.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            direction = recentActualMoveDirection;
+            return true;
         }
 
         private void CommitAdvancePoint(Vector3 point)
@@ -854,14 +905,17 @@ namespace pitTeam.BigBrain.Actions
             if (Time.time - goalEnemy.PersonalLastSeenTime <= 12f)
             {
                 Vector3 personalLastPos = goalEnemy.PersonalLastPos;
-                if ((personalLastPos - BotOwner.Position).sqrMagnitude > 0.01f)
+                bool preferMovementOverPersonal = ShouldPreferMovingDirectionOverStaleLocalLook(goalEnemy);
+                if (!preferMovementOverPersonal &&
+                    (personalLastPos - BotOwner.Position).sqrMagnitude > 0.01f)
                 {
                     lookDirection = personalLastPos - BotOwner.Position;
                     return true;
                 }
 
                 Vector3 lastKnownPosition = goalEnemy.EnemyLastPositionReal;
-                if ((lastKnownPosition - BotOwner.Position).sqrMagnitude > 0.01f)
+                if ((lastKnownPosition - BotOwner.Position).sqrMagnitude > 0.01f &&
+                    (!preferMovementOverPersonal || !IsSameLocalLookPoint(personalLastPos, lastKnownPosition)))
                 {
                     lookDirection = lastKnownPosition - BotOwner.Position;
                     return true;
@@ -869,6 +923,51 @@ namespace pitTeam.BigBrain.Actions
             }
 
             return false;
+        }
+
+        private bool ShouldPreferMovingDirectionOverStaleLocalLook(EnemyInfo goalEnemy)
+        {
+            if (goalEnemy == null ||
+                goalEnemy.IsVisible ||
+                goalEnemy.CanShoot ||
+                !BotOwner.Mover.HasPathAndNoComplete ||
+                !TryGetRecentActualMovementDirection(out Vector3 movementDirection) ||
+                !TryGetAdvanceLookPoint(out Vector3 advancePoint))
+            {
+                return false;
+            }
+
+            Vector3 personalLastPos = goalEnemy.PersonalLastPos;
+            if (!IsFinite(personalLastPos) ||
+                Time.time - goalEnemy.PersonalLastSeenTime < StaleLocalLookMinAge)
+            {
+                return false;
+            }
+
+            Vector3 toPersonal = Flatten(personalLastPos - BotOwner.Position);
+            if (toPersonal.sqrMagnitude <= 0.01f ||
+                toPersonal.sqrMagnitude > StaleLocalLookMaxDistance * StaleLocalLookMaxDistance)
+            {
+                return false;
+            }
+
+            Vector3 toAdvancePoint = Flatten(advancePoint - BotOwner.Position);
+            if (toAdvancePoint.sqrMagnitude <= 0.01f)
+            {
+                return false;
+            }
+
+            return Vector3.Angle(movementDirection, toAdvancePoint.normalized) >= StaleLocalLookBackpedalAngle;
+        }
+
+        private static bool IsSameLocalLookPoint(Vector3 first, Vector3 second)
+        {
+            if (!IsFinite(first) || !IsFinite(second))
+            {
+                return false;
+            }
+
+            return Flatten(first - second).sqrMagnitude <= 1f;
         }
 
         private static Vector3 Flatten(Vector3 value)

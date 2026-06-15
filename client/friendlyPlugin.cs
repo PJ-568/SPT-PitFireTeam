@@ -479,11 +479,6 @@ namespace pitTeam
         private void Start()
         {
             RefreshPluginFlags();
-            if (IsSAINInstalled && !IsSAINAddonInstalled)
-            {
-                Logger.LogWarning("[Init] SAIN detected but pitFireTeam SAIN addon is missing.");
-                Logger.LogWarning($"[Init] Followers will fall back to core vanilla combat behavior. Install plugin '{SainAddonPluginId}' to enable SAIN follower combat.");
-            }
         }
 
         private void OnDestroy()

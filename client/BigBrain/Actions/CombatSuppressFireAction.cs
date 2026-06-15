@@ -189,8 +189,9 @@ namespace pitTeam.BigBrain.Actions
             Vector3 fireOrigin = BotOwner.WeaponRoot != null
                 ? BotOwner.WeaponRoot.position
                 : BotOwner.Position + Vector3.up * 1.2f;
+            Vector3 launcherFireOrigin = fireOrigin;
             Vector3 aimTarget = launcherSuppress
-                ? GetLauncherSuppressAimPoint(fireOrigin, target.Value)
+                ? GetLauncherSuppressAimPoint(launcherFireOrigin, target.Value)
                 : target.Value;
             BotOwner.Steering.LookToPoint(aimTarget);
             float effectiveLauncherUnsafeRadius = launcherSuppress
@@ -210,12 +211,16 @@ namespace pitTeam.BigBrain.Actions
                         fireOrigin,
                         target.Value,
                         effectiveLauncherUnsafeRadius,
-                        out string initialLauncherLaneRejectReason))
+                        out string initialLauncherLaneRejectReason,
+                        out launcherFireOrigin))
                 {
                     RecordLauncherSuppressSafetyReject($"{reason}:{initialLauncherLaneRejectReason}", target.Value);
                     StopCombatShooting();
                     return;
                 }
+
+                aimTarget = GetLauncherSuppressAimPoint(launcherFireOrigin, target.Value);
+                BotOwner.Steering.LookToPoint(aimTarget);
             }
             else if (FollowerShotSafety.IsFriendlyInSuppressionLane(BotOwner, fireOrigin, target.Value))
             {
@@ -223,7 +228,8 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            if (IsCurrentSuppressionAimUnsafe(fireOrigin, aimTarget, launcherSuppress))
+            Vector3 activeFireOrigin = launcherSuppress ? launcherFireOrigin : fireOrigin;
+            if (IsCurrentSuppressionAimUnsafe(activeFireOrigin, aimTarget, launcherSuppress))
             {
                 if (launcherSuppress)
                 {
@@ -336,11 +342,18 @@ namespace pitTeam.BigBrain.Actions
                     fireOrigin,
                     target.Value,
                     effectiveLauncherUnsafeRadius,
-                    out string readyLauncherLaneRejectReason))
+                    out string readyLauncherLaneRejectReason,
+                    out launcherFireOrigin))
             {
                 RecordLauncherSuppressSafetyReject($"{reason}:{readyLauncherLaneRejectReason}", target.Value);
                 StopCombatShooting();
                 return;
+            }
+            if (launcherSuppress)
+            {
+                aimTarget = GetLauncherSuppressAimPoint(launcherFireOrigin, target.Value);
+                activeFireOrigin = launcherFireOrigin;
+                BotOwner.Steering.LookToPoint(aimTarget);
             }
 
             if (launcherSuppress)
@@ -351,12 +364,12 @@ namespace pitTeam.BigBrain.Actions
                     return;
                 }
 
-                if (ShouldHoldSuppressFireUntilAimed(fireOrigin, aimTarget, launcherSuppress))
+                if (ShouldHoldSuppressFireUntilAimed(activeFireOrigin, aimTarget, launcherSuppress))
                 {
                     return;
                 }
 
-                if (ShouldAbortFinalSuppressShot(reason, fireOrigin, target.Value, launcherSuppress, effectiveLauncherUnsafeRadius))
+                if (ShouldAbortFinalSuppressShot(reason, activeFireOrigin, target.Value, launcherSuppress, effectiveLauncherUnsafeRadius))
                 {
                     return;
                 }
@@ -454,7 +467,7 @@ namespace pitTeam.BigBrain.Actions
 
         private static float GetLauncherSuppressUnsafeRadius(string? reason)
         {
-            return FollowerCombatCommon.IsAutoSuppressReason(reason) ? 18f : 12f;
+            return FollowerCombatCommon.IsAutonomousSuppressReason(reason) ? 18f : 12f;
         }
 
         private static bool IsStandingSuppressReason(string? reason)
@@ -662,12 +675,28 @@ namespace pitTeam.BigBrain.Actions
             float unsafeRadius,
             out string rejectReason)
         {
+            return CanLauncherSuppressFromCurrentOrStandingPosition(
+                fireOrigin,
+                target,
+                unsafeRadius,
+                out rejectReason,
+                out _);
+        }
+
+        private bool CanLauncherSuppressFromCurrentOrStandingPosition(
+            Vector3 fireOrigin,
+            Vector3 target,
+            float unsafeRadius,
+            out string rejectReason,
+            out Vector3 acceptedFireOrigin)
+        {
             return FollowerCombatCommon.TryCanFireGrenadeLauncherAtTarget(
                 BotOwner,
                 fireOrigin,
                 target,
                 unsafeRadius,
-                out rejectReason);
+                out rejectReason,
+                out acceptedFireOrigin);
         }
 
         private void FireLauncherSuppressShot(string? reason, Vector3 target, Vector3 aimTarget)
