@@ -175,7 +175,10 @@ namespace pitTeam.BigBrain.Actions
             }
         }
 
-        protected bool StopUnownedGrenadeLauncherFire(string? reason, EnemyInfo? goalEnemy = null)
+        protected bool StopUnownedGrenadeLauncherFire(
+            string? reason,
+            EnemyInfo? goalEnemy = null,
+            bool blockWhenWaiting = true)
         {
             if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(reason))
             {
@@ -195,7 +198,12 @@ namespace pitTeam.BigBrain.Actions
             }
 
             StopCombatShooting();
-            selector?.TryChangeToMain();
+            bool switched = FollowerCombatCommon.TrySwitchSelectedGrenadeLauncherToPrimaryForOpportunity(
+                BotOwner,
+                goalEnemy,
+                reason,
+                tacticalIntent: true,
+                out string waitReason);
 
             if (Time.time >= nextUnownedLauncherGuardRecordAt)
             {
@@ -203,11 +211,13 @@ namespace pitTeam.BigBrain.Actions
                 BattleRecorder.RecordGrenadeEvent(
                     BotOwner,
                     "launcherReject",
-                    $"unownedLauncherSelection:{reason ?? "unknown"}",
+                    switched
+                        ? $"unownedLauncherSelection:{reason ?? "unknown"}:switched"
+                        : $"unownedLauncherSelection:{reason ?? "unknown"}:wait={waitReason}",
                     goalEnemy: goalEnemy);
             }
 
-            return true;
+            return switched || blockWhenWaiting;
         }
 
         protected bool StopIfFriendlyInCurrentFireLane(EnemyInfo? goalEnemy)

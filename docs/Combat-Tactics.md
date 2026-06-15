@@ -17,11 +17,46 @@ Core combat is objective-routed.
 - Marksman combat is implemented by `FollowerCombatSniperObjective` plus `FollowerCombatSniper`.
 - Combat regroup is implemented by `FollowerCombatRegroupObjective`.
 - Ordered suppression is implemented by `FollowerCombatSuppressionObjective`.
+- Launcher suppression intent is implemented by `FollowerCombatGrenadierObjective`.
 - Ordered marksman support is implemented by `FollowerCombatNeedSniperObjective`.
 - Shared state and primitives live in `FollowerCombatCommon`.
 - Push selection and push commitment live in `FollowerCombatPush`.
 
 Objective ownership matters: heal, dogfight, grenade, and immediate fire can interrupt the current objective, but they do not automatically change the owning objective. Explicit combat regroup activates the regroup objective. Explicit suppression activates the suppression objective for eligible followers: Rifleman/default followers by default, and Marksman followers only for the automatic-secondary fallback case. Explicit Need Sniper activates the marksman support objective for Marksman followers. Explicit push returns control to the active tactic's primary objective and lets that tactic build a push plan.
+
+## Enemy Acquisition And Retention
+
+Enemy acquisition, squad enemy sharing, and retained-contact stabilization are separate responsibilities.
+
+Acquisition and sharing sources:
+
+- `FollowerCalcGoalEnemyAcquire.HandleCalcGoal(...)` is the idle/sibling sync path. It runs from the core `BotCalcGoal.CalcGoalForBot()` postfix for followers that are not attention-suppressed and do not already have an enemy. When one follower sees a valid forward candidate, it promotes that enemy for itself, then tries to create and promote the same enemy for sibling followers that have no current/live goal enemy. This path registers non-prioritized retention after promotion, but `FollowerContactEnemyRetention` does not perform the squad fan-out itself.
+- `AIBossPlayer.RegisterContactEnemyForFollower(...)` is the boss-contact injection path. Contact/OverThere-style cues, NeedHelp fallback, and ordered launcher target resolution can report and create `EnemyInfo` records for followers, optionally promote one contact as the goal, and register retention with the command-priority flag.
+- `FollowerAwareness` is the reaction path. Direct hits and close incoming fire can create/promote the immediate hostile attacker when the current goal is missing, dead, stale/non-shootable, or clearly farther than the incoming threat. When this retarget happens it clears retained contact once before installing the new goal, so a stale far contact cannot immediately restore over the immediate attacker.
+
+`FollowerContactEnemyRetention` is a per-follower stabilizer, not the owner of target selection:
+
+- It stores at most one retained contact per follower profile id.
+- `RegisterCurrentGoal(...)` only retains a live current goal if it has fresh visible/can-shoot contact or personal seen timestamps still inside `enemyRemember`; stale unseen goals are not retained.
+- A prioritized retained contact cannot be replaced by a different non-prioritized contact while the retained window is active.
+- Invisible bookkeeping refreshes do not extend retention forever; non-visible refreshes are capped by the original last-contact window.
+- `ShouldBlockGoalEnemyClear(...)` intercepts `GoalEnemy = null` for followers and blocks the clear only while the retained enemy is still live, still inside its retention window, and still matches the current goal.
+- `TryRestore(...)` recreates/promotes the retained enemy as `Memory.GoalEnemy`, sets `PriorityIndex = 0`, repairs personal memory, and forces `Memory.IsPeace = false`.
+- Retention yields when the follower already has a different live visible/can-shoot goal enemy, when the retained enemy dies/expires, or when code calls `ClearAndAllowNextGoalClear(...)` for explicit reset/retarget.
+
+Current consumers:
+
+- Core combat uses retention to keep combat active briefly after vanilla memory clears, to restore committed push targets, and to let immediate-fire actions finish when short visibility/memory flicker would otherwise end them.
+- Ordered/explicit retarget paths use `ClearAndAllowNextGoalClear(...)` before installing a new goal so the old retained contact cannot bounce the follower back.
+- The SAIN addon reads retained contact from core and syncs it into `SAINEnemyController` through `SAINFollowerRuntimeBridge.TrySyncFollowerEnemyState(...)`; this is a bridge use, not SAIN owning core target selection.
+- When SAIN is installed without the addon, the core SAIN patches can block SAIN enemy-clear behavior while a core retained contact is active.
+
+Implementation rule:
+
+- New enemy-sharing logic should live in acquisition/contact/reaction code, not inside `FollowerContactEnemyRetention`.
+- New combat actions should register or refresh retention only after a real goal enemy is selected or explicitly assigned.
+- New retarget/reset logic must either use the existing force-goal helpers or clear retention before setting `GoalEnemy = null`, otherwise the retained contact can restore the old target on the next combat check.
+- Do not use retention to keep a non-visible stale target alive indefinitely. Fresh visible/can-shoot contact, explicit command priority, or a still-recent personal seen timestamp must justify the retained window.
 
 ## Boss Combat Commands
 
@@ -79,7 +114,8 @@ Rifleman/default behavior:
 - Riflemen with a shotgun first primary can latch a loaded automatic second primary for mid-or-farther fights; once latched it stays through the fight to avoid distance-bucket weapon churn, unless the automatic secondary runs dry with no reload ammo, at which point the fight is locked back to first primary.
 - Automatic-secondary switching is penetration-guarded against the first primary's current ammo: the secondary ammo may trail by up to 15 penetration, matching EFT's armor-resistance penetration window, so small gaps like 35 vs 40 still allow rate of fire to compensate while gaps like 20 vs 40 stay on the primary.
 - Rifleman weapon switching is owned by combat decisions only: if EFT automatically swaps to a support weapon, such as pistol fallback instead of reload, follower combat should not force an immediate primary swap back unless this tactic explicitly made the secondary switch first.
-- Riflemen with a usable grenade launcher in the second primary can use it for suppression decisions: ordered suppress follows the old plugin's boss-order ray scan for hostile player bodies and does not require `EnemyInfo.IsVisible`, but ray hits must still be in front of and close to the order ray so broad scan results cannot choose a sideways/backward target. If that order ray finds no valid hostile, ordered launcher suppression may fall back to the follower's current `GoalEnemy` target. Autonomous use can now act on a single visible hostile target instead of requiring a clustered multi-target opportunity. Launcher targets keep the old safety band (`27m` to `130m`), reject impact points near the boss or followers, require a clean suppress lane or suppress-from point, wait for the launcher aim to align with the selected impact point, and emit artillery warnings only after the launch position and action are confirmed.
+- Riflemen with a usable grenade or rocket launcher in the second primary can use it for suppression decisions through the grenadier objective: ordered suppress follows the old plugin's boss-order ray scan for hostile player bodies and does not require `EnemyInfo.IsVisible`, but ray hits must still be in front of and close to the order ray so broad scan results cannot choose a sideways/backward target. If that order ray finds no valid hostile, ordered launcher suppression may fall back to the follower's current `GoalEnemy` target. Autonomous use can now activate the same grenadier objective against a single visible hostile target instead of requiring a clustered multi-target opportunity. Launcher targets use a `10m` to `130m` target band; impacts inside the 27m launcher-arming distance keep friendly lane safety but use only a small impact-proximity exclusion because the projectile should not be armed yet. Launcher use still requires a clean suppress lane or suppress-from point, waits for launcher aim to align with an arc-compensated aim point above the selected impact point, and emits artillery warnings only after the launch position and action are confirmed.
+- Launcher loaded-round checks include revolver/cylinder launcher camoras and chamber-only launchers. Empty but reloadable second-primary launchers stay combat-usable; when launcher suppression selects a truly unloaded reloadable launcher, the suppress action waits briefly for combat reload/ready state instead of ending immediately as no loaded rounds. Rocket launchers such as the RShG-2 are treated as single-use: they are usable only while already loaded and never enter the reload-wait fallback.
 - Grenade-launcher suppression emits a short squad combat event. While that event is active, other followers do not start or continue autonomous pushes around the same impact area, even if their current enemy identity is different. Explicit player push orders still remain command-owned.
 - Other nearby Riflemen can react to the push event as support instead of starting a duplicate independent push: shoot from current cover, take a support shot, move to push-support cover, or move to a firing point.
 
@@ -109,16 +145,26 @@ Objective behavior:
 - If launcher support is unavailable, primary weapon suppression first checks whether the bot already has a safe lane from place.
 - If a better suppress-from point exists, primary weapon suppression can move there and suppress from that point.
 - If direct primary fire is blocked but suppression was explicitly ordered, it may still suppress the obstructed known point, as long as friendly shot safety passes.
+- Ordered weapon area suppression records `weaponSuppressArea` when the strict lane classifier cannot prove a direct/foliage lane but friendly lane safety still allows a short pressure burst.
 - The objective has an ordered-suppression protected window so one short obstruction or controller completion does not instantly cancel it.
 - Ordered weapon suppression has a hard 2-second cap. It should create a burst of pressure, not keep firing until EFT's suppression controller empties magazines.
 - Explicit follow-up combat orders, such as Push Enemy, break the suppression action immediately instead of waiting for that protected window.
-- Ordered grenade-launcher suppression is a phased suppression objective: first prepare the launcher target and optional suppress-from point, then move to that point if needed, then re-check the launch lane from the reached position before switching to the launcher and initializing `SuppressShoot`.
+- Ordered grenade-launcher suppression activates the grenadier objective instead of performing a one-shot lane check inside the weapon suppression objective. The grenadier objective has a `5s` opportunity window: it repeatedly prepares launcher targets, moves to a suppress-from point if one becomes valid, re-checks the launch lane from the reached position, and only switches to the launcher/initializes `SuppressShoot` when the shot can actually start.
+- If the grenadier objective starts a launcher shot, the follower says `GetInCover`; if an ordered grenadier window expires with no launcher opportunity, the follower says `Negative`, releases any launcher switch it owned, and returns to the primary combat objective. Autonomous grenadier failures switch back silently and are throttled by the autonomous suppression retry cooldown.
+- Emergency actions such as dogfight, healing, and reload-retreat discard the active grenadier objective and return control to the normal combat router.
 - Launcher voice lines, artillery warnings, squad launcher-suppression events, and `launcherInit` recorder events happen only after the bot has reached/confirmed the launch position and the launcher suppress action can start.
 - Launcher suppression ending depends on the loaded launcher: single-shot launchers end after one observed shot/controller completion, while multi-shot launchers use a 2-second firing window measured from the first observed launcher shot and may keep firing until that window expires or the loaded rounds are gone.
 - If the selected launcher impact becomes unsafe, no launch lane exists from the reached position, or the launcher action cannot start, ordered suppression falls back to weapon suppression instead of completing the order as failed. If weapon suppression cannot be created either, the suppression objective completes as no-action and answers `Negative`.
-- If the launcher is not yet aimed at the intended impact point after action start, the bot holds fire while it keeps steering toward that point.
+- After a grenadier objective exits, launcher suppression enters a cooldown regardless of success or failure: `10s` for ordered suppression and `25s` for autonomous suppression. The active launcher fire action has a minimum commitment timer: when it expires, launcher intent ends and the primary combat objective owns the next decision again. That does not force an immediate weapon switch; the selected launcher becomes a pending primary fallback and switches through three opportunity lanes: safe switch (no active danger, cover, or no enemy), tactical switch (the next decision needs the main weapon, such as reload/low-ammo handling, weapon suppression, push, regroup, or main-weapon fighting), and emergency switch (close visible contact or a low-loaded launcher inside launcher-arming distance). Reload/low-ammo while fallback is pending is treated as a tactical main-weapon switch request, not as a request to reload the launcher. Ordered suppress commands received during the launcher cooldown fall back to weapon suppression; autonomous combat may still use normal weapon suppression but will not activate the grenadier objective until the launcher cooldown expires. Battle recorder `launcherCooldown` events mark both cooldown starts and cooldown skips, and `launcherCommitmentExpired`, `launcherFallbackWait`, and `launcherFallbackSwitch` describe the handoff.
+- A requested primary fallback is only complete once the launcher is no longer selected/active. `TryChangeToMain()` can return success before EFT finishes the weapon change, so the pending fallback remains alive through weapon-readiness waits. If combat ends during that asynchronous switch, patrol finishes returning to the primary before out-of-combat reload maintenance can consider the empty launcher.
+- Completed launcher attempts force a primary-weapon fallback before the normal combat objective resumes, and ordinary hold/regroup actions keep guarding against a delayed unowned launcher switch. This prevents an empty cylinder launcher from leaking into default reload-retreat or low-ammo hold decisions. Launcher aim waits also record `launcherWeaponNotReady` holds when the blocker is weapon readiness/reload state rather than target or lane safety.
+- When an ordered launcher ray misses and the grenadier objective falls back to the current `GoalEnemy`, non-visible targets prefer the shared combat last-known position over the follower's personal last position. This keeps launcher impacts closer to the squad's current enemy area when the personal point is stale or short.
+- If the launcher is not yet aimed at the arc-compensated aim point after action start, the bot holds fire while it keeps steering above the intended impact point.
 - Immediately before any suppress shot is released, the action re-checks friendly impact/lane safety; launcher suppress records a final safety reject if a friendly moved into the impact area or shot lane during the aim wait.
 - If the bot is already holding a second-primary grenade launcher when ordered suppression falls back to weapon fire, the objective switches back to the primary and retries briefly instead of completing as no-action.
+- Launcher suppression keeps the recorded target, friendly-impact check, and lane check on the intended impact point, but steers and aims at a raised point calculated from the loaded projectile velocity and distance so 40mm grenades and rockets are lobbed instead of aimed like flat rifle fire. Battle recorder `launcherShootAttempt` reasons include `aimRaise` for checking the applied arc compensation.
+- Launcher planning uses the same raised ballistic aim point for lane validation: a blocked straight ray to the impact point can still be accepted when the sampled launcher arc is clear, or only soft foliage, while friendly lane and impact checks remain anchored to the intended impact area.
+- Launcher aim readiness uses the bot's actual look/steering direction rather than the weapon-root forward vector, because some cylinder launchers can report a misleading root orientation while the bot is visually lined up. Final friendly impact and lane safety still check the intended impact point before firing.
 - It completes when suppression completes, target data disappears, friendly shot safety blocks the lane beyond the protected window, or the enemy is gone.
 
 Autonomous suppression remains separate:
@@ -128,7 +174,7 @@ Autonomous suppression remains separate:
 - Point-blank suppression is not allowed to continue just because visibility/shootability is flickering. If the target is within point-blank contact range and there is no confirmed foliage obstruction near the lane, follower suppression clears instead of blind-firing around hard geometry.
 - Ordered/objective suppression can be interrupted after its protected opening burst when the follower needs healing or reload-retreat. The order should create pressure, not pin the follower in place while hurt or empty.
 
-Out of combat, patrol performs one reload-maintenance pass per carried weapon until the next combat-to-patrol handoff. For each first primary, second primary, and holster weapon, it checks compatible loose ammo, tops off inserted and spare magazines for external-magazine weapons with whatever rounds are available, then only switches/reloads an external-magazine weapon if a reachable spare magazine has at least two more rounds than the current magazine. Chamber, revolver, shotgun, and internal-magazine weapons do not use spare-mag comparison: if compatible loose ammo exists, patrol may switch once, perform the normal reload, then mark that weapon done. Launcher weapons are skipped only by patrol reload maintenance; combat launcher suppression can still use a loaded or reloadable second-primary launcher and lets EFT handle combat reload. Each completed slot decision waits two seconds before the next slot is considered, and all patrol reload flags/timers reset when the patrol layer exits.
+Out of combat, patrol performs one reload-maintenance pass per carried weapon until the next combat-to-patrol handoff. For each first primary, second primary, and holster weapon, it checks compatible loose ammo, tops off inserted and spare magazines for external-magazine weapons with whatever rounds are available, then only switches/reloads an external-magazine weapon if a reachable spare magazine has at least two more rounds than the current magazine. Chamber, revolver, shotgun, and internal-magazine weapons do not use spare-mag comparison: if compatible loose ammo exists, patrol may switch once, perform the normal reload, then mark that weapon done. Launcher weapons are skipped only by patrol reload maintenance using the same launcher classifier as combat, including revolver/cylinder launchers such as the M32; combat launcher suppression can still use a loaded or reloadable second-primary launcher and lets EFT handle combat reload. Each completed slot decision waits two seconds before the next slot is considered, and all patrol reload flags/timers reset when the patrol layer exits.
 
 ### Need Sniper Order
 
@@ -185,7 +231,7 @@ Commitment types:
 - `committedPositionDecision`: arrival hold after reaching cover or a point.
 - `committedHealCover`: selected safe/heal cover reused until healing can start or becomes invalid.
 
-Shared rule: movement and cover commitments stabilize travel; arrival holders stabilize the moment after travel. Tactics decide which tactical reasons are allowed to break those commitments.
+Shared rule: movement and cover commitments stabilize travel; arrival holders stabilize the moment after travel. Tactics decide which tactical reasons are allowed to break those commitments. Arrival holds only become cover holds when the bot is actually in or near that cover; plain path-end arrival falls back to a position hold so a stale remembered cover cannot invalidate the hold and immediately recommit another `runToCover`.
 
 ## Rifleman Router Order
 
@@ -256,7 +302,7 @@ Committed push breaks for:
 
 Push enemy retention is refreshed during committed push so a contact/order push does not forget the enemy mid-route.
 
-Automatic unseen search rushes are also gated before activation: if the enemy anchor is far outside the boss regroup envelope, the bot should not sprint into a blind push just because a search route exists. Ordered pushes remain command-owned, but active push movement can still be interrupted if the actual NavMesh route turns into a large urban detour while the enemy is not visible or shootable.
+Automatic unseen search rushes are also gated before activation: if the enemy anchor is far outside the boss regroup envelope, the bot should not sprint into a blind push just because a search route exists. Ordered pushes remain command-owned, but active push movement can still be interrupted if the actual NavMesh route turns into a large urban detour while the enemy is not visible or shootable. When unseen search is blocked while the follower is already inside the boss regroup envelope, default combat should hold the enemy lane instead of reactivating the regroup objective and immediately completing it again.
 
 ## Movement And Arrival Holds
 

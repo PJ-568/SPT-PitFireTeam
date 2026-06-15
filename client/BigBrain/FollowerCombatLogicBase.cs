@@ -16,7 +16,7 @@ namespace pitTeam.BigBrain
             OrderedPush,
             Suppression,
             NeedSniper,
-
+            Grenadier,
         }
 
         protected readonly BotOwner BotOwner;
@@ -29,6 +29,7 @@ namespace pitTeam.BigBrain
         protected readonly FollowerCombatOrderedPushObjective orderedPushObjective;
         protected readonly FollowerCombatSuppressionObjective suppressionObjective;
         protected readonly FollowerCombatObjectiveBase needSniperObjective;
+        protected readonly FollowerCombatGrenadierObjective grenadierObjective;
         protected CombatObjectiveKind currentObjective = CombatObjectiveKind.Default;
 
         protected FollowerCombatLogicBase(BotOwner botOwner)
@@ -42,6 +43,7 @@ namespace pitTeam.BigBrain
             orderedPushObjective = CreateOrderedPushObjective(botOwner, combatCommon);
             suppressionObjective = CreateSuppressionObjective(botOwner, combatCommon);
             needSniperObjective = CreateNeedSniperObjective(botOwner, combatCommon);
+            grenadierObjective = CreateGrenadierObjective(botOwner, combatCommon);
         }
 
         public bool ShallUseNow() => combatCommon.HasActiveCombatEnemy();
@@ -74,6 +76,7 @@ namespace pitTeam.BigBrain
             orderedPushObjective.Reset();
             suppressionObjective.Reset();
             needSniperObjective.Reset();
+            grenadierObjective.Reset();
             currentObjective = CombatObjectiveKind.Default;
         }
 
@@ -113,6 +116,13 @@ namespace pitTeam.BigBrain
                     return regroupObjective.GetDecision(goalEnemy);
                 }
 
+                if (currentObjective != CombatObjectiveKind.Grenadier &&
+                    FollowerCombatGrenadierObjective.IsAutonomousActivationReason(decision.Reason))
+                {
+                    ActivateGrenadierObjective(ordered: false, "activateGrenadierAuto");
+                    return grenadierObjective.GetDecision(goalEnemy);
+                }
+
                 return decision;
             }
             catch (Exception ex)
@@ -131,6 +141,8 @@ namespace pitTeam.BigBrain
         public virtual AICoreActionEndStruct ShallEndCurrentDecision(
             AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
+            combatCommon.TryApplyPendingLauncherPrimaryFallback(currentDecision);
+
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
             FollowerEnemyInfoCorrection.CorrectDistanceOnly(BotOwner, goalEnemy);
@@ -270,6 +282,13 @@ namespace pitTeam.BigBrain
             return new FollowerCombatNeedSniperObjective(botOwner, combatCommon);
         }
 
+        protected virtual FollowerCombatGrenadierObjective CreateGrenadierObjective(
+            BotOwner botOwner,
+            FollowerCombatCommon combatCommon)
+        {
+            return new FollowerCombatGrenadierObjective(botOwner, combatCommon);
+        }
+
         protected virtual bool ShouldConsumeRegroupCommand(BotFollowerPlayer? followerData)
         {
             // RegroupNearBoss is only a trigger for combat objective selection.
@@ -319,9 +338,22 @@ namespace pitTeam.BigBrain
         protected virtual bool CanInterruptForOrderedPushOrder(
             AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
+            if (IsActiveGrenadierLauncherSuppress(currentDecision))
+            {
+                return false;
+            }
+
             return currentDecision.Action != BotLogicDecision.heal &&
                    currentDecision.Action != BotLogicDecision.healStimulators &&
                    currentDecision.Action != BotLogicDecision.dogFight;
+        }
+
+        private bool IsActiveGrenadierLauncherSuppress(
+            AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
+        {
+            return currentObjective == CombatObjectiveKind.Grenadier &&
+                   currentDecision.Action == BotLogicDecision.suppressFire &&
+                   FollowerCombatCommon.IsGrenadeLauncherSuppressReason(currentDecision.Reason);
         }
 
         protected virtual bool ShouldReturnToPrimaryObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
@@ -361,6 +393,17 @@ namespace pitTeam.BigBrain
                    HasActiveCombatGestureOrder(followerData) ||
                    HasActiveSuppressOrder(followerData) ||
                    needSniperObjective.IsComplete ||
+                   !combatCommon.HasActiveCombatEnemy(goalEnemy);
+        }
+
+        protected virtual bool ShouldReturnFromGrenadierObjective(BotFollowerPlayer? followerData, EnemyInfo goalEnemy)
+        {
+            return HasActivePushOrder(followerData) ||
+                   HasActiveCombatGestureOrder(followerData) ||
+                   HasActiveSuppressOrder(followerData) ||
+                   HasActiveNeedSniperOrder(followerData) ||
+                   ShouldConsumeRegroupCommand(followerData) ||
+                   grenadierObjective.IsComplete ||
                    !combatCommon.HasActiveCombatEnemy(goalEnemy);
         }
 
@@ -431,7 +474,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            return true;
+            return !IsActiveGrenadierLauncherSuppress(currentDecision);
         }
 
         private void RefreshObjective(EnemyInfo goalEnemy)
@@ -490,6 +533,11 @@ namespace pitTeam.BigBrain
             {
                 ActivatePrimaryObjective();
             }
+
+            if (currentObjective == CombatObjectiveKind.Grenadier && ShouldReturnFromGrenadierObjective(followerData, goalEnemy))
+            {
+                ActivatePrimaryObjective();
+            }
         }
 
         private void ActivateRegroupObjective(BotFollowerPlayer followerData)
@@ -509,6 +557,7 @@ namespace pitTeam.BigBrain
             }
 
             followerData.ClearCommand("CombatObjective:ConsumePush");
+            DeactivateGrenadierForObjectiveSwitch("switch.orderedPush");
             followerData.ActivateOrderedPushTargetLock(goalEnemy);
             orderedPushObjective.Activate(goalEnemy);
             currentObjective = CombatObjectiveKind.OrderedPush;
@@ -524,6 +573,7 @@ namespace pitTeam.BigBrain
 
             // Activate resets regroup-local state so every new regroup order starts fresh from the
             // follower's current combat geometry instead of reusing stale bossward targets.
+            DeactivateGrenadierForObjectiveSwitch(reason);
             regroupObjective.Activate();
             currentObjective = CombatObjectiveKind.Regroup;
             BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), reason);
@@ -560,6 +610,29 @@ namespace pitTeam.BigBrain
             }
 
             followerData.ClearCommand("CombatObjective:ConsumeSuppression");
+            DeactivateGrenadierForObjectiveSwitch("switch.suppressionOrder");
+            bool launcherSuppressCooldownActive =
+                combatCommon.IsGrenadeLauncherSuppressCooldownActive(ordered: true, out _);
+            if (launcherSuppressCooldownActive)
+            {
+                combatCommon.RecordGrenadeLauncherSuppressCooldownSkip(
+                    ordered: true,
+                    suppressRequiresLauncher ? "orderedSuppressRequiresLauncher" : "orderedSuppress");
+                suppressRequiresLauncher = false;
+                suppressForceWeapon = true;
+            }
+
+            if (!launcherSuppressCooldownActive &&
+                (suppressRequiresLauncher ||
+                 (!suppressForceWeapon &&
+                  !suppressUseAutomaticSecondary &&
+                  combatCommon.HasUsableSecondPrimaryGrenadeLauncher())))
+            {
+                combatCommon.SetOrderedSuppressTarget(suppressTarget);
+                ActivateGrenadierObjective(ordered: true, "activateGrenadierSuppression");
+                return;
+            }
+
             if (currentObjective != CombatObjectiveKind.Suppression)
             {
                 suppressionObjective.Activate(suppressRequiresLauncher, suppressForceWeapon, suppressUseAutomaticSecondary);
@@ -576,6 +649,11 @@ namespace pitTeam.BigBrain
 
         private bool CanSatisfySuppressionOrder(BotFollowerPlayer? followerData)
         {
+            if (followerData?.SuppressEnemyRequiresLauncher == true)
+            {
+                return combatCommon.HasUsableSecondPrimaryGrenadeLauncher();
+            }
+
             if (combatCommon.CanCurrentWeaponSuppressOrUseGrenadeLauncher())
             {
                 return true;
@@ -597,11 +675,27 @@ namespace pitTeam.BigBrain
             }
 
             followerData.ClearCommand("CombatObjective:ConsumeNeedSniper");
+            DeactivateGrenadierForObjectiveSwitch("switch.needSniper");
             if (currentObjective != CombatObjectiveKind.NeedSniper)
             {
                 needSniperObjective.Activate();
                 currentObjective = CombatObjectiveKind.NeedSniper;
                 BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), "activateNeedSniper");
+            }
+        }
+
+        private void ActivateGrenadierObjective(bool ordered, string reason)
+        {
+            grenadierObjective.Activate(ordered);
+            currentObjective = CombatObjectiveKind.Grenadier;
+            BattleRecorder.RecordObjectiveSwitch(BotOwner, GetCurrentObjectiveName(), reason);
+        }
+
+        private void DeactivateGrenadierForObjectiveSwitch(string reason)
+        {
+            if (currentObjective == CombatObjectiveKind.Grenadier)
+            {
+                grenadierObjective.DeactivateForObjectiveSwitch(reason);
             }
         }
 
@@ -637,6 +731,7 @@ namespace pitTeam.BigBrain
             orderedPushObjective.Deactivate();
             suppressionObjective.Deactivate();
             needSniperObjective.Deactivate();
+            grenadierObjective.Deactivate();
             BossPlayers.Instance?.GetFollower(BotOwner)?.SetCombatRegroupBossAnchor(false);
             // Re-enter tactic combat with clean local primary-objective state, but do not call
             // StartDecision() here or the bot would incorrectly get a fresh combat opener.
@@ -653,6 +748,7 @@ namespace pitTeam.BigBrain
                 CombatObjectiveKind.OrderedPush => orderedPushObjective,
                 CombatObjectiveKind.Suppression => suppressionObjective,
                 CombatObjectiveKind.NeedSniper => needSniperObjective,
+                CombatObjectiveKind.Grenadier => grenadierObjective,
                 _ => GetObjective(),
             };
         }

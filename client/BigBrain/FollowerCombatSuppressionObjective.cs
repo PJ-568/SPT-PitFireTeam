@@ -12,12 +12,10 @@ namespace pitTeam.BigBrain
         private const float WeaponSwitchRetrySeconds = 0.25f;
 
         private bool complete;
-        private bool launcherFallbackToWeapon;
         private bool negativeSaid;
         private bool forceWeaponSuppress;
         private bool useAutomaticSecondarySuppress;
         private float weaponSwitchRetryUntil;
-        private FollowerCombatCommon.GrenadeLauncherSuppressPlan? launcherPlan;
 
         public FollowerCombatSuppressionObjective(BotOwner botOwner, FollowerCombatCommon combatCommon)
             : base(botOwner, combatCommon)
@@ -29,12 +27,10 @@ namespace pitTeam.BigBrain
         public override void Reset()
         {
             complete = false;
-            launcherFallbackToWeapon = false;
             negativeSaid = false;
             forceWeaponSuppress = false;
             useAutomaticSecondarySuppress = false;
             weaponSwitchRetryUntil = 0f;
-            launcherPlan = null;
         }
 
         public override void Activate()
@@ -62,11 +58,6 @@ namespace pitTeam.BigBrain
             AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
         {
             CombatCommon.HandleSharedDecisionChanged(nextDecision);
-            if (IsLauncherMoveReason(nextDecision.Reason))
-            {
-                return;
-            }
-
             CombatCommon.HandleFollowerSuppressDecisionChanged(nextDecision);
         }
 
@@ -92,13 +83,6 @@ namespace pitTeam.BigBrain
             if (healDecision != null)
             {
                 return healDecision.Value;
-            }
-
-            if (!forceWeaponSuppress &&
-                !launcherFallbackToWeapon &&
-                TryGetLauncherDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> launcherDecision))
-            {
-                return launcherDecision;
             }
 
             if (TryGetAutomaticSecondarySwitchDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> switchDecision))
@@ -154,46 +138,11 @@ namespace pitTeam.BigBrain
                 AICoreActionEndStruct end = CombatCommon.EndSuppressFire(currentDecision.Reason);
                 if (end.Value)
                 {
-                    if (FollowerCombatCommon.IsGrenadeLauncherSuppressReason(currentDecision.Reason) &&
-                        ShouldFallbackLauncherSuppressToWeapon(end.Reason))
-                    {
-                        launcherFallbackToWeapon = true;
-                        CombatCommon.PrepareLauncherSuppressWeaponFallback();
-                        return end;
-                    }
-
                     complete = true;
                     ClearObjectiveCommitments();
                 }
 
                 return end;
-            }
-
-            if (currentDecision.Action == BotLogicDecision.goToPoint &&
-                IsLauncherMoveReason(currentDecision.Reason))
-            {
-                if (!CombatCommon.HasActiveCombatEnemy(goalEnemy))
-                {
-                    complete = true;
-                    launcherPlan = null;
-                    ClearObjectiveCommitments();
-                    return new AICoreActionEndStruct("suppressionEnemyMissing", true);
-                }
-
-                if (launcherPlan == null)
-                {
-                    launcherFallbackToWeapon = true;
-                    CombatCommon.PrepareLauncherSuppressWeaponFallback();
-                    return new AICoreActionEndStruct("launcherMovePlanMissing", true);
-                }
-
-                if (CombatCommon.IsAtGrenadeLauncherSuppressPosition(launcherPlan))
-                {
-                    return new AICoreActionEndStruct("launcherMoveArrived", true);
-                }
-
-                AICoreActionEndStruct moveEnd = CombatCommon.EndGoToPoint(endWhenEnemyVisibleShootable: false);
-                return moveEnd.Value ? moveEnd : default;
             }
 
             if (currentDecision.Action == BotLogicDecision.holdPosition)
@@ -234,44 +183,6 @@ namespace pitTeam.BigBrain
             return reason != null && reason.StartsWith(ReasonPrefix, StringComparison.Ordinal);
         }
 
-        private bool TryGetLauncherDecision(
-            EnemyInfo goalEnemy,
-            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
-        {
-            decision = default;
-            launcherPlan ??= CombatCommon.TryPrepareGrenadeLauncherSuppressPlan(
-                goalEnemy,
-                ReasonPrefix,
-                ordered: true,
-                out FollowerCombatCommon.GrenadeLauncherSuppressPlan? preparedPlan)
-                ? preparedPlan
-                : null;
-
-            if (launcherPlan == null)
-            {
-                return false;
-            }
-
-            if (launcherPlan.HasSuppressFrom &&
-                !CombatCommon.IsAtGrenadeLauncherSuppressPosition(launcherPlan))
-            {
-                decision = CombatCommon.CreateGrenadeLauncherMoveDecision(launcherPlan);
-                return true;
-            }
-
-            if (CombatCommon.TryStartGrenadeLauncherSuppressDecision(goalEnemy, launcherPlan, out decision))
-            {
-                launcherPlan = null;
-                return true;
-            }
-
-            CombatCommon.SetOrderedSuppressTarget(launcherPlan.FirstTarget);
-            launcherPlan = null;
-            launcherFallbackToWeapon = true;
-            CombatCommon.PrepareLauncherSuppressWeaponFallback();
-            return false;
-        }
-
         private bool TryGetAutomaticSecondarySwitchDecision(
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
@@ -298,18 +209,6 @@ namespace pitTeam.BigBrain
                 BotLogicDecision.holdPosition,
                 AutomaticSecondarySwitchReason);
             return true;
-        }
-
-        private static bool IsLauncherMoveReason(string? reason)
-        {
-            return string.Equals(reason, $"{ReasonPrefix}.launcherMove", StringComparison.Ordinal);
-        }
-
-        private static bool ShouldFallbackLauncherSuppressToWeapon(string? endReason)
-        {
-            return string.Equals(endReason, "followerSuppressHardBlockedLane", StringComparison.Ordinal) ||
-                   string.Equals(endReason, "followerSuppressBlockedLane", StringComparison.Ordinal) ||
-                   string.Equals(endReason, "launcherImpactUnsafe", StringComparison.Ordinal);
         }
 
         private void ClearObjectiveCommitments()

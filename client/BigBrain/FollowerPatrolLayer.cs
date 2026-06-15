@@ -101,6 +101,7 @@ namespace pitTeam.BigBrain
         private EquipmentSlot? forcedTopOffSlot = null;
         private EquipmentSlot? returnAfterTopOffSlot = null;
         private string? reloadingWeaponId = null;
+        private float nextPatrolLauncherFallbackRecordAt = 0f;
         private float nextHealWorkRefreshAt = 0f;
         private bool stoppedForHealDecision = false;
         private bool sawEnemyDuringCurrentCycle = false;
@@ -309,6 +310,11 @@ namespace pitTeam.BigBrain
                 isHealing = false;
                 stoppedForHealDecision = false;
 
+                if (TryReturnSelectedLauncherToPrimaryAfterCombat())
+                {
+                    selectedAction = new Action(typeof(FollowAction), "FollowerPatrol");
+                    return selectedAction;
+                }
 
                 // put the weapon reload here
                 TryHandleOutOfCombatReload();
@@ -345,7 +351,11 @@ namespace pitTeam.BigBrain
                         return true;
                     }
 
-                    TryHandleOutOfCombatReload();
+                    if (!TryReturnSelectedLauncherToPrimaryAfterCombat())
+                    {
+                        TryHandleOutOfCombatReload();
+                    }
+
                     return false;
                 }
 
@@ -554,8 +564,61 @@ namespace pitTeam.BigBrain
             forcedTopOffSlot = null;
             returnAfterTopOffSlot = null;
             reloadingWeaponId = null;
+            nextPatrolLauncherFallbackRecordAt = 0f;
             nextReloadCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
             nextMagazineFillCheckAt = Time.time + OutOfCombatReloadInitialCooldown;
+        }
+
+        private bool TryReturnSelectedLauncherToPrimaryAfterCombat()
+        {
+            BotWeaponManager? weaponManager = BotOwner?.WeaponManager;
+            BotWeaponSelector? selector = weaponManager?.Selector;
+            if (selector == null)
+            {
+                return false;
+            }
+
+            Weapon? secondPrimary = selector.SecondPrimaryWeaponItem as Weapon;
+            Weapon? activeWeapon = weaponManager.ShootController?.Item ?? weaponManager.CurrentWeapon;
+            bool selectedLauncher =
+                selector.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon &&
+                FollowerCombatCommon.IsGrenadeLauncherWeapon(secondPrimary);
+            bool activeLauncher = FollowerCombatCommon.IsGrenadeLauncherWeapon(activeWeapon);
+            if (!selectedLauncher && !activeLauncher)
+            {
+                return false;
+            }
+
+            bool switchRequested = FollowerCombatCommon.TrySwitchSelectedGrenadeLauncherToPrimaryForOpportunity(
+                BotOwner,
+                goalEnemy: null,
+                reason: "patrolReturn",
+                tacticalIntent: false,
+                out string waitReason);
+
+            forcedTopOffSlot = null;
+            returnAfterTopOffSlot = null;
+            nextReloadCheckAt = Time.time + 0.5f;
+            nextMagazineFillCheckAt = Time.time + OutOfCombatReloadActionCooldown;
+            RecordPatrolLauncherFallback(switchRequested, waitReason);
+            return true;
+        }
+
+        private void RecordPatrolLauncherFallback(bool switchRequested, string waitReason)
+        {
+            if (Time.time < nextPatrolLauncherFallbackRecordAt)
+            {
+                return;
+            }
+
+            nextPatrolLauncherFallbackRecordAt = Time.time + 2f;
+            BattleRecorder.RecordGrenadeEvent(
+                BotOwner,
+                "launcherFallbackSwitch",
+                switchRequested
+                    ? "patrolReturn:switched=True"
+                    : $"patrolReturn:wait={waitReason}",
+                goalEnemy: null);
         }
 
         private void TryHandleOutOfCombatReload()
@@ -1189,8 +1252,7 @@ namespace pitTeam.BigBrain
 
         private static bool IsLauncherWeapon(Weapon weapon)
         {
-            return weapon is GrenadeLauncherItemClass ||
-                   weapon is RocketLauncherItemClass;
+            return FollowerCombatCommon.IsGrenadeLauncherWeapon(weapon);
         }
 
         private static int GetCurrentLoadedCount(Weapon weapon)
