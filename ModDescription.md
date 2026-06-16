@@ -461,6 +461,7 @@ Found in My Squad → Settings
 
 - **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
 - **Restricted** — Teammate loadouts must use gear from your stash or be purchased through **Kit Loadouts**. Gear is still protected: it is not lost on death and cannot be looted.
+    - **Field Upkeep** — Track raid wear and spent supplies for teammates while their gear remains protected from death loss and looting.
 - **Immersive** — Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted.
 - **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 

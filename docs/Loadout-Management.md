@@ -64,7 +64,7 @@ Current intended constraints:
 - equipment preset dropdown availability must exclude items currently equipped by the player or already reserved/equipped by other teammates
 - spawned follower gear is protected
 - gear is not lost on follower death
-- spawned follower gear cannot be looted
+- spawned follower gear cannot be extracted with
 
 ### Restricted
 
@@ -72,11 +72,13 @@ Target behavior:
 
 - any gear used for a follower loadout is taken from the player's stash
 - gear is not lost on follower death
-- spawned follower gear cannot be looted
+- spawned follower gear cannot be extracted with
+- optional `Field Upkeep` can preserve raid damage and consumed non-secure-container supplies without enabling death gear loss
 
 Current phase behavior:
 
 - mode exists in UI and server settings
+- when `Restricted` is active, the settings UI can show the `Field Upkeep` checkbox row between `Restricted` and `Immersive`; it is off by default
 - switching to this mode preserves each teammate's current `Default` gear and selects `Default`
 - the teammate profile hides the saved-loadout dropdown and shows the `KIT LOADOUTS` button
 - buying a kit sends the teammate's previous active `Default` kit back through the pitFireTeam courier before equipping the newly purchased kit
@@ -84,8 +86,11 @@ Current phase behavior:
 - pressing `Done` commits real item movement between the player stash and teammate default equipment
 - items moved onto the teammate are removed from the player stash
 - items moved back from the teammate are returned to the player stash
-- spawned follower gear is protected from raid loss and cannot be looted
-- raid outcome does not persist durability damage or death loss
+- spawned follower gear is protected from raid loss and cannot be extracted with
+- when `Field Upkeep` is off, raid outcome does not persist durability damage, consumable use, or death loss
+- when `Field Upkeep` is on, escaped `Default` teammates persist their live in-raid equipment state like `Immersive`, with tracked follower-loot/player-given item ids, other teammates' protected gear ids, and the non-Realistic managed secure-container tree stripped before saving
+- `Field Upkeep` does not enable death gear loss; dead teammates are not stripped down like `Immersive`
+- if a `Default` teammate dies while `Field Upkeep` is on, the server saves that teammate's death-time equipment state so durability/resource changes at death are preserved, but later corpse looting cannot consume or move the fallen teammate's saved gear
 
 ### Immersive
 
@@ -149,6 +154,8 @@ When `loadoutManagementMode` changes:
 4. teammate settings are saved
 
 This avoids on-the-fly ownership checks against non-default selected equipment when the economic rules change, without destroying the existing `Default` gear.
+
+The server also receives `restrictedGearMaintenance`. This conditional `Restricted` setting defaults to `false` and does not change the selected loadout or saved `Default` snapshot when toggled.
 
 ## Real Default Loadout Commit
 
@@ -301,13 +308,22 @@ If the player also dies in the same raid, already-dead teammates are still sent 
 
 Current escape-state persistence applies only to teammates whose selected loadout is `Default`.
 
-When an `Immersive` or `Realistic` / internal `Extreme` teammate survives/extracts:
+When an `Immersive`, `Realistic` / internal `Extreme`, or `Restricted` teammate with `Field Upkeep` enabled survives/extracts:
 
 - the client sends the teammate's live equipment snapshot to the server
 - tracked follower-loot/player-given item ids are sent with the snapshot
 - the server removes those tracked item trees before saving the new `Default`
+- the server also removes protected gear ids owned by other teammates before saving, so gear looted from a fallen or different squadmate cannot be permanently saved onto the survivor
 - durability, remaining ammo, and consumed meds from the teammate's actual raid equipment are preserved
 - non-Realistic modes still strip the secure-container tree before saving; Realistic keeps it
+
+When a `Restricted` teammate with `Field Upkeep` enabled dies while using `Default`:
+
+- the fallen teammate's full equipment state is captured at death time
+- the server saves that death-time state instead of reading the corpse after players or surviving teammates may have looted it
+- tracked player-given loot and other teammates' protected gear ids are removed before saving
+- protected teammate gear is still stripped from the extracted player profile and from escaped teammate equipment snapshots
+- death gear loss is still not enabled; this is maintenance-state persistence, not Immersive loss
 
 ## Current Gaps
 

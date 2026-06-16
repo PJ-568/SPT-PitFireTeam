@@ -717,6 +717,8 @@ namespace pitTeam.Modules
             public string ProfileId { get; set; } = string.Empty;
             public string Nickname { get; set; } = string.Empty;
             public Vector3 Position { get; set; }
+            public FlatItemsDataClass[] EquipmentItems { get; set; }
+            public string[] TrackedItemIds { get; set; } = Array.Empty<string>();
         }
 
         private sealed class LostOnDeathRules

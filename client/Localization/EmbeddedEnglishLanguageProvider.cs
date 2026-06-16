@@ -103,13 +103,16 @@ namespace pitTeam.Localization
                     "Controls how teammate loadouts are selected, consumed, and preserved."),
                 loadoutManagementSimple = Entry(
                     "Simple",
-                    "Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted."),
+                    "Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be extracted with."),
                 loadoutManagementRestricted = Entry(
                     "Restricted",
-                    "Teammate loadouts must use gear from your stash or be purchased through the kit buyout system. Gear is still protected: it is not lost on death and cannot be looted."),
+                    "Teammate loadouts must use gear from your stash or be purchased through the kit buyout system. Gear is still protected: it is not lost on death and cannot be extracted with."),
+                loadoutManagementRestrictedGearMaintenance = Entry(
+                    "Field Upkeep",
+                    "Track raid wear and spent supplies for teammates while their gear remains protected from death loss and extraction."),
                 loadoutManagementImmersive = Entry(
                     "Immersive",
-                    "Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted."),
+                    "Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and you can extract with their items."),
                 loadoutManagementExtreme = Entry(
                     "Realistic",
                     "Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself."),

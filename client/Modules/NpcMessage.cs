@@ -216,20 +216,31 @@ namespace pitTeam.Modules
                 .Where(member => !string.IsNullOrWhiteSpace(member.Aid))
                 .GroupBy(member => member.Aid, StringComparer.Ordinal)
                 .Select(group => group.First())
-                .Select(member => new
+                .Select(member =>
                 {
-                    Aid = member.Aid,
-                    ProfileId = member.ProfileId,
-                    Nickname = member.Nickname,
-                    Escaped = false,
-                    Chance = 0d,
-                    ExtractName = string.Empty,
-                    Distance = 0d,
-                    HealthRatio = 0d,
-                    EquipmentPower = 0d,
-                    EnemyAveragePower = 0d,
-                    AliveSquadmates = 0,
-                    HasSecureMeds = false
+                    FollowerDeathEscapeResolver.TryGetFallenSquadmateSnapshot(
+                        member.Aid,
+                        member.ProfileId,
+                        out var equipmentItems,
+                        out var trackedItemIds);
+
+                    return new
+                    {
+                        Aid = member.Aid,
+                        ProfileId = member.ProfileId,
+                        Nickname = member.Nickname,
+                        Escaped = false,
+                        Chance = 0d,
+                        ExtractName = string.Empty,
+                        Distance = 0d,
+                        HealthRatio = 0d,
+                        EquipmentPower = 0d,
+                        EnemyAveragePower = 0d,
+                        AliveSquadmates = 0,
+                        HasSecureMeds = false,
+                        EquipmentItems = equipmentItems,
+                        TrackedItemIds = trackedItemIds
+                    };
                 })
                 .ToList();
 

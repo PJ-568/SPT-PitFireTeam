@@ -10,4 +10,7 @@ public record FriendlyServerSettingsRequest : IRequestData
 
     [JsonPropertyName("loadoutManagementMode")]
     public string LoadoutManagementMode { get; set; } = "Simple";
+
+    [JsonPropertyName("restrictedGearMaintenance")]
+    public bool RestrictedGearMaintenance { get; set; }
 }

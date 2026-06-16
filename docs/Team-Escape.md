@@ -164,13 +164,16 @@ This uses the same equipment-power and boss/follower role multipliers as route t
 
 ## Fallen Squadmate Snapshot
 
-When a squadmate dies, the client records a lightweight fallen-gear snapshot.
+When a squadmate dies, the client records a fallen-gear snapshot.
 
-That snapshot is used only if the player later dies within the fallen-teammate pickup radius, currently `50m`.
+The snapshot has two separate uses:
+
+- recoverable top-level gear candidates are used only if the player later dies within the fallen-teammate pickup radius, currently `50m`
+- the full death-time equipment state is sent with the fallen teammate's lost outcome so `Restricted` + `Field Upkeep` can persist damage/consumable state without reading gear after corpse looting
 
 The snapshot exists because by the time player-death escape resolution runs, normal raid cleanup may already be invalidating live bot state.
 
-The snapshot also records identity data so the server receives a lost outcome for a squadmate who died before the player. That lost outcome is what lets `Immersive` and `Realistic` strip the dead teammate's saved `Default` gear.
+The snapshot also records identity data so the server receives a lost outcome for a squadmate who died before the player. That lost outcome is what lets `Immersive` and `Realistic` strip the dead teammate's saved `Default` gear, and lets `Restricted` + `Field Upkeep` save the fallen teammate's death-time `Default` state.
 
 ## Gear Recovery
 
@@ -283,6 +286,8 @@ Fallen teammate gear recovery only applies in:
 
 In `Simple` and `Restricted`, teammate gear is protected and is not recovered from fallen bodies.
 
+In `Restricted` with `Field Upkeep` enabled, fallen teammate gear is still protected from player extraction and is still not returned as recovery mail. The server instead saves the fallen teammate's death-time `Default` equipment state, after removing tracked player-given loot and gear ids owned by other teammates.
+
 If teammate gear is recovered, it is mailed to the player. It is not saved onto escaped teammate profiles.
 
 If a teammate died before the player, that teammate should still receive a lost outcome. In `Immersive` and `Realistic`, the server strips that teammate's saved `Default` equipment according to the loadout-management death-loss rules.
@@ -314,6 +319,8 @@ In `Immersive` and `Realistic`, escaped teammates using `Default` can save their
 Tracked follower loot is removed from the escaped teammate snapshot before saving.
 
 Recovered player or fallen-teammate death gear is also removed from the escaped teammate snapshot before saving, because recovered death gear is returned by mail.
+
+Protected gear ids owned by other teammates are also removed from escaped teammate snapshots before saving. This prevents a player from looting a fallen teammate, handing those items to a survivor, and having the survivor permanently save another teammate's protected gear.
 
 Secure-container persistence follows the loadout-management mode:
 

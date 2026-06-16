@@ -262,6 +262,16 @@ namespace pitTeam.Components
                 string loadoutSection = pitFireTeam.GetLanguageText(language => language.loadoutManagementSettings);
                 yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Simple };
                 yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Restricted };
+                if (pitFireTeam.loadoutManagementMode?.Value == LoadoutManagementMode.Restricted &&
+                    pitFireTeam.restrictedGearMaintenance != null)
+                {
+                    yield return new SquadSettingEntry
+                    {
+                        SectionTitle = loadoutSection,
+                        Entry = pitFireTeam.restrictedGearMaintenance
+                    };
+                }
+
                 yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Immersive };
                 yield return new SquadSettingEntry { SectionTitle = loadoutSection, LoadoutMode = LoadoutManagementMode.Extreme };
             }
@@ -417,6 +427,15 @@ namespace pitTeam.Components
             rowRect.sizeDelta = new Vector2(0f, SettingsRowHeight);
 
             CreateSettingsRowChrome(rowObject.transform);
+            if (entry == pitFireTeam.restrictedGearMaintenance)
+            {
+                background.enabled = false;
+                Transform topLine = rowObject.transform.Find("TopLine");
+                if (topLine != null)
+                {
+                    topLine.gameObject.SetActive(false);
+                }
+            }
 
             GameObject nameObject = CreateText("Name", GetSettingDisplayName(entry), 22f, TextAlignmentOptions.MidlineLeft);
             nameObject.transform.SetParent(rowObject.transform, false);
@@ -954,7 +973,7 @@ namespace pitTeam.Components
             pitFireTeam.Instance?.Config.Save();
             Task serverSyncTask = pitFireTeam.SyncServerSettingsNowAsync();
             CloseLoadoutManagementConfirmOverlay();
-            UpdateLoadoutManagementRadioStates();
+            RebuildSettingsEntries();
             RefreshRosterPortraitsAfterLoadoutManagementSync(serverSyncTask);
         }
 
@@ -1971,6 +1990,7 @@ namespace pitTeam.Components
             if (entry == pitFireTeam.badGuy) return language.badGuy;
             if (entry == pitFireTeam.pmcArmbands) return language.pmcArmbands;
             if (entry == pitFireTeam.englishBear) return language.englishBear;
+            if (entry == pitFireTeam.restrictedGearMaintenance) return language.loadoutManagementRestrictedGearMaintenance;
             if (entry == pitFireTeam.botGrenades) return language.botGrenades;
             if (entry == pitFireTeam.pingKey) return language.pingSquad;
             if (entry == pitFireTeam.pingRadioVolume) return language.pingRadioVolume;

@@ -333,25 +333,9 @@ public class FriendlyTeammateService(
         }
 
         HashSet<string> itemIds = new(StringComparer.OrdinalIgnoreCase);
-        foreach (BotBase teammate in LoadTeammates(sessionId))
+        foreach (HashSet<string> teammateItemIds in BuildProtectedTeammateItemIdsByAid(sessionId).Values)
         {
-            List<Item>? items = teammate.Inventory?.Items;
-            if (items == null || items.Count == 0)
-            {
-                continue;
-            }
-
-            string? equipmentRootId = teammate.Inventory?.Equipment?.ToString();
-            foreach (Item item in items)
-            {
-                if (item?.Id == null ||
-                    string.Equals(item.Id.ToString(), equipmentRootId, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                itemIds.Add(item.Id.ToString());
-            }
+            itemIds.UnionWith(teammateItemIds);
         }
 
         return itemIds;
@@ -387,6 +371,75 @@ public class FriendlyTeammateService(
         }
 
         return protectedIds;
+    }
+
+    private Dictionary<string, HashSet<string>> BuildProtectedTeammateItemIdsByAid(MongoId sessionId)
+    {
+        var itemIdsByAid = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (BotBase teammate in LoadTeammates(sessionId))
+        {
+            string aid = teammate.Aid?.ToString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(aid))
+            {
+                continue;
+            }
+
+            HashSet<string> itemIds = GetProtectedTeammateItemIds(teammate);
+            if (itemIds.Count > 0)
+            {
+                itemIdsByAid[aid] = itemIds;
+            }
+        }
+
+        return itemIdsByAid;
+    }
+
+    private static HashSet<string> GetProtectedTeammateItemIds(BotBase? teammate)
+    {
+        HashSet<string> itemIds = new(StringComparer.OrdinalIgnoreCase);
+        List<Item>? items = teammate?.Inventory?.Items;
+        if (items == null || items.Count == 0)
+        {
+            return itemIds;
+        }
+
+        string? equipmentRootId = teammate?.Inventory?.Equipment?.ToString();
+        foreach (Item item in items)
+        {
+            if (item?.Id == null ||
+                string.Equals(item.Id.ToString(), equipmentRootId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            itemIds.Add(item.Id.ToString());
+        }
+
+        return itemIds;
+    }
+
+    private static HashSet<string> GetOtherProtectedTeammateItemIds(
+        Dictionary<string, HashSet<string>> protectedItemIdsByAid,
+        string? currentAid)
+    {
+        HashSet<string> itemIds = new(StringComparer.OrdinalIgnoreCase);
+        if (protectedItemIdsByAid == null || protectedItemIdsByAid.Count == 0)
+        {
+            return itemIds;
+        }
+
+        foreach (KeyValuePair<string, HashSet<string>> pair in protectedItemIdsByAid)
+        {
+            if (!string.IsNullOrWhiteSpace(currentAid) &&
+                string.Equals(pair.Key, currentAid, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            itemIds.UnionWith(pair.Value);
+        }
+
+        return itemIds;
     }
 
     private static bool IsIgnoredSpawnProtectionSlot(string? slotId)
@@ -1306,6 +1359,9 @@ public class FriendlyTeammateService(
             return summary;
         }
 
+        Dictionary<string, HashSet<string>> protectedTeammateItemIdsByAid =
+            BuildProtectedTeammateItemIdsByAid(sessionId);
+
         foreach (var entry in entries)
         {
             if (entry == null || string.IsNullOrWhiteSpace(entry.Aid))
@@ -1338,9 +1394,13 @@ public class FriendlyTeammateService(
             ApplyFollowerRaidOutcomeStats(teammate, entry.Escaped);
             ApplyDeathEscapeOutcome(teammate, entry);
 
-            // Immersive/Realistic surviving Default loadouts keep the in-raid state. This is where
-            // durability, consumed ammo, and used meds become the new saved Default.
-            ApplyImmersiveEscapedDefaultEquipmentState(sessionId, teammate, entry);
+            // Eligible surviving Default loadouts keep the in-raid state here. Immersive/Realistic
+            // always qualify; Restricted only qualifies when Field Upkeep is enabled.
+            ApplyImmersiveEscapedDefaultEquipmentState(sessionId, teammate, entry, protectedTeammateItemIdsByAid);
+
+            // Field Upkeep does not enable death gear loss, but it still needs the
+            // death-time equipment state so used consumables and durability loss cannot be duplicated.
+            ApplyRestrictedGearMaintenanceDeathEquipmentState(sessionId, teammate, entry, protectedTeammateItemIdsByAid);
 
             // Immersive/Extreme loss is applied after the health/death outcome so the teammate's
             // saved Default equipment reflects the post-raid penalty instead of regenerating gear.
@@ -1513,15 +1573,20 @@ public class FriendlyTeammateService(
         }
     }
 
-    private void ApplyImmersiveEscapedDefaultEquipmentState(MongoId sessionId, BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)
+    private void ApplyImmersiveEscapedDefaultEquipmentState(
+        MongoId sessionId,
+        BotBase teammate,
+        FriendlyTeammateDeathEscapeEntry entry,
+        Dictionary<string, HashSet<string>> protectedTeammateItemIdsByAid)
     {
         if (!entry.Escaped)
         {
             return;
         }
 
-        string mode = NormalizeLoadoutManagementMode(settingsService.LoadSettings().LoadoutManagementMode);
-        if (!IsImmersiveLikeLoadoutManagementMode(mode))
+        FriendlyServerSettingsRequest serverSettings = settingsService.LoadSettings();
+        string mode = NormalizeLoadoutManagementMode(serverSettings.LoadoutManagementMode);
+        if (!ShouldPersistEscapedDefaultEquipmentState(mode, serverSettings))
         {
             return;
         }
@@ -1541,6 +1606,9 @@ public class FriendlyTeammateService(
 
         var replacementItems = cloner.Clone(equipmentItems) ?? equipmentItems;
         RemoveItemTreesById(replacementItems, entry.TrackedItemIds);
+        RemoveItemTreesById(
+            replacementItems,
+            GetOtherProtectedTeammateItemIds(protectedTeammateItemIdsByAid, entry.Aid));
 
         if (replacementItems.Count == 0)
         {
@@ -1564,6 +1632,62 @@ public class FriendlyTeammateService(
         EnsureFollowerHasScabbardKnife(teammate);
         SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: keepSecureContainer);
         logger.Info($"Persisted escaped Default equipment state for teammate '{teammate.Aid}' in loadout management mode '{mode}'.");
+    }
+
+    private void ApplyRestrictedGearMaintenanceDeathEquipmentState(
+        MongoId sessionId,
+        BotBase teammate,
+        FriendlyTeammateDeathEscapeEntry entry,
+        Dictionary<string, HashSet<string>> protectedTeammateItemIdsByAid)
+    {
+        if (entry.Escaped)
+        {
+            return;
+        }
+
+        FriendlyServerSettingsRequest serverSettings = settingsService.LoadSettings();
+        string mode = NormalizeLoadoutManagementMode(serverSettings.LoadoutManagementMode);
+        if (!ShouldPersistRestrictedGearMaintenanceDeathEquipmentState(mode, serverSettings))
+        {
+            return;
+        }
+
+        var settings = GetTeammateSettings(sessionId, teammate);
+        if (!string.Equals(settings.SelectedLoadoutId, DefaultLoadoutId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var equipmentItems = entry.EquipmentItems?.Where(item => item != null).ToList();
+        if (equipmentItems == null || equipmentItems.Count == 0)
+        {
+            logger.Warning($"Skipped fallen Default equipment maintenance persistence for teammate '{teammate.Aid}' because no death-time equipment snapshot was provided.");
+            return;
+        }
+
+        var replacementItems = cloner.Clone(equipmentItems) ?? equipmentItems;
+        RemoveItemTreesById(replacementItems, entry.TrackedItemIds);
+        RemoveItemTreesById(
+            replacementItems,
+            GetOtherProtectedTeammateItemIds(protectedTeammateItemIdsByAid, entry.Aid));
+
+        if (replacementItems.Count == 0)
+        {
+            logger.Warning($"Skipped fallen Default equipment maintenance persistence for teammate '{teammate.Aid}' because the filtered death-time equipment snapshot was empty.");
+            return;
+        }
+
+        teammate.Inventory ??= new BotBaseInventory { Items = [] };
+        teammate.Inventory.Items = MergeEquipmentWithPreservedSpecialItems(
+            teammate.Inventory.Items,
+            replacementItems,
+            useReplacementSecureContainer: false);
+        teammate.Inventory.Equipment = teammate.Inventory.Items.First().Id;
+
+        RemoveSecureContainerTree(teammate);
+        EnsureFollowerHasScabbardKnife(teammate);
+        SaveDefaultEquipmentSnapshot(sessionId, teammate, overwrite: true, includeSecureContainer: false);
+        logger.Info($"Persisted fallen Default equipment maintenance state for teammate '{teammate.Aid}' in loadout management mode '{mode}'.");
     }
 
     private void ApplyImmersiveDefaultGearLoss(MongoId sessionId, BotBase teammate, FriendlyTeammateDeathEscapeEntry entry)
@@ -2526,9 +2650,29 @@ public class FriendlyTeammateService(
             || IsExtremeLoadoutManagementMode(mode);
     }
 
+    private static bool IsRestrictedLoadoutManagementMode(string mode)
+    {
+        return string.Equals(mode, "Restricted", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldPersistEscapedDefaultEquipmentState(
+        string mode,
+        FriendlyServerSettingsRequest settings)
+    {
+        return IsImmersiveLikeLoadoutManagementMode(mode)
+            || (IsRestrictedLoadoutManagementMode(mode) && settings?.RestrictedGearMaintenance == true);
+    }
+
+    private static bool ShouldPersistRestrictedGearMaintenanceDeathEquipmentState(
+        string mode,
+        FriendlyServerSettingsRequest settings)
+    {
+        return IsRestrictedLoadoutManagementMode(mode) && settings?.RestrictedGearMaintenance == true;
+    }
+
     private static bool IsRealTransferLoadoutManagementMode(string mode)
     {
-        return string.Equals(mode, "Restricted", StringComparison.OrdinalIgnoreCase)
+        return IsRestrictedLoadoutManagementMode(mode)
             || IsImmersiveLikeLoadoutManagementMode(mode);
     }
 

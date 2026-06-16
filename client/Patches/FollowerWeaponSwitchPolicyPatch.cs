@@ -165,6 +165,22 @@ namespace pitTeam.Patches
                 : null;
         }
 
+        public static bool ShouldSuppressDeadFollowerWeaponTaken(BotWeaponSelector selector)
+        {
+            BotOwner botOwner = GetSelectorBotOwner(selector);
+            if (botOwner == null || !BossPlayers.IsFollower(botOwner))
+            {
+                return false;
+            }
+
+            if (botOwner.HealthController?.IsAlive == true)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         private static bool ShouldSuppressPatrolSupportAutoReturn(
             BotOwner botOwner,
             BotWeaponSelector selector,
@@ -200,6 +216,27 @@ namespace pitTeam.Patches
             }
 
             return FollowerOutOfCombatReloadPolicy.CanTopOffWeapon(botOwner, currentWeapon);
+        }
+    }
+
+    internal sealed class FollowerWeaponTakenAfterDeathPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(BotWeaponSelector), nameof(BotWeaponSelector.OnWeaponTaken));
+        }
+
+        [PatchPrefix]
+        private static bool PatchPrefix(BotWeaponSelector __instance)
+        {
+            if (!FollowerWeaponSwitchPolicyRuntime.ShouldSuppressDeadFollowerWeaponTaken(__instance))
+            {
+                return true;
+            }
+
+            __instance.IsChanging = false;
+            __instance.IsWeaponReady = true;
+            return false;
         }
     }
 
