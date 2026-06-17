@@ -106,6 +106,13 @@ namespace pitTeam.BigBrain
                 }
 
                 RefreshObjective(goalEnemy);
+                if (currentObjective != CombatObjectiveKind.Grenadier &&
+                    combatCommon.TryCreatePendingLauncherPrimaryFallbackDecision(
+                        out AICoreActionResultStruct<BotLogicDecision, GClass26> fallbackDecision))
+                {
+                    return fallbackDecision;
+                }
+
                 AICoreActionResultStruct<BotLogicDecision, GClass26> decision = GetCurrentObjective().GetDecision(goalEnemy);
                 // Default combat can request an objective switch without leaking a fake action to the layer.
                 // When that happens, activate regroup immediately and return regroup's first real decision.

@@ -1403,7 +1403,7 @@ namespace pitTeam.Components
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
-                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, crouch: true, source: "HoldGesture");
+                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, requester, crouch: true, source: "HoldGesture");
                         }
                     }
 
@@ -1423,7 +1423,7 @@ namespace pitTeam.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                ApplyHoldIntent(follower, followerData, crouch: true, source: "HoldGesture");
+                ApplyHoldIntent(follower, followerData, requester, crouch: true, source: "HoldGesture");
             }
         }
 
@@ -1445,7 +1445,7 @@ namespace pitTeam.Components
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
-                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, crouch: false, source: "StopPhrase");
+                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, requester, crouch: false, source: "StopPhrase");
                         }
                     }
 
@@ -1464,15 +1464,23 @@ namespace pitTeam.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                ApplyHoldIntent(follower, followerData, crouch: false, source: "StopPhrase");
+                ApplyHoldIntent(follower, followerData, requester, crouch: false, source: "StopPhrase");
             }
         }
 
-        private static bool ApplyHoldIntent(BotOwner follower, BotFollowerPlayer followerData, bool crouch, string source)
+        private static bool ApplyHoldIntent(BotOwner follower, BotFollowerPlayer followerData, IPlayer requester, bool crouch, string source)
         {
             if (follower == null || followerData == null)
             {
                 return false;
+            }
+
+            if (IsPickedUpFollower(followerData) &&
+                !RollPickupFollowerHoldAcceptance(follower, followerData, requester, source))
+            {
+                follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                return true;
             }
 
             bool combatContext =
@@ -2299,6 +2307,15 @@ namespace pitTeam.Components
 
                 if (overrideAggression.HasValue)
                 {
+                    if (Mathf.Approximately(overrideAggression.Value, 0f) &&
+                        IsPickedUpFollower(followerData) &&
+                        !RollPickupFollowerHoldAcceptance(follower, followerData, requester, "HoldPositionAggression"))
+                    {
+                        follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                        follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                        continue;
+                    }
+
                     if (followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
                         command == FollowerCommandType.PushEnemy)
                     {
@@ -2348,10 +2365,11 @@ namespace pitTeam.Components
                 {
                     if (IsPickedUpFollower(followerData))
                     {
-                        if (followerData.IsTemporaryCombatAggressionOverrideActive)
+                        if (RollPickupFollowerPushAcceptance(follower, followerData, requester, goalEnemy))
                         {
                             followerData.ClearTemporaryCombatAggressionOverride();
-                            follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                            followerData.SetPushEnemy(12f);
+                            follower.BotTalk.TrySay(EPhraseTrigger.Going, false);
                             follower.Gesture.TryGestus(EInteraction.OkGesture, false);
                         }
                         else
@@ -3468,6 +3486,87 @@ namespace pitTeam.Components
         private static bool IsPickedUpFollower(BotFollowerPlayer? followerData)
         {
             return followerData != null && !followerData.IsSquadMate;
+        }
+
+        private static bool RollPickupFollowerHoldAcceptance(
+            BotOwner follower,
+            BotFollowerPlayer followerData,
+            IPlayer requester,
+            string source)
+        {
+            int followerLevel = GetFollowerLevel(follower);
+            int playerLevel = GetPlayerLevel(requester ?? followerData?.GetBoss()?.realPlayer);
+            int levelDelta = followerLevel - playerLevel;
+            float independence = followerData.PickupIndependence01;
+            float chance = PickupFollowerPersonality.CalculateHoldAcceptanceChance(
+                followerLevel,
+                playerLevel,
+                independence);
+
+            return RollPickupFollowerOrder(follower, "Hold", chance, source, levelDelta, independence, 0f, 0f);
+        }
+
+        private static bool RollPickupFollowerPushAcceptance(
+            BotOwner follower,
+            BotFollowerPlayer followerData,
+            IPlayer requester,
+            EnemyInfo? goalEnemy)
+        {
+            int followerLevel = GetFollowerLevel(follower);
+            int playerLevel = GetPlayerLevel(requester ?? followerData?.GetBoss()?.realPlayer);
+            int levelDelta = followerLevel - playerLevel;
+            float independence = followerData.PickupIndependence01;
+            float followerPower = GetEquipmentPower(follower);
+            float enemyPower = GetEnemyEquipmentPower(goalEnemy);
+            float chance = PickupFollowerPersonality.CalculatePushAcceptanceChance(
+                followerLevel,
+                playerLevel,
+                independence,
+                followerPower,
+                enemyPower);
+
+            return RollPickupFollowerOrder(follower, "Push", chance, "GoForward", levelDelta, independence, followerPower, enemyPower);
+        }
+
+        private static bool RollPickupFollowerOrder(
+            BotOwner follower,
+            string order,
+            float chance,
+            string source,
+            int levelDelta,
+            float independence,
+            float followerPower,
+            float enemyPower)
+        {
+            float roll = UnityEngine.Random.value;
+            bool accepted = roll <= chance;
+            Modules.Logger.LogInfo(
+                $"[PickupPersonality] follower={follower?.Profile?.Nickname ?? follower?.ProfileId ?? "unknown"} " +
+                $"order={order} accepted={accepted} chance={chance:0.00} roll={roll:0.00} " +
+                $"source={source} levelDelta={levelDelta} independence={independence:0.00} " +
+                $"gear={followerPower:0.0} enemyGear={enemyPower:0.0}");
+            return accepted;
+        }
+
+        private static int GetFollowerLevel(BotOwner follower)
+        {
+            return Mathf.Max(1, follower?.Profile?.Info?.Level ?? 1);
+        }
+
+        private static int GetPlayerLevel(IPlayer player)
+        {
+            return Mathf.Max(1, player?.Profile?.Info?.Level ?? 1);
+        }
+
+        private static float GetEquipmentPower(BotOwner bot)
+        {
+            return Mathf.Max(0f, bot?.AIData?.PowerOfEquipment ?? bot?.GetPlayer?.AIData?.PowerOfEquipment ?? 0f);
+        }
+
+        private static float GetEnemyEquipmentPower(EnemyInfo? goalEnemy)
+        {
+            IPlayer enemy = goalEnemy?.Person;
+            return Mathf.Max(0f, enemy?.AIData?.PowerOfEquipment ?? enemy?.AIData?.BotOwner?.AIData?.PowerOfEquipment ?? 0f);
         }
 
         private BotOwner FindLookedAtFollower(Player requester, float distance)

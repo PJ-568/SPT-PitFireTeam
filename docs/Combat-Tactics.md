@@ -68,6 +68,8 @@ Combat command state lives on `BotFollowerPlayer` and is intentionally separate 
 - `EPhraseTrigger.Suppress` becomes `SuppressEnemy` for focused followers or eligible squad suppressors.
 - `EPhraseTrigger.NeedSniper` becomes `NeedSniper` for Marksman combat.
 - `EPhraseTrigger.NeedHelp` fakes a boss-under-attack event against the closest valid enemy.
+- Picked-up followers use a personality/odds gate before accepting combat `HoldPosition` and ordered `GoForward` push. Saved squadmates obey normally.
+- Picked-up followers also use that personality model for autonomous protection willingness. Low-protection pickups behave closer to `On Your Own`: they tolerate more boss distance before regrouping and can skip boss-under-attack protection routes.
 - Core combat reads `EffectiveCombatAggression` through `FollowerCombatCommon.GetAggression01()`.
 - Tactic changes reset saved aggression to that tactic's default: Rifleman uses `50%`, Marksman uses `30%`.
 - The override is cleared when the follower is safely out of combat and patrol can resume.
@@ -91,12 +93,23 @@ Expected behavior:
 - The saved aggression value is not changed.
 - `Gogogo` clears the override immediately.
 - The override also clears after combat when the follower is safe to return to patrol.
+- Picked-up followers may reject the hold with `Negative`. Higher-level recruits are more likely to act independent, while lower-level recruits are more likely to accept.
+- Their stable independence bias also lowers autonomous boss protection, so a pickup who dislikes being commanded is also less likely to abandon their own fight just because the player was hit.
 
 Out of combat, `HoldPosition` is handled by the request layer as a normal hold command and can crouch/hold in place depending on how the command was issued.
 
 ### Go Forward / Push Enemy
 
 Combat `GoForward` becomes `PushEnemy` if the follower already has an active enemy.
+
+Picked-up follower behavior:
+
+- Picked-up followers evaluate the order before accepting it.
+- Better follower gear versus the current enemy's gear increases acceptance.
+- Lower-level recruits are more likely to refuse because pushing feels dangerous.
+- Higher-level recruits can also refuse from cockiness/independence rather than fear.
+- Refusal responds with `Negative`; acceptance creates the same `PushEnemy` command as a saved squadmate.
+- The same protection willingness affects non-command rifleman decisions: low-protection pickups are slower to regroup to the player and may skip boss-under-attack support unless their personality is more loyal.
 
 Rifleman/default behavior:
 

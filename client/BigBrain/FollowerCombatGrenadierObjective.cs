@@ -3,6 +3,7 @@ using pitTeam.Components;
 using pitTeam.Modules;
 using System;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace pitTeam.BigBrain
 {
@@ -15,14 +16,27 @@ namespace pitTeam.BigBrain
         private const string RetryHoldReason = "objectiveGrenadier.retry";
         private const string AutonomousActivationReason = "objectiveGrenadier.activateAuto";
         private const float RetryScanSeconds = 0.25f;
+        private const float PhysicsAbortMinActiveSeconds = 0.5f;
+        private const float PhysicsAbortNavSampleRadius = 3f;
+        private const float PhysicsAbortNavDrop = 3f;
+        private const float PhysicsAbortVerticalDrop = 6f;
+        private const float PhysicsAbortStationaryHorizontal = 4f;
+        private const float PhysicsAbortBossDistance = 60f;
+        private const float PhysicsAbortBossDistanceJump = 30f;
+        private const float PhysicsAbortBossVerticalDrop = 10f;
 
         private bool complete;
         private bool active;
         private bool ordered;
         private bool negativeSaid;
         private bool cooldownRecorded;
+        private bool launcherReady;
         private float activeUntil;
+        private float physicsTrackStartedAt;
+        private float highestObservedY;
+        private float lastBossDistance;
         private float retryScanUntil;
+        private Vector3 highestObservedPosition;
         private FollowerCombatCommon.GrenadeLauncherSuppressPlan? launcherPlan;
 
         public FollowerCombatGrenadierObjective(BotOwner botOwner, FollowerCombatCommon combatCommon)
@@ -39,8 +53,13 @@ namespace pitTeam.BigBrain
             ordered = false;
             negativeSaid = false;
             cooldownRecorded = false;
+            launcherReady = false;
             activeUntil = 0f;
+            physicsTrackStartedAt = 0f;
+            highestObservedY = float.NegativeInfinity;
+            lastBossDistance = 0f;
             retryScanUntil = 0f;
+            highestObservedPosition = Vector3.zero;
             launcherPlan = null;
         }
 
@@ -54,7 +73,7 @@ namespace pitTeam.BigBrain
             Reset();
             active = true;
             this.ordered = ordered;
-            activeUntil = Time.time + OpportunityWindowSeconds;
+            ResetPhysicsTracking();
             ClearObjectiveCommitments();
         }
 
@@ -88,6 +107,11 @@ namespace pitTeam.BigBrain
                 return;
             }
 
+            if (IsLauncherPreparationReason(nextDecision.Reason))
+            {
+                return;
+            }
+
             CombatCommon.HandleFollowerSuppressDecisionChanged(nextDecision);
         }
 
@@ -102,11 +126,6 @@ namespace pitTeam.BigBrain
                 return FailObjective("noEnemy");
             }
 
-            if (!CombatCommon.HasUsableSecondPrimaryGrenadeLauncher())
-            {
-                return FailObjective("noUsableLauncher");
-            }
-
             if (TryGetEmergencyDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> emergencyDecision))
             {
                 complete = true;
@@ -114,6 +133,26 @@ namespace pitTeam.BigBrain
                 CombatCommon.PrepareLauncherSuppressWeaponFallback();
                 ClearObjectiveCommitments();
                 return emergencyDecision;
+            }
+
+            if (!launcherReady)
+            {
+                if (!CombatCommon.TryPrepareGrenadeLauncherWeaponForSuppress(
+                        GetModeReasonPrefix(),
+                        out AICoreActionResultStruct<BotLogicDecision, GClass26> prepareDecision,
+                        out bool ready,
+                        out string failReason))
+                {
+                    return FailObjective(failReason);
+                }
+
+                if (!ready)
+                {
+                    return prepareDecision;
+                }
+
+                launcherReady = true;
+                activeUntil = Time.time + OpportunityWindowSeconds;
             }
 
             if (Time.time >= activeUntil)
@@ -188,6 +227,11 @@ namespace pitTeam.BigBrain
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
             decision = default;
+            if (TryGetPhysicsAbortDecision(out decision))
+            {
+                return true;
+            }
+
             if (CombatCommon.TryGetDogFightDecision() is { } dogFightDecision)
             {
                 decision = dogFightDecision;
@@ -207,6 +251,113 @@ namespace pitTeam.BigBrain
             }
 
             return false;
+        }
+
+        private void ResetPhysicsTracking()
+        {
+            Vector3 position = BotOwner.Position;
+            physicsTrackStartedAt = Time.time;
+            highestObservedY = position.y;
+            highestObservedPosition = position;
+            Vector3 bossPosition = CombatCommon.GetBossPosition();
+            lastBossDistance = FollowerCombatCommon.IsFinite(bossPosition)
+                ? Vector3.Distance(position, bossPosition)
+                : 0f;
+        }
+
+        private bool TryGetPhysicsAbortDecision(out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            Vector3 position = BotOwner.Position;
+            if (!FollowerCombatCommon.IsFinite(position))
+            {
+                return CreatePhysicsAbortDecision("invalidPosition", out decision);
+            }
+
+            if (physicsTrackStartedAt <= 0f)
+            {
+                ResetPhysicsTracking();
+                return false;
+            }
+
+            if (position.y > highestObservedY)
+            {
+                highestObservedY = position.y;
+                highestObservedPosition = position;
+            }
+
+            float activeSeconds = Time.time - physicsTrackStartedAt;
+            if (activeSeconds < PhysicsAbortMinActiveSeconds)
+            {
+                UpdateLastBossDistance(position);
+                return false;
+            }
+
+            float verticalDrop = highestObservedY - position.y;
+            float horizontalFromHigh = DistanceXZ(position, highestObservedPosition);
+            bool noNearbyNavMesh =
+                verticalDrop >= PhysicsAbortNavDrop &&
+                !NavMesh.SamplePosition(position, out _, PhysicsAbortNavSampleRadius, NavMesh.AllAreas);
+            if (noNearbyNavMesh)
+            {
+                return CreatePhysicsAbortDecision($"noNearbyNavMesh:drop={verticalDrop:0.0}", out decision);
+            }
+
+            if (verticalDrop >= PhysicsAbortVerticalDrop &&
+                horizontalFromHigh <= PhysicsAbortStationaryHorizontal)
+            {
+                return CreatePhysicsAbortDecision($"stationaryVerticalDrop:drop={verticalDrop:0.0}", out decision);
+            }
+
+            Vector3 bossPosition = CombatCommon.GetBossPosition();
+            if (FollowerCombatCommon.IsFinite(bossPosition))
+            {
+                float bossDistance = Vector3.Distance(position, bossPosition);
+                float bossVerticalDrop = bossPosition.y - position.y;
+                if (bossVerticalDrop >= PhysicsAbortBossVerticalDrop &&
+                    bossDistance >= PhysicsAbortBossDistance &&
+                    (lastBossDistance <= 0f || bossDistance - lastBossDistance >= PhysicsAbortBossDistanceJump))
+                {
+                    return CreatePhysicsAbortDecision(
+                        $"bossDistanceJump:distance={bossDistance:0.0}:vertical={bossVerticalDrop:0.0}",
+                        out decision);
+                }
+
+                lastBossDistance = bossDistance;
+            }
+
+            return false;
+        }
+
+        private void UpdateLastBossDistance(Vector3 position)
+        {
+            Vector3 bossPosition = CombatCommon.GetBossPosition();
+            if (FollowerCombatCommon.IsFinite(bossPosition))
+            {
+                lastBossDistance = Vector3.Distance(position, bossPosition);
+            }
+        }
+
+        private bool CreatePhysicsAbortDecision(
+            string reason,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            BattleRecorder.RecordObjectiveDiagnostic(
+                BotOwner,
+                nameof(FollowerCombatGrenadierObjective),
+                "physicsAbort",
+                reason);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.holdPosition,
+                FollowerCombatRegroupObjective.ActivateRegroupReason);
+            return true;
+        }
+
+        private static float DistanceXZ(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x;
+            float dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         private bool TryGetLauncherDecision(
@@ -393,6 +544,10 @@ namespace pitTeam.BigBrain
 
             cooldownRecorded = true;
             CombatCommon.StartGrenadeLauncherSuppressCooldown(ordered, reason);
+            if (ordered)
+            {
+                CombatCommon.StartGrenadeLauncherSuppressCooldown(ordered: false, $"ordered.{reason}");
+            }
         }
 
         private static bool ShouldRetryAfterLauncherEnd(string? endReason)
@@ -427,6 +582,13 @@ namespace pitTeam.BigBrain
         {
             return IsGrenadierReason(reason) &&
                    reason.EndsWith(".launcherMove", StringComparison.Ordinal);
+        }
+
+        private static bool IsLauncherPreparationReason(string? reason)
+        {
+            return IsGrenadierReason(reason) &&
+                   (reason.EndsWith(".launcherSwitch", StringComparison.Ordinal) ||
+                    reason.EndsWith(".launcherReload", StringComparison.Ordinal));
         }
 
         private static bool IsRetryHoldReason(string? reason)

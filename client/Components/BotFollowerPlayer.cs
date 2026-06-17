@@ -121,6 +121,7 @@ namespace pitTeam.Components
         private float _temporaryCombatAggressionClearAfter;
         private FollowerCombatTactic _combatTactic = FollowerCombatTactic.Balanced;
         private bool _backpackInspectionActive;
+        private float? _pickupIndependence01;
         public bool CanPatrol
         {
             get
@@ -194,6 +195,38 @@ namespace pitTeam.Components
             }
         }
 
+        public float PickupIndependence01
+        {
+            get
+            {
+                if (_IsSquadMate)
+                {
+                    return 0f;
+                }
+
+                _pickupIndependence01 ??= CalculatePickupIndependence01();
+                return _pickupIndependence01.Value;
+            }
+        }
+
+        public float BossProtectionWillingness01
+        {
+            get
+            {
+                if (_IsSquadMate)
+                {
+                    return 1f;
+                }
+
+                int followerLevel = Mathf.Max(1, _bot?.Profile?.Info?.Level ?? 1);
+                int playerLevel = Mathf.Max(1, _player?.realPlayer?.Profile?.Info?.Level ?? 1);
+                return PickupFollowerPersonality.CalculateBossProtectionWillingness01(
+                    followerLevel,
+                    playerLevel,
+                    PickupIndependence01);
+            }
+        }
+
         public FollowerCombatTactic CombatTactic
         {
             get
@@ -218,6 +251,17 @@ namespace pitTeam.Components
 
             if (player.realPlayer.Side != EPlayerSide.Savage) NpcMessage.AddNpc(bot, isSquad);
 
+        }
+
+        private float CalculatePickupIndependence01()
+        {
+            string seed =
+                _bot?.ProfileId ??
+                _bot?.Profile?.AccountId ??
+                _bot?.Profile?.Nickname ??
+                _bot?.name ??
+                string.Empty;
+            return PickupFollowerPersonality.CalculateIndependence01(seed);
         }
 
         public virtual void Init()

@@ -1421,6 +1421,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (combatCommon.GetBossProtectionWillingness01() < PickupFollowerPersonality.ProtectBossMinWillingness)
+            {
+                return false;
+            }
+
             if (IsCoverIntentRetryActive(CoverIntentKind.ProtectBoss))
             {
                 return false;
@@ -1602,6 +1607,11 @@ namespace pitTeam.BigBrain
             }
             else if (combatCommon.HasAutonomousGrenadeLauncherTarget(goalEnemy, out _))
             {
+                if (combatCommon.HasPendingLauncherPrimaryFallback())
+                {
+                    return false;
+                }
+
                 autoSuppressRetryUntil = Time.time +
                                          FollowerCombatGrenadierObjective.OpportunityWindowSeconds +
                                          AutoSuppressRetryCooldownSeconds;
@@ -2217,6 +2227,11 @@ namespace pitTeam.BigBrain
 
             float followerBossDistance = GetSafeRegroupDistance(navDistance, directDistance);
             float regroupTriggerDistance = CombatDistanceConfiguration.Instance.GetBossRegroupTriggerDistance(botOwner);
+            float protectionWillingness = combatCommon.GetBossProtectionWillingness01();
+            regroupTriggerDistance *= Mathf.Lerp(
+                PickupFollowerPersonality.RegroupMaxTriggerMultiplier,
+                1f,
+                protectionWillingness);
             if (followerBossDistance <= regroupTriggerDistance)
             {
                 return false;

@@ -457,10 +457,10 @@ namespace pitTeam.BigBrain.Actions
                 return false;
             }
 
-            if (weaponManager.ShootController?.CanStartReload() == true)
-            {
-                weaponManager.Reload?.TryReload();
-            }
+            FollowerCombatCommon.TryStartActiveGrenadeLauncherLooseAmmoReload(
+                BotOwner,
+                activeWeapon,
+                out _);
 
             return true;
         }

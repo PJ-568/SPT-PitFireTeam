@@ -223,6 +223,7 @@ namespace pitTeam.BigBrain
         private int activeLauncherSuppressCapacity = 1;
         private float activeLauncherSuppressFirstShotAt;
         private float activeLauncherSuppressReloadStartedAt;
+        private float nextLauncherSuppressReloadRequestAt;
         private float orderedGrenadeLauncherSuppressCooldownUntil;
         private float autoGrenadeLauncherSuppressCooldownUntil;
         private float nextGrenadeLauncherSuppressCooldownRecordAt;
@@ -572,6 +573,30 @@ namespace pitTeam.BigBrain
                    IsGrenadeLauncherSelectedOrActive();
         }
 
+        public bool TryCreatePendingLauncherPrimaryFallbackDecision(
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!HasPendingLauncherPrimaryFallback())
+            {
+                return false;
+            }
+
+            AICoreActionResultStruct<BotLogicDecision, GClass26> fallbackDecision =
+                new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.holdPosition,
+                    "launcherFallback.pending");
+            TryApplyPendingLauncherPrimaryFallback(fallbackDecision);
+            if (!HasPendingLauncherPrimaryFallback())
+            {
+                return false;
+            }
+
+            HoldFor(0.15f);
+            decision = fallbackDecision;
+            return true;
+        }
+
         public bool TryApplyPendingLauncherPrimaryFallback(
             AICoreActionResultStruct<BotLogicDecision, GClass26>? decision = null)
         {
@@ -795,6 +820,7 @@ namespace pitTeam.BigBrain
             return !string.IsNullOrEmpty(reason) &&
                    (reason.IndexOf("reload", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("lowAmmo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    reason.IndexOf("launcherFallback", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("weaponSwitchToPrimary", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("orderedWeaponSuppress", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("regroup", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -928,18 +954,32 @@ namespace pitTeam.BigBrain
             activeLauncherSuppressCapacity = 1;
             activeLauncherSuppressFirstShotAt = 0f;
             activeLauncherSuppressReloadStartedAt = 0f;
+            nextLauncherSuppressReloadRequestAt = 0f;
             activeLauncherSuppressReloadRequested = false;
             activeLauncherSuppressCommitmentExpiredRecorded = false;
             activeLauncherSuppressMultiShot = false;
             activeLauncherSuppressShotDetected = false;
         }
 
-        public bool IsGrenadeLauncherSuppressCommitmentExpired(string? reason)
+        public bool IsGrenadeLauncherSuppressCommitmentExpired(string? reason, float suppressElapsed)
         {
             return IsGrenadeLauncherSuppressReason(reason) &&
                    !activeLauncherSuppressShotDetected &&
-                   activeFollowerSuppressStartedAt > 0f &&
-                   Time.time - activeFollowerSuppressStartedAt >= GrenadeLauncherSuppressMinCommitmentSeconds;
+                   suppressElapsed >= GrenadeLauncherSuppressMinCommitmentSeconds;
+        }
+
+        private float GetLauncherSuppressEffectiveElapsed(float suppressElapsed)
+        {
+            if (activeLauncherSuppressReloadStartedAt <= 0f)
+            {
+                return suppressElapsed;
+            }
+
+            float reloadPauseSeconds = Mathf.Clamp(
+                Time.time - activeLauncherSuppressReloadStartedAt,
+                0f,
+                GrenadeLauncherSuppressReloadWaitSeconds);
+            return Mathf.Max(0f, suppressElapsed - reloadPauseSeconds);
         }
 
         private bool HasActiveLauncherSuppressTarget(EnemyInfo? goalEnemy)
@@ -1087,29 +1127,17 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            BotWeaponManager weaponManager = botOwner.WeaponManager;
-            BotReload reload = weaponManager.Reload;
-            if (reload.Reloading ||
-                weaponManager.Selector?.IsChanging == true ||
-                weaponManager.IsWeaponReady == false ||
-                weaponManager.ShootController?.Item != launcher)
-            {
-                return true;
-            }
-
-            if (weaponManager.ShootController?.CanStartReload() != true)
-            {
-                return true;
-            }
-
-            bool reloadStarted = reload.TryReload();
+            bool reloadStarted = TryStartActiveGrenadeLauncherLooseAmmoReload(
+                botOwner,
+                launcher,
+                out string blockReason);
             if (!activeLauncherSuppressReloadRequested)
             {
                 activeLauncherSuppressReloadRequested = true;
                 BattleRecorder.RecordGrenadeEvent(
                     botOwner,
                     "launcherReloadStart",
-                    $"{activeFollowerSuppressReason ?? "launcher"}:started={reloadStarted}",
+                    $"{activeFollowerSuppressReason ?? "launcher"}:started={reloadStarted}:block={blockReason}",
                     goalEnemy: botOwner.Memory?.GoalEnemy);
             }
 
@@ -1983,6 +2011,11 @@ namespace pitTeam.BigBrain
             float aggression = followerData?.EffectiveCombatAggression ?? 50f;
             aggression = FollowerWeaponAggressionOverrides.Apply(botOwner, aggression);
             return Mathf.Clamp01(aggression / 100f);
+        }
+
+        public float GetBossProtectionWillingness01()
+        {
+            return Mathf.Clamp01(BossPlayers.Instance?.GetFollower(botOwner)?.BossProtectionWillingness01 ?? 1f);
         }
 
         public bool IsTemporaryHoldPositionAggressionActive()
@@ -3060,6 +3093,11 @@ namespace pitTeam.BigBrain
             float stalePersonalEnemySeconds = 2.5f)
         {
             if (FollowerCombatAnchor.IsCombatIndependent(botOwner))
+            {
+                return false;
+            }
+
+            if (GetBossProtectionWillingness01() < PickupFollowerPersonality.ProtectBossMinWillingness)
             {
                 return false;
             }
@@ -4370,6 +4408,339 @@ namespace pitTeam.BigBrain
 
             changedToLauncher = selector.ChangeToSecond();
             return changedToLauncher;
+        }
+
+        public bool TryPrepareGrenadeLauncherWeaponForSuppress(
+            string reasonPrefix,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision,
+            out bool ready,
+            out string failReason)
+        {
+            decision = default;
+            ready = false;
+            failReason = string.Empty;
+
+            BotWeaponManager? weaponManager = botOwner?.WeaponManager;
+            BotWeaponSelector? selector = weaponManager?.Selector;
+            Weapon? activeWeapon = weaponManager?.ShootController?.Item ?? weaponManager?.CurrentWeapon;
+            Weapon? secondPrimary = selector?.SecondPrimaryWeaponItem as Weapon;
+            bool selectedLauncher =
+                selector?.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon &&
+                IsGrenadeLauncherWeapon(secondPrimary);
+            bool activeLauncher = IsGrenadeLauncherWeapon(activeWeapon);
+
+            if (!selectedLauncher && !activeLauncher)
+            {
+                if (!HasUsableSecondPrimaryGrenadeLauncher(botOwner))
+                {
+                    failReason = "noUsableSecondPrimaryLauncher";
+                    return false;
+                }
+
+                if (selector == null || !selector.CanChangeToSecondWeapons)
+                {
+                    failReason = "weaponSwitchFailed";
+                    return false;
+                }
+
+                bool changedToLauncher = selector.ChangeToSecond();
+                if (changedToLauncher)
+                {
+                    ownsGrenadeLauncherSwitch = true;
+                }
+                else if (selector.SecondPrimaryWeaponItem != null)
+                {
+                    ownsGrenadeLauncherSwitch = true;
+                }
+
+                HoldFor(0.15f);
+                decision = CreateLauncherPreparationHold($"{reasonPrefix}.launcherSwitch");
+                return true;
+            }
+
+            if (selector?.IsChanging == true ||
+                !selectedLauncher ||
+                !activeLauncher ||
+                activeWeapon == null)
+            {
+                HoldFor(0.15f);
+                decision = CreateLauncherPreparationHold($"{reasonPrefix}.launcherSwitch");
+                return true;
+            }
+
+            int loadedRounds = CountLoadedRounds(activeWeapon);
+            if (loadedRounds > 0)
+            {
+                ready = true;
+                ClearLauncherSuppressReloadTracking();
+                return true;
+            }
+
+            if (IsSingleUseLauncherWeapon(activeWeapon))
+            {
+                failReason = "launcherNoLoadedRounds";
+                return false;
+            }
+
+            BotReload? reload = weaponManager?.Reload;
+            if (reload == null)
+            {
+                failReason = "launcherReloadUnavailable";
+                return false;
+            }
+
+            if (activeLauncherSuppressReloadStartedAt <= 0f)
+            {
+                activeLauncherSuppressReloadStartedAt = Time.time;
+                activeLauncherSuppressReloadRequested = false;
+                BattleRecorder.RecordGrenadeEvent(
+                    botOwner,
+                    "launcherReloadWait",
+                    $"{reasonPrefix}.reload:loaded=0",
+                    goalEnemy: botOwner.Memory?.GoalEnemy);
+            }
+
+            if (Time.time - activeLauncherSuppressReloadStartedAt > GrenadeLauncherSuppressReloadWaitSeconds)
+            {
+                failReason = "launcherReloadTimedOut";
+                return false;
+            }
+
+            if (!reload.Reloading &&
+                Time.time >= nextLauncherSuppressReloadRequestAt)
+            {
+                nextLauncherSuppressReloadRequestAt = Time.time + 0.5f;
+                bool reloadStarted = TryStartActiveGrenadeLauncherLooseAmmoReload(
+                    botOwner,
+                    activeWeapon,
+                    out string blockReason);
+                BattleRecorder.RecordGrenadeEvent(
+                    botOwner,
+                    activeLauncherSuppressReloadRequested ? "launcherReloadRetry" : "launcherReloadStart",
+                    $"{reasonPrefix}.reload:started={reloadStarted}:block={blockReason}",
+                    goalEnemy: botOwner.Memory?.GoalEnemy);
+                activeLauncherSuppressReloadRequested = true;
+            }
+
+            HoldFor(0.15f);
+            decision = CreateLauncherPreparationHold($"{reasonPrefix}.launcherReload");
+            return true;
+        }
+
+        private static AICoreActionResultStruct<BotLogicDecision, GClass26> CreateLauncherPreparationHold(string reason)
+        {
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.holdPosition,
+                reason);
+        }
+
+        private void ClearLauncherSuppressReloadTracking()
+        {
+            activeLauncherSuppressReloadStartedAt = 0f;
+            nextLauncherSuppressReloadRequestAt = 0f;
+            activeLauncherSuppressReloadRequested = false;
+        }
+
+        public static bool TryStartActiveGrenadeLauncherLooseAmmoReload(
+            BotOwner? owner,
+            Weapon? launcher,
+            out string blockReason)
+        {
+            blockReason = string.Empty;
+
+            if (owner?.WeaponManager == null ||
+                launcher == null)
+            {
+                blockReason = "unavailable";
+                return false;
+            }
+
+            BotWeaponManager weaponManager = owner.WeaponManager;
+            BotReload? reload = weaponManager.Reload;
+            IFirearmHandsController? shootController = weaponManager.ShootController;
+            if (reload == null || shootController == null)
+            {
+                blockReason = "reloadUnavailable";
+                return false;
+            }
+
+            if (reload.Reloading)
+            {
+                blockReason = "reloading";
+                return true;
+            }
+
+            if (weaponManager.Selector?.IsChanging == true)
+            {
+                blockReason = "selectorChanging";
+                return false;
+            }
+
+            if (!weaponManager.IsWeaponReady)
+            {
+                blockReason = "weaponNotReady";
+                return false;
+            }
+
+            if (!ReferenceEquals(shootController.Item, launcher))
+            {
+                blockReason = "launcherNotActive";
+                return false;
+            }
+
+            if (launcher is RevolverItemClass && !weaponManager.InIdleState())
+            {
+                blockReason = "notIdle";
+                return false;
+            }
+
+            if (!shootController.CanStartReload())
+            {
+                blockReason = "cannotStartReload";
+                return false;
+            }
+
+            if (!TryCollectLooseLauncherAmmo(owner, launcher, out List<AmmoItemClass> ammoToLoad))
+            {
+                blockReason = "noCompatibleLooseAmmo";
+                return false;
+            }
+
+            MongoID ammoTemplateId = ammoToLoad[0].TemplateId;
+            int stockCount = ammoToLoad[0].StackObjectsCount;
+            Callback callback = new Callback(result =>
+            {
+                reload.NextReloadTime = Time.time + 0.5f;
+                reload.Reloading = false;
+                reload.AddAmmoToPockets(ammoTemplateId, stockCount);
+            });
+
+            try
+            {
+                reload.ReloadType = BotReload.EReloadType.AmmoReload;
+                reload.Reloading = true;
+                AmmoPackReloadingClass ammoPack = new AmmoPackReloadingClass(ammoToLoad);
+                owner.BotTalk?.Say(EPhraseTrigger.NeedAmmo, false, null);
+
+                if (launcher.ReloadMode == Weapon.EReloadMode.OnlyBarrel)
+                {
+                    shootController.ReloadBarrels(ammoPack, null, callback);
+                }
+                else if (launcher is RevolverItemClass)
+                {
+                    shootController.ReloadCylinderMagazine(ammoPack, callback, false);
+                }
+                else
+                {
+                    shootController.ReloadWithAmmo(ammoPack, callback);
+                }
+
+                blockReason = "started";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                reload.Reloading = false;
+                blockReason = "exception";
+                pitFireTeam.Log?.LogError($"[Combat][Launcher] Failed to start loose-ammo reload: {ex}");
+                return false;
+            }
+        }
+
+        private static bool TryCollectLooseLauncherAmmo(
+            BotOwner owner,
+            Weapon launcher,
+            out List<AmmoItemClass> ammoToLoad)
+        {
+            ammoToLoad = new List<AmmoItemClass>();
+            int missingRounds = GetMissingLooseLauncherRounds(launcher);
+            if (missingRounds <= 0)
+            {
+                return false;
+            }
+
+            List<AmmoItemClass> candidates = new List<AmmoItemClass>();
+            InventoryController inventoryController = owner.GetPlayer.InventoryController;
+            Predicate<AmmoItemClass> predicate = ammo =>
+                ammo != null &&
+                ammo.StackObjectsCount > 0 &&
+                inventoryController.Examined(ammo) &&
+                ammo.CheckAction(null).Succeeded &&
+                CanActiveLauncherAcceptLooseAmmo(launcher, ammo);
+
+            if (launcher is RevolverItemClass)
+            {
+                inventoryController.GetReachableItemsOfTypeNonAlloc(candidates, predicate);
+            }
+            else
+            {
+                inventoryController.GetAcceptableItemsNonAlloc(
+                    BotReload.AvailableEquipmentSlots,
+                    candidates,
+                    predicate,
+                    null);
+            }
+
+            for (int i = 0; i < candidates.Count && missingRounds > 0; i++)
+            {
+                AmmoItemClass ammo = candidates[i];
+                ammoToLoad.Add(ammo);
+                missingRounds -= ammo.StackObjectsCount;
+            }
+
+            return ammoToLoad.Count > 0;
+        }
+
+        private static int GetMissingLooseLauncherRounds(Weapon launcher)
+        {
+            if (launcher.ReloadMode == Weapon.EReloadMode.OnlyBarrel)
+            {
+                int emptyChambers = 0;
+                Slot[] chambers = launcher.Chambers;
+                for (int i = 0; i < chambers.Length; i++)
+                {
+                    if (chambers[i].ContainedItem == null)
+                    {
+                        emptyChambers++;
+                    }
+                }
+
+                return emptyChambers;
+            }
+
+            MagazineItemClass? magazine = launcher.GetCurrentMagazine();
+            if (magazine != null)
+            {
+                int missing = magazine.MaxCount - magazine.Count;
+                if (launcher.ChamberAmmoCount == 0 && !launcher.HasChambers)
+                {
+                    return missing;
+                }
+
+                return Math.Max(0, missing);
+            }
+
+            return launcher.ChamberAmmoCount == 0 ? 1 : 0;
+        }
+
+        private static bool CanActiveLauncherAcceptLooseAmmo(Weapon launcher, AmmoItemClass ammo)
+        {
+            MagazineItemClass? magazine = launcher.GetCurrentMagazine();
+            if (magazine != null && magazine.CheckCompatibility(ammo))
+            {
+                return true;
+            }
+
+            Slot[] chambers = launcher.Chambers;
+            for (int i = 0; i < chambers.Length; i++)
+            {
+                if (chambers[i].CanAccept(ammo))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void TryReleaseOwnedGrenadeLauncher()
@@ -9604,8 +9975,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (secondaryWeapon!.ChamberAmmoCount > 0 ||
-                secondaryWeapon.GetCurrentMagazine()?.Count > 0)
+            if (CountLoadedRounds(secondaryWeapon) > 0)
             {
                 return true;
             }
@@ -9615,9 +9985,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            // Patrol does not pre-reload launchers, but combat launcher suppression can still
-            // proceed when EFT sees compatible ammo and can perform its normal reload path.
-            return owner?.WeaponManager?.SecondWeaponInfo?.CheckHaveAmmoForReload() == true;
+            return true;
         }
 
         public static bool IsUsingAutomaticSecondaryOverNonAutomaticPrimary(BotOwner? owner)
@@ -11350,15 +11718,13 @@ namespace pitTeam.BigBrain
             float protectedSeconds = GetFollowerSuppressProtectedSeconds(ordered);
 
             bool launcherSuppress = IsGrenadeLauncherSuppressReason(reason);
-            if (!ordered && suppressElapsed >= AutoSuppressMaxSeconds)
-            {
-                return new AICoreActionEndStruct("autoSuppressTimedOut", true);
-            }
-
+            float effectiveSuppressElapsed = launcherSuppress
+                ? GetLauncherSuppressEffectiveElapsed(suppressElapsed)
+                : suppressElapsed;
             bool launcherOpeningAim =
                 launcherSuppress &&
                 !activeLauncherSuppressShotDetected &&
-                suppressElapsed < GrenadeLauncherSuppressAimSettleSeconds;
+                effectiveSuppressElapsed < GrenadeLauncherSuppressAimSettleSeconds;
             if (launcherSuppress &&
                 TryGetLauncherSuppressFireEndReason(
                     launcherOpeningAim ? false : botOwner.SuppressShoot.Complete,
@@ -11370,11 +11736,16 @@ namespace pitTeam.BigBrain
             }
 
             if (launcherSuppress &&
-                IsGrenadeLauncherSuppressCommitmentExpired(reason))
+                IsGrenadeLauncherSuppressCommitmentExpired(reason, effectiveSuppressElapsed))
             {
                 RecordLauncherSuppressCommitmentExpired(reason, goalEnemy);
                 followerData?.ClearCommand("SuppressEnemy:launcherCommitmentExpired");
                 return new AICoreActionEndStruct("launcherCommitmentExpired", true);
+            }
+
+            if (!ordered && effectiveSuppressElapsed >= AutoSuppressMaxSeconds)
+            {
+                return new AICoreActionEndStruct("autoSuppressTimedOut", true);
             }
 
             if (ordered && !launcherSuppress && suppressElapsed >= OrderedWeaponSuppressMaxSeconds)
