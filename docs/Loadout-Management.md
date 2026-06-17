@@ -271,7 +271,9 @@ Items placed into the inspected backpack during the session are registered as tr
 Protected ids come from two sources:
 
 - server fallback: saved teammate equipment in the teammate profile JSON
-- client registration: live teammate equipment and player-owned items temporarily moved through teammate inventory during raid
+- client registration: live protected teammate equipment moved through teammate inventory during raid
+
+Player-owned or return-tracked loot that temporarily moves through a teammate backpack is tracked for teammate return handling, not protected extraction stripping. If the player takes a previously return-tracked item back out of a teammate backpack during inspection, the client also unregisters that item tree from the protected raid set for compatibility with already-registered raid state.
 
 The cleanup removes the protected item tree, including nested weapon mods, armor plates, rigs, backpacks, and contained items. If a non-protected player-owned child tree is attached under a protected teammate-owned parent, the server tries to move that child tree into the player's equipped backpack. If it cannot fit, it is lost with the protected parent.
 

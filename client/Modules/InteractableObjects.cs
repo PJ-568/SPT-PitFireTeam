@@ -403,6 +403,53 @@ namespace pitTeam.Modules
             Task.Run(Send);
         }
 
+        public static void RemoveProtectedRaidItemIds(
+            IEnumerable<string> itemIds,
+            string context,
+            bool synchronous = false)
+        {
+            if (pitFireTeam.IsFollowerLoadoutLootableMode())
+            {
+                return;
+            }
+
+            string[] ids = itemIds?
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray() ?? Array.Empty<string>();
+            if (ids.Length == 0)
+            {
+                return;
+            }
+
+            string json = JsonConvert.SerializeObject(new
+            {
+                removeItemIds = ids,
+                context
+            });
+
+            void Send()
+            {
+                try
+                {
+                    RequestHandler.PostJson(ProtectedRaidItemsRoute, json);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"Failed to unregister protected teammate raid item ids. context='{context}'");
+                    Logger.LogError(ex);
+                }
+            }
+
+            if (synchronous)
+            {
+                Send();
+                return;
+            }
+
+            Task.Run(Send);
+        }
+
         private static bool SendReturnItems(
             IEnumerable<Item> items,
             Dictionary<string, object>? member,
@@ -1031,11 +1078,6 @@ namespace pitTeam.Modules
                 return;
             }
 
-            RegisterProtectedRaidItemIds(
-                treeIds,
-                "follower handled item",
-                synchronous: true);
-
             // Track the largest meaningful root. If a whole backpack/rig is tracked, its
             // children ride inside that one return tree and must not be mailed separately.
             if (HasTrackedAncestor(item, list))
@@ -1074,8 +1116,12 @@ namespace pitTeam.Modules
             // parity, but it must not become return-mail cargo. Body-loot can put protected gear
             // and unrelated cargo in the same backpack/rig, so split clean non-protected children
             // back out for return tracking instead of mailing the protected parent.
+            HashSet<string> protectedHandledIds = treeIds
+                .Where(itemId => protectedFollowerGearIds.Contains(itemId))
+                .ToHashSet(StringComparer.Ordinal);
+
             RegisterProtectedRaidItemIds(
-                treeIds,
+                protectedHandledIds,
                 "protected follower handled item",
                 synchronous: true);
 
@@ -1090,11 +1136,6 @@ namespace pitTeam.Modules
                 }
 
                 HashSet<string> returnableTreeIds = GetItemTreeIds(returnableRoot);
-                RegisterProtectedRaidItemIds(
-                    returnableTreeIds,
-                    "follower handled item",
-                    synchronous: true);
-
                 if (HasTrackedAncestor(returnableRoot, trackedReturnIds))
                 {
                     continue;

@@ -8,6 +8,9 @@ public record FriendlyPostRaidProtectedItemsRequest : IRequestData
     [JsonPropertyName("itemIds")]
     public List<string>? ItemIds { get; set; }
 
+    [JsonPropertyName("removeItemIds")]
+    public List<string>? RemoveItemIds { get; set; }
+
     [JsonPropertyName("context")]
     public string? Context { get; set; }
 }
