@@ -285,9 +285,7 @@ namespace pitTeam.BigBrain
             {
                 RefreshHealWorkIfNeeded();
 
-                bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
-                bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
-                bool hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
+                GetPatrolHealState(out bool isUsingHeal, out bool hasPendingHealWork, out bool hasRecoverableTopOffWork);
 
                 if (isUsingHeal || hasPendingHealWork || hasRecoverableTopOffWork)
                 {
@@ -346,7 +344,8 @@ namespace pitTeam.BigBrain
                     }
 
                     RefreshHealWorkIfNeeded();
-                    if (HasPendingHealWork() || Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner))
+                    GetPatrolHealState(out _, out bool hasPendingHealWork, out bool hasRecoverableTopOffWork);
+                    if (hasPendingHealWork || hasRecoverableTopOffWork)
                     {
                         return true;
                     }
@@ -435,9 +434,7 @@ namespace pitTeam.BigBrain
         {
             bool isHealAction = selectedAction?.Type == typeof(HealAction);
 
-            bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
-            bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
-            bool hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
+            GetPatrolHealState(out bool isUsingHeal, out bool hasPendingHealWork, out bool hasRecoverableTopOffWork);
             bool canStartHeal = CanStartVanillaHealNode();
 
             float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
@@ -467,8 +464,27 @@ namespace pitTeam.BigBrain
             if (!canStartHeal && healNodeEnteredAt > 0f && healNodeEnteredAt + HealNodeStartTimeout < Time.time)
             {
                 RefreshHealWorkForRetry();
-                if (!CanStartVanillaHealNode())
+                GetPatrolHealState(out isUsingHeal, out hasPendingHealWork, out hasRecoverableTopOffWork);
+                if (isUsingHeal)
                 {
+                    return false;
+                }
+
+                if (!hasPendingHealWork && !hasRecoverableTopOffWork)
+                {
+                    CompleteHealing();
+                    return true;
+                }
+
+                canStartHeal = CanStartVanillaHealNode();
+                if (!canStartHeal)
+                {
+                    if (Utils.FollowerMedical.IsPostCombatFullHealActive(BotOwner) && !hasRecoverableTopOffWork)
+                    {
+                        CompleteHealing();
+                        return true;
+                    }
+
                     return false;
                 }
 
@@ -483,6 +499,26 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        private void GetPatrolHealState(
+            out bool isUsingHeal,
+            out bool hasPendingHealWork,
+            out bool hasRecoverableTopOffWork)
+        {
+            bool isUsingFirstAid = BotOwner?.Medecine?.FirstAid?.Using == true;
+            bool isUsingSurgery = BotOwner?.Medecine?.SurgicalKit?.Using == true;
+            bool hasFirstAidWork = BotOwner?.Medecine?.FirstAid?.Have2Do == true;
+            bool hasSurgeryWork = BotOwner?.Medecine?.SurgicalKit?.HaveWork == true;
+
+            isUsingHeal = isUsingFirstAid || isUsingSurgery;
+            hasPendingHealWork = hasSurgeryWork || hasFirstAidWork;
+            hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
+
+            if (!isUsingHeal && !hasPendingHealWork && !hasRecoverableTopOffWork)
+            {
+                Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
+            }
+        }
+
         private void CompleteHealing()
         {
             isHealing = false;
@@ -492,6 +528,7 @@ namespace pitTeam.BigBrain
             healNodeEnteredAt = 0f;
             // Normal patrol healing should finish/cancel medical state without restoring all raid HP.
             Utils.FollowerMedical.CompleteHealing(BotOwner);
+            Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
         }
 
         private void AbortHealing()
@@ -502,6 +539,7 @@ namespace pitTeam.BigBrain
             healSoftTimeoutAt = 0f;
             healNodeEnteredAt = 0f;
             Utils.FollowerMedical.AbortHealing(BotOwner, recoverDestroyedSurgeryParts: true);
+            Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
         }
 
         private bool CanStartVanillaHealNode()
@@ -1087,7 +1125,9 @@ namespace pitTeam.BigBrain
             botOwner.GetPlayer.InventoryController.GetReachableItemsOfTypeNonAlloc<MagazineItemClass>(magazines, null);
             foreach (MagazineItemClass magazine in magazines)
             {
-                if (magazine == null || magazine.Count - currentCount < MinimumBetterMagazineGain)
+                if (magazine == null ||
+                    IsInstalledInWeaponTree(magazine) ||
+                    magazine.Count - currentCount < MinimumBetterMagazineGain)
                 {
                     continue;
                 }
@@ -1184,6 +1224,7 @@ namespace pitTeam.BigBrain
                 magazines,
                 magazine =>
                     magazine != null &&
+                    !IsInstalledInWeaponTree(magazine) &&
                     magazine.Count < magazine.MaxCount &&
                     InteractionsHandlerClass.CheckMoveIgnoringTargetItem(
                         magazine,
@@ -1248,6 +1289,24 @@ namespace pitTeam.BigBrain
 
             botOwner.GetPlayer.InventoryController.TryRunNetworkTransaction(result, null);
             return true;
+        }
+
+        private static bool IsInstalledInWeaponTree(Item item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            foreach (Item parent in item.GetAllParentItems())
+            {
+                if (parent is Weapon)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool IsLauncherWeapon(Weapon weapon)

@@ -38,6 +38,7 @@ namespace pitTeam.Utils
         }
 
         private static readonly Dictionary<string, MedicalHandsWatchState> HandsWatchStates = new Dictionary<string, MedicalHandsWatchState>();
+        private static readonly HashSet<string> PostCombatFullHealBots = new HashSet<string>();
 
         public static void ForceHeal(BotOwner bot)
         {
@@ -114,6 +115,39 @@ namespace pitTeam.Utils
         public static void AbortHealing(BotOwner bot, bool recoverDestroyedSurgeryParts)
         {
             CancelAllHealing(bot, recoverDestroyedSurgeryParts);
+        }
+
+        public static void BeginPostCombatFullHeal(BotOwner bot)
+        {
+            string key = GetBotKey(bot);
+            if (string.IsNullOrEmpty(key))
+            {
+                return;
+            }
+
+            PostCombatFullHealBots.Add(key);
+        }
+
+        public static bool IsPostCombatFullHealActive(BotOwner bot)
+        {
+            string key = GetBotKey(bot);
+            if (string.IsNullOrEmpty(key))
+            {
+                return false;
+            }
+
+            return PostCombatFullHealBots.Contains(key);
+        }
+
+        public static void CompletePostCombatFullHeal(BotOwner bot)
+        {
+            string key = GetBotKey(bot);
+            if (string.IsNullOrEmpty(key))
+            {
+                return;
+            }
+
+            PostCombatFullHealBots.Remove(key);
         }
 
         public static void UpdateMedicalHandsWatchdog(BotOwner bot)
@@ -518,6 +552,7 @@ namespace pitTeam.Utils
                 firstAid == null ||
                 bot.HealthController?.IsAlive != true ||
                 bot.Settings?.FileSettings?.Mind?.CAN_USE_MEDS != true ||
+                !IsPostCombatFullHealActive(bot) ||
                 bot.Memory?.HaveEnemy == true ||
                 HasVisibleKnownEnemy(bot) ||
                 firstAid.Using ||
@@ -886,6 +921,11 @@ namespace pitTeam.Utils
             }
 
             return state;
+        }
+
+        private static string GetBotKey(BotOwner bot)
+        {
+            return bot?.ProfileId ?? bot?.Profile?.Id ?? string.Empty;
         }
 
         private static void ResetWatchState(MedicalHandsWatchState state)

@@ -30,6 +30,8 @@ namespace pitTeam.BigBrain
         private const float MarksmanRiflemanDeferMaxNavDelta = 8f;
         private const float MarksmanRiflemanDeferMaxFollowerNavDistance = 18f;
         private const float RegroupFiringOpportunityRecentSeenSeconds = 1.5f;
+        private const float IndirectThreatRecentHitSeconds = 3f;
+        private const float IndirectThreatSuppressMaxDistance = 260f;
 
         private readonly CommittedCoverPhaseState repositionPhase = new CommittedCoverPhaseState();
         private readonly CommittedCoverPhaseState supportPhase = new CommittedCoverPhaseState();
@@ -255,6 +257,11 @@ namespace pitTeam.BigBrain
                 return visible;
             }
 
+            if (TryGetIndirectThreatPressureDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> threatPressure))
+            {
+                return threatPressure;
+            }
+
             if (TryGetCommittedCoverDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> committed))
             {
                 return committed;
@@ -348,6 +355,11 @@ namespace pitTeam.BigBrain
 
             if (CombatCommon.ShouldBlockProactiveAutoPushForWeaponThreat(goalEnemy) ||
                 CombatCommon.ShouldUseCautiousWeaponThreatStyle(goalEnemy))
+            {
+                return false;
+            }
+
+            if (Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(goalEnemy))
             {
                 return false;
             }
@@ -716,6 +728,48 @@ namespace pitTeam.BigBrain
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// When a marksman is being pressured by an indirectly tracked enemy, do not idle in
+        /// no-action hold. Use the shared suppress/reposition primitives instead of inventing
+        /// a marksman-only blind-fire action.
+        /// </summary>
+        private bool TryGetIndirectThreatPressureDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!ShouldRespondToIndirectThreatPressure(goalEnemy))
+            {
+                return false;
+            }
+
+            if (CombatCommon.TryCreateSoftObstructedSuppressDecision(
+                    goalEnemy,
+                    "autoSuppress.sniper.indirectThreat",
+                    out decision))
+            {
+                return true;
+            }
+
+            return TryGetRepositionDecision(goalEnemy, out decision);
+        }
+
+        private bool ShouldRespondToIndirectThreatPressure(EnemyInfo goalEnemy)
+        {
+            if (!CombatCommon.HasActiveCombatEnemy(goalEnemy) ||
+                goalEnemy.IsVisible ||
+                goalEnemy.Distance > IndirectThreatSuppressMaxDistance ||
+                !CombatCommon.HasReliablePersonalEnemyLocation(goalEnemy))
+            {
+                return false;
+            }
+
+            return BotOwner.Memory.IsUnderFire ||
+                   FollowerCombatCommon.WasHitRecently(BotOwner, IndirectThreatRecentHitSeconds) ||
+                   FollowerAwareness.WasRecentlyDamaged(BotOwner) ||
+                   FollowerAwareness.WasRecentlyThreatened(BotOwner);
         }
 
         /// <summary>
@@ -1914,6 +1968,13 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("sniperNoActionShotReady", true);
             }
 
+            if (TryGetIndirectThreatPressureDecision(goalEnemy, out AICoreActionResultStruct<BotLogicDecision, GClass26> threatPressure))
+            {
+                bool beginRepositionTravel = threatPressure.Action != BotLogicDecision.suppressFire;
+                TryPrepareBreakDecision(threatPressure, false, beginRepositionTravel);
+                return new AICoreActionEndStruct("sniperNoActionThreatPressure", true);
+            }
+
             if (HasExplicitRegroupOrder() || ShouldBreakCommittedCoverForBossObjective(goalEnemy, allowLockedBreak: true))
             {
                 repositionPhase.Clear();
@@ -2423,7 +2484,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!CombatCommon.TryForceGoalEnemy(bossEnemy, "sniper.bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
+            if (!CombatCommon.TryUseSupportGoalEnemy(bossEnemy, "sniper.bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
                 !CombatCommon.HasActiveCombatEnemy(prioritizedEnemy))
             {
                 return false;

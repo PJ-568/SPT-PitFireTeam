@@ -95,7 +95,10 @@ namespace pitTeam.Patches
                     member.EnemiesController.EnemyInfos.TryGetValue(enemy, out EnemyInfo info) &&
                     info != null)
                 {
-                    if (info.IsVisible || info.HaveSeen || Time.time - info.PersonalLastSeenTime < 3f)
+                    if (info.IsVisible ||
+                        info.CanShoot ||
+                        info.HaveSeenPersonal ||
+                        (info.PersonalLastSeenTime > 0f && Time.time - info.PersonalLastSeenTime < 3f))
                     {
                         return true;
                     }
@@ -634,9 +637,26 @@ namespace pitTeam.Patches
                     continue;
                 }
 
+                BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
+                    member,
+                    info,
+                    attacker,
+                    "BotGroupPatch.PropagateAttackerToGroup",
+                    "groupAttackerShare",
+                    promotedToGoal: true,
+                    hasDirectVisibility: false,
+                    visibilityAssumed: info.IsVisible || info.CanShoot,
+                    details: new
+                    {
+                        attackerProfileId = attacker.ProfileId,
+                        previousGoalProfileId = member.Memory?.GoalEnemy?.ProfileId
+                    });
                 member.Memory.IsPeace = false;
                 info.IgnoreUntilAggression = false;
-                member.Memory.GoalEnemy = info;
+                using (FollowerGoalEnemyTracker.Begin("BotGroupPatch.PropagateAttackerToGroup", "groupAttackerShare"))
+                {
+                    member.Memory.GoalEnemy = info;
+                }
             }
         }
 

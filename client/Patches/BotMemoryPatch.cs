@@ -66,24 +66,116 @@ namespace pitTeam.Patches
         {
             try
             {
+                BotOwner botOwner = AccessTools.Field(typeof(BotMemoryClass), "BotOwner_0").GetValue(__instance) as BotOwner;
+                EnemyInfo previous = __instance.GoalEnemy;
+
                 if (value != null)
                 {
-                    return true;
+                    string source = FollowerGoalEnemyTracker.CurrentSource;
+                    string reason = FollowerGoalEnemyTracker.CurrentReason;
+                    if (ShouldBlockUnscopedRelationOnlyGoal(botOwner, value, reason))
+                    {
+                        FollowerGoalEnemyTracker.RecordSetter(
+                            botOwner,
+                            previous,
+                            value,
+                            allowed: false,
+                            blockedReason: "relationOnlyGoalEnemyBlocked");
+                        BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
+                            botOwner,
+                            value,
+                            value.Person,
+                            "BotMemoryClass.GoalEnemySetter",
+                            source,
+                            promotedToGoal: false,
+                            hasDirectVisibility: false,
+                            details: new
+                            {
+                                setterSource = source,
+                                setterReason = reason,
+                                previousGoalProfileId = previous?.ProfileId,
+                                blockedReason = "relationOnlyGoalEnemyBlocked"
+                            });
+                        return false;
+                    }
+
+                    bool allowed = FollowerCombatTargetCommitments.ShouldAllowGoalEnemySet(
+                        botOwner,
+                        previous,
+                        value,
+                        source,
+                        reason,
+                        out string? blockedReason);
+                    if (allowed && botOwner != null && BossPlayers.IsFollower(botOwner))
+                    {
+                        allowed = FollowerContactEnemyRetention.ShouldAllowGoalEnemySet(
+                            botOwner,
+                            previous,
+                            value,
+                            source,
+                            reason,
+                            out blockedReason);
+                    }
+
+                    FollowerGoalEnemyTracker.RecordSetter(
+                        botOwner,
+                        previous,
+                        value,
+                        allowed,
+                        blockedReason);
+                    if (allowed &&
+                        botOwner != null &&
+                        BossPlayers.IsFollower(botOwner) &&
+                        string.Equals(reason, "unscopedSetter", System.StringComparison.Ordinal) &&
+                        value != null &&
+                        !value.IsVisible &&
+                        !value.CanShoot)
+                    {
+                        BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
+                            botOwner,
+                            value,
+                            value.Person,
+                            "BotMemoryClass.GoalEnemySetter",
+                            source,
+                            promotedToGoal: true,
+                            hasDirectVisibility: false,
+                            details: new
+                            {
+                                setterSource = source,
+                                setterReason = reason,
+                                previousGoalProfileId = previous?.ProfileId
+                            });
+                    }
+                    return allowed;
                 }
 
-                BotOwner botOwner = AccessTools.Field(typeof(BotMemoryClass), "BotOwner_0").GetValue(__instance) as BotOwner;
                 if (botOwner == null || !BossPlayers.IsFollower(botOwner))
                 {
                     return true;
                 }
 
-                return !FollowerContactEnemyRetention.ShouldBlockGoalEnemyClear(botOwner, __instance.GoalEnemy);
+                bool shouldBlockClear = FollowerContactEnemyRetention.ShouldBlockGoalEnemyClear(botOwner, previous);
+                FollowerGoalEnemyTracker.RecordSetter(
+                    botOwner,
+                    previous,
+                    null,
+                    allowed: !shouldBlockClear,
+                    blockedReason: shouldBlockClear ? "retentionBlockedClear" : null);
+                return !shouldBlockClear;
             }
             catch (System.Exception e)
             {
                 Modules.Logger.LogError(e);
                 return true;
             }
+        }
+
+        private static bool ShouldBlockUnscopedRelationOnlyGoal(BotOwner botOwner, EnemyInfo value, string reason)
+        {
+            return botOwner != null &&
+                   BossPlayers.IsFollower(botOwner) &&
+                   string.Equals(reason, "unscopedSetter", System.StringComparison.Ordinal) &&
+                   Enemy.IsRelationOnlyBossShareWithoutPersonalContact(value);
         }
     }
 }

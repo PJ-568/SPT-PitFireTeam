@@ -189,7 +189,7 @@ After the save succeeds, the server returns the saved player stash snapshot to t
 
 `KIT LOADOUTS` is available in `Restricted`, `Immersive`, and `Realistic` / internal `Extreme`. `Simple` keeps the saved-loadout dropdown and does not use the buyout screen.
 
-The buy screen reuses EFT's stock `EquipmentBuildsScreen` in a custom teammate-buy mode. The selected build is priced with market-facing item prices, including nested weapon mods, armor plates, armor inserts, magazine contents, and container contents.
+The buy screen reuses EFT's stock `EquipmentBuildsScreen` in a custom teammate-buy mode. The selected build is priced with market-facing item prices, including nested weapon mods, armor plates, armor inserts, magazine contents, and container contents. Weapon trees first try to use the best available overlapping assembled trader/barter offer; any extra unmatched parts then fall back to the gated kit discount where fuller kits can earn deeper weapon-only discounts. Armor, helmets, rigs, backpacks, loose/grid-contained items, ammo, meds, keys, cards, coins, and carried loot remain full price.
 
 When the user confirms a purchase:
 

@@ -175,9 +175,17 @@ namespace pitTeam.BigBrain
 
             if (currentGoalEnemy?.Person?.HealthController?.IsAlive == true &&
                 !string.Equals(currentGoalEnemy.ProfileId, targetProfileId, StringComparison.Ordinal) &&
-                FollowerImmediateFirePolicy.IsLocalSelfDefenseThreat(currentGoalEnemy))
+                FollowerCombatTargetCommitments.IsActiveTemporaryTarget(BotOwner, currentGoalEnemy))
             {
                 orderedEnemy = currentGoalEnemy;
+                return true;
+            }
+
+            if (CombatCommon.TryRestoreMissionTargetIfReady("orderedPushRestoreMission", out EnemyInfo? restoredMission) &&
+                restoredMission?.Person?.HealthController?.IsAlive == true &&
+                string.Equals(restoredMission.ProfileId, targetProfileId, StringComparison.Ordinal))
+            {
+                orderedEnemy = restoredMission;
                 return true;
             }
 

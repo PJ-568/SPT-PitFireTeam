@@ -1460,7 +1460,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!combatCommon.TryForceGoalEnemy(bossEnemy, "bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
+            if (!combatCommon.TryUseSupportGoalEnemy(bossEnemy, "bossUnderAttack", out EnemyInfo? prioritizedEnemy) ||
                 !combatCommon.HasActiveCombatEnemy(prioritizedEnemy))
             {
                 return false;
@@ -2094,7 +2094,7 @@ namespace pitTeam.BigBrain
                         return false;
                     }
 
-                    if (!combatCommon.TryForceGoalEnemy(bossEnemy, "protectBossCover.refresh", out EnemyInfo? prioritizedEnemy) ||
+                    if (!combatCommon.TryUseSupportGoalEnemy(bossEnemy, "protectBossCover.refresh", out EnemyInfo? prioritizedEnemy) ||
                         !combatCommon.HasActiveCombatEnemy(prioritizedEnemy) ||
                         !combatCommon.TryFindBossCover(prioritizedEnemy, combatCommon.GetBossPosition(), CombatDistanceConfiguration.Instance.GetBossCoverSearchRadius(), out CustomNavigationPoint? protectCover) ||
                         !combatCommon.TryCommitSelectedCombatCover(prioritizedEnemy, protectCover, "protectBossCover.refresh") ||

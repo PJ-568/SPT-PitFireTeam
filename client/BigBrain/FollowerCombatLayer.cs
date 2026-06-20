@@ -146,6 +146,7 @@ namespace pitTeam.BigBrain
             ClearLinger();
             ClearMedicalKeepActive();
             FollowerContactEnemyRetention.Clear(BotOwner);
+            FollowerCombatTargetCommitments.ClearMission(BotOwner, null, "CombatLayer:Stop");
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
             combatLogic?.Reset();
             base.Stop();
@@ -381,6 +382,14 @@ namespace pitTeam.BigBrain
 
         private bool ShouldTreatCombatAsActive()
         {
+            if (FollowerCombatTargetCommitments.TryRestoreMissionIfTemporaryExpired(
+                    BotOwner,
+                    "combatLayerRestoreMission",
+                    out _))
+            {
+                return true;
+            }
+
             if (FollowerContactEnemyRetention.TryRestore(BotOwner, out _))
             {
                 return true;
@@ -453,7 +462,8 @@ namespace pitTeam.BigBrain
                     return true;
                 }
 
-                if (IsImmediateVisibleSelfDefenseThreat(goalEnemy))
+                if (FollowerCombatTargetCommitments.IsActiveTemporaryTarget(BotOwner, goalEnemy) ||
+                    IsImmediateVisibleSelfDefenseThreat(goalEnemy))
                 {
                     return true;
                 }
@@ -505,7 +515,26 @@ namespace pitTeam.BigBrain
             }
 
             BotOwner.Memory.IsPeace = false;
-            BotOwner.Memory.GoalEnemy = restored;
+            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
+                BotOwner,
+                restored,
+                target,
+                "FollowerCombatLayer.TryRestoreOrderedPushGoalEnemy",
+                "orderedPushTargetLockRestore",
+                promotedToGoal: true,
+                hasDirectVisibility: false,
+                visibilityAssumed: restored.IsVisible || restored.CanShoot,
+                details: new
+                {
+                    targetProfileId,
+                    rememberedPosition = IsFinite(rememberedPosition)
+                        ? new { x = rememberedPosition.x, y = rememberedPosition.y, z = rememberedPosition.z }
+                        : null
+                });
+            using (FollowerGoalEnemyTracker.Begin("FollowerCombatLayer.TryRestoreOrderedPushGoalEnemy", "orderedPushTargetLockRestore"))
+            {
+                BotOwner.Memory.GoalEnemy = restored;
+            }
             followerData.RefreshOrderedPushTargetLock(target);
             return IsGoalEnemyAlive(restored);
         }

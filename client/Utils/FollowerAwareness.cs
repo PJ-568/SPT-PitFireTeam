@@ -369,16 +369,24 @@ namespace pitTeam.Utils
                 return false;
             }
 
-            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
+            EnemyInfo? enemyInfo = Enemy.MakeEnemy(
+                bot,
+                enemy,
+                countSharedSeenAsPersonal: false);
             enemyInfo?.SetVisible(true);
+            Enemy.RepairPersonalMemory(enemyInfo, enemy.Transform.position, true);
             return TryPromoteIncomingThreat(bot, enemy, "closeThreat", countAsVisible: true, enemyInfo);
         }
 
         private static bool TryAcquireVisibleHostileOfBossGroup(BotOwner bot, Player enemy)
         {
             if (bot == null || enemy == null) return false;
-            EnemyInfo enemyInfo = Enemy.MakeEnemy(bot, enemy);
+            EnemyInfo? enemyInfo = Enemy.MakeEnemy(
+                bot,
+                enemy,
+                countSharedSeenAsPersonal: false);
             enemyInfo?.SetVisible(true);
+            Enemy.RepairPersonalMemory(enemyInfo, enemy.Transform.position, true);
             return enemyInfo != null;
         }
 
@@ -416,27 +424,62 @@ namespace pitTeam.Utils
 
             EnemyInfo? currentGoal = bot.Memory.GoalEnemy;
             bool alreadyGoal = string.Equals(currentGoal?.ProfileId, enemy.ProfileId, System.StringComparison.Ordinal);
-            bool orderedPushInterrupted = TryInterruptOrderedPushForIncomingThreat(bot, enemy, reason);
-            if (!alreadyGoal &&
-                !orderedPushInterrupted &&
-                !ShouldReplaceGoalWithIncomingThreat(bot, currentGoal, enemy))
+            bool temporaryThreatRegistered = TryRegisterOrderedPushTemporaryThreat(bot, enemyInfo, enemy, reason);
+            bool shouldPromote = alreadyGoal ||
+                                 temporaryThreatRegistered ||
+                                 ShouldReplaceGoalWithIncomingThreat(bot, currentGoal, enemy);
+            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
+                bot,
+                enemyInfo,
+                enemy,
+                "FollowerAwareness.TryPromoteIncomingThreat",
+                reason,
+                shouldPromote,
+                hasDirectVisibility: false,
+                visibilityAssumed: countAsVisible,
+                details: new
+                {
+                    alreadyGoal,
+                    temporaryThreatRegistered,
+                    countAsVisible,
+                    previousGoalProfileId = currentGoal?.ProfileId,
+                    incomingDistance = GetPlanarDistance(bot.Position, enemy.Position)
+                });
+
+            if (!shouldPromote)
             {
                 return false;
             }
 
-            if (!alreadyGoal)
+            if (!alreadyGoal && !temporaryThreatRegistered)
             {
                 FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(bot);
-                bot.Memory.GoalEnemy = null;
+                using (FollowerGoalEnemyTracker.Begin("FollowerAwareness.TryPromoteIncomingThreat", $"clearPrevious:{reason}"))
+                {
+                    bot.Memory.GoalEnemy = null;
+                }
+                bot.Memory.LastEnemy = null;
+            }
+            else if (!alreadyGoal)
+            {
                 bot.Memory.LastEnemy = null;
             }
 
             enemyInfo.PriorityIndex = 0;
             enemyInfo.IgnoreUntilAggression = false;
-            Enemy.RepairPersonalMemory(enemyInfo, enemy.Transform.position, countAsVisible || enemyInfo.HaveSeen);
+            Enemy.RepairPersonalMemory(
+                enemyInfo,
+                enemy.Transform.position,
+                countAsVisible || Enemy.HasDirectPersonalContact(enemyInfo));
             bot.Memory.IsPeace = false;
-            bot.Memory.GoalEnemy = enemyInfo;
-            FollowerContactEnemyRetention.Register(bot, enemy, countAsVisible || enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
+            using (FollowerGoalEnemyTracker.Begin("FollowerAwareness.TryPromoteIncomingThreat", reason))
+            {
+                bot.Memory.GoalEnemy = enemyInfo;
+            }
+            if (!temporaryThreatRegistered)
+            {
+                FollowerContactEnemyRetention.Register(bot, enemy, countAsVisible || enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
+            }
 
             BattleRecorder.RecordObjectiveDiagnostic(
                 bot,
@@ -451,16 +494,17 @@ namespace pitTeam.Utils
                     previousGoalCanShoot = currentGoal?.CanShoot,
                     previousGoalDistance = currentGoal != null ? GetPlanarDistance(bot.Position, currentGoal.Person?.Position ?? currentGoal.CurrPosition) : (float?)null,
                     incomingDistance = GetPlanarDistance(bot.Position, enemy.Position),
-                    orderedPushInterrupted
+                    temporaryThreatRegistered
                 });
 
             return true;
         }
 
-        private static bool TryInterruptOrderedPushForIncomingThreat(BotOwner bot, Player enemy, string reason)
+        private static bool TryRegisterOrderedPushTemporaryThreat(BotOwner bot, EnemyInfo enemyInfo, Player enemy, string reason)
         {
             if (!string.Equals(reason, "directHit", System.StringComparison.Ordinal) ||
-                string.IsNullOrEmpty(enemy?.ProfileId))
+                string.IsNullOrEmpty(enemy?.ProfileId) ||
+                enemyInfo == null)
             {
                 return false;
             }
@@ -473,9 +517,13 @@ namespace pitTeam.Utils
                 return false;
             }
 
-            followerData.RequestOrderedPushCancel("incomingThreat:directHit");
-            followerData.ClearOrderedPushTargetLock("incomingThreat:directHit");
-            return true;
+            return FollowerCombatTargetCommitments.TryRegisterTemporaryTarget(
+                bot,
+                enemyInfo,
+                "directHit",
+                "FollowerAwareness.TryPromoteIncomingThreat",
+                out _,
+                recordReject: true);
         }
 
         private static bool ShouldReplaceGoalWithIncomingThreat(BotOwner bot, EnemyInfo? currentGoal, Player incomingEnemy)

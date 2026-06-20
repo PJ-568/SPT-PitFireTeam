@@ -77,6 +77,7 @@ namespace pitTeam.Components
         private bool _combatIndependent;
         private bool _combatIndependentRequested;
         private bool _combatRegroupUsesBossAnchor;
+        private bool _postCombatFullHealArmed;
         private bool _patrolLeaderSectorAnchorSet;
         private Vector3 _patrolLeaderSectorAnchor;
         private bool _peaceChangeHooked = false;
@@ -488,7 +489,10 @@ namespace pitTeam.Components
                 Utils.Enemy.ForceIgnoreUntilAggressionOff(group);
                 Utils.Enemy.ForceIgnoreUntilAggressionOff(_bot);
 
-                _bot.Memory.GoalEnemy = null;
+                using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.SetFollowerGroup", "groupReassignClear"))
+                {
+                    _bot.Memory.GoalEnemy = null;
+                }
             }
 
             if (isPickedUp)
@@ -976,7 +980,10 @@ namespace pitTeam.Components
 
                         if (key.ProfileId == _player.Player().ProfileId && _bot.EnemiesController.EnemyInfos.TryGetValue(_player.Player(), out var eninfo))
                         {
-                            _bot.Memory.GoalEnemy = eninfo;
+                            using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.Dismiss", "warnPlayer"))
+                            {
+                                _bot.Memory.GoalEnemy = eninfo;
+                            }
                             Modules.Logger.LogInfo("Make player the enemy");
                         }
                     });
@@ -1017,7 +1024,10 @@ namespace pitTeam.Components
             if (_bot == null) return;
 
             // Clear current/last enemy pointers first to avoid group decision sorting stale EnemyInfo.
-            _bot.Memory.GoalEnemy = null;
+            using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.ClearInvalidEnemyState", "clearInvalidEnemyState"))
+            {
+                _bot.Memory.GoalEnemy = null;
+            }
             _bot.Memory.LastEnemy = null;
 
             if (_bot.EnemiesController?.EnemyInfos != null)
@@ -1139,6 +1149,7 @@ namespace pitTeam.Components
         {
             _combatIndependent = _canPatrol || _combatIndependentRequested;
             _combatRegroupUsesBossAnchor = false;
+            _postCombatFullHealArmed = true;
         }
 
         public void SetCombatIndependent(bool value)
@@ -1757,6 +1768,11 @@ namespace pitTeam.Components
             _orderedPushTargetLockActive = true;
             _orderedPushTargetProfileId = goalEnemy.ProfileId;
             _orderedPushTargetPosition = GetOrderedPushTargetPosition(goalEnemy);
+            FollowerCombatTargetCommitments.SetMission(
+                _bot,
+                goalEnemy,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                "activateOrderedPushTargetLock");
         }
 
         public void RefreshOrderedPushTargetLock(EnemyInfo? goalEnemy)
@@ -1773,6 +1789,12 @@ namespace pitTeam.Components
             {
                 _orderedPushTargetPosition = position;
             }
+
+            FollowerCombatTargetCommitments.RefreshMission(
+                _bot,
+                goalEnemy,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                "refreshOrderedPushTargetLock");
         }
 
         public void RefreshOrderedPushTargetLock(Player target)
@@ -1788,6 +1810,12 @@ namespace pitTeam.Components
             {
                 _orderedPushTargetPosition = target.Position;
             }
+
+            FollowerCombatTargetCommitments.RefreshMission(
+                _bot,
+                target,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                "refreshOrderedPushTargetLock");
         }
 
         public void ClearOrderedPushTargetLock(string reason = "unspecified")
@@ -1795,6 +1823,10 @@ namespace pitTeam.Components
             _orderedPushTargetLockActive = false;
             _orderedPushTargetProfileId = null;
             _orderedPushTargetPosition = Vector3.zero;
+            FollowerCombatTargetCommitments.ClearMission(
+                _bot,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                reason);
         }
 
         private static Vector3 GetOrderedPushTargetPosition(EnemyInfo goalEnemy)
@@ -1985,6 +2017,7 @@ namespace pitTeam.Components
             if (!pitFireTeam.UseSainFollowerCombat)
             {
                 ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
+                BeginPostCombatFullHealIfArmed();
                 return true;
             }
 
@@ -2007,6 +2040,7 @@ namespace pitTeam.Components
             if (bridgeReady)
             {
                 ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
+                BeginPostCombatFullHealIfArmed();
                 return true;
             }
 
@@ -2018,6 +2052,17 @@ namespace pitTeam.Components
 
             // With fixed SAIN/addon target, fail closed if bridge is unavailable.
             return false;
+        }
+
+        private void BeginPostCombatFullHealIfArmed()
+        {
+            if (!_postCombatFullHealArmed)
+            {
+                return;
+            }
+
+            _postCombatFullHealArmed = false;
+            Utils.FollowerMedical.BeginPostCombatFullHeal(_bot);
         }
 
         public bool HasCombatHandoffSignal()
@@ -2261,7 +2306,10 @@ namespace pitTeam.Components
 
                 ClearCommand("PickupReset");
                 _bot.Memory.IsPeace = false;
-                _bot.Memory.GoalEnemy = null;
+                using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.ResetPickupFollowerRuntimeState", "pickupReset"))
+                {
+                    _bot.Memory.GoalEnemy = null;
+                }
                 _bot.Memory.LastEnemy = null;
                 _bot.Memory?.GoalTarget?.Clear();
 

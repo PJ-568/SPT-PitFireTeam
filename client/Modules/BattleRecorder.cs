@@ -363,6 +363,75 @@ namespace pitTeam.Modules
             });
         }
 
+        public static void RecordGoalEnemyTransition(
+            BotOwner bot,
+            EnemyInfo? previous,
+            EnemyInfo? next,
+            string source,
+            string reason,
+            bool allowed)
+        {
+            if (!CanRecordBot(bot))
+            {
+                return;
+            }
+
+            if (previous == null && next == null)
+            {
+                return;
+            }
+
+            RecorderFollowerState state = GetOrCreateState(bot);
+            WriteEventInternal("goalEnemyTransition", bot, new
+            {
+                source,
+                reason,
+                allowed,
+                previous = CreateTransitionEnemyContext(bot, previous),
+                next = CreateTransitionEnemyContext(bot, next),
+                context = CreateTransitionContext(bot, state)
+            });
+        }
+
+        public static void RecordEnemyRegisteredNoDirectVisibility(
+            BotOwner bot,
+            EnemyInfo? enemyInfo,
+            IPlayer? enemyPlayer,
+            string source,
+            string reason,
+            bool promotedToGoal,
+            bool hasDirectVisibility,
+            bool visibilityAssumed = false,
+            object? details = null)
+        {
+            if (hasDirectVisibility || !CanRecordBot(bot))
+            {
+                return;
+            }
+
+            if (enemyInfo == null && enemyPlayer == null)
+            {
+                return;
+            }
+
+            RecorderFollowerState state = GetOrCreateState(bot);
+            EnemyInfo? currentGoal = bot.Memory?.GoalEnemy;
+            string? enemyProfileId = enemyInfo?.ProfileId ?? enemyPlayer?.ProfileId;
+            WriteEventInternal("enemyRegisteredNoDirectVisibility", bot, new
+            {
+                source,
+                reason,
+                promotedToGoal,
+                isCurrentGoal = !string.IsNullOrEmpty(enemyProfileId) &&
+                                string.Equals(currentGoal?.ProfileId, enemyProfileId, StringComparison.Ordinal),
+                visibilityAssumed,
+                memoryVisible = enemyInfo?.IsVisible == true || enemyInfo?.CanShoot == true,
+                enemy = CreateEnemyRegistrationContext(bot, enemyInfo, enemyPlayer),
+                details,
+                context = CreateTransitionContext(bot, state)
+            });
+        }
+
         public static void RecordPushEmitted(
             BotOwner owner,
             string enemyProfileId,
@@ -665,16 +734,89 @@ namespace pitTeam.Modules
 
             FollowerEnemyInfoCorrection.CorrectDistanceOnly(bot, goalEnemy);
 
+            IPlayer? player = goalEnemy.Person;
+            Vector3 position = player?.Transform != null
+                ? player.Transform.position
+                : goalEnemy.EnemyLastPositionReal;
+            BotSettingsClass? groupInfo = TryGetGroupInfo(bot, goalEnemy, player);
+
             return new
             {
                 profileId = goalEnemy.ProfileId,
+                nickname = player?.Profile?.Nickname,
+                role = player?.Profile?.Info?.Settings?.Role.ToString(),
+                position = IsFinite(position) ? CreateVector(position) : null,
                 distance = SanitizeFloat(goalEnemy.Distance),
                 visibleType = goalEnemy.VisibleType.ToString(),
                 isVisible = goalEnemy.IsVisible,
                 canShoot = goalEnemy.CanShoot,
                 reliableShootLane = FollowerImmediateFirePolicy.HasReliableImmediateFireLane(bot, goalEnemy),
                 personalSeenTime = SanitizeFloat(goalEnemy.PersonalSeenTime),
-                personalLastSeenTime = SanitizeFloat(goalEnemy.PersonalLastSeenTime)
+                personalLastSeenTime = SanitizeFloat(goalEnemy.PersonalLastSeenTime),
+                provenance = CreateEnemyProvenanceContext(groupInfo),
+                contact = CreateEnemyContactContext(goalEnemy, groupInfo),
+                geometry = CreateEnemyGeometryContext(bot, position)
+            };
+        }
+
+        private static object? CreateEnemyRegistrationContext(BotOwner bot, EnemyInfo? enemyInfo, IPlayer? enemyPlayer)
+        {
+            if (enemyInfo == null && enemyPlayer == null)
+            {
+                return null;
+            }
+
+            if (enemyInfo != null)
+            {
+                FollowerEnemyInfoCorrection.CorrectDistanceOnly(bot, enemyInfo);
+            }
+
+            IPlayer? player = enemyPlayer ?? enemyInfo?.Person;
+            Vector3 position = player?.Transform != null
+                ? player.Transform.position
+                : enemyInfo?.EnemyLastPositionReal ?? Vector3.zero;
+            BotSettingsClass? groupInfo = TryGetGroupInfo(bot, enemyInfo, player);
+
+            return new
+            {
+                profileId = enemyInfo?.ProfileId ?? player?.ProfileId,
+                nickname = player?.Profile?.Nickname,
+                role = player?.Profile?.Info?.Settings?.Role.ToString(),
+                position = IsFinite(position) ? CreateVector(position) : null,
+                distance = enemyInfo != null ? SanitizeFloat(enemyInfo.Distance) : (float?)null,
+                visibleType = enemyInfo?.VisibleType.ToString(),
+                isVisible = enemyInfo?.IsVisible,
+                canShoot = enemyInfo?.CanShoot,
+                haveSeen = enemyInfo?.HaveSeen,
+                personalSeenTime = enemyInfo != null ? SanitizeFloat(enemyInfo.PersonalSeenTime) : null,
+                personalLastSeenTime = enemyInfo != null ? SanitizeFloat(enemyInfo.PersonalLastSeenTime) : null,
+                firstTimeSeen = enemyInfo != null ? SanitizeFloat(enemyInfo.FirstTimeSeen) : null,
+                lastKnownPosition = enemyInfo != null && IsFinite(enemyInfo.EnemyLastPositionReal)
+                    ? CreateVector(enemyInfo.EnemyLastPositionReal)
+                    : null,
+                personalLastPosition = enemyInfo != null && IsFinite(enemyInfo.PersonalLastPos)
+                    ? CreateVector(enemyInfo.PersonalLastPos)
+                    : null,
+                provenance = CreateEnemyProvenanceContext(groupInfo),
+                contact = CreateEnemyContactContext(enemyInfo, groupInfo),
+                geometry = CreateEnemyGeometryContext(bot, position),
+                group = groupInfo != null
+                    ? new
+                    {
+                        cause = groupInfo.Cause.ToString(),
+                        causeCategory = ClassifyEnemyCause(groupInfo.Cause),
+                        requiresAwarenessGate = RequiresAcquisitionAwarenessGate(groupInfo.Cause),
+                        haveSeen = groupInfo.IsHaveSeen,
+                        lastPosition = IsFinite(groupInfo.EnemyLastPosition) ? CreateVector(groupInfo.EnemyLastPosition) : null,
+                        lastVisiblePosition = IsFinite(groupInfo.EnemyLastVisiblePosition) ? CreateVector(groupInfo.EnemyLastVisiblePosition) : null,
+                        lastSeenTimeSense = SanitizeFloat(groupInfo.EnemyLastSeenTimeSense),
+                        lastSeenTimeSenseAge = CreateAge(groupInfo.EnemyLastSeenTimeSense),
+                        lastSeenTimeReal = SanitizeFloat(groupInfo.EnemyLastSeenTimeReal),
+                        lastSeenTimeRealAge = CreateAge(groupInfo.EnemyLastSeenTimeReal),
+                        lastShootTime = SanitizeFloat(groupInfo.LastShootTime),
+                        lastShootAge = CreateAge(groupInfo.LastShootTime)
+                    }
+                    : null
             };
         }
 
@@ -841,6 +983,7 @@ namespace pitTeam.Modules
             Vector3 position = goalEnemy.Person?.Transform != null
                 ? goalEnemy.Person.Transform.position
                 : goalEnemy.EnemyLastPositionReal;
+            BotSettingsClass? groupInfo = TryGetGroupInfo(bot, goalEnemy, goalEnemy.Person);
 
             Vector3 toEnemyDirection = NormalizePlanar(position - botPosition);
             bool hasEnemyDirection = toEnemyDirection.sqrMagnitude > 0.0001f;
@@ -859,12 +1002,181 @@ namespace pitTeam.Modules
                 personalLastSeenTime = SanitizeFloat(goalEnemy.PersonalLastSeenTime),
                 lastKnownPosition = CreateVector(goalEnemy.EnemyLastPositionReal),
                 position = CreateVector(position),
+                provenance = CreateEnemyProvenanceContext(groupInfo),
+                contact = CreateEnemyContactContext(goalEnemy, groupInfo),
+                geometry = CreateEnemyGeometryContext(bot, position),
                 direction = hasEnemyDirection ? CreateVector(toEnemyDirection) : null,
                 lookVsEnemyAngle = hasEnemyDirection ? SanitizeFloat(Vector3.Angle(lookDirection, toEnemyDirection)) : null,
                 moveTargetVsEnemyAngle = moveTargetDirection.sqrMagnitude > 0.0001f && hasEnemyDirection
                     ? SanitizeFloat(Vector3.Angle(moveTargetDirection, toEnemyDirection))
                     : null
             };
+        }
+
+        private static BotSettingsClass? TryGetGroupInfo(BotOwner bot, EnemyInfo? enemyInfo, IPlayer? player)
+        {
+            if (enemyInfo?.GroupInfo != null)
+            {
+                return enemyInfo.GroupInfo;
+            }
+
+            try
+            {
+                if (player != null &&
+                    bot.BotsGroup?.Enemies != null &&
+                    bot.BotsGroup.Enemies.TryGetValue(player, out BotSettingsClass groupInfo))
+                {
+                    return groupInfo;
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private static object? CreateEnemyProvenanceContext(BotSettingsClass? groupInfo)
+        {
+            if (groupInfo == null)
+            {
+                return null;
+            }
+
+            EBotEnemyCause cause = groupInfo.Cause;
+            return new
+            {
+                cause = cause.ToString(),
+                causeCategory = ClassifyEnemyCause(cause),
+                requiresAwarenessGate = RequiresAcquisitionAwarenessGate(cause)
+            };
+        }
+
+        private static object? CreateEnemyContactContext(EnemyInfo? enemyInfo, BotSettingsClass? groupInfo)
+        {
+            if (enemyInfo == null && groupInfo == null)
+            {
+                return null;
+            }
+
+            return new
+            {
+                memoryVisible = enemyInfo?.IsVisible == true || enemyInfo?.CanShoot == true,
+                haveSeen = enemyInfo?.HaveSeen,
+                personalSeenTime = enemyInfo != null ? SanitizeFloat(enemyInfo.PersonalSeenTime) : null,
+                personalSeenAge = enemyInfo != null ? CreateAge(enemyInfo.PersonalSeenTime) : null,
+                personalLastSeenTime = enemyInfo != null ? SanitizeFloat(enemyInfo.PersonalLastSeenTime) : null,
+                personalLastSeenAge = enemyInfo != null ? CreateAge(enemyInfo.PersonalLastSeenTime) : null,
+                firstTimeSeen = enemyInfo != null ? SanitizeFloat(enemyInfo.FirstTimeSeen) : null,
+                firstSeenAge = enemyInfo != null ? CreateAge(enemyInfo.FirstTimeSeen) : null,
+                groupHaveSeen = groupInfo?.IsHaveSeen,
+                groupLastSeenTimeSense = groupInfo != null ? SanitizeFloat(groupInfo.EnemyLastSeenTimeSense) : null,
+                groupLastSeenTimeSenseAge = groupInfo != null ? CreateAge(groupInfo.EnemyLastSeenTimeSense) : null,
+                groupLastSeenTimeReal = groupInfo != null ? SanitizeFloat(groupInfo.EnemyLastSeenTimeReal) : null,
+                groupLastSeenTimeRealAge = groupInfo != null ? CreateAge(groupInfo.EnemyLastSeenTimeReal) : null,
+                groupLastShootTime = groupInfo != null ? SanitizeFloat(groupInfo.LastShootTime) : null,
+                groupLastShootAge = groupInfo != null ? CreateAge(groupInfo.LastShootTime) : null
+            };
+        }
+
+        private static object? CreateEnemyGeometryContext(BotOwner bot, Vector3 enemyPosition)
+        {
+            if (!IsFinite(enemyPosition))
+            {
+                return null;
+            }
+
+            Vector3 delta = enemyPosition - bot.Position;
+            float planarDistance = Mathf.Sqrt(delta.x * delta.x + delta.z * delta.z);
+            return new
+            {
+                straightDistance = SanitizeFloat(delta.magnitude),
+                planarDistance = SanitizeFloat(planarDistance),
+                verticalDelta = SanitizeFloat(delta.y)
+            };
+        }
+
+        private static float? CreateAge(float timestamp)
+        {
+            if (timestamp <= 0f)
+            {
+                return null;
+            }
+
+            return SanitizeFloat(Time.time - timestamp);
+        }
+
+        private static string ClassifyEnemyCause(EBotEnemyCause cause)
+        {
+            switch (cause)
+            {
+                case EBotEnemyCause.byKill:
+                case EBotEnemyCause.followGetHit:
+                case EBotEnemyCause.addPlayer:
+                case EBotEnemyCause.callBot:
+                case EBotEnemyCause.gifterKill:
+                case EBotEnemyCause.bossKillArena:
+                case EBotEnemyCause.KillaSyncTagilla:
+                case EBotEnemyCause.tagillaFindENemy:
+                case EBotEnemyCause.fuckGestus:
+                case EBotEnemyCause.pmcBossKill:
+                case EBotEnemyCause.christmas:
+                case EBotEnemyCause.synWithKilla:
+                case EBotEnemyCause.ravangeZryachiy:
+                case EBotEnemyCause.partisanBadKarma:
+                case EBotEnemyCause.attackBTR:
+                case EBotEnemyCause.tagillaAlarm:
+                case EBotEnemyCause.MarkOfUnknowsDist:
+                case EBotEnemyCause.zryachiyLogic:
+                case EBotEnemyCause.pairLogic:
+                    return "directAggressive";
+                case EBotEnemyCause.initial:
+                case EBotEnemyCause.AddNewMember:
+                case EBotEnemyCause.addBotAtGroup:
+                case EBotEnemyCause.addBotNoGroup:
+                case EBotEnemyCause.addPlayerToBoss:
+                    return "initialOrSetup";
+                case EBotEnemyCause.addCauseGroup:
+                case EBotEnemyCause.initCauseEnemy:
+                case EBotEnemyCause.checkAddTODO:
+                case EBotEnemyCause.AddEnemyToAllGroupsInBotZone:
+                case EBotEnemyCause.AddEnemyToAllGroups:
+                case EBotEnemyCause.warn:
+                    return "softGroupOrMemory";
+                case EBotEnemyCause.Unknown:
+                    return "unknown";
+                default:
+                    return "other";
+            }
+        }
+
+        private static bool RequiresAcquisitionAwarenessGate(EBotEnemyCause cause)
+        {
+            switch (cause)
+            {
+                case EBotEnemyCause.byKill:
+                case EBotEnemyCause.followGetHit:
+                case EBotEnemyCause.addPlayer:
+                case EBotEnemyCause.callBot:
+                case EBotEnemyCause.gifterKill:
+                case EBotEnemyCause.bossKillArena:
+                case EBotEnemyCause.KillaSyncTagilla:
+                case EBotEnemyCause.tagillaFindENemy:
+                case EBotEnemyCause.fuckGestus:
+                case EBotEnemyCause.pmcBossKill:
+                case EBotEnemyCause.christmas:
+                case EBotEnemyCause.synWithKilla:
+                case EBotEnemyCause.ravangeZryachiy:
+                case EBotEnemyCause.partisanBadKarma:
+                case EBotEnemyCause.attackBTR:
+                case EBotEnemyCause.tagillaAlarm:
+                case EBotEnemyCause.MarkOfUnknowsDist:
+                case EBotEnemyCause.zryachiyLogic:
+                case EBotEnemyCause.pairLogic:
+                    return false;
+                default:
+                    return true;
+            }
         }
 
         private static object? CreateBossSnapshot(BotOwner bot, Vector3 botPosition, Vector3 lookDirection)

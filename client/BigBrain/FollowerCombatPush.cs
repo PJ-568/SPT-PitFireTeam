@@ -26,6 +26,7 @@ namespace pitTeam.BigBrain
         private const float RunToEnemyNoSprintBlockSeconds = 3f;
         private const float UrbanDetourPushCheckInterval = 0.75f;
         private const float UrbanDetourRunToEnemyBlockSeconds = 3f;
+        private const float MemoryOnlyAutoPushBlockDiagnosticInterval = 1f;
         private const int AutoPushMinMagazineAmmo = 10;
         private const int StandardAutoPushMagazineCapacity = 30;
         private const int PrecisionRifleAutoPushMagazineCapacity = 20;
@@ -40,6 +41,7 @@ namespace pitTeam.BigBrain
         private Vector3 stalledPushLastPosition;
         private float stalledPushSince;
         private float nextUrbanDetourPushCheckAt;
+        private float nextMemoryOnlyAutoPushBlockLogAt;
 
         public FollowerCombatPush(BotOwner botOwner, FollowerCombatCommon combatCommon)
         {
@@ -62,6 +64,10 @@ namespace pitTeam.BigBrain
             {
                 CommitPush(nextDecision);
             }
+            else if (combatCommon.IsCurrentGoalTemporaryEngagementTarget())
+            {
+                return;
+            }
             else
             {
                 ClearCommittedPush("decisionChanged");
@@ -83,6 +89,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (combatCommon.IsCommittedPushPausedByTemporaryTarget(goalEnemy))
+            {
+                return false;
+            }
+
             if (ShouldInterruptCommittedPush(goalEnemy, out _))
             {
                 ClearCommittedPush("committedPushInterrupted");
@@ -95,7 +106,13 @@ namespace pitTeam.BigBrain
         public AICoreActionEndStruct EndCommittedPush(AICoreActionResultStruct<BotLogicDecision, GClass26> currentDecision)
         {
             EnemyInfo? goalEnemy = botOwner.Memory.GoalEnemy;
+            if (combatCommon.IsCommittedPushPausedByTemporaryTarget(goalEnemy))
+            {
+                return new AICoreActionEndStruct("pushTemporaryTarget", true);
+            }
+
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy) &&
+                !combatCommon.TryRestoreMissionTargetIfReady("pushEndRestoreMission", out goalEnemy) &&
                 !combatCommon.TryRestoreCommittedPushEnemy(out goalEnemy))
             {
                 ClearCommittedPush("pushEnemyMissingOrDead");
@@ -214,6 +231,13 @@ namespace pitTeam.BigBrain
             }
 
             bool pushOrdered = source == PushActivationSource.Ordered;
+            if (!pushOrdered &&
+                Utils.Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(goalEnemy))
+            {
+                RecordMemoryOnlyAutoPushBlocked(goalEnemy, "engageEnemy");
+                return CreateNoPushDecision(goalEnemy, "memoryOnlyAutoPush");
+            }
+
             if (!pushOrdered && combatCommon.HasActiveGrenadeLauncherSuppressNearCurrentEnemy())
             {
                 return CreateNoPushDecision(goalEnemy, "launcherSuppress");
@@ -630,6 +654,33 @@ namespace pitTeam.BigBrain
                 $"{reasonPrefix}Hold");
         }
 
+        private void RecordMemoryOnlyAutoPushBlocked(EnemyInfo goalEnemy, string reason)
+        {
+            if (Time.time < nextMemoryOnlyAutoPushBlockLogAt)
+            {
+                return;
+            }
+
+            nextMemoryOnlyAutoPushBlockLogAt = Time.time + MemoryOnlyAutoPushBlockDiagnosticInterval;
+            BattleRecorder.RecordObjectiveDiagnostic(
+                botOwner,
+                "FollowerCombatPush",
+                "blockMemoryOnlyAutoPush",
+                reason,
+                new
+                {
+                    targetProfileId = goalEnemy.ProfileId,
+                    targetVisible = goalEnemy.IsVisible,
+                    targetCanShoot = goalEnemy.CanShoot,
+                    targetHaveSeen = goalEnemy.HaveSeen,
+                    targetHaveSeenPersonal = goalEnemy.HaveSeenPersonal,
+                    targetPersonalSeenTime = goalEnemy.PersonalSeenTime,
+                    targetPersonalLastSeenTime = goalEnemy.PersonalLastSeenTime,
+                    targetCause = goalEnemy.GroupInfo?.Cause.ToString(),
+                    targetDistance = goalEnemy.Distance
+                });
+        }
+
         private bool TryCreateMarksmanFightDecision(
             EnemyInfo goalEnemy,
             out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
@@ -707,6 +758,7 @@ namespace pitTeam.BigBrain
             }
 
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy) &&
+                !combatCommon.TryRestoreMissionTargetIfReady("pushRestoreMission", out goalEnemy) &&
                 !combatCommon.TryRestoreCommittedPushEnemy(out goalEnemy))
             {
                 reason = "pushEnemyMissingOrDead";
@@ -715,6 +767,12 @@ namespace pitTeam.BigBrain
 
             if (combatCommon.IsCommittedPushEnemyChanged(goalEnemy))
             {
+                if (combatCommon.IsTemporaryEngagementTarget(goalEnemy))
+                {
+                    reason = "pushTemporaryTarget";
+                    return false;
+                }
+
                 reason = "pushEnemyChanged";
                 return true;
             }

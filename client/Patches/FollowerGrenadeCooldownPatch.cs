@@ -33,6 +33,7 @@ namespace pitTeam.Patches
 
             if (!FollowerGrenadeRuntimeGate.IsThrowAllowed(bot))
             {
+                FollowerGrenadeRuntimeGate.ShouldBlockThrowAttempt(bot, out _);
                 __result = false;
                 return false;
             }

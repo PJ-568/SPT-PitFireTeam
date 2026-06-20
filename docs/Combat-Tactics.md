@@ -1,6 +1,6 @@
 # Combat Tactics Notes
 
-Last updated: 2026-05-28
+Last updated: 2026-06-19
 
 ## Scope
 
@@ -26,13 +26,25 @@ Objective ownership matters: heal, dogfight, grenade, and immediate fire can int
 
 ## Enemy Acquisition And Retention
 
-Enemy acquisition, squad enemy sharing, and retained-contact stabilization are separate responsibilities.
+Enemy acquisition, squad enemy sharing, target commitments, and retained-contact stabilization are separate responsibilities.
 
 Acquisition and sharing sources:
 
 - `FollowerCalcGoalEnemyAcquire.HandleCalcGoal(...)` is the idle/sibling sync path. It runs from the core `BotCalcGoal.CalcGoalForBot()` postfix for followers that are not attention-suppressed and do not already have an enemy. When one follower sees a valid forward candidate, it promotes that enemy for itself, then tries to create and promote the same enemy for sibling followers that have no current/live goal enemy. This path registers non-prioritized retention after promotion, but `FollowerContactEnemyRetention` does not perform the squad fan-out itself.
 - `AIBossPlayer.RegisterContactEnemyForFollower(...)` is the boss-contact injection path. Contact/OverThere-style cues, NeedHelp fallback, and ordered launcher target resolution can report and create `EnemyInfo` records for followers, optionally promote one contact as the goal, and register retention with the command-priority flag.
-- `FollowerAwareness` is the reaction path. Direct hits and close incoming fire can create/promote the immediate hostile attacker when the current goal is missing, dead, stale/non-shootable, or clearly farther than the incoming threat. When this retarget happens it clears retained contact once before installing the new goal, so a stale far contact cannot immediately restore over the immediate attacker.
+- `FollowerAwareness` is the reaction path. Direct hits and close incoming fire can create/promote the immediate hostile attacker when the current goal is missing, dead, stale/non-shootable, or clearly farther than the incoming threat. When no push mission is active this retarget clears retained contact once before installing the new goal, so a stale far contact cannot immediately restore over the immediate attacker. When a push mission is active, direct-hit interruption is registered as a temporary target instead of cancelling or replacing the mission.
+- Personal contact is separate from squad/shared memory. `EnemyInfo.HaveSeen` or group sense/real-memory may keep an enemy known, but repair and promotion paths must not treat that flag alone as the follower personally seeing the enemy. Personal seen timestamps are written from direct visible/can-shoot contact or explicit contact priority, and memory-only setup/soft acquisitions cannot start proactive auto-push or marksman close-search by themselves.
+- `addPlayerToBoss` is treated as hostile relationship sharing, not contact proof. Unscoped vanilla/SAIN `GoalEnemy` setter attempts from that cause are blocked for followers until direct/personal contact exists; explicit boss-command, direct-hit, and group-attacker paths remain scoped reaction inputs.
+
+`FollowerCombatTargetCommitments` owns mission-versus-temporary target arbitration:
+
+- Ordered push registers the ordered kill target as an `OrderedPush` mission. Auto-push registers the first committed push target as an `AutoPush` mission.
+- Auto-push mission creation rejects memory-only setup/soft targets that have no personal contact record. The enemy can stay in memory for later validation, but the bot should hold, rescan, support, or regroup until there is actual contact or an explicit order.
+- A mission is separate from `Memory.GoalEnemy`. `GoalEnemy` may temporarily point at another valid threat, but the mission target remains recoverable until it dies, becomes unrecoverable, or an explicit new combat order clears the mission.
+- Non-null `GoalEnemy` setter attempts are gated while a mission exists. The mission target is allowed, a currently accepted temporary target is allowed, and unrelated switches are blocked and recorded as `targetCommitmentBlocked:*`.
+- Temporary targets are accepted for local self-defense, visible shootable contact, close visible contact, or direct-hit interruption. When the temporary target dies or stays hidden/unengageable past its short grace window, combat restores the mission target and resumes the push.
+- Boss-under-attack support uses the same temporary-target path while a mission exists. It can interrupt for a valid engagement opportunity, but it does not force a hidden or weak boss attacker over an active mission.
+- Retention may yield while an accepted temporary target is active, but it must not adopt that temporary target as the retained mission contact.
 
 `FollowerContactEnemyRetention` is a per-follower stabilizer, not the owner of target selection:
 
@@ -41,8 +53,9 @@ Acquisition and sharing sources:
 - A prioritized retained contact cannot be replaced by a different non-prioritized contact while the retained window is active.
 - Invisible bookkeeping refreshes do not extend retention forever; non-visible refreshes are capped by the original last-contact window.
 - `ShouldBlockGoalEnemyClear(...)` intercepts `GoalEnemy = null` for followers and blocks the clear only while the retained enemy is still live, still inside its retention window, and still matches the current goal.
+- Unscoped non-null `GoalEnemy` setter attempts also consult retention while a retained contact is active. SAIN/vanilla can switch to a different goal only when that candidate is a live visible/can-shoot contact that retention would adopt; otherwise the set is blocked before the follower flickers away and then restores back.
 - `TryRestore(...)` recreates/promotes the retained enemy as `Memory.GoalEnemy`, sets `PriorityIndex = 0`, repairs personal memory, and forces `Memory.IsPeace = false`.
-- Retention yields when the follower already has a different live visible/can-shoot goal enemy, when the retained enemy dies/expires, or when code calls `ClearAndAllowNextGoalClear(...)` for explicit reset/retarget.
+- Retention yields when the follower already has a different live visible/can-shoot goal enemy, when the retained enemy dies/expires, or when code calls `ClearAndAllowNextGoalClear(...)` for explicit reset/retarget. If a target mission is active, yielding to a different enemy requires `FollowerCombatTargetCommitments` to accept that enemy as a temporary target.
 
 Current consumers:
 
@@ -54,6 +67,7 @@ Current consumers:
 Implementation rule:
 
 - New enemy-sharing logic should live in acquisition/contact/reaction code, not inside `FollowerContactEnemyRetention`.
+- New mission/temporary target policy should live in `FollowerCombatTargetCommitments`, not in retention or individual action classes.
 - New combat actions should register or refresh retention only after a real goal enemy is selected or explicitly assigned.
 - New retarget/reset logic must either use the existing force-goal helpers or clear retention before setting `GoalEnemy = null`, otherwise the retained contact can restore the old target on the next combat check.
 - Do not use retention to keep a non-visible stale target alive indefinitely. Fresh visible/can-shoot contact, explicit command priority, or a still-recent personal seen timestamp must justify the retained window.
@@ -114,9 +128,9 @@ Picked-up follower behavior:
 Rifleman/default behavior:
 
 - The command is consumed into a durable ordered-push objective.
-- The objective latches the current combat enemy as the ordered kill target and keeps pursuing until that target dies or becomes unrecoverable.
+- The objective latches the current combat enemy as the ordered kill target and registers it as a target mission. It keeps pursuing until that target dies, becomes unrecoverable, or an explicit new combat order cancels/replaces the mission.
 - Ordered push runs as full ordered pressure rather than a timed aggression pulse; medical, reload, and immediate survival actions can interrupt the current action, but they do not clear the ordered target. Active or pending medical work blocks new push phases until heal logic starts or the medical work clears.
-- Boss-under-attack/help retargets do not cancel ordered push. If another enemy becomes a point-blank visible shootable self-defense threat, the follower can handle that immediate fight and then resume the ordered target.
+- Boss-under-attack/help retargets do not cancel ordered push. If another enemy becomes a valid temporary target, such as a direct-hit interruption, close visible threat, or visible shootable engagement opportunity, the follower can handle that immediate fight and then resume the ordered target.
 - Explicit new boss orders cancel ordered push. Combat `CoverMe` and `NeedHelp` request ordered-push cancellation before applying their own boss-protection/support behavior; regroup, suppression, and Need Sniper interrupt through their normal objective handoff.
 - Ordered push first tries to build a committed firing-position move using the enemy's current body position.
 - When an ordered firing-position move reaches a reachable pressure point, the ordered-push objective honors the shared arrival hold before selecting another point. This lets the follower hold, face, and fight from the best reached pressure point instead of reselecting tiny adjacent firing points every tick against an unreachable or marksman-style target.
@@ -187,7 +201,7 @@ Autonomous suppression remains separate:
 - Point-blank suppression is not allowed to continue just because visibility/shootability is flickering. If the target is within point-blank contact range and there is no confirmed foliage obstruction near the lane, follower suppression clears instead of blind-firing around hard geometry.
 - Ordered/objective suppression can be interrupted after its protected opening burst when the follower needs healing or reload-retreat. The order should create pressure, not pin the follower in place while hurt or empty.
 
-Out of combat, patrol performs one reload-maintenance pass per carried weapon until the next combat-to-patrol handoff. For each first primary, second primary, and holster weapon, it checks compatible loose ammo, tops off inserted and spare magazines for external-magazine weapons with whatever rounds are available, then only switches/reloads an external-magazine weapon if a reachable spare magazine has at least two more rounds than the current magazine. Chamber, revolver, shotgun, and internal-magazine weapons do not use spare-mag comparison: if compatible loose ammo exists, patrol may switch once, perform the normal reload, then mark that weapon done. Launcher weapons are skipped only by patrol reload maintenance using the same launcher classifier as combat, including revolver/cylinder launchers such as the M32; combat launcher suppression can still use a loaded or reloadable second-primary launcher and lets EFT handle combat reload. Each completed slot decision waits two seconds before the next slot is considered, and all patrol reload flags/timers reset when the patrol layer exits.
+Out of combat, patrol performs one reload-maintenance pass per carried weapon until the next combat-to-patrol handoff. For each first primary, second primary, and holster weapon, it checks compatible loose ammo, tops off inserted and loose spare magazines for external-magazine weapons with whatever rounds are available, then only switches/reloads an external-magazine weapon if a reachable loose spare magazine has at least two more rounds than the current magazine. Magazines installed in another carried weapon are not treated as spare reload candidates, even if both weapons accept the same magazine type. Chamber, revolver, shotgun, and internal-magazine weapons do not use spare-mag comparison: if compatible loose ammo exists, patrol may switch once, perform the normal reload, then mark that weapon done. Launcher weapons are skipped only by patrol reload maintenance using the same launcher classifier as combat, including revolver/cylinder launchers such as the M32; combat launcher suppression can still use a loaded or reloadable second-primary launcher and lets EFT handle combat reload. Each completed slot decision waits two seconds before the next slot is considered, and all patrol reload flags/timers reset when the patrol layer exits.
 
 ### Need Sniper Order
 
@@ -300,13 +314,14 @@ Default and marksman can ask push code for a pressure plan, but they still keep 
 - Marksman push support means finding a better shooting/support position, not rushing like default.
 - Rifleman push support uses the same push event but keeps Rifleman policy: eligible nearby helpers support from cover or a nearby firing point and avoid duplicating the active pusher's destination.
 - Push events are globally locked: one emitter owns the active push event, helpers cannot emit their own push while that event is active, and a short cooldown prevents emit/release/emit chains.
+- Auto-push registers the first committed push target as an `AutoPush` mission. Temporary threats can pause the push and take `GoalEnemy`, but they do not overwrite that mission; when the temporary target clears, the original push target is restored if still alive.
 - Against marksman enemies, push does not manufacture a fake hold if no valid firing-position push exists. It returns no push decision and lets the tactic continue routing.
 - Ordered push is allowed to reach a pressure/firing point and hold it briefly through the shared committed-position hold, so unreachable marksman-style contacts become "fight from here and rescan" instead of repeated adjacent point selection.
 
 Committed push breaks for:
 
-- missing/dead enemy that cannot be restored from retention
-- enemy identity change
+- missing/dead mission enemy that cannot be restored from retention or target commitment
+- enemy identity change, unless the new goal is an accepted temporary target that pauses the mission
 - stable visible/shootable contact when the push action cannot safely keep moving and firing
 - under-fire/recent-hit pressure
 - explicit non-push command override
@@ -408,7 +423,8 @@ Current behavior:
 - Heal completion refreshes movement penalties without restoring full max health.
 - The explicit force-heal hotkey restores body-part health and clears active light/heavy bleeding effects.
 - First-aid refresh corrects vanilla med selection for active bleeding: if the selected med advertises bleed treatment but lacks enough remaining resource for the bleed-removal cost, followers prefer another usable med instead of looping the depleted one.
-- Out of combat, patrol healing tops off recoverable missing limb HP even after vanilla first aid considers the limb above its combat heal threshold. This still uses real first-aid items and does not run while a visible/active enemy, bleeding, or surgery work is present.
+- Out of combat, manual patrol first-aid top-off is a post-combat cleanup window, not a general patrol damage response. Combat handoff arms the window, and it stays active while vanilla first aid/surgery or real first-aid top-off can still make progress.
+- When that post-combat cleanup window has no active, pending, or recoverable medical work left, patrol clears the window and falls back to the game's normal medical thresholds. Environmental/non-combat chip damage such as barbed wire, flame, fall, poison/toxin/radiation, hot gases, medicine, or other environment damage does not start manual top-off by itself.
 - When retreating to heal but sprint/mobility is poor, recent contact can choose visible fire or suppression instead of walking with no pressure.
 
 Heal-cover exception: arriving at heal cover hands off to healing instead of normal cover hold.
@@ -436,7 +452,7 @@ Default situational behavior:
 - under damage pressure, prefer recovery or suppressive retreat over exposed standing fire
 - if visible and shootable, shoot immediately using the corrected follower `EnemyInfo` senses
 - if visible but not shootable, prefer firing cover or pressure movement
-- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. While dogfight is active, movement may step forward, backward, or sideways, but look/aim stays locked to the live fight target body/current position, falling back to the last known point only if live target data is unavailable. At point-blank range, if normal `CanShoot` flickers off but the muzzle has no hard obstruction to the live target chest, dogfight can use a direct close-contact shot after aim alignment and friendly-lane safety pass. In the close visible dogfight window, recent personal contact can also use a short SAIN-like continuity shot toward the last known/contact chest point when the enemy flickers out of `IsVisible`/`CanShoot`, but only if the weapon lane has no hard obstruction and friendly-lane safety passes. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
+- dogfight ownership follows vanilla-style exit rules: do not end dogfight just because visibility/shootability flickers. The action clears stale movement on entry, then stays responsible for facing the threat, stopping unsafe fire, and micro-repositioning until the enemy is gone, out of dogfight range, or reload/cover-after-leave rules end it. While dogfight is active, movement may step forward, backward, or sideways, but look/aim stays locked to the live fight target body/current position, falling back to the last known point only if live target data is unavailable. At point-blank range, if normal `CanShoot` flickers off but the muzzle has no hard obstruction to the live target chest, dogfight can use a direct close-contact shot after aim alignment and friendly-lane safety pass. In the close visible dogfight window, recent personal contact can also use a short SAIN-like continuity shot toward the last known/contact chest point when the enemy flickers out of `IsVisible`/`CanShoot`, but only if the weapon lane has no hard obstruction and friendly-lane safety passes. Dogfight does not force crouch blindly; it only uses the half pose when the crouch lane is verified, otherwise standing is the safe default.
 - heal-cover movement is sticky against non-visible recent-hit pressure; it only breaks for immediate fire on a true point-blank visible shootable threat.
 - if heal-cover movement reaches its committed cover but EFT has not yet marked the bot in cover and the bot is still under fire, keep the `runToHeal` action alive instead of ending/reselecting it every tick. Existing stall handling can still reject the cover if it remains ineffective.
 - if enemy is unseen but recent enough, push/search can continue using retained enemy memory
@@ -510,11 +526,17 @@ It is intended to compare observed behavior with code behavior:
 - movement and aim/look state
 - enemy/boss positions
 - visibility and shootability
+- source-tagged `GoalEnemy` transitions, including allowed sets, allowed clears, and retention-blocked clears
+- `enemyRegisteredNoDirectVisibility` events for enemy creation/promotion paths that did not have direct follower visibility, including boss contact sharing, direct-hit/close-threat awareness, sibling acquire, group attacker sharing, mission/retention restore, and unscoped external goal setters
 - grenades
 - health/healing state
 - churn and bad transition clusters
 
 Use it to validate whether a bug is tactical routing, action execution, perception, or visual/player interpretation.
+
+`enemyRegisteredNoDirectVisibility` is meant to separate perception sources from target-selection churn. `memoryVisible` reports what `EnemyInfo` said after registration, while `visibilityAssumed` flags paths that intentionally marked or treated the enemy as visible without a direct sight check. Use the event's `source` and `reason` before blaming SAIN or vanilla target selection: boss contact, awareness, group share, target-mission restore, and retention restore are all core-owned acquisition paths.
+
+Enemy provenance fields record the `BotSettingsClass.Cause` stored in `EnemyInfo.GroupInfo`, a coarse cause category, and whether that cause normally needs an awareness gate. Treat this as acquisition provenance rather than final truth: the cause is usually the first group-add reason and later reports may update enemy memory without changing the cause. `contact` fields compare personal seen timestamps with group sense/real-visibility timestamps, and `geometry` fields record straight distance, planar distance, and vertical delta so wall/building separation can be distinguished from pure floor separation.
 
 Enemy visibility fields in snapshots include the corrected follower-facing `EnemyInfo` values plus validation context. Follower `isVisible`, `canShoot`, and `distance` are normalized after `EnemyInfo.CheckLookEnemy`; combat read paths also refresh distance/direction from the live enemy transform so stale retained enemies do not carry `float.MaxValue` distances into decisions. Stale `isVisible` / `canShoot` flags are cleared if their personal seen timestamps are not fresh, which prevents old room-to-room contacts from re-entering close visible dogfight. `isVisible` means direct follower-visible contact rather than sense/green-sense memory, and `canShoot` means a verified fire lane from the follower. `visibleType` is recorded for context, and `reliableShootLane` is a diagnostic hard-lane check for comparing corrected senses against the stricter head/body fire policy.
 
