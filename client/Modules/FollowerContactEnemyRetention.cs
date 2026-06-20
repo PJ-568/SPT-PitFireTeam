@@ -19,12 +19,6 @@ namespace pitTeam.Modules
             public bool Prioritized;
             public float Until;
             public float LastContactAt;
-            public int RestoreCount;
-            public float NextRestoreLogAt;
-            public int BlockedClearCount;
-            public float NextBlockedClearLogAt;
-            public int BlockedSetCount;
-            public float NextBlockedSetLogAt;
         }
 
         private static readonly Dictionary<string, RetainedContact> RetainedByFollowerId = new(StringComparer.Ordinal);
@@ -63,12 +57,6 @@ namespace pitTeam.Modules
                         existing.Until = Mathf.Min(now + retainSeconds, existing.LastContactAt + retainSeconds);
                     }
 
-                    existing.RestoreCount = 0;
-                    existing.NextRestoreLogAt = 0f;
-                    existing.BlockedClearCount = 0;
-                    existing.NextBlockedClearLogAt = 0f;
-                    existing.BlockedSetCount = 0;
-                    existing.NextBlockedSetLogAt = 0f;
                     return;
                 }
             }
@@ -80,12 +68,6 @@ namespace pitTeam.Modules
                 Prioritized = prioritized,
                 Until = now + retainSeconds,
                 LastContactAt = now,
-                RestoreCount = 0,
-                NextRestoreLogAt = 0f,
-                BlockedClearCount = 0,
-                NextBlockedClearLogAt = 0f,
-                BlockedSetCount = 0,
-                NextBlockedSetLogAt = 0f,
             };
         }
 
@@ -220,12 +202,6 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            contact.BlockedClearCount++;
-            if (contact.BlockedClearCount == 1 || Time.time >= contact.NextBlockedClearLogAt)
-            {
-                contact.NextBlockedClearLogAt = Time.time + 1f;
-            }
-
             return true;
         }
 
@@ -282,72 +258,13 @@ namespace pitTeam.Modules
             info.SetVisible(contact.WasVisible);
             Enemy.RepairPersonalMemory(info, enemy.Position, contact.WasVisible || Enemy.HasDirectPersonalContact(info));
             follower.Memory.IsPeace = false;
-            if (contact.RestoreCount == 0 || Time.time >= contact.NextRestoreLogAt)
-            {
-                BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                    follower,
-                    info,
-                    enemy,
-                    "FollowerContactEnemyRetention.TryRestore",
-                    "retainedContactRestore",
-                    promotedToGoal: true,
-                    hasDirectVisibility: false,
-                    visibilityAssumed: contact.WasVisible,
-                    details: new
-                    {
-                        contact.EnemyProfileId,
-                        contact.WasVisible,
-                        contact.Prioritized,
-                        restoreCount = contact.RestoreCount,
-                        until = contact.Until
-                    });
-            }
             using (FollowerGoalEnemyTracker.Begin("FollowerContactEnemyRetention.TryRestore", "retainedContactRestore"))
             {
                 follower.Memory.GoalEnemy = info;
             }
             restored = info;
 
-            contact.RestoreCount++;
-            if (contact.RestoreCount == 1 || Time.time >= contact.NextRestoreLogAt)
-            {
-                contact.NextRestoreLogAt = Time.time + 1f;
-            }
-
             return true;
-        }
-
-        private static void RecordBlockedGoalSet(
-            BotOwner follower,
-            RetainedContact contact,
-            EnemyInfo candidate,
-            string source,
-            string blockedReason)
-        {
-            contact.BlockedSetCount++;
-            if (contact.BlockedSetCount != 1 && Time.time < contact.NextBlockedSetLogAt)
-            {
-                return;
-            }
-
-            contact.NextBlockedSetLogAt = Time.time + 0.5f;
-            BattleRecorder.RecordObjectiveDiagnostic(
-                follower,
-                "FollowerContactEnemyRetention",
-                "blockGoalEnemySet",
-                blockedReason,
-                new
-                {
-                    source,
-                    retainedEnemyProfileId = contact.EnemyProfileId,
-                    candidateEnemyProfileId = candidate.ProfileId,
-                    candidateVisible = candidate.IsVisible,
-                    candidateCanShoot = candidate.CanShoot,
-                    candidateDistance = candidate.Distance,
-                    candidateReliableShootLane = candidate.IsVisible && candidate.CanShoot
-                        ? FollowerImmediateFirePolicy.HasReliableImmediateFireLane(follower, candidate)
-                        : false
-                });
         }
 
         private static bool TryAdoptDifferentLiveVisibleGoal(
@@ -374,20 +291,6 @@ namespace pitTeam.Modules
 
             if (!ShouldAdoptDifferentLiveVisibleGoal(follower, retainedEnemyProfileId, goalEnemy, out string rejectReason))
             {
-                BattleRecorder.RecordObjectiveDiagnostic(
-                    follower,
-                    "FollowerContactEnemyRetention",
-                    "blockAdoptVisibleGoal",
-                    rejectReason,
-                    new
-                    {
-                        retainedEnemyProfileId,
-                        candidateEnemyProfileId = goalEnemy.ProfileId,
-                        candidateVisible = goalEnemy.IsVisible,
-                        candidateCanShoot = goalEnemy.CanShoot,
-                        candidateDistance = goalEnemy.Distance,
-                        candidateReliableShootLane = FollowerImmediateFirePolicy.HasReliableImmediateFireLane(follower, goalEnemy)
-                    });
                 return false;
             }
 
@@ -411,21 +314,6 @@ namespace pitTeam.Modules
             adoptedInfo = goalEnemy;
             adoptedEnemy = enemy;
 
-            BattleRecorder.RecordObjectiveDiagnostic(
-                follower,
-                "FollowerContactEnemyRetention",
-                "adoptVisibleGoal",
-                "differentVisibleGoal",
-                new
-                {
-                    previousRetainedEnemyProfileId = retainedEnemyProfileId,
-                    adoptedEnemyProfileId = goalEnemy.ProfileId,
-                    adoptedVisible = goalEnemy.IsVisible,
-                    adoptedCanShoot = goalEnemy.CanShoot,
-                    adoptedDistance = goalEnemy.Distance,
-                    preserveMissionRetention
-                });
-
             return true;
         }
 
@@ -433,7 +321,6 @@ namespace pitTeam.Modules
             BotOwner follower,
             EnemyInfo? currentGoal,
             EnemyInfo candidate,
-            string source,
             string reason,
             out string? blockedReason)
         {
@@ -489,20 +376,6 @@ namespace pitTeam.Modules
                 if (candidatePlayer?.HealthController?.IsAlive == true)
                 {
                     Register(follower, candidatePlayer, visible: true, prioritized: true);
-                    BattleRecorder.RecordObjectiveDiagnostic(
-                        follower,
-                        "FollowerContactEnemyRetention",
-                        "adoptGoalEnemySet",
-                        "differentVisibleGoal",
-                        new
-                        {
-                            source,
-                            retainedEnemyProfileId = contact.EnemyProfileId,
-                            candidateEnemyProfileId = candidate.ProfileId,
-                            candidateVisible = candidate.IsVisible,
-                            candidateCanShoot = candidate.CanShoot,
-                            candidateDistance = candidate.Distance
-                        });
                     return true;
                 }
 
@@ -514,7 +387,6 @@ namespace pitTeam.Modules
             }
 
             blockedReason = "retentionBlockedSet:" + (string.IsNullOrEmpty(rejectReason) ? "notEngageable" : rejectReason);
-            RecordBlockedGoalSet(follower, contact, candidate, source, blockedReason);
             return false;
         }
 

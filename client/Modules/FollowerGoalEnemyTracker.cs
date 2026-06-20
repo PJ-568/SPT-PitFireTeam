@@ -1,6 +1,5 @@
 using EFT;
 using System;
-using System.Diagnostics;
 
 namespace pitTeam.Modules
 {
@@ -15,8 +14,6 @@ namespace pitTeam.Modules
             currentContext = new GoalEnemySetContext(source, reason);
             return new GoalEnemySetScope(previous);
         }
-
-        public static string CurrentSource => currentContext?.Source ?? InferSource();
 
         public static string CurrentReason => currentContext?.Reason ?? "unscopedSetter";
 
@@ -39,7 +36,7 @@ namespace pitTeam.Modules
             }
 
             GoalEnemySetContext? context = currentContext;
-            string source = context?.Source ?? InferSource();
+            string source = context?.Source ?? "unscopedSetter";
             string reason = blockedReason ?? context?.Reason ?? "unscopedSetter";
 
             BattleRecorder.RecordGoalEnemyTransition(
@@ -49,57 +46,6 @@ namespace pitTeam.Modules
                 source,
                 reason,
                 allowed);
-        }
-
-        private static string InferSource()
-        {
-            try
-            {
-                StackTrace trace = new StackTrace(false);
-                for (int i = 0; i < trace.FrameCount; i++)
-                {
-                    var method = trace.GetFrame(i)?.GetMethod();
-                    Type? declaringType = method?.DeclaringType;
-                    if (method == null || declaringType == null)
-                    {
-                        continue;
-                    }
-
-                    string fullName = $"{declaringType.FullName}.{method.Name}";
-                    if (ShouldSkipFrame(fullName))
-                    {
-                        continue;
-                    }
-
-                    if (fullName.StartsWith("pitTeam.", StringComparison.Ordinal))
-                    {
-                        return fullName;
-                    }
-
-                    if (fullName.StartsWith("SAIN.", StringComparison.Ordinal) ||
-                        fullName.IndexOf(".SAIN", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        return $"SAIN:{fullName}";
-                    }
-
-                    return $"vanilla:{fullName}";
-                }
-            }
-            catch
-            {
-            }
-
-            return "unknownGoalEnemySetter";
-        }
-
-        private static bool ShouldSkipFrame(string fullName)
-        {
-            return fullName.StartsWith(typeof(FollowerGoalEnemyTracker).FullName ?? string.Empty, StringComparison.Ordinal) ||
-                   fullName.IndexOf("FollowerGoalEnemyClearRetentionPatch", StringComparison.Ordinal) >= 0 ||
-                   fullName.IndexOf("BotMemoryClass.set_GoalEnemy", StringComparison.Ordinal) >= 0 ||
-                   fullName.IndexOf("BotMemoryClass::set_GoalEnemy", StringComparison.Ordinal) >= 0 ||
-                   fullName.IndexOf("DMD<BotMemoryClass", StringComparison.Ordinal) >= 0 ||
-                   fullName.StartsWith("HarmonyLib.", StringComparison.Ordinal);
         }
 
         internal sealed class GoalEnemySetContext

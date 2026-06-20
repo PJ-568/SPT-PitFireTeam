@@ -77,7 +77,6 @@ namespace pitTeam.Components
         private bool _combatIndependent;
         private bool _combatIndependentRequested;
         private bool _combatRegroupUsesBossAnchor;
-        private bool _postCombatFullHealArmed;
         private bool _patrolLeaderSectorAnchorSet;
         private Vector3 _patrolLeaderSectorAnchor;
         private bool _peaceChangeHooked = false;
@@ -1149,7 +1148,6 @@ namespace pitTeam.Components
         {
             _combatIndependent = _canPatrol || _combatIndependentRequested;
             _combatRegroupUsesBossAnchor = false;
-            _postCombatFullHealArmed = true;
         }
 
         public void SetCombatIndependent(bool value)
@@ -2017,7 +2015,6 @@ namespace pitTeam.Components
             if (!pitFireTeam.UseSainFollowerCombat)
             {
                 ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
-                BeginPostCombatFullHealIfArmed();
                 return true;
             }
 
@@ -2040,7 +2037,6 @@ namespace pitTeam.Components
             if (bridgeReady)
             {
                 ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
-                BeginPostCombatFullHealIfArmed();
                 return true;
             }
 
@@ -2052,17 +2048,6 @@ namespace pitTeam.Components
 
             // With fixed SAIN/addon target, fail closed if bridge is unavailable.
             return false;
-        }
-
-        private void BeginPostCombatFullHealIfArmed()
-        {
-            if (!_postCombatFullHealArmed)
-            {
-                return;
-            }
-
-            _postCombatFullHealArmed = false;
-            Utils.FollowerMedical.BeginPostCombatFullHeal(_bot);
         }
 
         public bool HasCombatHandoffSignal()

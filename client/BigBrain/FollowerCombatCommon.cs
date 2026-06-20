@@ -1320,23 +1320,6 @@ namespace pitTeam.BigBrain
                 IsAutoPushMissionDecision(decision) &&
                 Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(committedEnemy))
             {
-                BattleRecorder.RecordObjectiveDiagnostic(
-                    botOwner,
-                    "FollowerCombatCommon",
-                    "rejectCommittedAutoPush",
-                    decision.Reason ?? "commitAutoPush",
-                    new
-                    {
-                        targetProfileId = committedEnemy.ProfileId,
-                        targetVisible = committedEnemy.IsVisible,
-                        targetCanShoot = committedEnemy.CanShoot,
-                        targetHaveSeen = committedEnemy.HaveSeen,
-                        targetHaveSeenPersonal = committedEnemy.HaveSeenPersonal,
-                        targetPersonalSeenTime = committedEnemy.PersonalSeenTime,
-                        targetPersonalLastSeenTime = committedEnemy.PersonalLastSeenTime,
-                        targetCause = committedEnemy.GroupInfo?.Cause.ToString(),
-                        targetDistance = committedEnemy.Distance
-                    });
                 return;
             }
 
@@ -2230,28 +2213,13 @@ namespace pitTeam.BigBrain
 
                 item.Value.PriorityIndex = 0;
                 Enemy.RepairPersonalMemory(item.Value, item.Key.Position, Enemy.HasDirectPersonalContact(item.Value));
-                BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                    botOwner,
-                    item.Value,
-                    item.Key,
-                    "FollowerCombatCommon.TryPromoteTrackedEnemyAsGoal",
-                    "trackedEnemyPromotion",
-                    promotedToGoal: true,
-                    hasDirectVisibility: item.Value.IsVisible || item.Value.CanShoot,
-                    details: new
-                    {
-                        enemyProfileId,
-                        previousGoalProfileId = botOwner.Memory?.GoalEnemy?.ProfileId
-                    });
                 if (FollowerCombatTargetCommitments.HasMission(botOwner) &&
                     !FollowerCombatTargetCommitments.IsMissionTarget(botOwner, item.Value) &&
                     !FollowerCombatTargetCommitments.TryRegisterTemporaryTarget(
                         botOwner,
                         item.Value,
                         "trackedEnemyPromotion",
-                        "FollowerCombatCommon.TryPromoteTrackedEnemyAsGoal",
-                        out _,
-                        recordReject: true))
+                        out _))
                 {
                     return false;
                 }
@@ -2310,20 +2278,6 @@ namespace pitTeam.BigBrain
             enemyInfo.SetVisible(enemyInfo.IsVisible);
             Enemy.RepairPersonalMemory(enemyInfo, enemyPlayer.Position, Enemy.HasDirectPersonalContact(enemyInfo));
             botOwner.Memory.IsPeace = false;
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                botOwner,
-                enemyInfo,
-                enemyPlayer,
-                "FollowerCombatCommon.TryForceGoalEnemy",
-                reason,
-                promotedToGoal: true,
-                hasDirectVisibility: enemyInfo.IsVisible || enemyInfo.CanShoot,
-                details: new
-                {
-                    enemyProfileId,
-                    alreadyGoal,
-                    previousGoalProfileId = currentGoal?.ProfileId
-                });
             using (FollowerGoalEnemyTracker.Begin("FollowerCombatCommon.TryForceGoalEnemy", reason))
             {
                 botOwner.Memory.GoalEnemy = enemyInfo;
@@ -2389,27 +2343,12 @@ namespace pitTeam.BigBrain
             enemyInfo.IgnoreUntilAggression = false;
             enemyInfo.SetVisible(enemyInfo.IsVisible);
             Enemy.RepairPersonalMemory(enemyInfo, enemyPlayer.Position, Enemy.HasDirectPersonalContact(enemyInfo));
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                botOwner,
-                enemyInfo,
-                enemyPlayer,
-                "FollowerCombatCommon.TryUseTemporaryGoalEnemy",
-                reason,
-                promotedToGoal: true,
-                hasDirectVisibility: enemyInfo.IsVisible || enemyInfo.CanShoot,
-                details: new
-                {
-                    enemyProfileId,
-                    missionActive = FollowerCombatTargetCommitments.HasMission(botOwner)
-                });
 
             if (!FollowerCombatTargetCommitments.TryRegisterTemporaryTarget(
                     botOwner,
                     enemyInfo,
                     reason,
-                    "FollowerCombatCommon.TryUseTemporaryGoalEnemy",
-                    out _,
-                    recordReject: true))
+                    out _))
             {
                 return false;
             }

@@ -104,7 +104,6 @@ namespace pitTeam.BigBrain
         private float nextPatrolLauncherFallbackRecordAt = 0f;
         private float nextHealWorkRefreshAt = 0f;
         private bool stoppedForHealDecision = false;
-        private bool sawEnemyDuringCurrentCycle = false;
         private BotFollowerPlayer? followerData;
 
         private Action? selectedAction = null;
@@ -143,13 +142,11 @@ namespace pitTeam.BigBrain
 
             if (BotOwner.Memory.HaveEnemy)
             {
-                sawEnemyDuringCurrentCycle = true;
                 return false;
             }
 
             if (HasVisibleKnownEnemy())
             {
-                sawEnemyDuringCurrentCycle = true;
                 return false;
             }
 
@@ -172,11 +169,6 @@ namespace pitTeam.BigBrain
             if (!followerData.IsReadyForPatrolAfterCombat())
             {
                 return false;
-            }
-
-            if (sawEnemyDuringCurrentCycle)
-            {
-                sawEnemyDuringCurrentCycle = false;
             }
 
             return true;
@@ -452,6 +444,11 @@ namespace pitTeam.BigBrain
             // Old EndHeal equivalent: no pending heal work -> end heal action.
             if (!hasPendingHealWork && !hasRecoverableTopOffWork)
             {
+                if (Utils.FollowerMedical.ShouldKeepPostCombatFullHeal(BotOwner) && IsActive())
+                {
+                    return false;
+                }
+
                 CompleteHealing();
                 return true;
             }
@@ -479,8 +476,11 @@ namespace pitTeam.BigBrain
                 canStartHeal = CanStartVanillaHealNode();
                 if (!canStartHeal)
                 {
-                    if (Utils.FollowerMedical.IsPostCombatFullHealActive(BotOwner) && !hasRecoverableTopOffWork)
+                    if (Utils.FollowerMedical.IsPostCombatFullHealActive(BotOwner) &&
+                        !hasRecoverableTopOffWork &&
+                        !Utils.FollowerMedical.ShouldKeepPostCombatFullHeal(BotOwner))
                     {
+                        Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
                         CompleteHealing();
                         return true;
                     }
@@ -508,12 +508,18 @@ namespace pitTeam.BigBrain
             bool isUsingSurgery = BotOwner?.Medecine?.SurgicalKit?.Using == true;
             bool hasFirstAidWork = BotOwner?.Medecine?.FirstAid?.Have2Do == true;
             bool hasSurgeryWork = BotOwner?.Medecine?.SurgicalKit?.HaveWork == true;
+            bool shouldKeepPostCombatFullHeal = Utils.FollowerMedical.ShouldKeepPostCombatFullHeal(BotOwner);
 
             isUsingHeal = isUsingFirstAid || isUsingSurgery;
             hasPendingHealWork = hasSurgeryWork || hasFirstAidWork;
-            hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
+            hasRecoverableTopOffWork =
+                Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner) ||
+                shouldKeepPostCombatFullHeal;
 
-            if (!isUsingHeal && !hasPendingHealWork && !hasRecoverableTopOffWork)
+            if (!isUsingHeal &&
+                !hasPendingHealWork &&
+                !hasRecoverableTopOffWork &&
+                !shouldKeepPostCombatFullHeal)
             {
                 Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
             }
@@ -528,7 +534,6 @@ namespace pitTeam.BigBrain
             healNodeEnteredAt = 0f;
             // Normal patrol healing should finish/cancel medical state without restoring all raid HP.
             Utils.FollowerMedical.CompleteHealing(BotOwner);
-            Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
         }
 
         private void AbortHealing()
@@ -539,7 +544,6 @@ namespace pitTeam.BigBrain
             healSoftTimeoutAt = 0f;
             healNodeEnteredAt = 0f;
             Utils.FollowerMedical.AbortHealing(BotOwner, recoverDestroyedSurgeryParts: true);
-            Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
         }
 
         private bool CanStartVanillaHealNode()

@@ -49,6 +49,11 @@ namespace pitTeam.Patches
         public static void PatchPostfix(BotHearingSensor __instance, IPlayer player, Vector3 position, float power, AISoundType type)
         {
             BotOwner botOwner_0 = __instance.BotOwner;
+            if (BossPlayers.IsFollower(botOwner_0) && FollowerEnemyEnforceSuppression.IsSuppressed(botOwner_0))
+            {
+                return;
+            }
+
             // check if enemy is trying to sneak up on the bot - only during combat
             if (type == AISoundType.step)
             {
@@ -184,6 +189,7 @@ namespace pitTeam.Patches
             foreach (var follower in BossPlayers.GetFollowers())
             {
                 BotOwner bot = follower.GetBot();
+                if (bot == null || FollowerEnemyEnforceSuppression.IsSuppressed(bot)) continue;
                 if (bot.ProfileId == __instance.ProfileId) continue;
                 bool knownEnemy = bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance);
                 bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(bot, __instance);
@@ -267,6 +273,7 @@ namespace pitTeam.Patches
                 BotOwner bot = follower.GetBot();
                 if (bot == null || bot.IsDead || bot.GetPlayer == null || bot.HearingSensor == null) return;
                 if (bot.EnemiesController == null || bot.Memory == null || bot.BotsGroup == null) return;
+                if (FollowerEnemyEnforceSuppression.IsSuppressed(bot)) return;
                 if (FollowerAwareness.WasRecentlyHit(bot))
                 {
                     Trace(bot, $"Voice ignore recentlyHit src={__instance.ProfileId}");

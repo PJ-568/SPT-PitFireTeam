@@ -580,8 +580,6 @@ namespace pitTeam.Components
                 : EEnemyPartVisibleType.Sence;
             bool visibleForContact = visibleType == EEnemyPartVisibleType.Visible;
             string goalPromotionReason = prioritizeAsGoal ? "contactEnemy:prioritized" : "contactEnemy:fillEmpty";
-            string beforeGoalId = follower.Memory?.GoalEnemy?.ProfileId ?? "<null>";
-            bool beforeHaveEnemy = follower.Memory?.HaveEnemy == true;
 
             try
             {
@@ -623,27 +621,6 @@ namespace pitTeam.Components
                 trackedEnemy.GroupInfo = botSettings;
                 Enemy.RepairPersonalMemory(trackedEnemy, enemy.Position, visibleForContact || prioritizeAsGoal);
             }
-
-            bool willPromoteToGoal = allowGoalPromotion &&
-                                     (prioritizeAsGoal || !follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null);
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                follower,
-                trackedEnemy,
-                enemy,
-                "AIBossPlayer.RegisterContactEnemyForFollower",
-                goalPromotionReason,
-                willPromoteToGoal,
-                visibleForContact,
-                visibilityAssumed: prioritizeAsGoal && !visibleForContact,
-                details: new
-                {
-                    visibleForContact,
-                    visibleType = visibleType.ToString(),
-                    prioritizeAsGoal,
-                    allowGoalPromotion,
-                    beforeGoalProfileId = beforeGoalId,
-                    beforeHaveEnemy
-                });
 
             if (allowGoalPromotion && prioritizeAsGoal)
             {
@@ -807,19 +784,6 @@ namespace pitTeam.Components
             {
                 promoted.PriorityIndex = 0;
                 Enemy.RepairPersonalMemory(promoted, promoted.CurrPosition, Enemy.HasDirectPersonalContact(promoted));
-                BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                    follower,
-                    promoted,
-                    promoted.Person,
-                    "AIBossPlayer.PromoteEnemyAsGoal",
-                    reason,
-                    promotedToGoal: true,
-                    hasDirectVisibility: promoted.IsVisible || promoted.CanShoot,
-                    details: new
-                    {
-                        enemyProfileId,
-                        beforeGoalProfileId = follower.Memory?.GoalEnemy?.ProfileId
-                    });
                 using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.PromoteEnemyAsGoal", reason))
                 {
                     follower.Memory.GoalEnemy = promoted;
@@ -1322,6 +1286,8 @@ namespace pitTeam.Components
                 }
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ClearTemporaryCombatAggressionOverride();
+                followerData?.ClearOrderedPushTargetLock("Attention");
+                FollowerCombatTargetCommitments.ClearMission(follower, null, "Attention");
 
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
@@ -1359,6 +1325,9 @@ namespace pitTeam.Components
                 return;
             }
 
+            FollowerAwareness.ClearTransientState(follower);
+            FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(follower);
+
             // Clear current goal enemy flags first.
             if (follower.Memory.GoalEnemy != null && follower.Memory.GoalEnemy.GroupInfo != null)
             {
@@ -1393,7 +1362,6 @@ namespace pitTeam.Components
                 }
             }
 
-            FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(follower);
             using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.ClearEnemyInfo", "clearFollowerEnemyCache"))
             {
                 follower.Memory.GoalEnemy = null;
@@ -3731,20 +3699,6 @@ namespace pitTeam.Components
                 {
                     info.PriorityIndex = 0;
                     Enemy.RepairPersonalMemory(info, enemy.Position, Enemy.HasDirectPersonalContact(info));
-                    BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                        follower,
-                        info,
-                        enemy.GetPlayer,
-                        "AIBossPlayer.PrioritizeEnemy",
-                        "existingTrackedEnemy",
-                        promotedToGoal: !follower.Memory.HaveEnemy,
-                        hasDirectVisibility: false,
-                        visibilityAssumed: info.IsVisible || info.CanShoot,
-                        details: new
-                        {
-                            enemyProfileId = enemy.ProfileId,
-                            beforeGoalProfileId = follower.Memory?.GoalEnemy?.ProfileId
-                        });
                     if (!follower.Memory.HaveEnemy)
                     {
                         using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.PrioritizeEnemy", "existingTrackedEnemy"))
@@ -3772,20 +3726,6 @@ namespace pitTeam.Components
                         if (info != null)
                         {
                             Enemy.RepairPersonalMemory(info, enemy.Position, Enemy.HasDirectPersonalContact(info));
-                            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                                follower,
-                                info,
-                                enemy.GetPlayer,
-                                "AIBossPlayer.PrioritizeEnemy",
-                                "createdTrackedEnemy",
-                                promotedToGoal: true,
-                                hasDirectVisibility: false,
-                                visibilityAssumed: info.IsVisible || info.CanShoot,
-                                details: new
-                                {
-                                    enemyProfileId = enemy.ProfileId,
-                                    beforeGoalProfileId = follower.Memory?.GoalEnemy?.ProfileId
-                                });
                             using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.PrioritizeEnemy", "createdTrackedEnemy"))
                             {
                                 follower.Memory.GoalEnemy = info;

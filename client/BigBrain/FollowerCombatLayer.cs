@@ -133,6 +133,7 @@ namespace pitTeam.BigBrain
         public override void Stop()
         {
             BattleRecorder.RecordCombatLayerState(BotOwner, false, "layerStop");
+            BeginPostCombatFullHealIfCombatEnded();
             MarkActive(false);
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             followerData?.ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
@@ -250,8 +251,7 @@ namespace pitTeam.BigBrain
                 bool expired = IsLingerExpired();
                 if (expired)
                 {
-                    hadCombatSinceActivation = false;
-                    ClearLinger();
+                    CompletePostCombatLinger();
                 }
 
                 return expired;
@@ -324,9 +324,18 @@ namespace pitTeam.BigBrain
 
         private void CompletePostCombatLinger()
         {
+            Utils.FollowerMedical.BeginPostCombatFullHeal(BotOwner);
             hadCombatSinceActivation = false;
             ClearLinger();
             BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
+        }
+
+        private void BeginPostCombatFullHealIfCombatEnded()
+        {
+            if (hadCombatSinceActivation || lingerArmed || IsHealingDecision(currentDecision))
+            {
+                Utils.FollowerMedical.BeginPostCombatFullHeal(BotOwner);
+            }
         }
 
         private void ClearMedicalKeepActive()
@@ -515,22 +524,6 @@ namespace pitTeam.BigBrain
             }
 
             BotOwner.Memory.IsPeace = false;
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                BotOwner,
-                restored,
-                target,
-                "FollowerCombatLayer.TryRestoreOrderedPushGoalEnemy",
-                "orderedPushTargetLockRestore",
-                promotedToGoal: true,
-                hasDirectVisibility: false,
-                visibilityAssumed: restored.IsVisible || restored.CanShoot,
-                details: new
-                {
-                    targetProfileId,
-                    rememberedPosition = IsFinite(rememberedPosition)
-                        ? new { x = rememberedPosition.x, y = rememberedPosition.y, z = rememberedPosition.z }
-                        : null
-                });
             using (FollowerGoalEnemyTracker.Begin("FollowerCombatLayer.TryRestoreOrderedPushGoalEnemy", "orderedPushTargetLockRestore"))
             {
                 BotOwner.Memory.GoalEnemy = restored;

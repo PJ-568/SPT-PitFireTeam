@@ -71,7 +71,6 @@ namespace pitTeam.Patches
 
                 if (value != null)
                 {
-                    string source = FollowerGoalEnemyTracker.CurrentSource;
                     string reason = FollowerGoalEnemyTracker.CurrentReason;
                     if (ShouldBlockUnscopedRelationOnlyGoal(botOwner, value, reason))
                     {
@@ -81,21 +80,6 @@ namespace pitTeam.Patches
                             value,
                             allowed: false,
                             blockedReason: "relationOnlyGoalEnemyBlocked");
-                        BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                            botOwner,
-                            value,
-                            value.Person,
-                            "BotMemoryClass.GoalEnemySetter",
-                            source,
-                            promotedToGoal: false,
-                            hasDirectVisibility: false,
-                            details: new
-                            {
-                                setterSource = source,
-                                setterReason = reason,
-                                previousGoalProfileId = previous?.ProfileId,
-                                blockedReason = "relationOnlyGoalEnemyBlocked"
-                            });
                         return false;
                     }
 
@@ -103,7 +87,6 @@ namespace pitTeam.Patches
                         botOwner,
                         previous,
                         value,
-                        source,
                         reason,
                         out string? blockedReason);
                     if (allowed && botOwner != null && BossPlayers.IsFollower(botOwner))
@@ -112,7 +95,6 @@ namespace pitTeam.Patches
                             botOwner,
                             previous,
                             value,
-                            source,
                             reason,
                             out blockedReason);
                     }
@@ -123,29 +105,6 @@ namespace pitTeam.Patches
                         value,
                         allowed,
                         blockedReason);
-                    if (allowed &&
-                        botOwner != null &&
-                        BossPlayers.IsFollower(botOwner) &&
-                        string.Equals(reason, "unscopedSetter", System.StringComparison.Ordinal) &&
-                        value != null &&
-                        !value.IsVisible &&
-                        !value.CanShoot)
-                    {
-                        BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                            botOwner,
-                            value,
-                            value.Person,
-                            "BotMemoryClass.GoalEnemySetter",
-                            source,
-                            promotedToGoal: true,
-                            hasDirectVisibility: false,
-                            details: new
-                            {
-                                setterSource = source,
-                                setterReason = reason,
-                                previousGoalProfileId = previous?.ProfileId
-                            });
-                    }
                     return allowed;
                 }
 

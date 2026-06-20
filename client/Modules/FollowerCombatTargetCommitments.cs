@@ -19,7 +19,6 @@ namespace pitTeam.Modules
     {
         private const float TemporaryTargetLostGraceSeconds = 1.25f;
         private const float TemporaryTargetRecentDamageGraceSeconds = 2f;
-        private const float TemporaryTargetBlockDiagnosticInterval = 0.5f;
 
         private static readonly Dictionary<string, TargetState> States =
             new Dictionary<string, TargetState>(StringComparer.Ordinal);
@@ -72,24 +71,6 @@ namespace pitTeam.Modules
             if (kind == FollowerCombatTargetMissionKind.AutoPush &&
                 Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(target))
             {
-                RecordDiagnostic(
-                    follower,
-                    "rejectMission",
-                    reason,
-                    new
-                    {
-                        kind = kind.ToString(),
-                        rejectReason = "memoryOnlyAutoPushTarget",
-                        targetProfileId = target.ProfileId,
-                        targetVisible = target.IsVisible,
-                        targetCanShoot = target.CanShoot,
-                        targetHaveSeen = target.HaveSeen,
-                        targetHaveSeenPersonal = target.HaveSeenPersonal,
-                        targetPersonalSeenTime = target.PersonalSeenTime,
-                        targetPersonalLastSeenTime = target.PersonalLastSeenTime,
-                        targetCause = target.GroupInfo?.Cause.ToString(),
-                        targetDistance = target.Distance
-                    });
                 return;
             }
 
@@ -118,19 +99,6 @@ namespace pitTeam.Modules
             state.MissionLastRefreshAt = Time.time;
             state.TemporaryTargets.Clear();
             state.ActiveTemporaryEnemyProfileId = null;
-
-            RecordDiagnostic(
-                follower,
-                "setMission",
-                reason,
-                new
-                {
-                    kind = kind.ToString(),
-                    targetProfileId = target.ProfileId,
-                    targetVisible = target.IsVisible,
-                    targetCanShoot = target.CanShoot,
-                    targetDistance = target.Distance
-                });
         }
 
         public static void RefreshMission(
@@ -199,20 +167,6 @@ namespace pitTeam.Modules
                 return;
             }
 
-            if (state.MissionActive)
-            {
-                RecordDiagnostic(
-                    follower,
-                    "clearMission",
-                    reason,
-                    new
-                    {
-                        kind = state.MissionKind.ToString(),
-                        targetProfileId = state.MissionEnemyProfileId,
-                        activeTemporaryTargetProfileId = state.ActiveTemporaryEnemyProfileId
-                    });
-            }
-
             state.ClearMission();
             if (state.IsEmpty)
             {
@@ -224,7 +178,6 @@ namespace pitTeam.Modules
             BotOwner? follower,
             EnemyInfo? previous,
             EnemyInfo? next,
-            string source,
             string reason,
             out string? blockedReason)
         {
@@ -269,9 +222,7 @@ namespace pitTeam.Modules
                     follower,
                     next,
                     reason,
-                    source,
-                    out string temporaryReason,
-                    recordReject: true))
+                    out string temporaryReason))
             {
                 return true;
             }
@@ -284,9 +235,7 @@ namespace pitTeam.Modules
             BotOwner? follower,
             EnemyInfo? candidate,
             string reason,
-            string source,
-            out string resultReason,
-            bool recordReject = false)
+            out string resultReason)
         {
             resultReason = "noMission";
             if (candidate == null ||
@@ -318,53 +267,17 @@ namespace pitTeam.Modules
 
             if (!TryClassifyTemporaryTarget(follower, candidate, reason, out resultReason))
             {
-                if (recordReject && ShouldRecordBlock(state, candidate.ProfileId))
-                {
-                    RecordDiagnostic(
-                        follower,
-                        "blockTemporaryTarget",
-                        resultReason,
-                        new
-                        {
-                            source,
-                            reason,
-                            missionKind = state.MissionKind.ToString(),
-                            missionTargetProfileId = state.MissionEnemyProfileId,
-                            candidateProfileId = candidate.ProfileId,
-                            candidateVisible = candidate.IsVisible,
-                            candidateCanShoot = candidate.CanShoot,
-                            candidateDistance = candidate.Distance
-                        });
-                }
-
                 return false;
             }
 
             TemporaryTarget temporary = GetOrCreateTemporary(state, candidate.ProfileId);
             temporary.Reason = resultReason;
-            temporary.Source = source;
             temporary.FirstSeenAt = temporary.FirstSeenAt <= 0f ? Time.time : temporary.FirstSeenAt;
             temporary.LastValidAt = Time.time;
             temporary.LastSeenPosition = GetBestEnemyPosition(candidate);
             temporary.WasVisible = candidate.IsVisible;
             temporary.WasShootable = candidate.CanShoot;
             state.ActiveTemporaryEnemyProfileId = candidate.ProfileId;
-
-            RecordDiagnostic(
-                follower,
-                "acceptTemporaryTarget",
-                resultReason,
-                new
-                {
-                    source,
-                    reason,
-                    missionKind = state.MissionKind.ToString(),
-                    missionTargetProfileId = state.MissionEnemyProfileId,
-                    temporaryTargetProfileId = candidate.ProfileId,
-                    candidateVisible = candidate.IsVisible,
-                    candidateCanShoot = candidate.CanShoot,
-                    candidateDistance = candidate.Distance
-                });
 
             return true;
         }
@@ -453,24 +366,6 @@ namespace pitTeam.Modules
             }
 
             follower.Memory.IsPeace = false;
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                follower,
-                missionEnemy,
-                missionTarget,
-                "FollowerCombatTargetCommitments.TryRestoreMission",
-                reason,
-                promotedToGoal: true,
-                hasDirectVisibility: false,
-                visibilityAssumed: missionEnemy.IsVisible || missionEnemy.CanShoot,
-                details: new
-                {
-                    missionKind = state.MissionKind.ToString(),
-                    missionTargetProfileId = state.MissionEnemyProfileId,
-                    previousTemporaryTargetProfileId = current?.ProfileId,
-                    rememberedPosition = IsFinite(rememberedPosition)
-                        ? new { x = rememberedPosition.x, y = rememberedPosition.y, z = rememberedPosition.z }
-                        : null
-                });
             using (BeginAuthoritativeGoalSet())
             using (FollowerGoalEnemyTracker.Begin("FollowerCombatTargetCommitments.TryRestoreMission", reason))
             {
@@ -481,17 +376,6 @@ namespace pitTeam.Modules
             state.MissionLastKnownPosition = rememberedPosition;
             state.MissionLastRefreshAt = Time.time;
             FollowerContactEnemyRetention.Register(follower, missionTarget, missionEnemy.IsVisible || missionEnemy.CanShoot, prioritized: true);
-
-            RecordDiagnostic(
-                follower,
-                "restoreMissionTarget",
-                reason,
-                new
-                {
-                    missionKind = state.MissionKind.ToString(),
-                    missionTargetProfileId = state.MissionEnemyProfileId,
-                    previousTemporaryTargetProfileId = current?.ProfileId
-                });
 
             restored = missionEnemy;
             return true;
@@ -624,20 +508,6 @@ namespace pitTeam.Modules
             return temporary;
         }
 
-        private static bool ShouldRecordBlock(TargetState state, string candidateProfileId)
-        {
-            string key = candidateProfileId ?? string.Empty;
-            if (string.Equals(state.LastBlockedCandidateProfileId, key, StringComparison.Ordinal) &&
-                Time.time < state.NextBlockDiagnosticAt)
-            {
-                return false;
-            }
-
-            state.LastBlockedCandidateProfileId = key;
-            state.NextBlockDiagnosticAt = Time.time + TemporaryTargetBlockDiagnosticInterval;
-            return true;
-        }
-
         private static Vector3 GetBestEnemyPosition(EnemyInfo enemy)
         {
             if (IsFinite(enemy.CurrPosition) && enemy.CurrPosition.sqrMagnitude > 0.01f)
@@ -656,21 +526,6 @@ namespace pitTeam.Modules
             }
 
             return enemy.Person?.Position ?? Vector3.zero;
-        }
-
-        private static void RecordDiagnostic(BotOwner? follower, string action, string reason, object details)
-        {
-            if (follower == null)
-            {
-                return;
-            }
-
-            BattleRecorder.RecordObjectiveDiagnostic(
-                follower,
-                "FollowerCombatTargetCommitments",
-                action,
-                reason,
-                details);
         }
 
         private static bool IsFinite(Vector3 value)
@@ -700,8 +555,6 @@ namespace pitTeam.Modules
             public float MissionSetAt;
             public float MissionLastRefreshAt;
             public string? ActiveTemporaryEnemyProfileId;
-            public string? LastBlockedCandidateProfileId;
-            public float NextBlockDiagnosticAt;
             public readonly Dictionary<string, TemporaryTarget> TemporaryTargets =
                 new Dictionary<string, TemporaryTarget>(StringComparer.Ordinal);
 
@@ -715,8 +568,6 @@ namespace pitTeam.Modules
                 MissionSetAt = 0f;
                 MissionLastRefreshAt = 0f;
                 ActiveTemporaryEnemyProfileId = null;
-                LastBlockedCandidateProfileId = null;
-                NextBlockDiagnosticAt = 0f;
                 TemporaryTargets.Clear();
             }
         }
@@ -724,7 +575,6 @@ namespace pitTeam.Modules
         private sealed class TemporaryTarget
         {
             public string Reason = string.Empty;
-            public string Source = string.Empty;
             public float FirstSeenAt;
             public float LastValidAt;
             public Vector3 LastSeenPosition;

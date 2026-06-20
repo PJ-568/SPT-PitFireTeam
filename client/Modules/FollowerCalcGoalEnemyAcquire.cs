@@ -108,7 +108,6 @@ namespace pitTeam.Modules
             Enemy.RepairPersonalMemory(info, firstVisible.Position, ownerHasDirectContact);
             if (!ownerHasDirectContact)
             {
-                RecordUnconfirmedAcquire(owner, info, firstVisible, "idleAcquireNoConfirmedDirectContact");
                 return;
             }
 
@@ -117,6 +116,10 @@ namespace pitTeam.Modules
             owner.BotFollower.BossToFollow?.Followers?.ForEach(follower =>
             {
                 if (follower == null || follower.IsDead || follower.GetPlayer == null || follower == owner)
+                {
+                    return;
+                }
+                if (FollowerEnemyEnforceSuppression.IsSuppressed(follower))
                 {
                     return;
                 }
@@ -135,31 +138,11 @@ namespace pitTeam.Modules
                 Enemy.RepairPersonalMemory(followerInfo, firstVisible.Position, siblingHasDirectContact);
                 if (!siblingHasDirectContact)
                 {
-                    RecordUnconfirmedAcquire(follower, followerInfo, firstVisible, "siblingAcquireNoConfirmedDirectContact");
                     return;
                 }
 
                 PromoteGoalEnemy(follower, followerInfo, hasDirectVisibility: true);
             });
-        }
-
-        private static void RecordUnconfirmedAcquire(BotOwner follower, EnemyInfo? info, Player enemy, string reason)
-        {
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                follower,
-                info,
-                enemy,
-                "FollowerCalcGoalEnemyAcquire.HandleCalcGoal",
-                reason,
-                promotedToGoal: false,
-                hasDirectVisibility: false,
-                visibilityAssumed: false,
-                details: new
-                {
-                    previousGoalProfileId = follower?.Memory?.GoalEnemy?.ProfileId,
-                    previousHaveEnemy = follower?.Memory?.HaveEnemy == true,
-                    memoryOnly = Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(info)
-                });
         }
 
         private static void PromoteGoalEnemy(BotOwner follower, EnemyInfo? info, bool hasDirectVisibility)
@@ -172,21 +155,6 @@ namespace pitTeam.Modules
             bool willPromote = follower.Memory.GoalEnemy == null ||
                                !follower.Memory.HaveEnemy ||
                                follower.Memory.GoalEnemy.Person?.HealthController?.IsAlive != true;
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                follower,
-                info,
-                info.Person,
-                "FollowerCalcGoalEnemyAcquire.PromoteGoalEnemy",
-                "idleOrSiblingAcquire",
-                willPromote,
-                hasDirectVisibility,
-                visibilityAssumed: false,
-                details: new
-                {
-                    previousGoalProfileId = follower.Memory.GoalEnemy?.ProfileId,
-                    previousHaveEnemy = follower.Memory.HaveEnemy
-                });
-
             if (willPromote)
             {
                 follower.Memory.IsPeace = false;

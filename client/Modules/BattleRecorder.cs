@@ -393,45 +393,6 @@ namespace pitTeam.Modules
             });
         }
 
-        public static void RecordEnemyRegisteredNoDirectVisibility(
-            BotOwner bot,
-            EnemyInfo? enemyInfo,
-            IPlayer? enemyPlayer,
-            string source,
-            string reason,
-            bool promotedToGoal,
-            bool hasDirectVisibility,
-            bool visibilityAssumed = false,
-            object? details = null)
-        {
-            if (hasDirectVisibility || !CanRecordBot(bot))
-            {
-                return;
-            }
-
-            if (enemyInfo == null && enemyPlayer == null)
-            {
-                return;
-            }
-
-            RecorderFollowerState state = GetOrCreateState(bot);
-            EnemyInfo? currentGoal = bot.Memory?.GoalEnemy;
-            string? enemyProfileId = enemyInfo?.ProfileId ?? enemyPlayer?.ProfileId;
-            WriteEventInternal("enemyRegisteredNoDirectVisibility", bot, new
-            {
-                source,
-                reason,
-                promotedToGoal,
-                isCurrentGoal = !string.IsNullOrEmpty(enemyProfileId) &&
-                                string.Equals(currentGoal?.ProfileId, enemyProfileId, StringComparison.Ordinal),
-                visibilityAssumed,
-                memoryVisible = enemyInfo?.IsVisible == true || enemyInfo?.CanShoot == true,
-                enemy = CreateEnemyRegistrationContext(bot, enemyInfo, enemyPlayer),
-                details,
-                context = CreateTransitionContext(bot, state)
-            });
-        }
-
         public static void RecordPushEmitted(
             BotOwner owner,
             string enemyProfileId,
@@ -756,67 +717,6 @@ namespace pitTeam.Modules
                 provenance = CreateEnemyProvenanceContext(groupInfo),
                 contact = CreateEnemyContactContext(goalEnemy, groupInfo),
                 geometry = CreateEnemyGeometryContext(bot, position)
-            };
-        }
-
-        private static object? CreateEnemyRegistrationContext(BotOwner bot, EnemyInfo? enemyInfo, IPlayer? enemyPlayer)
-        {
-            if (enemyInfo == null && enemyPlayer == null)
-            {
-                return null;
-            }
-
-            if (enemyInfo != null)
-            {
-                FollowerEnemyInfoCorrection.CorrectDistanceOnly(bot, enemyInfo);
-            }
-
-            IPlayer? player = enemyPlayer ?? enemyInfo?.Person;
-            Vector3 position = player?.Transform != null
-                ? player.Transform.position
-                : enemyInfo?.EnemyLastPositionReal ?? Vector3.zero;
-            BotSettingsClass? groupInfo = TryGetGroupInfo(bot, enemyInfo, player);
-
-            return new
-            {
-                profileId = enemyInfo?.ProfileId ?? player?.ProfileId,
-                nickname = player?.Profile?.Nickname,
-                role = player?.Profile?.Info?.Settings?.Role.ToString(),
-                position = IsFinite(position) ? CreateVector(position) : null,
-                distance = enemyInfo != null ? SanitizeFloat(enemyInfo.Distance) : (float?)null,
-                visibleType = enemyInfo?.VisibleType.ToString(),
-                isVisible = enemyInfo?.IsVisible,
-                canShoot = enemyInfo?.CanShoot,
-                haveSeen = enemyInfo?.HaveSeen,
-                personalSeenTime = enemyInfo != null ? SanitizeFloat(enemyInfo.PersonalSeenTime) : null,
-                personalLastSeenTime = enemyInfo != null ? SanitizeFloat(enemyInfo.PersonalLastSeenTime) : null,
-                firstTimeSeen = enemyInfo != null ? SanitizeFloat(enemyInfo.FirstTimeSeen) : null,
-                lastKnownPosition = enemyInfo != null && IsFinite(enemyInfo.EnemyLastPositionReal)
-                    ? CreateVector(enemyInfo.EnemyLastPositionReal)
-                    : null,
-                personalLastPosition = enemyInfo != null && IsFinite(enemyInfo.PersonalLastPos)
-                    ? CreateVector(enemyInfo.PersonalLastPos)
-                    : null,
-                provenance = CreateEnemyProvenanceContext(groupInfo),
-                contact = CreateEnemyContactContext(enemyInfo, groupInfo),
-                geometry = CreateEnemyGeometryContext(bot, position),
-                group = groupInfo != null
-                    ? new
-                    {
-                        cause = groupInfo.Cause.ToString(),
-                        causeCategory = ClassifyEnemyCause(groupInfo.Cause),
-                        requiresAwarenessGate = RequiresAcquisitionAwarenessGate(groupInfo.Cause),
-                        haveSeen = groupInfo.IsHaveSeen,
-                        lastPosition = IsFinite(groupInfo.EnemyLastPosition) ? CreateVector(groupInfo.EnemyLastPosition) : null,
-                        lastVisiblePosition = IsFinite(groupInfo.EnemyLastVisiblePosition) ? CreateVector(groupInfo.EnemyLastVisiblePosition) : null,
-                        lastSeenTimeSense = SanitizeFloat(groupInfo.EnemyLastSeenTimeSense),
-                        lastSeenTimeSenseAge = CreateAge(groupInfo.EnemyLastSeenTimeSense),
-                        lastSeenTimeReal = SanitizeFloat(groupInfo.EnemyLastSeenTimeReal),
-                        lastSeenTimeRealAge = CreateAge(groupInfo.EnemyLastSeenTimeReal),
-                        lastShootTime = SanitizeFloat(groupInfo.LastShootTime),
-                        lastShootAge = CreateAge(groupInfo.LastShootTime)
-                    }
-                    : null
             };
         }
 

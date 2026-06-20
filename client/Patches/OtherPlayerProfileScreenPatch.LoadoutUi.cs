@@ -1472,6 +1472,7 @@ namespace pitTeam.Patches
 
                 ApplyLoadoutEditorRepairResult(itemToRepair, data);
                 ApplyServerSavedPlayerStash(data.playerStashItems);
+                ApplyServerSavedLoadoutEditorStash(data.playerStashItems);
                 SyncLoadoutEditorRepairKitsFromActiveProfile(repairKitsInfo);
                 MarkSquadRosterDirty(ViewedProfile.AccountId);
                 pitFireTeam.Log.LogInfo($"[UI] Repaired teammate loadout item '{itemToRepair.Id}' through teammate repair route.");
@@ -1519,6 +1520,7 @@ namespace pitTeam.Patches
 
                 ApplyLoadoutEditorRepairResult(itemToRepair, data);
                 ApplyServerSavedPlayerStash(data.playerStashItems);
+                ApplyServerSavedLoadoutEditorStash(data.playerStashItems);
                 MarkSquadRosterDirty(ViewedProfile.AccountId);
                 pitFireTeam.Log.LogInfo($"[UI] Repaired teammate loadout item '{itemToRepair.Id}' through teammate trader repair route.");
                 return SuccessfulResult.New;
@@ -1547,6 +1549,37 @@ namespace pitTeam.Patches
             repairable.Durability = Math.Min(repairable.MaxDurability, (float)response.durability.Value);
             itemToRepair.UpdateAttributes();
             itemToRepair.RaiseRefreshEvent(true, true);
+        }
+
+        private static void ApplyServerSavedLoadoutEditorStash(FlatItemsDataClass[] savedStashItems)
+        {
+            if (savedStashItems == null
+                || savedStashItems.Length == 0
+                || LoadoutEditorProfile?.Inventory == null
+                || !IsRealDefaultLoadoutEditorCommit())
+            {
+                return;
+            }
+
+            try
+            {
+                ItemFactoryClass.GStruct181 tree = Singleton<ItemFactoryClass>.Instance.FlatItemsToTree(savedStashItems, false, null);
+                string stashRootId = savedStashItems[0]._id.ToString();
+                if (!tree.Items.TryGetValue(stashRootId, out Item savedRoot) || !(savedRoot is StashItemClass savedStash))
+                {
+                    throw new InvalidOperationException("Server-saved player stash root was unavailable for loadout editor refresh.");
+                }
+
+                ApplyLoadoutEditorOriginalPinLocks(savedStash);
+                LoadoutEditorProfile.Inventory.Stash = savedStash;
+                LoadoutEditorInitialStashItems = savedStashItems;
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogError("[UI] Failed to refresh loadout editor staged stash after teammate repair.");
+                pitFireTeam.Log.LogError(ex);
+                throw;
+            }
         }
 
         private static void SyncLoadoutEditorRepairKitsFromActiveProfile(RepairItem[] repairKitsInfo)

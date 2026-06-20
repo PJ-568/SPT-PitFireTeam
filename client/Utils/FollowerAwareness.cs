@@ -74,9 +74,23 @@ namespace pitTeam.Utils
             return lookPoint != Vector3.zero;
         }
 
+        public static void ClearTransientState(BotOwner bot)
+        {
+            if (string.IsNullOrEmpty(bot?.ProfileId))
+            {
+                return;
+            }
+
+            States.Remove(bot.ProfileId);
+        }
+
         public static void FollowerHit(BotOwner bot, DamageInfoStruct damageInfo)
         {
             if (bot == null || bot.IsDead || bot.BotState != EBotState.Active)
+            {
+                return;
+            }
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(bot))
             {
                 return;
             }
@@ -131,6 +145,7 @@ namespace pitTeam.Utils
         public static bool FakeShot(BotOwner bot, Vector3 lookPoint, float sourceDistance = float.MaxValue)
         {
             if (bot == null || bot.IsDead || bot.BotState != EBotState.Active) return false;
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(bot)) return false;
             if (bot.Memory.HaveEnemy && bot.Memory.GoalEnemy != null && bot.Memory.GoalEnemy.IsVisible)
             {
                 return false;
@@ -152,6 +167,7 @@ namespace pitTeam.Utils
         public static void SoundHeard(BotOwner bot, Player enemy, Vector3 position, float distance, AISoundType type)
         {
             if (bot == null || enemy == null || bot.IsDead || bot.BotState != EBotState.Active) return;
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(bot)) return;
             var state = GetState(bot);
             if (state == null) return;
             bool gunSound = type == AISoundType.silencedGun || type == AISoundType.gun;
@@ -176,6 +192,8 @@ namespace pitTeam.Utils
                             TryAcquireVisibleHostileOfBossGroup(bot, enemy);
                         }
                     }
+
+                    state.LastGunshotTime = Time.time;
                 }
                 else if (CanBotShootEnemy(bot, enemy))
                 {
@@ -232,6 +250,7 @@ namespace pitTeam.Utils
         public static void BulletFelt(BotOwner bot, EftBulletClass bullet, Vector3? impactPoint = null)
         {
             if (bot == null || bullet == null || bot.IsDead || bot.BotState != EBotState.Active) return;
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(bot)) return;
 
             var state = GetState(bot);
             if (state == null) return;
@@ -287,6 +306,7 @@ namespace pitTeam.Utils
             {
                 return;
             }
+
             if (CanBotShootEnemy(bot, shooter) && TryAcquireVisibleHostileOfBossGroup(bot, shooter))
             {
                 return;
@@ -364,6 +384,7 @@ namespace pitTeam.Utils
         private static bool TryAutoAcquireCloseThreat(BotOwner bot, Player enemy, float distance)
         {
             if (bot == null || enemy == null) return false;
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(bot)) return false;
             if (distance > CombatDistanceConfiguration.Instance.GetCloseThreatAutoAcquireDistance())
             {
                 return false;
@@ -381,6 +402,7 @@ namespace pitTeam.Utils
         private static bool TryAcquireVisibleHostileOfBossGroup(BotOwner bot, Player enemy)
         {
             if (bot == null || enemy == null) return false;
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(bot)) return false;
             EnemyInfo? enemyInfo = Enemy.MakeEnemy(
                 bot,
                 enemy,
@@ -398,6 +420,10 @@ namespace pitTeam.Utils
             EnemyInfo? existingInfo = null)
         {
             if (bot?.Memory == null || enemy == null || enemy.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+            if (FollowerEnemyEnforceSuppression.IsSuppressed(bot))
             {
                 return false;
             }
@@ -428,23 +454,6 @@ namespace pitTeam.Utils
             bool shouldPromote = alreadyGoal ||
                                  temporaryThreatRegistered ||
                                  ShouldReplaceGoalWithIncomingThreat(bot, currentGoal, enemy);
-            BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                bot,
-                enemyInfo,
-                enemy,
-                "FollowerAwareness.TryPromoteIncomingThreat",
-                reason,
-                shouldPromote,
-                hasDirectVisibility: false,
-                visibilityAssumed: countAsVisible,
-                details: new
-                {
-                    alreadyGoal,
-                    temporaryThreatRegistered,
-                    countAsVisible,
-                    previousGoalProfileId = currentGoal?.ProfileId,
-                    incomingDistance = GetPlanarDistance(bot.Position, enemy.Position)
-                });
 
             if (!shouldPromote)
             {
@@ -481,22 +490,6 @@ namespace pitTeam.Utils
                 FollowerContactEnemyRetention.Register(bot, enemy, countAsVisible || enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
             }
 
-            BattleRecorder.RecordObjectiveDiagnostic(
-                bot,
-                "FollowerAwareness",
-                "promoteIncomingThreat",
-                reason,
-                new
-                {
-                    enemyProfileId = enemy.ProfileId,
-                    previousGoalProfileId = currentGoal?.ProfileId,
-                    previousGoalVisible = currentGoal?.IsVisible,
-                    previousGoalCanShoot = currentGoal?.CanShoot,
-                    previousGoalDistance = currentGoal != null ? GetPlanarDistance(bot.Position, currentGoal.Person?.Position ?? currentGoal.CurrPosition) : (float?)null,
-                    incomingDistance = GetPlanarDistance(bot.Position, enemy.Position),
-                    temporaryThreatRegistered
-                });
-
             return true;
         }
 
@@ -521,9 +514,7 @@ namespace pitTeam.Utils
                 bot,
                 enemyInfo,
                 "directHit",
-                "FollowerAwareness.TryPromoteIncomingThreat",
-                out _,
-                recordReject: true);
+                out _);
         }
 
         private static bool ShouldReplaceGoalWithIncomingThreat(BotOwner bot, EnemyInfo? currentGoal, Player incomingEnemy)

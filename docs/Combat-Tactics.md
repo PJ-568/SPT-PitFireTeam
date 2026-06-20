@@ -527,14 +527,11 @@ It is intended to compare observed behavior with code behavior:
 - enemy/boss positions
 - visibility and shootability
 - source-tagged `GoalEnemy` transitions, including allowed sets, allowed clears, and retention-blocked clears
-- `enemyRegisteredNoDirectVisibility` events for enemy creation/promotion paths that did not have direct follower visibility, including boss contact sharing, direct-hit/close-threat awareness, sibling acquire, group attacker sharing, mission/retention restore, and unscoped external goal setters
 - grenades
 - health/healing state
 - churn and bad transition clusters
 
 Use it to validate whether a bug is tactical routing, action execution, perception, or visual/player interpretation.
-
-`enemyRegisteredNoDirectVisibility` is meant to separate perception sources from target-selection churn. `memoryVisible` reports what `EnemyInfo` said after registration, while `visibilityAssumed` flags paths that intentionally marked or treated the enemy as visible without a direct sight check. Use the event's `source` and `reason` before blaming SAIN or vanilla target selection: boss contact, awareness, group share, target-mission restore, and retention restore are all core-owned acquisition paths.
 
 Enemy provenance fields record the `BotSettingsClass.Cause` stored in `EnemyInfo.GroupInfo`, a coarse cause category, and whether that cause normally needs an awareness gate. Treat this as acquisition provenance rather than final truth: the cause is usually the first group-add reason and later reports may update enemy memory without changing the cause. `contact` fields compare personal seen timestamps with group sense/real-visibility timestamps, and `geometry` fields record straight distance, planar distance, and vertical delta so wall/building separation can be distinguished from pure floor separation.
 

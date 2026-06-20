@@ -637,20 +637,6 @@ namespace pitTeam.Patches
                     continue;
                 }
 
-                BattleRecorder.RecordEnemyRegisteredNoDirectVisibility(
-                    member,
-                    info,
-                    attacker,
-                    "BotGroupPatch.PropagateAttackerToGroup",
-                    "groupAttackerShare",
-                    promotedToGoal: true,
-                    hasDirectVisibility: false,
-                    visibilityAssumed: info.IsVisible || info.CanShoot,
-                    details: new
-                    {
-                        attackerProfileId = attacker.ProfileId,
-                        previousGoalProfileId = member.Memory?.GoalEnemy?.ProfileId
-                    });
                 member.Memory.IsPeace = false;
                 info.IgnoreUntilAggression = false;
                 using (FollowerGoalEnemyTracker.Begin("BotGroupPatch.PropagateAttackerToGroup", "groupAttackerShare"))
