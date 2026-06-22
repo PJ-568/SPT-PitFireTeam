@@ -85,6 +85,8 @@ namespace pitTeam.BigBrain
         private const float FollowerRegularGrenadeUnsafeRadius = 8f;
         private const float FollowerRegularGrenadeFreshContactDelaySeconds = 0.75f;
         private const float FollowerRegularGrenadeRejectRecordSeconds = 2f;
+        private const float FollowerRegularGrenadeTargetHeight = 0.25f;
+        private const float FollowerRegularGrenadeAirburstFuseMarginSeconds = 0.45f;
         private const float ReloadRetreatThreatDistance = 18f;
         private const float ReloadRetreatAmmoRatio = 0.25f;
         private const int ReloadRetreatMinMagazineAmmo = 5;
@@ -2209,6 +2211,11 @@ namespace pitTeam.BigBrain
                 if (item.Key?.ProfileId != enemyProfileId)
                 {
                     continue;
+                }
+
+                if (Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(item.Value))
+                {
+                    return false;
                 }
 
                 item.Value.PriorityIndex = 0;
@@ -12577,9 +12584,15 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!TryInitFollowerSuppressGrenade(suppressEnemy, throwType, targetPosition))
+            if (!TryInitFollowerSuppressGrenade(
+                    suppressEnemy,
+                    grenade,
+                    throwType,
+                    targetPosition,
+                    out AIGreanageThrowData? throwData,
+                    out string? trajectoryRejectReason))
             {
-                rejectReason = $"initFailed:{throwType}";
+                rejectReason = trajectoryRejectReason ?? $"initFailed:{throwType}";
                 return false;
             }
 
@@ -12592,7 +12605,7 @@ namespace pitTeam.BigBrain
             BattleRecorder.RecordGrenadeEvent(
                 botOwner,
                 "init",
-                CreateFollowerGrenadeRecorderReason(decisionReason, grenade, targetPosition),
+                CreateFollowerGrenadeRecorderReason(decisionReason, grenade, targetPosition, throwData),
                 goalEnemy: suppressEnemy,
                 target: targetPosition);
             CommitGrenadeDecision(decision);
@@ -12728,11 +12741,15 @@ namespace pitTeam.BigBrain
         private string CreateFollowerGrenadeRecorderReason(
             string decisionReason,
             ThrowWeapItemClass grenade,
-            Vector3 targetPosition)
+            Vector3 targetPosition,
+            AIGreanageThrowData? throwData)
         {
             float distance = Vector3.Distance(botOwner.Position, targetPosition);
             float maxDistance = GetFollowerRegularGrenadeMaxDistance(grenade);
-            return $"{decisionReason}:{grenade.ThrowType}:{GetFollowerGrenadeTimerLabel(grenade)}:d{Mathf.RoundToInt(distance)}:max{Mathf.RoundToInt(maxDistance)}";
+            string trajectory = throwData != null
+                ? $":ang{Mathf.RoundToInt(throwData.Ang)}:flight{EstimateFollowerGrenadeFlightSeconds(throwData):0.0}"
+                : string.Empty;
+            return $"{decisionReason}:{grenade.ThrowType}:{GetFollowerGrenadeTimerLabel(grenade)}:d{Mathf.RoundToInt(distance)}:max{Mathf.RoundToInt(maxDistance)}{trajectory}";
         }
 
         private string GetFollowerGrenadeTimerLabel(ThrowWeapItemClass grenade)
@@ -12747,33 +12764,163 @@ namespace pitTeam.BigBrain
 
         private bool TryInitFollowerSuppressGrenade(
             EnemyInfo suppressEnemy,
+            ThrowWeapItemClass grenade,
             ThrowWeapType throwType,
-            Vector3 targetPosition)
+            Vector3 targetPosition,
+            out AIGreanageThrowData? throwData,
+            out string? rejectReason)
         {
+            throwData = null;
+            rejectReason = null;
             if (botOwner.SuppressGrenade == null ||
                 botOwner.WeaponManager?.Grenades == null ||
                 !IsFinite(targetPosition))
             {
+                rejectReason = $"initFailed:{throwType}";
                 return false;
             }
 
-            Vector3 throwTarget = targetPosition + BotOwner.STAY_HEIGHT;
-            if (!TryInitFollowerSuppressGrenadeAtAnyAngle(throwTarget))
+            Vector3 throwTarget = targetPosition + Vector3.up * FollowerRegularGrenadeTargetHeight;
+            if (!TryGetFollowerGrenadeThrowData(
+                    grenade,
+                    throwType,
+                    throwTarget,
+                    out throwData,
+                    out rejectReason))
             {
                 return false;
             }
 
             botOwner.SuppressGrenade.method_0(suppressEnemy, null);
-            botOwner.WeaponManager.Grenades.AIGreanageThrowData.GrenadeType = throwType;
+            throwData!.GrenadeType = throwType;
+            botOwner.WeaponManager.Grenades.SetThrowData(throwData);
             return true;
         }
 
-        private bool TryInitFollowerSuppressGrenadeAtAnyAngle(Vector3 throwTarget)
+        private bool TryGetFollowerGrenadeThrowData(
+            ThrowWeapItemClass grenade,
+            ThrowWeapType throwType,
+            Vector3 throwTarget,
+            out AIGreanageThrowData? throwData,
+            out string? rejectReason)
         {
-            return botOwner.SuppressGrenade != null &&
-                   (botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang25) ||
-                    botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang45) ||
-                    botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang65));
+            throwData = null;
+            rejectReason = null;
+            BotGrenadeController? grenades = botOwner.WeaponManager?.Grenades;
+            if (grenades == null)
+            {
+                rejectReason = $"grenadeControllerMissing:{throwType}";
+                return false;
+            }
+
+            AIGreandeAng[] candidateAngles = GetFollowerGrenadeCandidateAngles(grenade);
+            string? lastRejectReason = null;
+            for (int i = 0; i < candidateAngles.Length; i++)
+            {
+                AIGreandeAng angle = candidateAngles[i];
+                AIGreanageThrowData candidate = GClass577.CanThrowGrenade2(
+                    botOwner.Position,
+                    throwTarget,
+                    grenades,
+                    angle,
+                    botOwner.Settings.FileSettings.Grenade.MIN_THROW_GRENADE_DIST_SQRT);
+                if (candidate == null || !candidate.CanThrow)
+                {
+                    lastRejectReason = $"trajectoryBlocked:{angle}";
+                    continue;
+                }
+
+                float flightSeconds = EstimateFollowerGrenadeFlightSeconds(candidate);
+                if (!IsFollowerGrenadeFlightSafe(grenade, flightSeconds))
+                {
+                    lastRejectReason =
+                        $"airburstRisk:{angle}:flight{flightSeconds:0.0}:fuse{GetFollowerGrenadeExplDelay(grenade):0.0}";
+                    continue;
+                }
+
+                throwData = candidate;
+                return true;
+            }
+
+            rejectReason = lastRejectReason ?? $"trajectoryUnavailable:{throwType}";
+            return false;
+        }
+
+        private static AIGreandeAng[] GetFollowerGrenadeCandidateAngles(ThrowWeapItemClass grenade)
+        {
+            if (GetFollowerGrenadeExplDelay(grenade) <= FollowerRegularGrenadeImpactDelayThreshold)
+            {
+                return new[]
+                {
+                    AIGreandeAng.ang15,
+                    AIGreandeAng.ang25,
+                    AIGreandeAng.ang35,
+                    AIGreandeAng.ang45,
+                    AIGreandeAng.ang55,
+                    AIGreandeAng.ang65
+                };
+            }
+
+            float fuseSeconds = GetFollowerGrenadeExplDelay(grenade);
+            if (fuseSeconds < 2f)
+            {
+                return new[]
+                {
+                    AIGreandeAng.ang15,
+                    AIGreandeAng.ang25,
+                    AIGreandeAng.ang35
+                };
+            }
+
+            if (fuseSeconds < 3f)
+            {
+                return new[]
+                {
+                    AIGreandeAng.ang15,
+                    AIGreandeAng.ang25,
+                    AIGreandeAng.ang35,
+                    AIGreandeAng.ang45
+                };
+            }
+
+            return new[]
+            {
+                AIGreandeAng.ang15,
+                AIGreandeAng.ang25,
+                AIGreandeAng.ang35,
+                AIGreandeAng.ang45,
+                AIGreandeAng.ang55
+            };
+        }
+
+        private static bool IsFollowerGrenadeFlightSafe(ThrowWeapItemClass grenade, float flightSeconds)
+        {
+            if (GetFollowerGrenadeExplDelay(grenade) <= FollowerRegularGrenadeImpactDelayThreshold)
+            {
+                return true;
+            }
+
+            return flightSeconds > 0f &&
+                   flightSeconds + FollowerRegularGrenadeAirburstFuseMarginSeconds <= GetFollowerGrenadeExplDelay(grenade);
+        }
+
+        private static float EstimateFollowerGrenadeFlightSeconds(AIGreanageThrowData throwData)
+        {
+            if (throwData == null ||
+                !IsFinite(throwData.Position) ||
+                !IsFinite(throwData.Target) ||
+                throwData.Force <= 0.01f)
+            {
+                return 0f;
+            }
+
+            Vector3 offset = throwData.Target - throwData.Position;
+            offset.y = 0f;
+            float horizontalDistance = offset.magnitude;
+            float angleRadians = throwData.Ang * Mathf.Deg2Rad;
+            float solverSpeed = throwData.Force / 1.3f;
+            float horizontalSpeed = solverSpeed * Mathf.Cos(angleRadians);
+            return horizontalSpeed > 0.01f ? horizontalDistance / horizontalSpeed : 0f;
         }
 
         private bool IsSafeGrenadeThrowPosition(EnemyInfo goalEnemy, Vector3 enemyAnchor)

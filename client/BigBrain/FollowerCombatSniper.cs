@@ -29,6 +29,7 @@ namespace pitTeam.BigBrain
         private const float MarksmanCloseSearchMinEnemyDistance = 16f;
         private const float MarksmanRiflemanDeferMaxNavDelta = 8f;
         private const float MarksmanRiflemanDeferMaxFollowerNavDistance = 18f;
+        private const float MarksmanTeamSearchAutoMaxEnemyDistance = 35f;
         private const float RegroupFiringOpportunityRecentSeenSeconds = 1.5f;
         private const float IndirectThreatRecentHitSeconds = 3f;
         private const float IndirectThreatSuppressMaxDistance = 260f;
@@ -1085,6 +1086,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (!IsSameEnemy(goalEnemy, pushEvent.EnemyProfileId))
+            {
+                return false;
+            }
+
             if (CombatCommon.CanShootFromCurrentCover(out _))
             {
                 CombatCommon.ExtendCommittedCover();
@@ -1103,6 +1109,7 @@ namespace pitTeam.BigBrain
             }
 
             if (pushEvent.IsSearchPush &&
+                goalEnemy.Distance <= MarksmanTeamSearchAutoMaxEnemyDistance &&
                 (BotOwner.Position - pushEvent.Owner.Position).sqrMagnitude <= 20f * 20f)
             {
                 if (CombatCommon.TryCreateTeamSearchSupportDecision(
@@ -1147,6 +1154,12 @@ namespace pitTeam.BigBrain
             supportPhase.BeginTravel();
             decision = CombatCommon.CreateMoveToCommittedCoverDecision(coverReason);
             return true;
+        }
+
+        private static bool IsSameEnemy(EnemyInfo goalEnemy, string enemyProfileId)
+        {
+            return !string.IsNullOrEmpty(enemyProfileId) &&
+                   string.Equals(goalEnemy.ProfileId, enemyProfileId, StringComparison.Ordinal);
         }
 
         /// <summary>

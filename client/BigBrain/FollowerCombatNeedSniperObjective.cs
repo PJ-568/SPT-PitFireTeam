@@ -205,7 +205,7 @@ namespace pitTeam.BigBrain
 
             return RetryOrRejectObjective(
                 "noLane",
-                CreateNoLaneDetails(supportPosition, supportCoverReject, currentPositionReject, CombatCommon.LastSupportFiringPositionRejectReason));
+                () => CreateNoLaneDetails(supportPosition, supportCoverReject, currentPositionReject, CombatCommon.LastSupportFiringPositionRejectReason));
         }
 
         public override AICoreActionEndStruct ShallEndCurrentDecision(
@@ -404,7 +404,7 @@ namespace pitTeam.BigBrain
                 $"{ReasonPrefix}.{suffix}");
         }
 
-        private AICoreActionResultStruct<BotLogicDecision, GClass26> RetryOrRejectObjective(string suffix, object? details = null)
+        private AICoreActionResultStruct<BotLogicDecision, GClass26> RetryOrRejectObjective(string suffix, Func<object?>? detailsFactory = null)
         {
             if (Time.time >= searchRetryUntil)
             {
@@ -413,7 +413,7 @@ namespace pitTeam.BigBrain
                     nameof(FollowerCombatNeedSniperObjective),
                     "reject",
                     suffix,
-                    details);
+                    detailsFactory);
                 return RejectObjective(suffix);
             }
 
@@ -424,7 +424,7 @@ namespace pitTeam.BigBrain
                 nameof(FollowerCombatNeedSniperObjective),
                 "retry",
                 suffix,
-                details);
+                detailsFactory);
             return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
                 BotLogicDecision.holdPosition,
                 $"{RetryHoldReason}.{suffix}");

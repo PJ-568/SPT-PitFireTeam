@@ -656,6 +656,11 @@ namespace pitTeam.BigBrain
 
         private void RecordMemoryOnlyAutoPushBlocked(EnemyInfo goalEnemy, string reason)
         {
+            if (!BattleRecorder.IsRecordingFor(botOwner, requireRecordedCombat: true))
+            {
+                return;
+            }
+
             if (Time.time < nextMemoryOnlyAutoPushBlockLogAt)
             {
                 return;
@@ -667,7 +672,7 @@ namespace pitTeam.BigBrain
                 "FollowerCombatPush",
                 "blockMemoryOnlyAutoPush",
                 reason,
-                new
+                () => new
                 {
                     targetProfileId = goalEnemy.ProfileId,
                     targetVisible = goalEnemy.IsVisible,

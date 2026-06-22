@@ -72,14 +72,14 @@ namespace pitTeam.Patches
                 if (value != null)
                 {
                     string reason = FollowerGoalEnemyTracker.CurrentReason;
-                    if (ShouldBlockUnscopedRelationOnlyGoal(botOwner, value, reason))
+                    if (ShouldBlockUnscopedMemoryOnlyGoal(botOwner, value, reason))
                     {
                         FollowerGoalEnemyTracker.RecordSetter(
                             botOwner,
                             previous,
                             value,
                             allowed: false,
-                            blockedReason: "relationOnlyGoalEnemyBlocked");
+                            blockedReason: "memoryOnlyGoalEnemyBlocked");
                         return false;
                     }
 
@@ -129,12 +129,12 @@ namespace pitTeam.Patches
             }
         }
 
-        private static bool ShouldBlockUnscopedRelationOnlyGoal(BotOwner botOwner, EnemyInfo value, string reason)
+        private static bool ShouldBlockUnscopedMemoryOnlyGoal(BotOwner botOwner, EnemyInfo value, string reason)
         {
             return botOwner != null &&
                    BossPlayers.IsFollower(botOwner) &&
                    string.Equals(reason, "unscopedSetter", System.StringComparison.Ordinal) &&
-                   Enemy.IsRelationOnlyBossShareWithoutPersonalContact(value);
+                   Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(value);
         }
     }
 }

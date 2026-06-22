@@ -363,6 +363,35 @@ namespace pitTeam.Modules
             });
         }
 
+        public static void RecordObjectiveDiagnostic(
+            BotOwner bot,
+            string objectiveName,
+            string action,
+            string reason,
+            Func<object?> detailsFactory)
+        {
+            if (!CanRecordBot(bot))
+            {
+                return;
+            }
+
+            RecorderFollowerState state = GetOrCreateState(bot);
+            if (!IsBotInRecordedCombat(bot, state))
+            {
+                return;
+            }
+
+            object? details = detailsFactory?.Invoke();
+            WriteEventInternal("objectiveDiagnostic", bot, new
+            {
+                objective = objectiveName,
+                action,
+                reason,
+                details,
+                context = CreateTransitionContext(bot, state)
+            });
+        }
+
         public static void RecordGoalEnemyTransition(
             BotOwner bot,
             EnemyInfo? previous,
@@ -1166,6 +1195,22 @@ namespace pitTeam.Modules
                    IsRecording() &&
                    !string.IsNullOrEmpty(bot.ProfileId) &&
                    BossPlayers.IsFollower(bot);
+        }
+
+        public static bool IsRecordingFor(BotOwner? bot, bool requireRecordedCombat = false)
+        {
+            if (!CanRecordBot(bot))
+            {
+                return false;
+            }
+
+            if (!requireRecordedCombat)
+            {
+                return true;
+            }
+
+            RecorderFollowerState state = GetOrCreateState(bot!);
+            return IsBotInRecordedCombat(bot!, state);
         }
 
         private static bool IsEnabled()

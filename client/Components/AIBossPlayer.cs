@@ -1559,8 +1559,6 @@ namespace pitTeam.Components
                     if (ignore)
                     {
                         followerData.ClearCommand("Regroup:ignoredCloseOrHealing");
-                        float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
-                        Modules.Logger.LogInfo($"[Regroup] IGNORE SAIN regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
                         continue;
                     }
 
@@ -1574,8 +1572,6 @@ namespace pitTeam.Components
                 if (ShouldIgnoreRegroup(follower, bossPos))
                 {
                     followerData.ClearCommand("Regroup:ignoredCloseOrHealing");
-                    float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
-                    Modules.Logger.LogInfo($"[Regroup] IGNORE vanilla regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
                     continue;
                 }
 

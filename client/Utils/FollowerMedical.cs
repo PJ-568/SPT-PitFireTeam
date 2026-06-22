@@ -19,7 +19,8 @@ namespace pitTeam.Utils
         private const float FirstAidMinVisibleNormalizedHealth = 0.06f;
         private const float EmergencySurgeryHealthPenalty = 0.5f;
         private const float FirstAidTopOffMinMissingHealth = 0.5f;
-        private const float PostCombatFullHealQuietSeconds = 3f;
+        private const float PostCombatFullHealRestoreDelay = 12f;
+        private const bool ManualFirstAidTopOffEnabled = false;
 
         private static readonly EBodyPart[] SurgeryRecoveryParts =
         {
@@ -41,6 +42,7 @@ namespace pitTeam.Utils
         private sealed class PostCombatFullHealState
         {
             public float StartedAt;
+            public float HealStartedAt;
             public float LastWorkSeenAt;
         }
 
@@ -139,6 +141,24 @@ namespace pitTeam.Utils
             }
 
             state.StartedAt = Time.time;
+            state.HealStartedAt = 0f;
+            state.LastWorkSeenAt = Time.time;
+        }
+
+        public static void MarkPostCombatFullHealActionStarted(BotOwner bot)
+        {
+            string key = GetBotKey(bot);
+            if (string.IsNullOrEmpty(key) ||
+                !PostCombatFullHealStates.TryGetValue(key, out PostCombatFullHealState state))
+            {
+                return;
+            }
+
+            if (state.HealStartedAt <= 0f)
+            {
+                state.HealStartedAt = Time.time;
+            }
+
             state.LastWorkSeenAt = Time.time;
         }
 
@@ -164,7 +184,10 @@ namespace pitTeam.Utils
             PostCombatFullHealStates.Remove(key);
         }
 
-        public static bool ShouldKeepPostCombatFullHeal(BotOwner bot)
+        public static bool ShouldKeepPostCombatFullHeal(
+            BotOwner bot,
+            bool hasKnownWork = false,
+            bool scanForWork = true)
         {
             try
             {
@@ -175,19 +198,71 @@ namespace pitTeam.Utils
                     return false;
                 }
 
-                if (HasPostCombatFullHealWork(bot))
+                if (hasKnownWork || (scanForWork && HasPostCombatFullHealWork(bot)))
                 {
                     state.LastWorkSeenAt = Time.time;
                     return true;
                 }
 
-                if (Time.time - state.LastWorkSeenAt <= PostCombatFullHealQuietSeconds)
+                if (state.HealStartedAt <= 0f ||
+                    Time.time - state.HealStartedAt < PostCombatFullHealRestoreDelay)
                 {
                     return true;
                 }
 
-                PostCombatFullHealStates.Remove(key);
+                return true;
+            }
+            catch
+            {
                 return false;
+            }
+        }
+
+        public static bool TryCompletePostCombatFullHealRestore(BotOwner bot)
+        {
+            try
+            {
+                string key = GetBotKey(bot);
+                if (string.IsNullOrEmpty(key) ||
+                    !PostCombatFullHealStates.TryGetValue(key, out PostCombatFullHealState state))
+                {
+                    return false;
+                }
+
+                if (bot == null || bot.GetPlayer == null || bot.HealthController?.IsAlive != true)
+                {
+                    PostCombatFullHealStates.Remove(key);
+                    return false;
+                }
+
+                if (state.HealStartedAt <= 0f ||
+                    Time.time - state.HealStartedAt < PostCombatFullHealRestoreDelay)
+                {
+                    return false;
+                }
+
+                if (IsUsingMedical(bot))
+                {
+                    CancelActiveMedical(bot);
+                    TryReturnToMainWeapon(bot);
+                    return false;
+                }
+
+                if (bot.WeaponManager != null && !bot.WeaponManager.IsWeaponReady)
+                {
+                    TryReturnToMainWeapon(bot);
+                    return false;
+                }
+
+                if (!IsMainWeaponSelected(bot))
+                {
+                    TryReturnToMainWeapon(bot);
+                    return false;
+                }
+
+                ForceHeal(bot);
+                PostCombatFullHealStates.Remove(key);
+                return true;
             }
             catch
             {
@@ -222,7 +297,7 @@ namespace pitTeam.Utils
                        FindBestBleedTreatment(firstAid, bleedingType) != null;
             }
 
-            return TryFindFirstAidTopOffTargetCore(player, firstAid, out _, out _);
+            return false;
         }
 
         public static void UpdateMedicalHandsWatchdog(BotOwner bot)
@@ -627,7 +702,7 @@ namespace pitTeam.Utils
                 firstAid == null ||
                 bot.HealthController?.IsAlive != true ||
                 bot.Settings?.FileSettings?.Mind?.CAN_USE_MEDS != true ||
-                !IsPostCombatFullHealActive(bot) ||
+                !ManualFirstAidTopOffEnabled ||
                 bot.Memory?.HaveEnemy == true ||
                 HasVisibleKnownEnemy(bot) ||
                 firstAid.Using ||
@@ -708,6 +783,24 @@ namespace pitTeam.Utils
             }
 
             return med != null;
+        }
+
+        private static bool IsMainWeaponSelected(BotOwner bot)
+        {
+            BotWeaponSelector selector = bot?.WeaponManager?.Selector;
+            if (selector == null)
+            {
+                return true;
+            }
+
+            Weapon? firstPrimary = bot.GetPlayer?.InventoryController?.Inventory?.Equipment
+                ?.GetSlot(EquipmentSlot.FirstPrimaryWeapon)?.ContainedItem as Weapon;
+            if (firstPrimary == null)
+            {
+                return true;
+            }
+
+            return selector.LastEquipmentSlot == EquipmentSlot.FirstPrimaryWeapon;
         }
 
         private static bool TrySelectTopOffMed(
