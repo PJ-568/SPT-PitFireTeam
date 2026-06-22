@@ -355,11 +355,78 @@ namespace pitTeam.Utils
             }
 
             info.IgnoreUntilAggression = false;
-            bool countAsSeen = info.IsVisible || info.CanShoot || (countSharedSeenAsPersonal && info.HaveSeen);
+            bool canPromoteSharedSeenToPersonal =
+                countSharedSeenAsPersonal &&
+                !RequiresAcquisitionAwarenessGate(groupInfo?.Cause);
+            bool countAsSeen = info.IsVisible || info.CanShoot || (canPromoteSharedSeenToPersonal && info.HaveSeen);
             RepairPersonalMemory(info, enemy.Transform.position, countAsSeen);
 
             return info;
 
+        }
+
+        public static bool HasDirectPersonalContact(EnemyInfo? info)
+        {
+            return info?.IsVisible == true || info?.CanShoot == true;
+        }
+
+        public static bool HasPersonalContactRecord(EnemyInfo? info)
+        {
+            return HasDirectPersonalContact(info) ||
+                   info?.HaveSeenPersonal == true ||
+                   info?.PersonalSeenTime > 0f ||
+                   info?.PersonalLastSeenTime > 0f;
+        }
+
+        public static bool IsMemoryOnlyAcquisitionWithoutPersonalContact(EnemyInfo? info)
+        {
+            if (info == null || HasPersonalContactRecord(info))
+            {
+                return false;
+            }
+
+            return RequiresAcquisitionAwarenessGate(info.GroupInfo?.Cause);
+        }
+
+        public static bool IsRelationOnlyBossShareWithoutPersonalContact(EnemyInfo? info)
+        {
+            return info != null &&
+                   !HasPersonalContactRecord(info) &&
+                   info.GroupInfo?.Cause == EBotEnemyCause.addPlayerToBoss;
+        }
+
+        public static bool RequiresAcquisitionAwarenessGate(EBotEnemyCause? cause)
+        {
+            if (!cause.HasValue)
+            {
+                return true;
+            }
+
+            switch (cause.Value)
+            {
+                case EBotEnemyCause.byKill:
+                case EBotEnemyCause.followGetHit:
+                case EBotEnemyCause.addPlayer:
+                case EBotEnemyCause.callBot:
+                case EBotEnemyCause.gifterKill:
+                case EBotEnemyCause.bossKillArena:
+                case EBotEnemyCause.KillaSyncTagilla:
+                case EBotEnemyCause.tagillaFindENemy:
+                case EBotEnemyCause.fuckGestus:
+                case EBotEnemyCause.pmcBossKill:
+                case EBotEnemyCause.christmas:
+                case EBotEnemyCause.synWithKilla:
+                case EBotEnemyCause.ravangeZryachiy:
+                case EBotEnemyCause.partisanBadKarma:
+                case EBotEnemyCause.attackBTR:
+                case EBotEnemyCause.tagillaAlarm:
+                case EBotEnemyCause.MarkOfUnknowsDist:
+                case EBotEnemyCause.zryachiyLogic:
+                case EBotEnemyCause.pairLogic:
+                    return false;
+                default:
+                    return true;
+            }
         }
 
         public static void RepairPersonalMemory(EnemyInfo? info, Vector3 fallbackPosition, bool countAsSeen)

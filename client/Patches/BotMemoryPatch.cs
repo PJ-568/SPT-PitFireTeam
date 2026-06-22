@@ -66,24 +66,75 @@ namespace pitTeam.Patches
         {
             try
             {
+                BotOwner botOwner = AccessTools.Field(typeof(BotMemoryClass), "BotOwner_0").GetValue(__instance) as BotOwner;
+                EnemyInfo previous = __instance.GoalEnemy;
+
                 if (value != null)
                 {
-                    return true;
+                    string reason = FollowerGoalEnemyTracker.CurrentReason;
+                    if (ShouldBlockUnscopedMemoryOnlyGoal(botOwner, value, reason))
+                    {
+                        FollowerGoalEnemyTracker.RecordSetter(
+                            botOwner,
+                            previous,
+                            value,
+                            allowed: false,
+                            blockedReason: "memoryOnlyGoalEnemyBlocked");
+                        return false;
+                    }
+
+                    bool allowed = FollowerCombatTargetCommitments.ShouldAllowGoalEnemySet(
+                        botOwner,
+                        previous,
+                        value,
+                        reason,
+                        out string? blockedReason);
+                    if (allowed && botOwner != null && BossPlayers.IsFollower(botOwner))
+                    {
+                        allowed = FollowerContactEnemyRetention.ShouldAllowGoalEnemySet(
+                            botOwner,
+                            previous,
+                            value,
+                            reason,
+                            out blockedReason);
+                    }
+
+                    FollowerGoalEnemyTracker.RecordSetter(
+                        botOwner,
+                        previous,
+                        value,
+                        allowed,
+                        blockedReason);
+                    return allowed;
                 }
 
-                BotOwner botOwner = AccessTools.Field(typeof(BotMemoryClass), "BotOwner_0").GetValue(__instance) as BotOwner;
                 if (botOwner == null || !BossPlayers.IsFollower(botOwner))
                 {
                     return true;
                 }
 
-                return !FollowerContactEnemyRetention.ShouldBlockGoalEnemyClear(botOwner, __instance.GoalEnemy);
+                bool shouldBlockClear = FollowerContactEnemyRetention.ShouldBlockGoalEnemyClear(botOwner, previous);
+                FollowerGoalEnemyTracker.RecordSetter(
+                    botOwner,
+                    previous,
+                    null,
+                    allowed: !shouldBlockClear,
+                    blockedReason: shouldBlockClear ? "retentionBlockedClear" : null);
+                return !shouldBlockClear;
             }
             catch (System.Exception e)
             {
                 Modules.Logger.LogError(e);
                 return true;
             }
+        }
+
+        private static bool ShouldBlockUnscopedMemoryOnlyGoal(BotOwner botOwner, EnemyInfo value, string reason)
+        {
+            return botOwner != null &&
+                   BossPlayers.IsFollower(botOwner) &&
+                   string.Equals(reason, "unscopedSetter", System.StringComparison.Ordinal) &&
+                   Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(value);
         }
     }
 }

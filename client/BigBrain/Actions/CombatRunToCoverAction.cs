@@ -25,6 +25,7 @@ namespace pitTeam.BigBrain.Actions
         private CustomNavigationPoint? targetCover;
         private float nextPathRefreshTime;
         private bool targetPointAssigned;
+        private bool combatWalkFallbackStarted;
 
         public CombatRunToCoverAction(BotOwner botOwner) : base(botOwner)
         {
@@ -61,7 +62,13 @@ namespace pitTeam.BigBrain.Actions
         {
             if (movementMode == MovementMode.Walk)
             {
-                walkFallback.Stop();
+                if (combatWalkFallbackStarted)
+                {
+                    walkFallback.Stop();
+                    combatWalkFallbackStarted = false;
+                }
+
+                SetCombatSprint(false);
             }
             else
             {
@@ -76,6 +83,7 @@ namespace pitTeam.BigBrain.Actions
             targetCover = null;
             nextPathRefreshTime = 0f;
             targetPointAssigned = false;
+            combatWalkFallbackStarted = false;
         }
 
         private void StopRunMode()
@@ -95,8 +103,15 @@ namespace pitTeam.BigBrain.Actions
             StopRunMode();
             movementMode = MovementMode.Walk;
             restoreRunGate.Reset();
-            walkFallback.Start();
-            walkFallback.Update(data);
+            if (HasLiveGoalEnemy())
+            {
+                combatWalkFallbackStarted = true;
+                walkFallback.Start();
+                walkFallback.Update(data);
+                return;
+            }
+
+            UpdateOutOfCombatWalkFallback();
         }
 
         private void UpdateWalkFallback(CustomLayer.ActionData data, bool canRun)
@@ -106,14 +121,38 @@ namespace pitTeam.BigBrain.Actions
                 BotOwner.Memory.SetCoverPoints(targetCover);
             }
 
-            walkFallback.Update(data);
+            if (HasLiveGoalEnemy())
+            {
+                if (!combatWalkFallbackStarted)
+                {
+                    combatWalkFallbackStarted = true;
+                    walkFallback.Start();
+                }
+
+                walkFallback.Update(data);
+            }
+            else
+            {
+                if (combatWalkFallbackStarted)
+                {
+                    walkFallback.Stop();
+                    combatWalkFallbackStarted = false;
+                }
+
+                UpdateOutOfCombatWalkFallback();
+            }
 
             if (!restoreRunGate.ShouldRestoreToRun(canRun, BotOwner.Memory?.GoalEnemy))
             {
                 return;
             }
 
-            walkFallback.Stop();
+            if (combatWalkFallbackStarted)
+            {
+                walkFallback.Stop();
+                combatWalkFallbackStarted = false;
+            }
+
             movementMode = MovementMode.Run;
             restoreRunGate.Reset();
             StartRunMode();
@@ -162,6 +201,38 @@ namespace pitTeam.BigBrain.Actions
             SetCombatSprint(true);
         }
 
+        private void UpdateOutOfCombatWalkFallback()
+        {
+            if (!EnsureTargetCover())
+            {
+                StopRun();
+                return;
+            }
+
+            if (BotOwner.GetPlayer?.MovementContext?.IsInPronePose == true)
+            {
+                BotOwner.SetPose(1f);
+            }
+
+            BotOwner.DoorOpener.UpdateDoorInteractionStatus();
+            BotOwner.SetPose(1f);
+            BotOwner.SetTargetMoveSpeed(1f);
+            if (!BotFollowerPlayer.TryApplyCommandLookOverride(BotOwner))
+            {
+                BotOwner.Steering.LookToMovingDirection();
+            }
+
+            if ((!targetPointAssigned || Time.time >= nextPathRefreshTime) && targetCover != null)
+            {
+                BotOwner.Memory.SetCoverPoints(targetCover);
+                BotOwner.GoToSomePointData.SetPoint(targetCover.Position);
+                targetPointAssigned = true;
+                nextPathRefreshTime = Time.time + PathRefreshInterval;
+            }
+
+            BotOwner.GoToSomePointData.UpdateToGo(false, 1f, 1f);
+        }
+
         private bool CanActuallyRun()
         {
             if (!BotOwner.CanSprintPlayer || BotOwner.Mover?.NoSprint == true)
@@ -192,6 +263,11 @@ namespace pitTeam.BigBrain.Actions
             targetCover = BotOwner.Memory?.CurCustomCoverPoint;
             targetPointAssigned = false;
             return targetCover != null;
+        }
+
+        private bool HasLiveGoalEnemy()
+        {
+            return BotOwner.Memory?.GoalEnemy?.Person?.HealthController?.IsAlive == true;
         }
 
         private void StopRun()

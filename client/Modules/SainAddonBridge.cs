@@ -101,6 +101,11 @@ namespace pitTeam.Modules
             return _tryResetFollowerDecisionState(botOwner);
         }
 
+        public static void BeginPostCombatFullHeal(BotOwner botOwner)
+        {
+            Utils.FollowerMedical.BeginPostCombatFullHeal(botOwner);
+        }
+
         // Generic event that addon can hook into for follower lifecycle changes.
         public static event Action<BotOwner, FollowerLifecycleEvent>? OnFollowerLifecycleEvent;
 

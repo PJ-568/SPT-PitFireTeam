@@ -28,6 +28,7 @@ namespace pitTeam.BigBrain.Actions
         private const float SettlePathEndPadding = 0.4f;
         private const float SettleDestinationClaimTtlSeconds = 3f;
         private const float SettleDestinationClaimReleaseTolerance = 0.5f;
+        private const float FollowPathRecoveryCooldown = 0.5f;
         // Patrol camp sector size. This is a grid-cell boundary check used to decide
         // whether the boss/player has left the remembered On Your Own sector; it is
         // not a direct "player must move this many meters" distance threshold.
@@ -38,6 +39,7 @@ namespace pitTeam.BigBrain.Actions
         private BotFollowerPlayer? followerData;
 
         private float nextFollowUpdateAt;
+        private float nextFollowPathRecoveryAt;
         private float nextSettlePointAt;
         private bool isPathBlocked;
 
@@ -89,6 +91,7 @@ namespace pitTeam.BigBrain.Actions
             claimedSettleDestination = Vector3.zero;
 
             nextFollowUpdateAt = 0f;
+            nextFollowPathRecoveryAt = 0f;
             nextSettlePointAt = 0f;
             holdPositionUntil = 0f;
             nextPatrolUpdateAt = 0f;
@@ -160,6 +163,7 @@ namespace pitTeam.BigBrain.Actions
             isPatrolCampInitialized = false;
             nextPatrolUpdateAt = 0f;
             nextFollowUpdateAt = 0f;
+            nextFollowPathRecoveryAt = 0f;
             coverCommitment.ClearCommitment();
 
             BotOwner.StopMove();
@@ -228,9 +232,6 @@ namespace pitTeam.BigBrain.Actions
                 BotOwner.Mover.SetPose(1f);
             }
 
-            if (nextFollowUpdateAt > Time.time && !forceFollow) return;
-            nextFollowUpdateAt = Time.time + Utils.Utils.Random(1f, 2f);
-
             Vector3 leaderPosition = GetLeaderTargetPosition();
             float distance = forceFollow
                 ? forcedDistance
@@ -238,6 +239,16 @@ namespace pitTeam.BigBrain.Actions
 
             float followDistance = GetEffectiveFollowDistance();
             bool inRange = distance < followDistance;
+
+            if (nextFollowUpdateAt > Time.time && !forceFollow)
+            {
+                if (!inRange)
+                {
+                    MaintainOutOfRangeChase(leaderPosition, distance, followDistance);
+                }
+                return;
+            }
+            nextFollowUpdateAt = Time.time + Utils.Utils.Random(1f, 2f);
 
             if (inRange)
             {
@@ -343,12 +354,45 @@ namespace pitTeam.BigBrain.Actions
 
             // Normal follow is allowed to sprint when the boss has opened distance. Once close enough,
             // the settle logic above takes over and moves the follower into a stable local position.
-            bool shouldSprint = distance > Mathf.Min(followDistance + 3f, 16f);
+            ApplyFollowChaseMovementState(ShouldSprintFollow(distance, followDistance));
+        }
+
+        private void MaintainOutOfRangeChase(Vector3 leaderPosition, float distance, float followDistance)
+        {
+            movingToSettlePoint = false;
+            ReleaseSettleDestinationClaim();
+            ApplyFollowChaseMovementState(ShouldSprintFollow(distance, followDistance));
+
+            if (BotOwner.Mover?.HasPathAndNoComplete == true)
+            {
+                return;
+            }
+
+            if (Time.time < nextFollowPathRecoveryAt)
+            {
+                return;
+            }
+
+            nextFollowPathRecoveryAt = Time.time + FollowPathRecoveryCooldown;
+            UpdateFollowPath(leaderPosition);
+        }
+
+        private static bool ShouldSprintFollow(float distance, float followDistance)
+        {
+            return distance > Mathf.Min(followDistance + 3f, 16f);
+        }
+
+        private void ApplyFollowChaseMovementState(bool shouldSprint)
+        {
             if (BotOwner.Mover.TargetPose != 1f)
             {
                 BotOwner.Mover.SetPose(1f);
             }
-            BotOwner.Mover.Sprint(shouldSprint, false);
+
+            if (BotOwner.Mover.Sprinting != shouldSprint)
+            {
+                BotOwner.Mover.Sprint(shouldSprint, false);
+            }
         }
 
         private CustomNavigationPoint? TryGetSettleCoverPoint(Vector3 leaderPosition, float settleDistance)

@@ -68,6 +68,9 @@ namespace pitTeam.BigBrain.Actions
         private const float RegroupRandomRadius = 6f;
         private const float RegroupReservationSpacing = 1.5f;
         private const float RegroupReservationTtl = 2f;
+        private const float MoveToPointArrivalDistance = 1.5f;
+        private const float MoveToPointForcedArrivalDistance = 0.75f;
+        private const float MoveToPointTargetChangeDistanceSqr = 0.25f;
 
         public GestureCommandAction(BotOwner botOwner) : base(botOwner) { }
 
@@ -587,11 +590,11 @@ namespace pitTeam.BigBrain.Actions
             if (BotOwner.Mover.TargetPose != 1f) BotOwner.Mover.SetPose(1f);
 
             float distance = (target - BotOwner.Position).magnitude;
-            if (distance > 1.5f && moveArrivalLookUntil > 0f)
+            if (distance > MoveToPointArrivalDistance && moveArrivalLookUntil > 0f)
             {
                 moveArrivalLookUntil = 0f;
             }
-            if (distance <= 1.5f)
+            if (HasArrivedAtMovePoint(distance))
             {
                 HandleMovePointArrivalLookAround();
                 if (Time.time < moveArrivalLookUntil)
@@ -607,8 +610,10 @@ namespace pitTeam.BigBrain.Actions
                 return;
             }
 
-            bool targetChanged = !moveCommandInitialized || (activeMoveTarget - target).sqrMagnitude > 0.25f;
-            if (targetChanged)
+            bool targetChanged = !moveCommandInitialized || (activeMoveTarget - target).sqrMagnitude > MoveToPointTargetChangeDistanceSqr;
+            bool targetMissing = BotOwner.GoToSomePointData?.HaveTarget() != true;
+            bool targetCompletedEarly = BotOwner.GoToSomePointData?.IsCome() == true && distance > MoveToPointArrivalDistance;
+            if (targetChanged || targetMissing || targetCompletedEarly)
             {
                 BotOwner.GoToSomePointData.SetPoint(target);
                 moveCommandInitialized = true;
@@ -642,6 +647,17 @@ namespace pitTeam.BigBrain.Actions
             }
 
             nextHoldLookChangeAt = 0f;
+        }
+
+        private bool HasArrivedAtMovePoint(float distance)
+        {
+            if (distance <= MoveToPointForcedArrivalDistance)
+            {
+                return true;
+            }
+
+            return distance <= MoveToPointArrivalDistance &&
+                   BotOwner.GoToSomePointData?.IsCome() == true;
         }
 
         private void HandleMovePointArrivalLookAround()

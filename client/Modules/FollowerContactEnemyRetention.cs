@@ -1,5 +1,6 @@
 using Comfort.Common;
 using EFT;
+using pitTeam.BigBrain;
 using pitTeam.Utils;
 using System;
 using System.Collections.Generic;
@@ -18,10 +19,6 @@ namespace pitTeam.Modules
             public bool Prioritized;
             public float Until;
             public float LastContactAt;
-            public int RestoreCount;
-            public float NextRestoreLogAt;
-            public int BlockedClearCount;
-            public float NextBlockedClearLogAt;
         }
 
         private static readonly Dictionary<string, RetainedContact> RetainedByFollowerId = new(StringComparer.Ordinal);
@@ -60,10 +57,6 @@ namespace pitTeam.Modules
                         existing.Until = Mathf.Min(now + retainSeconds, existing.LastContactAt + retainSeconds);
                     }
 
-                    existing.RestoreCount = 0;
-                    existing.NextRestoreLogAt = 0f;
-                    existing.BlockedClearCount = 0;
-                    existing.NextBlockedClearLogAt = 0f;
                     return;
                 }
             }
@@ -75,10 +68,6 @@ namespace pitTeam.Modules
                 Prioritized = prioritized,
                 Until = now + retainSeconds,
                 LastContactAt = now,
-                RestoreCount = 0,
-                NextRestoreLogAt = 0f,
-                BlockedClearCount = 0,
-                NextBlockedClearLogAt = 0f,
             };
         }
 
@@ -213,12 +202,6 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            contact.BlockedClearCount++;
-            if (contact.BlockedClearCount == 1 || Time.time >= contact.NextBlockedClearLogAt)
-            {
-                contact.NextBlockedClearLogAt = Time.time + 1f;
-            }
-
             return true;
         }
 
@@ -260,7 +243,11 @@ namespace pitTeam.Modules
                 return true;
             }
 
-            EnemyInfo? info = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO);
+            EnemyInfo? info = Enemy.MakeEnemy(
+                follower,
+                enemy,
+                EBotEnemyCause.checkAddTODO,
+                countSharedSeenAsPersonal: false);
             if (info == null)
             {
                 return false;
@@ -269,16 +256,13 @@ namespace pitTeam.Modules
             info.PriorityIndex = 0;
             info.PersonalLastPos = enemy.Position;
             info.SetVisible(contact.WasVisible);
-            Enemy.RepairPersonalMemory(info, enemy.Position, contact.WasVisible || info.HaveSeen || info.CanShoot);
+            Enemy.RepairPersonalMemory(info, enemy.Position, contact.WasVisible || Enemy.HasDirectPersonalContact(info));
             follower.Memory.IsPeace = false;
-            follower.Memory.GoalEnemy = info;
-            restored = info;
-
-            contact.RestoreCount++;
-            if (contact.RestoreCount == 1 || Time.time >= contact.NextRestoreLogAt)
+            using (FollowerGoalEnemyTracker.Begin("FollowerContactEnemyRetention.TryRestore", "retainedContactRestore"))
             {
-                contact.NextRestoreLogAt = Time.time + 1f;
+                follower.Memory.GoalEnemy = info;
             }
+            restored = info;
 
             return true;
         }
@@ -305,6 +289,11 @@ namespace pitTeam.Modules
                 return false;
             }
 
+            if (!ShouldAdoptDifferentLiveVisibleGoal(follower, retainedEnemyProfileId, goalEnemy, out string rejectReason))
+            {
+                return false;
+            }
+
             Player? enemy = goalEnemy.Person as Player;
             if (enemy?.HealthController?.IsAlive != true && !string.IsNullOrEmpty(goalEnemy.ProfileId))
             {
@@ -316,25 +305,169 @@ namespace pitTeam.Modules
                 return false;
             }
 
-            Register(follower, enemy, visible: true, prioritized: true);
+            bool preserveMissionRetention = FollowerCombatTargetCommitments.IsActiveTemporaryTarget(follower, goalEnemy);
+            if (!preserveMissionRetention)
+            {
+                Register(follower, enemy, visible: true, prioritized: true);
+            }
+
             adoptedInfo = goalEnemy;
             adoptedEnemy = enemy;
 
-            BattleRecorder.RecordObjectiveDiagnostic(
-                follower,
-                "FollowerContactEnemyRetention",
-                "adoptVisibleGoal",
-                "differentVisibleGoal",
-                new
-                {
-                    previousRetainedEnemyProfileId = retainedEnemyProfileId,
-                    adoptedEnemyProfileId = goalEnemy.ProfileId,
-                    adoptedVisible = goalEnemy.IsVisible,
-                    adoptedCanShoot = goalEnemy.CanShoot,
-                    adoptedDistance = goalEnemy.Distance
-                });
-
             return true;
+        }
+
+        public static bool ShouldAllowGoalEnemySet(
+            BotOwner follower,
+            EnemyInfo? currentGoal,
+            EnemyInfo candidate,
+            string reason,
+            out string? blockedReason)
+        {
+            blockedReason = null;
+            if (follower == null ||
+                candidate == null ||
+                string.IsNullOrEmpty(follower.ProfileId) ||
+                string.IsNullOrEmpty(candidate.ProfileId) ||
+                !string.Equals(reason, "unscopedSetter", StringComparison.Ordinal) ||
+                FollowerCombatTargetCommitments.HasMission(follower))
+            {
+                return true;
+            }
+
+            if (string.Equals(currentGoal?.ProfileId, candidate.ProfileId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (!RetainedByFollowerId.TryGetValue(follower.ProfileId, out RetainedContact contact))
+            {
+                return true;
+            }
+
+            if (Time.time > contact.Until)
+            {
+                RetainedByFollowerId.Remove(follower.ProfileId);
+                return true;
+            }
+
+            if (string.Equals(candidate.ProfileId, contact.EnemyProfileId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            Player retainedEnemy = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(contact.EnemyProfileId);
+            if (retainedEnemy?.HealthController?.IsAlive != true)
+            {
+                RetainedByFollowerId.Remove(follower.ProfileId);
+                return true;
+            }
+
+            string rejectReason = string.Empty;
+            if ((candidate.IsVisible || candidate.CanShoot) &&
+                ShouldAdoptDifferentLiveVisibleGoal(follower, contact.EnemyProfileId, candidate, out rejectReason))
+            {
+                Player? candidatePlayer = candidate.Person as Player;
+                if (candidatePlayer?.HealthController?.IsAlive != true)
+                {
+                    candidatePlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(candidate.ProfileId);
+                }
+
+                if (candidatePlayer?.HealthController?.IsAlive == true)
+                {
+                    Register(follower, candidatePlayer, visible: true, prioritized: true);
+                    return true;
+                }
+
+                rejectReason = "candidateDead";
+            }
+            else if (!candidate.IsVisible && !candidate.CanShoot)
+            {
+                rejectReason = "notVisibleOrShootable";
+            }
+
+            blockedReason = "retentionBlockedSet:" + (string.IsNullOrEmpty(rejectReason) ? "notEngageable" : rejectReason);
+            return false;
+        }
+
+        private static bool ShouldAdoptDifferentLiveVisibleGoal(
+            BotOwner follower,
+            string retainedEnemyProfileId,
+            EnemyInfo candidate,
+            out string rejectReason)
+        {
+            rejectReason = string.Empty;
+            if (follower == null || candidate == null)
+            {
+                rejectReason = "missingFollowerOrCandidate";
+                return false;
+            }
+
+            if (FollowerCombatTargetCommitments.HasMission(follower))
+            {
+                if (FollowerCombatTargetCommitments.IsMissionTarget(follower, candidate) ||
+                    FollowerCombatTargetCommitments.IsActiveTemporaryTarget(follower, candidate))
+                {
+                    return true;
+                }
+
+                rejectReason = "targetMission";
+                return false;
+            }
+
+            if (!TryGetOrderedPushTargetLock(follower, out string orderedTargetProfileId))
+            {
+                return true;
+            }
+
+            if (string.Equals(candidate.ProfileId, orderedTargetProfileId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (!string.Equals(retainedEnemyProfileId, orderedTargetProfileId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (IsStrongOrderedPushSelfDefenseThreat(follower, candidate))
+            {
+                return true;
+            }
+
+            rejectReason = "orderedTargetLock";
+            return false;
+        }
+
+        private static bool TryGetOrderedPushTargetLock(BotOwner follower, out string orderedTargetProfileId)
+        {
+            orderedTargetProfileId = string.Empty;
+            var followerData = BossPlayers.Instance?.GetFollower(follower);
+            if (followerData == null ||
+                !followerData.TryGetOrderedPushTargetLock(out orderedTargetProfileId, out _))
+            {
+                return false;
+            }
+
+            return !string.IsNullOrEmpty(orderedTargetProfileId);
+        }
+
+        private static bool IsStrongOrderedPushSelfDefenseThreat(BotOwner follower, EnemyInfo candidate)
+        {
+            if (candidate == null || !candidate.IsVisible || !candidate.CanShoot)
+            {
+                return false;
+            }
+
+            if (FollowerImmediateFirePolicy.HasReliableImmediateFireLane(follower, candidate))
+            {
+                return true;
+            }
+
+            float hardSwitchDistance = Mathf.Min(
+                12f,
+                CombatDistanceConfiguration.Instance.GetCloseQuarterDistance());
+            return candidate.Distance <= hardSwitchDistance;
         }
 
         public static void Clear(BotOwner follower)

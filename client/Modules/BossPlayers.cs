@@ -222,6 +222,7 @@ namespace pitTeam.Modules
             _progressSavedFollowerProfileIds.Clear();
             _shallBeFollower.Clear();
             FollowerGrenadeCooldowns.ClearAll();
+            FollowerGrenadeRuntimeGate.ClearAll();
             FollowerDeathEscapeResolver.ClearFallenSquadmateSnapshots();
 
             IsDisposed = true;

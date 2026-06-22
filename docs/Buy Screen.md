@@ -93,14 +93,22 @@ Inspect overlay:
 
 The first implementation used Prapor's sell-to-trader valuation, which made kits far too cheap. That path was wrong because `TraderClass.GetUserItemPrice(...)` answers "what will this trader pay the player for this item", not "what does this item cost to acquire".
 
-The current display uses a market-facing estimate:
+The current display uses a market-facing bundled-kit estimate:
 
 1. when the buy screen opens, the client requests `/client/items/prices` through `ISession.RagfairGetPrices(...)`
 2. the result is cached as `templateId -> price`
 3. the screen refreshes visible selected-build and build-list prices when the price table returns
 4. each build price walks every equipped item tree with an explicit recursive traversal and sums every nested item, including weapon mods, rig contents, armor inserts, and armor plates
 5. price adjustment uses EFT's single-item buyout helper so durability, resources, med HP, food/drink resource, repair-kit resource, and similar item state still influence value
-6. if a template is missing from the market table, the fallback is `HandbookClass.GetBasePrice(...)`
+6. for each weapon tree, the client first looks for live Ragfair rouble offers on the same base weapon template
+7. if a Ragfair offer covers at least 80% of the selected weapon tree by raw matched value and is close enough to the selected weapon's condition, the quote treats that assembled offer as the base price and then adjusts only the unmatched attachment difference
+8. if no useful Ragfair near-match exists, the client looks for the best available exact assembled trader/barter offer at the player's current trader loyalty
+9. if no useful exact assembled trader offer exists, weapon roots and installed weapon parts use the conditional pitFireTeam kit discount fallback
+10. the primary weapon fallback can reach a 40% discount only when the kit has armor or an armored rig, a helmet, and either one spare compatible magazine for external-mag weapons or compatible loose ammo for non-magazine weapons; missing pieces reduce the discount in 10% steps, and a weapon-only preset receives no fallback kit discount
+11. the secondary weapon fallback is only eligible when the primary fallback reaches 40%, and can reach a 25% discount when it has spare compatible magazines or compatible loose ammo
+12. the pistol fallback is only eligible when the primary and secondary weapon trees already received fallback discounts, and can reach a 40% discount when it has a spare compatible magazine or compatible loose ammo
+13. armor, helmets, rigs, backpacks, loose/grid-contained items, ammo, meds, keys, cards, coins, and carried loot stay at full value, except armored vests and armored rigs with plate systems can discount the armor setup itself by up to 20%, scaled by how many of their available plate slots are populated
+14. if a template is missing from the market table, the fallback is `HandbookClass.GetBasePrice(...)`
 
 The estimate intentionally does not:
 

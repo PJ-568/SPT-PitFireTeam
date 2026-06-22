@@ -2,9 +2,11 @@ using Comfort.Common;
 using EFT;
 using EFT.InventoryLogic;
 using pitTeam.Modules;
+using pitTeam.Utils;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using System.Reflection;
+using UnityEngine;
 
 namespace pitTeam.Patches
 {
@@ -33,6 +35,7 @@ namespace pitTeam.Patches
 
             if (!FollowerGrenadeRuntimeGate.IsThrowAllowed(bot))
             {
+                FollowerGrenadeRuntimeGate.ShouldBlockThrowAttempt(bot, out _);
                 __result = false;
                 return false;
             }
@@ -82,22 +85,42 @@ namespace pitTeam.Patches
         }
 
         [PatchPrefix]
-        private static void PatchPrefix(BotGrenadeController __instance, Result<IHandsThrowController> throwResult)
+        private static bool PatchPrefix(BotGrenadeController __instance, Result<IHandsThrowController> throwResult)
         {
             BotOwner bot = BotOwnerField?.GetValue(__instance) as BotOwner;
             if (bot == null || !BossPlayers.IsFollower(bot))
             {
-                return;
+                return true;
             }
 
             if (throwResult.Succeed && throwResult.Value != null)
             {
+                Vector3? target = __instance.AIGreanageThrowData?.Target;
+                if (target.HasValue &&
+                    FollowerShotSafety.IsFriendlyNearGrenadeImpact(
+                        bot,
+                        target.Value,
+                        FollowerShotSafety.RegularGrenadeUnsafeRadius,
+                        includeMovementPrediction: false,
+                        out string impactRejectReason))
+                {
+                    BattleRecorder.RecordGrenadeEvent(
+                        bot,
+                        "releaseBlocked",
+                        $"friendlyImpact:{impactRejectReason}",
+                        target: target.Value);
+                    __instance.method_6(null);
+                    return false;
+                }
+
                 bool firstRelease = FollowerGrenadeRuntimeGate.MarkThrowReleased(bot);
                 if (firstRelease)
                 {
                     BattleRecorder.RecordGrenadeEvent(bot, "release", "cooldownStart");
                 }
             }
+
+            return true;
         }
     }
 }

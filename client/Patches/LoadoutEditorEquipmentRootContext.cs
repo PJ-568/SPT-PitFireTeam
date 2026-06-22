@@ -41,13 +41,13 @@ namespace pitTeam.Patches
         {
             if (!OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(targetItemId, out Item itemToRepair))
             {
-                return true;
-            }
+                if (OtherPlayerProfileScreenPatch.TryGetLoadoutEditorItem(targetItemId, out _))
+                {
+                    __result = Task.FromResult<IResult>(new FailedResult("This teammate loadout item must remain on teammate equipment to be repaired", 0));
+                    return false;
+                }
 
-            if (OtherPlayerProfileScreenPatch.ShouldRequireLoadoutEditorSaveBeforeRepair(itemToRepair))
-            {
-                __result = Task.FromResult(OtherPlayerProfileScreenPatch.ShowLoadoutEditorSaveBeforeRepairPrompt());
-                return false;
+                return true;
             }
 
             if (!OtherPlayerProfileScreenPatch.CanRepairLoadoutEditorEquipmentItem(itemToRepair))
@@ -71,16 +71,20 @@ namespace pitTeam.Patches
         private static bool PatchPrefix(TraderClass __instance, RepairItem repairItem, ref Task<IResult> __result)
         {
             if (__instance == null
-                || repairItem == null
-                || !OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(repairItem.Id, out Item itemToRepair))
+                || repairItem == null)
             {
                 return true;
             }
 
-            if (OtherPlayerProfileScreenPatch.ShouldRequireLoadoutEditorSaveBeforeRepair(itemToRepair))
+            if (!OtherPlayerProfileScreenPatch.TryGetLoadoutEditorEquipmentItem(repairItem.Id, out Item itemToRepair))
             {
-                __result = Task.FromResult(OtherPlayerProfileScreenPatch.ShowLoadoutEditorSaveBeforeRepairPrompt());
-                return false;
+                if (OtherPlayerProfileScreenPatch.TryGetLoadoutEditorItem(repairItem.Id, out _))
+                {
+                    __result = Task.FromResult<IResult>(new FailedResult("This teammate loadout item must remain on teammate equipment to be repaired", 0));
+                    return false;
+                }
+
+                return true;
             }
 
             if (!OtherPlayerProfileScreenPatch.CanRepairLoadoutEditorEquipmentItem(itemToRepair))
@@ -89,33 +93,6 @@ namespace pitTeam.Patches
             }
 
             __result = OtherPlayerProfileScreenPatch.RepairLoadoutEditorEquipmentWithTraderAsync(__instance.Id, repairItem, itemToRepair);
-            return false;
-        }
-    }
-
-    internal sealed class LoadoutEditorRepairExecuteInteractionPatch : ModulePatch
-    {
-        protected override MethodBase GetTargetMethod()
-        {
-            return AccessTools.Method(typeof(ContextInteractionsAbstractClass), nameof(ContextInteractionsAbstractClass.ExecuteInteractionInternal));
-        }
-
-        [PatchPrefix]
-        private static bool PatchPrefix(ContextInteractionsAbstractClass __instance, EItemInfoButton interaction)
-        {
-            if (interaction != EItemInfoButton.Repair)
-            {
-                return true;
-            }
-
-            Item item = __instance?.Item_0;
-            if (item == null || !OtherPlayerProfileScreenPatch.ShouldRequireLoadoutEditorSaveBeforeRepair(item))
-            {
-                return true;
-            }
-
-            __instance.Action_6?.Invoke();
-            OtherPlayerProfileScreenPatch.ShowLoadoutEditorSaveBeforeRepairPrompt();
             return false;
         }
     }

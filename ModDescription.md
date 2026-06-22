@@ -457,10 +457,13 @@ If the teammate dies, the carried loot is lost.
 
 Found in My Squad → Settings
 
+Before editing teammate loadouts, check **Known Issues and Conflicts** for current loadout management limitations.
+
 ![Loadout Management](https://iili.io/BpKDP4I.md.png)
 
 - **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
 - **Restricted** — Teammate loadouts must use gear from your stash or be purchased through **Kit Loadouts**. Gear is still protected: it is not lost on death and cannot be looted.
+    - **Field Upkeep** — Track raid wear and spent supplies for teammates while their gear remains protected from death loss and looting.
 - **Immersive** — Same as Restricted, but teammate gear behaves like real raid equipment. Equipment can become damaged, dead teammates lose their gear, and their bodies can be looted.
 - **Realistic** — Same as Immersive, but secure containers are no longer automatically managed for teammates. You are fully responsible for configuring them yourself.
 
@@ -492,11 +495,14 @@ Career Log mod is not compatible with this mod as it causes the "add teammate" b
 
 The Labyrinth is a special map with special AI, not meant to AI followers. Do not spawn with your teammates there.
 
+In teammate loadout editing, do not repair equipment and then move items into or out of the teammate loadout before saving. For now, repair should be the last step before saving. If the editor starts failing after this, cancel out of the Edit Loadout overlay, re-open Edit Loadout, then save without moving anything.
+
 - Teammates can linger after combat. Use **Attention** to reset them.
 - Teammates might not heal their health all the way. It is a game issue, use the Heal key to force heal.
 - Teleporting teammates while they are interacting with doors or other objects can leave them in a bad state.
 - **The game has navigation problems that even SAIN is not able to fully resolve. If your bots get stuck, use teleportation. In other situations, their movement is in teleportation-like bursts. Be mindful of this and stay aware of their position or you will find yourself in a fight all alone or without all your squad as they got stuck somewhere.**
 - Ever since BSG introduced the agression system, opposing factions may not always be hostile to each other. However, this is never the case with you, you are always an enemy to the opposing side. Keep that in mind and be prepared for even your teammates to sometimes ignore a member of an opposing faction until he starts shooting or you give the "Contact" order.
+- Teammates can sometimes pick up an enemy they never saw or heard. Use **Attention** to reset them. In some cases, they may keep reacquiring that enemy until the enemy is dead. This comes from the game's detection and memory logic, and broad workarounds can break normal enemy behavior.
 - SAIN can interfere with teleportation, teleporting the bot back to previous location. You may need to trigger teleportation multiple times for it to stick.
 - Teammates can occasionally have registration delay on enemies. This is buggy behavior within the game that I am not able to fix.
 - Teammates may have shaky aiming during some executions. It does not affect their performance, but can be an annoying visual glitch.

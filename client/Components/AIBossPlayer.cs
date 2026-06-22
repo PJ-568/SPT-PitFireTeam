@@ -51,10 +51,10 @@ namespace pitTeam.Components
         public CombatEvents CombatEvents { get; } = new CombatEvents();
 
         private List<BotOwner> bossEnemies = new List<BotOwner>();
-        private const float TeamStatusGestureDistance = 15f;
+        private const float TeamStatusGestureDistance = 20f;
         private const float ContactLookDistance = 45f;
         private const float ContactConeMinDot = 0.45f;
-        private const float GestureCommandDistance = 15f;
+        private const float GestureCommandDistance = 20f;
         private const float HoldGestureDistance = 25f;
         private const float PhraseCommandDistance = 30f;
         private const float StopPhraseDistance = 35f;
@@ -579,8 +579,7 @@ namespace pitTeam.Components
                 ? EEnemyPartVisibleType.Visible
                 : EEnemyPartVisibleType.Sence;
             bool visibleForContact = visibleType == EEnemyPartVisibleType.Visible;
-            string beforeGoalId = follower.Memory?.GoalEnemy?.ProfileId ?? "<null>";
-            bool beforeHaveEnemy = follower.Memory?.HaveEnemy == true;
+            string goalPromotionReason = prioritizeAsGoal ? "contactEnemy:prioritized" : "contactEnemy:fillEmpty";
 
             try
             {
@@ -597,7 +596,11 @@ namespace pitTeam.Components
             // Contact is an explicit combat cue from boss; force an EnemyInfo to exist now
             // instead of waiting for later controller reconciliation.
             follower.Memory.IsPeace = false;
-            EnemyInfo? trackedEnemy = Enemy.MakeEnemy(follower, enemy, EBotEnemyCause.checkAddTODO);
+            EnemyInfo? trackedEnemy = Enemy.MakeEnemy(
+                follower,
+                enemy,
+                EBotEnemyCause.checkAddTODO,
+                countSharedSeenAsPersonal: visibleForContact || prioritizeAsGoal);
             if (trackedEnemy != null)
             {
                 BotSettingsClass botSettings = GetOrCreateContactEnemyGroupInfo(follower, enemy, trackedEnemy);
@@ -621,11 +624,11 @@ namespace pitTeam.Components
 
             if (allowGoalPromotion && prioritizeAsGoal)
             {
-                PromoteEnemyAsGoal(follower, enemy.ProfileId);
+                PromoteEnemyAsGoal(follower, enemy.ProfileId, goalPromotionReason);
             }
             else if (allowGoalPromotion && (!follower.Memory.HaveEnemy || follower.Memory.GoalEnemy == null))
             {
-                PromoteEnemyAsGoal(follower, enemy.ProfileId);
+                PromoteEnemyAsGoal(follower, enemy.ProfileId, goalPromotionReason);
             }
 
             if (trackedEnemy != null &&
@@ -635,10 +638,15 @@ namespace pitTeam.Components
                 trackedEnemy.PriorityIndex = 0;
                 trackedEnemy.SetVisible(visibleForContact);
                 Enemy.RepairPersonalMemory(trackedEnemy, enemy.Position, visibleForContact || prioritizeAsGoal);
-                follower.Memory.GoalEnemy = trackedEnemy;
+                using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.RegisterContactEnemyForFollower", goalPromotionReason))
+                {
+                    follower.Memory.GoalEnemy = trackedEnemy;
+                }
             }
 
-            if (allowGoalPromotion)
+            if (allowGoalPromotion &&
+                (!FollowerCombatTargetCommitments.HasMission(follower) ||
+                 FollowerCombatTargetCommitments.IsMissionTarget(follower, enemy.ProfileId)))
             {
                 FollowerContactEnemyRetention.Register(follower, enemy, visibleForContact, prioritizeAsGoal);
             }
@@ -768,15 +776,18 @@ namespace pitTeam.Components
             }
         }
 
-        private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId)
+        private static void PromoteEnemyAsGoal(BotOwner follower, string enemyProfileId, string reason)
         {
             EnemyInfo? promoted = GetTrackedEnemyInfo(follower, enemyProfileId);
 
             if (promoted != null)
             {
                 promoted.PriorityIndex = 0;
-                Enemy.RepairPersonalMemory(promoted, promoted.CurrPosition, promoted.IsVisible || promoted.CanShoot || promoted.HaveSeen);
-                follower.Memory.GoalEnemy = promoted;
+                Enemy.RepairPersonalMemory(promoted, promoted.CurrPosition, Enemy.HasDirectPersonalContact(promoted));
+                using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.PromoteEnemyAsGoal", reason))
+                {
+                    follower.Memory.GoalEnemy = promoted;
+                }
             }
         }
 
@@ -1275,6 +1286,8 @@ namespace pitTeam.Components
                 }
                 followerData?.ClearCommand("Attention:Look");
                 followerData?.ClearTemporaryCombatAggressionOverride();
+                followerData?.ClearOrderedPushTargetLock("Attention");
+                FollowerCombatTargetCommitments.ClearMission(follower, null, "Attention");
 
                 FollowerEnemyEnforceSuppression.Suppress(follower, enforceBlockSeconds);
 
@@ -1312,6 +1325,9 @@ namespace pitTeam.Components
                 return;
             }
 
+            FollowerAwareness.ClearTransientState(follower);
+            FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(follower);
+
             // Clear current goal enemy flags first.
             if (follower.Memory.GoalEnemy != null && follower.Memory.GoalEnemy.GroupInfo != null)
             {
@@ -1346,8 +1362,10 @@ namespace pitTeam.Components
                 }
             }
 
-            FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(follower);
-            follower.Memory.GoalEnemy = null;
+            using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.ClearEnemyInfo", "clearFollowerEnemyCache"))
+            {
+                follower.Memory.GoalEnemy = null;
+            }
             follower.Memory.LastEnemy = null;
         }
 
@@ -1403,7 +1421,7 @@ namespace pitTeam.Components
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
-                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, crouch: true, source: "HoldGesture");
+                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, requester, crouch: true, source: "HoldGesture");
                         }
                     }
 
@@ -1423,7 +1441,7 @@ namespace pitTeam.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                ApplyHoldIntent(follower, followerData, crouch: true, source: "HoldGesture");
+                ApplyHoldIntent(follower, followerData, requester, crouch: true, source: "HoldGesture");
             }
         }
 
@@ -1445,7 +1463,7 @@ namespace pitTeam.Components
                         BotFollowerPlayer lookedFollowerData = BossPlayers.Instance?.GetFollower(lookedFollower);
                         if (lookedFollowerData != null)
                         {
-                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, crouch: false, source: "StopPhrase");
+                            applied = ApplyHoldIntent(lookedFollower, lookedFollowerData, requester, crouch: false, source: "StopPhrase");
                         }
                     }
 
@@ -1464,15 +1482,23 @@ namespace pitTeam.Components
                 BotFollowerPlayer followerData = BossPlayers.Instance?.GetFollower(follower);
                 if (followerData == null) continue;
 
-                ApplyHoldIntent(follower, followerData, crouch: false, source: "StopPhrase");
+                ApplyHoldIntent(follower, followerData, requester, crouch: false, source: "StopPhrase");
             }
         }
 
-        private static bool ApplyHoldIntent(BotOwner follower, BotFollowerPlayer followerData, bool crouch, string source)
+        private static bool ApplyHoldIntent(BotOwner follower, BotFollowerPlayer followerData, IPlayer requester, bool crouch, string source)
         {
             if (follower == null || followerData == null)
             {
                 return false;
+            }
+
+            if (IsPickedUpFollower(followerData) &&
+                !RollPickupFollowerHoldAcceptance(follower, followerData, requester, source))
+            {
+                follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                return true;
             }
 
             bool combatContext =
@@ -1533,8 +1559,6 @@ namespace pitTeam.Components
                     if (ignore)
                     {
                         followerData.ClearCommand("Regroup:ignoredCloseOrHealing");
-                        float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
-                        Modules.Logger.LogInfo($"[Regroup] IGNORE SAIN regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
                         continue;
                     }
 
@@ -1548,8 +1572,6 @@ namespace pitTeam.Components
                 if (ShouldIgnoreRegroup(follower, bossPos))
                 {
                     followerData.ClearCommand("Regroup:ignoredCloseOrHealing");
-                    float navDistance = Utils.Utils.GetNavDistance(follower.Position, bossPos);
-                    Modules.Logger.LogInfo($"[Regroup] IGNORE vanilla regroup for {follower.Profile?.Nickname}: filter hit. haveEnemy={follower.Memory?.HaveEnemy}, goalVisible={follower.Memory?.GoalEnemy?.IsVisible}, navDist={navDistance:F1}");
                     continue;
                 }
 
@@ -2299,6 +2321,15 @@ namespace pitTeam.Components
 
                 if (overrideAggression.HasValue)
                 {
+                    if (Mathf.Approximately(overrideAggression.Value, 0f) &&
+                        IsPickedUpFollower(followerData) &&
+                        !RollPickupFollowerHoldAcceptance(follower, followerData, requester, "HoldPositionAggression"))
+                    {
+                        follower.BotTalk.TrySay(EPhraseTrigger.Negative, false);
+                        follower.Gesture.TryGestus(EInteraction.NoGesture, false);
+                        continue;
+                    }
+
                     if (followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out _) &&
                         command == FollowerCommandType.PushEnemy)
                     {
@@ -2348,10 +2379,11 @@ namespace pitTeam.Components
                 {
                     if (IsPickedUpFollower(followerData))
                     {
-                        if (followerData.IsTemporaryCombatAggressionOverrideActive)
+                        if (RollPickupFollowerPushAcceptance(follower, followerData, requester, goalEnemy))
                         {
                             followerData.ClearTemporaryCombatAggressionOverride();
-                            follower.BotTalk.TrySay(EPhraseTrigger.Roger, false);
+                            followerData.SetPushEnemy(12f);
+                            follower.BotTalk.TrySay(EPhraseTrigger.Going, false);
                             follower.Gesture.TryGestus(EInteraction.OkGesture, false);
                         }
                         else
@@ -3470,6 +3502,87 @@ namespace pitTeam.Components
             return followerData != null && !followerData.IsSquadMate;
         }
 
+        private static bool RollPickupFollowerHoldAcceptance(
+            BotOwner follower,
+            BotFollowerPlayer followerData,
+            IPlayer requester,
+            string source)
+        {
+            int followerLevel = GetFollowerLevel(follower);
+            int playerLevel = GetPlayerLevel(requester ?? followerData?.GetBoss()?.realPlayer);
+            int levelDelta = followerLevel - playerLevel;
+            float independence = followerData.PickupIndependence01;
+            float chance = PickupFollowerPersonality.CalculateHoldAcceptanceChance(
+                followerLevel,
+                playerLevel,
+                independence);
+
+            return RollPickupFollowerOrder(follower, "Hold", chance, source, levelDelta, independence, 0f, 0f);
+        }
+
+        private static bool RollPickupFollowerPushAcceptance(
+            BotOwner follower,
+            BotFollowerPlayer followerData,
+            IPlayer requester,
+            EnemyInfo? goalEnemy)
+        {
+            int followerLevel = GetFollowerLevel(follower);
+            int playerLevel = GetPlayerLevel(requester ?? followerData?.GetBoss()?.realPlayer);
+            int levelDelta = followerLevel - playerLevel;
+            float independence = followerData.PickupIndependence01;
+            float followerPower = GetEquipmentPower(follower);
+            float enemyPower = GetEnemyEquipmentPower(goalEnemy);
+            float chance = PickupFollowerPersonality.CalculatePushAcceptanceChance(
+                followerLevel,
+                playerLevel,
+                independence,
+                followerPower,
+                enemyPower);
+
+            return RollPickupFollowerOrder(follower, "Push", chance, "GoForward", levelDelta, independence, followerPower, enemyPower);
+        }
+
+        private static bool RollPickupFollowerOrder(
+            BotOwner follower,
+            string order,
+            float chance,
+            string source,
+            int levelDelta,
+            float independence,
+            float followerPower,
+            float enemyPower)
+        {
+            float roll = UnityEngine.Random.value;
+            bool accepted = roll <= chance;
+            Modules.Logger.LogInfo(
+                $"[PickupPersonality] follower={follower?.Profile?.Nickname ?? follower?.ProfileId ?? "unknown"} " +
+                $"order={order} accepted={accepted} chance={chance:0.00} roll={roll:0.00} " +
+                $"source={source} levelDelta={levelDelta} independence={independence:0.00} " +
+                $"gear={followerPower:0.0} enemyGear={enemyPower:0.0}");
+            return accepted;
+        }
+
+        private static int GetFollowerLevel(BotOwner follower)
+        {
+            return Mathf.Max(1, follower?.Profile?.Info?.Level ?? 1);
+        }
+
+        private static int GetPlayerLevel(IPlayer player)
+        {
+            return Mathf.Max(1, player?.Profile?.Info?.Level ?? 1);
+        }
+
+        private static float GetEquipmentPower(BotOwner bot)
+        {
+            return Mathf.Max(0f, bot?.AIData?.PowerOfEquipment ?? bot?.GetPlayer?.AIData?.PowerOfEquipment ?? 0f);
+        }
+
+        private static float GetEnemyEquipmentPower(EnemyInfo? goalEnemy)
+        {
+            IPlayer enemy = goalEnemy?.Person;
+            return Mathf.Max(0f, enemy?.AIData?.PowerOfEquipment ?? enemy?.AIData?.BotOwner?.AIData?.PowerOfEquipment ?? 0f);
+        }
+
         private BotOwner FindLookedAtFollower(Player requester, float distance)
         {
             return FindLookedAtFollower(requester, distance, 0.4f, 10f);
@@ -3581,8 +3694,14 @@ namespace pitTeam.Components
                 if (info != null)
                 {
                     info.PriorityIndex = 0;
-                    Enemy.RepairPersonalMemory(info, enemy.Position, info.IsVisible || info.CanShoot || info.HaveSeen);
-                    if (!follower.Memory.HaveEnemy) follower.Memory.GoalEnemy = info;
+                    Enemy.RepairPersonalMemory(info, enemy.Position, Enemy.HasDirectPersonalContact(info));
+                    if (!follower.Memory.HaveEnemy)
+                    {
+                        using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.PrioritizeEnemy", "existingTrackedEnemy"))
+                        {
+                            follower.Memory.GoalEnemy = info;
+                        }
+                    }
                 }
                 else
                 {
@@ -3602,8 +3721,11 @@ namespace pitTeam.Components
                         }
                         if (info != null)
                         {
-                            Enemy.RepairPersonalMemory(info, enemy.Position, info.IsVisible || info.CanShoot || info.HaveSeen);
-                            follower.Memory.GoalEnemy = info;
+                            Enemy.RepairPersonalMemory(info, enemy.Position, Enemy.HasDirectPersonalContact(info));
+                            using (FollowerGoalEnemyTracker.Begin("AIBossPlayer.PrioritizeEnemy", "createdTrackedEnemy"))
+                            {
+                                follower.Memory.GoalEnemy = info;
+                            }
                         }
                     }
                 }

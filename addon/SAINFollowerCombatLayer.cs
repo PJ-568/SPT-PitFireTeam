@@ -106,6 +106,7 @@ namespace pitTeam.SAINAddon
         public override void Stop()
         {
             ReleaseGroupSearchLock();
+            SainAddonBridge.BeginPostCombatFullHeal(BotOwner);
             BossPlayers.Instance?.GetFollower(BotOwner)?.ClearActiveCombatIndependent();
             base.Stop();
         }

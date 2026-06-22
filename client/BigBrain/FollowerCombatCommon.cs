@@ -82,9 +82,11 @@ namespace pitTeam.BigBrain
         private const float FollowerRegularTimedGrenadeMaxFuseSeconds = 3.5f;
         private const float FollowerRegularTimedGrenadeMinFuseMaxDistance = 28f;
         private const float FollowerRegularGrenadeImpactDelayThreshold = 0.25f;
-        private const float FollowerRegularGrenadeUnsafeRadius = 8f;
+        private const float FollowerRegularGrenadeUnsafeRadius = FollowerShotSafety.RegularGrenadeUnsafeRadius;
         private const float FollowerRegularGrenadeFreshContactDelaySeconds = 0.75f;
         private const float FollowerRegularGrenadeRejectRecordSeconds = 2f;
+        private const float FollowerRegularGrenadeTargetHeight = 0.25f;
+        private const float FollowerRegularGrenadeAirburstFuseMarginSeconds = 0.45f;
         private const float ReloadRetreatThreatDistance = 18f;
         private const float ReloadRetreatAmmoRatio = 0.25f;
         private const int ReloadRetreatMinMagazineAmmo = 5;
@@ -93,6 +95,7 @@ namespace pitTeam.BigBrain
         private const float NoSprintHealSuppressRecentSeenSeconds = 3f;
         private const float HealContactThreatDistance = 25f;
         private const float HealContactRetreatMaxNavDistance = 10f;
+        private const float DogFightInjuredSuppressRetreatRecentSeenSeconds = 3f;
         private const float HealCoverStallBlacklistSeconds = 10f;
         private const float HealHidePointMinDistance = 4f;
         private const float HealHidePointMaxNavDistance = 35f;
@@ -135,6 +138,9 @@ namespace pitTeam.BigBrain
         private const float GrenadeLauncherArcImpactIgnoreDistance = 1.5f;
         private const int GrenadeLauncherArcLaneMinSamples = 4;
         private const int GrenadeLauncherArcLaneMaxSamples = 18;
+        private const int GrenadeLauncherArcLaneMaxHitsPerSegment = 12;
+        private const int SoftSuppressionLaneMaxHits = 24;
+        private const float SoftSuppressionLaneTargetIgnoreDistance = 1.5f;
         private const float OrderedLauncherRayScanDistance = 120f;
         private const float OrderedLauncherRayMaxPerpendicularDistance = 35f;
         private const float GrenadeLauncherSuppressEventSeconds = 10f;
@@ -181,6 +187,7 @@ namespace pitTeam.BigBrain
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedGrenadeDecision;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedPushDecision;
         private string? committedPushEnemyProfileId;
+        private FollowerCombatTargetMissionKind? committedPushMissionKind;
         private AICoreActionResultStruct<BotLogicDecision, GClass26>? committedMovementDecision;
         private string? committedMovementEnemyProfileId;
         private Vector3 committedMovementTarget;
@@ -223,6 +230,7 @@ namespace pitTeam.BigBrain
         private int activeLauncherSuppressCapacity = 1;
         private float activeLauncherSuppressFirstShotAt;
         private float activeLauncherSuppressReloadStartedAt;
+        private float nextLauncherSuppressReloadRequestAt;
         private float orderedGrenadeLauncherSuppressCooldownUntil;
         private float autoGrenadeLauncherSuppressCooldownUntil;
         private float nextGrenadeLauncherSuppressCooldownRecordAt;
@@ -466,7 +474,7 @@ namespace pitTeam.BigBrain
             Enemy.RepairPersonalMemory(
                 goalEnemy,
                 enemyPosition,
-                goalEnemy.HaveSeen || goalEnemy.IsVisible || goalEnemy.CanShoot);
+                Enemy.HasDirectPersonalContact(goalEnemy));
         }
 
         public void HandleSharedDecisionChanged(AICoreActionResultStruct<BotLogicDecision, GClass26> nextDecision)
@@ -570,6 +578,30 @@ namespace pitTeam.BigBrain
         {
             return pendingLauncherPrimaryFallbackReason != null &&
                    IsGrenadeLauncherSelectedOrActive();
+        }
+
+        public bool TryCreatePendingLauncherPrimaryFallbackDecision(
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!HasPendingLauncherPrimaryFallback())
+            {
+                return false;
+            }
+
+            AICoreActionResultStruct<BotLogicDecision, GClass26> fallbackDecision =
+                new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                    BotLogicDecision.holdPosition,
+                    "launcherFallback.pending");
+            TryApplyPendingLauncherPrimaryFallback(fallbackDecision);
+            if (!HasPendingLauncherPrimaryFallback())
+            {
+                return false;
+            }
+
+            HoldFor(0.15f);
+            decision = fallbackDecision;
+            return true;
         }
 
         public bool TryApplyPendingLauncherPrimaryFallback(
@@ -795,6 +827,7 @@ namespace pitTeam.BigBrain
             return !string.IsNullOrEmpty(reason) &&
                    (reason.IndexOf("reload", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("lowAmmo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    reason.IndexOf("launcherFallback", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("weaponSwitchToPrimary", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("orderedWeaponSuppress", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     reason.IndexOf("regroup", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -928,18 +961,32 @@ namespace pitTeam.BigBrain
             activeLauncherSuppressCapacity = 1;
             activeLauncherSuppressFirstShotAt = 0f;
             activeLauncherSuppressReloadStartedAt = 0f;
+            nextLauncherSuppressReloadRequestAt = 0f;
             activeLauncherSuppressReloadRequested = false;
             activeLauncherSuppressCommitmentExpiredRecorded = false;
             activeLauncherSuppressMultiShot = false;
             activeLauncherSuppressShotDetected = false;
         }
 
-        public bool IsGrenadeLauncherSuppressCommitmentExpired(string? reason)
+        public bool IsGrenadeLauncherSuppressCommitmentExpired(string? reason, float suppressElapsed)
         {
             return IsGrenadeLauncherSuppressReason(reason) &&
                    !activeLauncherSuppressShotDetected &&
-                   activeFollowerSuppressStartedAt > 0f &&
-                   Time.time - activeFollowerSuppressStartedAt >= GrenadeLauncherSuppressMinCommitmentSeconds;
+                   suppressElapsed >= GrenadeLauncherSuppressMinCommitmentSeconds;
+        }
+
+        private float GetLauncherSuppressEffectiveElapsed(float suppressElapsed)
+        {
+            if (activeLauncherSuppressReloadStartedAt <= 0f)
+            {
+                return suppressElapsed;
+            }
+
+            float reloadPauseSeconds = Mathf.Clamp(
+                Time.time - activeLauncherSuppressReloadStartedAt,
+                0f,
+                GrenadeLauncherSuppressReloadWaitSeconds);
+            return Mathf.Max(0f, suppressElapsed - reloadPauseSeconds);
         }
 
         private bool HasActiveLauncherSuppressTarget(EnemyInfo? goalEnemy)
@@ -1087,29 +1134,17 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            BotWeaponManager weaponManager = botOwner.WeaponManager;
-            BotReload reload = weaponManager.Reload;
-            if (reload.Reloading ||
-                weaponManager.Selector?.IsChanging == true ||
-                weaponManager.IsWeaponReady == false ||
-                weaponManager.ShootController?.Item != launcher)
-            {
-                return true;
-            }
-
-            if (weaponManager.ShootController?.CanStartReload() != true)
-            {
-                return true;
-            }
-
-            bool reloadStarted = reload.TryReload();
+            bool reloadStarted = TryStartActiveGrenadeLauncherLooseAmmoReload(
+                botOwner,
+                launcher,
+                out string blockReason);
             if (!activeLauncherSuppressReloadRequested)
             {
                 activeLauncherSuppressReloadRequested = true;
                 BattleRecorder.RecordGrenadeEvent(
                     botOwner,
                     "launcherReloadStart",
-                    $"{activeFollowerSuppressReason ?? "launcher"}:started={reloadStarted}",
+                    $"{activeFollowerSuppressReason ?? "launcher"}:started={reloadStarted}:block={blockReason}",
                     goalEnemy: botOwner.Memory?.GoalEnemy);
             }
 
@@ -1282,8 +1317,30 @@ namespace pitTeam.BigBrain
 
         public void CommitPushDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
         {
+            EnemyInfo? committedEnemy = botOwner.Memory?.GoalEnemy;
+            if (committedEnemy != null &&
+                IsAutoPushMissionDecision(decision) &&
+                Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(committedEnemy))
+            {
+                return;
+            }
+
             committedPushDecision = decision;
             committedPushEnemyProfileId = botOwner.Memory?.GoalEnemy?.ProfileId;
+            committedPushMissionKind = null;
+            if (committedEnemy != null &&
+                !string.IsNullOrEmpty(committedEnemy.ProfileId) &&
+                IsAutoPushMissionDecision(decision) &&
+                !FollowerCombatTargetCommitments.IsActiveTemporaryTarget(botOwner, committedEnemy))
+            {
+                committedPushMissionKind = FollowerCombatTargetMissionKind.AutoPush;
+                FollowerCombatTargetCommitments.SetMission(
+                    botOwner,
+                    committedEnemy,
+                    FollowerCombatTargetMissionKind.AutoPush,
+                    decision.Reason ?? "commitAutoPush");
+            }
+
             BattleRecorder.RecordCommitmentEvent(
                 botOwner,
                 "push",
@@ -1306,6 +1363,15 @@ namespace pitTeam.BigBrain
 
             committedPushDecision = null;
             committedPushEnemyProfileId = null;
+            if (committedPushMissionKind.HasValue)
+            {
+                FollowerCombatTargetCommitments.ClearMission(
+                    botOwner,
+                    committedPushMissionKind.Value,
+                    reason ?? "clearCommittedPush");
+            }
+
+            committedPushMissionKind = null;
         }
 
         public bool HasCommittedPushDecision()
@@ -1324,6 +1390,7 @@ namespace pitTeam.BigBrain
             }
 
             if (!HasActiveCombatEnemy(goalEnemy) &&
+                !TryRestoreMissionTargetIfReady("committedPushRestoreMission", out goalEnemy) &&
                 !TryRestoreCommittedPushEnemy(out goalEnemy))
             {
                 return false;
@@ -1332,6 +1399,11 @@ namespace pitTeam.BigBrain
             if (!string.IsNullOrEmpty(committedPushEnemyProfileId) &&
                 !string.Equals(goalEnemy.ProfileId, committedPushEnemyProfileId, StringComparison.Ordinal))
             {
+                if (FollowerCombatTargetCommitments.IsActiveTemporaryTarget(botOwner, goalEnemy))
+                {
+                    return false;
+                }
+
                 return false;
             }
 
@@ -1347,7 +1419,8 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!FollowerContactEnemyRetention.TryRestore(botOwner, out EnemyInfo? restored) || restored == null)
+            if ((!FollowerContactEnemyRetention.TryRestore(botOwner, out EnemyInfo? restored) || restored == null) &&
+                !TryRestoreMissionTargetIfReady("restoreCommittedPushMission", out restored))
             {
                 return false;
             }
@@ -1360,6 +1433,24 @@ namespace pitTeam.BigBrain
 
             goalEnemy = restored;
             return IsTrackedEnemyAlive(restored);
+        }
+
+        public bool TryRestoreMissionTargetIfReady(string reason, out EnemyInfo? restored)
+        {
+            return FollowerCombatTargetCommitments.TryRestoreMissionIfTemporaryExpired(
+                botOwner,
+                reason,
+                out restored);
+        }
+
+        public bool IsTemporaryEngagementTarget(EnemyInfo? goalEnemy)
+        {
+            return FollowerCombatTargetCommitments.IsActiveTemporaryTarget(botOwner, goalEnemy);
+        }
+
+        public bool IsCurrentGoalTemporaryEngagementTarget()
+        {
+            return FollowerCombatTargetCommitments.IsCurrentGoalTemporaryTarget(botOwner);
         }
 
         public void RefreshCommittedPushEnemyRetention()
@@ -1376,6 +1467,25 @@ namespace pitTeam.BigBrain
         {
             return !string.IsNullOrEmpty(committedPushEnemyProfileId) &&
                    !string.Equals(goalEnemy.ProfileId, committedPushEnemyProfileId, StringComparison.Ordinal);
+        }
+
+        public bool IsCommittedPushPausedByTemporaryTarget(EnemyInfo? goalEnemy)
+        {
+            return goalEnemy != null &&
+                   IsCommittedPushEnemyChanged(goalEnemy) &&
+                   IsTemporaryEngagementTarget(goalEnemy);
+        }
+
+        private static bool IsAutoPushMissionDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            if (decision.Reason == null ||
+                decision.Reason.StartsWith("push.ordered", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return FollowerCombatPush.IsPushReason(decision.Reason) ||
+                   FollowerCombatPush.IsStartWeakEnemyPushReason(decision.Reason);
         }
 
         public void CommitGrenadeDecision(AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
@@ -1985,6 +2095,11 @@ namespace pitTeam.BigBrain
             return Mathf.Clamp01(aggression / 100f);
         }
 
+        public float GetBossProtectionWillingness01()
+        {
+            return Mathf.Clamp01(BossPlayers.Instance?.GetFollower(botOwner)?.BossProtectionWillingness01 ?? 1f);
+        }
+
         public bool IsTemporaryHoldPositionAggressionActive()
         {
             return BossPlayers.Instance?.GetFollower(botOwner)?.IsTemporaryHoldPositionAggressionActive == true;
@@ -2098,9 +2213,28 @@ namespace pitTeam.BigBrain
                     continue;
                 }
 
+                if (Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(item.Value))
+                {
+                    return false;
+                }
+
                 item.Value.PriorityIndex = 0;
-                Enemy.RepairPersonalMemory(item.Value, item.Key.Position, item.Value.IsVisible || item.Value.CanShoot || item.Value.HaveSeen);
-                botOwner.Memory.GoalEnemy = item.Value;
+                Enemy.RepairPersonalMemory(item.Value, item.Key.Position, Enemy.HasDirectPersonalContact(item.Value));
+                if (FollowerCombatTargetCommitments.HasMission(botOwner) &&
+                    !FollowerCombatTargetCommitments.IsMissionTarget(botOwner, item.Value) &&
+                    !FollowerCombatTargetCommitments.TryRegisterTemporaryTarget(
+                        botOwner,
+                        item.Value,
+                        "trackedEnemyPromotion",
+                        out _))
+                {
+                    return false;
+                }
+
+                using (FollowerGoalEnemyTracker.Begin("FollowerCombatCommon.TryPromoteTrackedEnemyAsGoal", "trackedEnemyPromotion"))
+                {
+                    botOwner.Memory.GoalEnemy = item.Value;
+                }
                 return true;
             }
 
@@ -2121,29 +2255,40 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            EnemyInfo? enemyInfo = Enemy.MakeEnemy(botOwner, enemyPlayer, EBotEnemyCause.checkAddTODO);
+            EnemyInfo? enemyInfo = Enemy.MakeEnemy(
+                botOwner,
+                enemyPlayer,
+                EBotEnemyCause.checkAddTODO,
+                countSharedSeenAsPersonal: false);
             if (enemyInfo == null)
             {
                 return false;
             }
 
-            bool alreadyGoal = string.Equals(botOwner.Memory.GoalEnemy?.ProfileId, enemyProfileId, StringComparison.Ordinal);
+            EnemyInfo? currentGoal = botOwner.Memory.GoalEnemy;
+            bool alreadyGoal = string.Equals(currentGoal?.ProfileId, enemyProfileId, StringComparison.Ordinal);
             if (!alreadyGoal)
             {
                 // Explicit retarget orders need a stronger hand-off than priority scoring. Clear
                 // the current goal and retention once, then install the requested enemy as the new
                 // goal so vanilla/group sorting cannot immediately bounce us back to the old target.
                 FollowerContactEnemyRetention.ClearAndAllowNextGoalClear(botOwner);
-                botOwner.Memory.GoalEnemy = null;
+                using (FollowerGoalEnemyTracker.Begin("FollowerCombatCommon.TryForceGoalEnemy", $"clearPrevious:{reason}"))
+                {
+                    botOwner.Memory.GoalEnemy = null;
+                }
                 botOwner.Memory.LastEnemy = null;
             }
 
             enemyInfo.PriorityIndex = 0;
             enemyInfo.IgnoreUntilAggression = false;
             enemyInfo.SetVisible(enemyInfo.IsVisible);
-            Enemy.RepairPersonalMemory(enemyInfo, enemyPlayer.Position, enemyInfo.IsVisible || enemyInfo.CanShoot || enemyInfo.HaveSeen);
+            Enemy.RepairPersonalMemory(enemyInfo, enemyPlayer.Position, Enemy.HasDirectPersonalContact(enemyInfo));
             botOwner.Memory.IsPeace = false;
-            botOwner.Memory.GoalEnemy = enemyInfo;
+            using (FollowerGoalEnemyTracker.Begin("FollowerCombatCommon.TryForceGoalEnemy", reason))
+            {
+                botOwner.Memory.GoalEnemy = enemyInfo;
+            }
             FollowerContactEnemyRetention.Register(botOwner, enemyPlayer, enemyInfo.IsVisible || enemyInfo.CanShoot, prioritized: true);
             forcedEnemy = enemyInfo;
             return HasActiveCombatEnemy(enemyInfo);
@@ -2158,6 +2303,72 @@ namespace pitTeam.BigBrain
             }
 
             return TryForceGoalEnemy(enemyBot.ProfileId, reason, out forcedEnemy);
+        }
+
+        public bool TryUseSupportGoalEnemy(BotOwner enemyBot, string reason, out EnemyInfo? supportEnemy)
+        {
+            supportEnemy = null;
+            if (enemyBot?.GetPlayer?.HealthController?.IsAlive != true || string.IsNullOrEmpty(enemyBot.ProfileId))
+            {
+                return false;
+            }
+
+            if (!FollowerCombatTargetCommitments.HasMission(botOwner) ||
+                FollowerCombatTargetCommitments.IsMissionTarget(botOwner, enemyBot.ProfileId))
+            {
+                return TryForceGoalEnemy(enemyBot.ProfileId, reason, out supportEnemy);
+            }
+
+            return TryUseTemporaryGoalEnemy(enemyBot.ProfileId, reason, out supportEnemy);
+        }
+
+        private bool TryUseTemporaryGoalEnemy(string enemyProfileId, string reason, out EnemyInfo? temporaryEnemy)
+        {
+            temporaryEnemy = null;
+            if (string.IsNullOrEmpty(enemyProfileId) || botOwner?.Memory == null)
+            {
+                return false;
+            }
+
+            Player? enemyPlayer = Singleton<GameWorld>.Instance?.GetAlivePlayerByProfileID(enemyProfileId);
+            if (enemyPlayer?.HealthController?.IsAlive != true)
+            {
+                return false;
+            }
+
+            EnemyInfo? enemyInfo = Enemy.MakeEnemy(
+                botOwner,
+                enemyPlayer,
+                EBotEnemyCause.checkAddTODO,
+                countSharedSeenAsPersonal: false);
+            if (enemyInfo == null)
+            {
+                return false;
+            }
+
+            enemyInfo.PriorityIndex = 0;
+            enemyInfo.IgnoreUntilAggression = false;
+            enemyInfo.SetVisible(enemyInfo.IsVisible);
+            Enemy.RepairPersonalMemory(enemyInfo, enemyPlayer.Position, Enemy.HasDirectPersonalContact(enemyInfo));
+
+            if (!FollowerCombatTargetCommitments.TryRegisterTemporaryTarget(
+                    botOwner,
+                    enemyInfo,
+                    reason,
+                    out _))
+            {
+                return false;
+            }
+
+            botOwner.Memory.IsPeace = false;
+            using (FollowerGoalEnemyTracker.Begin("FollowerCombatCommon.TryUseTemporaryGoalEnemy", reason))
+            {
+                botOwner.Memory.GoalEnemy = enemyInfo;
+            }
+
+            temporaryEnemy = botOwner.Memory.GoalEnemy;
+            return string.Equals(temporaryEnemy?.ProfileId, enemyInfo.ProfileId, StringComparison.Ordinal) &&
+                   HasActiveCombatEnemy(temporaryEnemy);
         }
 
         /// <summary>
@@ -3060,6 +3271,11 @@ namespace pitTeam.BigBrain
             float stalePersonalEnemySeconds = 2.5f)
         {
             if (FollowerCombatAnchor.IsCombatIndependent(botOwner))
+            {
+                return false;
+            }
+
+            if (GetBossProtectionWillingness01() < PickupFollowerPersonality.ProtectBossMinWillingness)
             {
                 return false;
             }
@@ -4297,7 +4513,7 @@ namespace pitTeam.BigBrain
                 GrenadeLauncherArcLaneMinSamples,
                 GrenadeLauncherArcLaneMaxSamples);
             float ignoreImpactDistanceSqr = GrenadeLauncherArcImpactIgnoreDistance * GrenadeLauncherArcImpactIgnoreDistance;
-            RaycastHit[] hits = new RaycastHit[1];
+            RaycastHit[] hits = new RaycastHit[GrenadeLauncherArcLaneMaxHitsPerSegment];
             Vector3 previous = fireOrigin;
             for (int i = 1; i <= samples; i++)
             {
@@ -4322,14 +4538,9 @@ namespace pitTeam.BigBrain
                     hits,
                     segmentDistance,
                     mask);
-                if (hitCount > 0)
+                if (HasHardLauncherArcObstruction(hits, hitCount, target, ignoreImpactDistanceSqr))
                 {
-                    RaycastHit hit = hits[0];
-                    bool nearIntendedImpact = (hit.point - target).sqrMagnitude <= ignoreImpactDistanceSqr;
-                    if (!nearIntendedImpact && !IsSoftFoliageCollider(hit.collider))
-                    {
-                        return false;
-                    }
+                    return false;
                 }
 
                 previous = current;
@@ -4370,6 +4581,369 @@ namespace pitTeam.BigBrain
 
             changedToLauncher = selector.ChangeToSecond();
             return changedToLauncher;
+        }
+
+        public bool TryPrepareGrenadeLauncherWeaponForSuppress(
+            string reasonPrefix,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision,
+            out bool ready,
+            out string failReason)
+        {
+            decision = default;
+            ready = false;
+            failReason = string.Empty;
+
+            BotWeaponManager? weaponManager = botOwner?.WeaponManager;
+            BotWeaponSelector? selector = weaponManager?.Selector;
+            Weapon? activeWeapon = weaponManager?.ShootController?.Item ?? weaponManager?.CurrentWeapon;
+            Weapon? secondPrimary = selector?.SecondPrimaryWeaponItem as Weapon;
+            bool selectedLauncher =
+                selector?.LastEquipmentSlot == EquipmentSlot.SecondPrimaryWeapon &&
+                IsGrenadeLauncherWeapon(secondPrimary);
+            bool activeLauncher = IsGrenadeLauncherWeapon(activeWeapon);
+
+            if (!selectedLauncher && !activeLauncher)
+            {
+                if (!HasUsableSecondPrimaryGrenadeLauncher(botOwner))
+                {
+                    failReason = "noUsableSecondPrimaryLauncher";
+                    return false;
+                }
+
+                if (selector == null || !selector.CanChangeToSecondWeapons)
+                {
+                    failReason = "weaponSwitchFailed";
+                    return false;
+                }
+
+                bool changedToLauncher = selector.ChangeToSecond();
+                if (changedToLauncher)
+                {
+                    ownsGrenadeLauncherSwitch = true;
+                }
+                else if (selector.SecondPrimaryWeaponItem != null)
+                {
+                    ownsGrenadeLauncherSwitch = true;
+                }
+
+                HoldFor(0.15f);
+                decision = CreateLauncherPreparationHold($"{reasonPrefix}.launcherSwitch");
+                return true;
+            }
+
+            if (selector?.IsChanging == true ||
+                !selectedLauncher ||
+                !activeLauncher ||
+                activeWeapon == null)
+            {
+                HoldFor(0.15f);
+                decision = CreateLauncherPreparationHold($"{reasonPrefix}.launcherSwitch");
+                return true;
+            }
+
+            int loadedRounds = CountLoadedRounds(activeWeapon);
+            if (loadedRounds > 0)
+            {
+                ready = true;
+                ClearLauncherSuppressReloadTracking();
+                return true;
+            }
+
+            if (IsSingleUseLauncherWeapon(activeWeapon))
+            {
+                failReason = "launcherNoLoadedRounds";
+                return false;
+            }
+
+            BotReload? reload = weaponManager?.Reload;
+            if (reload == null)
+            {
+                failReason = "launcherReloadUnavailable";
+                return false;
+            }
+
+            if (activeLauncherSuppressReloadStartedAt <= 0f)
+            {
+                activeLauncherSuppressReloadStartedAt = Time.time;
+                activeLauncherSuppressReloadRequested = false;
+                BattleRecorder.RecordGrenadeEvent(
+                    botOwner,
+                    "launcherReloadWait",
+                    $"{reasonPrefix}.reload:loaded=0",
+                    goalEnemy: botOwner.Memory?.GoalEnemy);
+            }
+
+            if (Time.time - activeLauncherSuppressReloadStartedAt > GrenadeLauncherSuppressReloadWaitSeconds)
+            {
+                failReason = "launcherReloadTimedOut";
+                return false;
+            }
+
+            if (!reload.Reloading &&
+                Time.time >= nextLauncherSuppressReloadRequestAt)
+            {
+                nextLauncherSuppressReloadRequestAt = Time.time + 0.5f;
+                bool reloadStarted = TryStartActiveGrenadeLauncherLooseAmmoReload(
+                    botOwner,
+                    activeWeapon,
+                    out string blockReason);
+                BattleRecorder.RecordGrenadeEvent(
+                    botOwner,
+                    activeLauncherSuppressReloadRequested ? "launcherReloadRetry" : "launcherReloadStart",
+                    $"{reasonPrefix}.reload:started={reloadStarted}:block={blockReason}",
+                    goalEnemy: botOwner.Memory?.GoalEnemy);
+                activeLauncherSuppressReloadRequested = true;
+            }
+
+            HoldFor(0.15f);
+            decision = CreateLauncherPreparationHold($"{reasonPrefix}.launcherReload");
+            return true;
+        }
+
+        private static bool HasHardLauncherArcObstruction(
+            RaycastHit[] hits,
+            int hitCount,
+            Vector3 target,
+            float ignoreImpactDistanceSqr)
+        {
+            int count = Mathf.Min(hitCount, hits.Length);
+            for (int i = 0; i < count; i++)
+            {
+                RaycastHit hit = hits[i];
+                Collider collider = hit.collider;
+                if (collider == null)
+                {
+                    continue;
+                }
+
+                if ((hit.point - target).sqrMagnitude <= ignoreImpactDistanceSqr)
+                {
+                    continue;
+                }
+
+                if (!IsSoftFoliageCollider(collider))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static AICoreActionResultStruct<BotLogicDecision, GClass26> CreateLauncherPreparationHold(string reason)
+        {
+            return new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.holdPosition,
+                reason);
+        }
+
+        private void ClearLauncherSuppressReloadTracking()
+        {
+            activeLauncherSuppressReloadStartedAt = 0f;
+            nextLauncherSuppressReloadRequestAt = 0f;
+            activeLauncherSuppressReloadRequested = false;
+        }
+
+        public static bool TryStartActiveGrenadeLauncherLooseAmmoReload(
+            BotOwner? owner,
+            Weapon? launcher,
+            out string blockReason)
+        {
+            blockReason = string.Empty;
+
+            if (owner?.WeaponManager == null ||
+                launcher == null)
+            {
+                blockReason = "unavailable";
+                return false;
+            }
+
+            BotWeaponManager weaponManager = owner.WeaponManager;
+            BotReload? reload = weaponManager.Reload;
+            IFirearmHandsController? shootController = weaponManager.ShootController;
+            if (reload == null || shootController == null)
+            {
+                blockReason = "reloadUnavailable";
+                return false;
+            }
+
+            if (reload.Reloading)
+            {
+                blockReason = "reloading";
+                return true;
+            }
+
+            if (weaponManager.Selector?.IsChanging == true)
+            {
+                blockReason = "selectorChanging";
+                return false;
+            }
+
+            if (!weaponManager.IsWeaponReady)
+            {
+                blockReason = "weaponNotReady";
+                return false;
+            }
+
+            if (!ReferenceEquals(shootController.Item, launcher))
+            {
+                blockReason = "launcherNotActive";
+                return false;
+            }
+
+            if (launcher is RevolverItemClass && !weaponManager.InIdleState())
+            {
+                blockReason = "notIdle";
+                return false;
+            }
+
+            if (!shootController.CanStartReload())
+            {
+                blockReason = "cannotStartReload";
+                return false;
+            }
+
+            if (!TryCollectLooseLauncherAmmo(owner, launcher, out List<AmmoItemClass> ammoToLoad))
+            {
+                blockReason = "noCompatibleLooseAmmo";
+                return false;
+            }
+
+            MongoID ammoTemplateId = ammoToLoad[0].TemplateId;
+            int stockCount = ammoToLoad[0].StackObjectsCount;
+            Callback callback = new Callback(result =>
+            {
+                reload.NextReloadTime = Time.time + 0.5f;
+                reload.Reloading = false;
+                reload.AddAmmoToPockets(ammoTemplateId, stockCount);
+            });
+
+            try
+            {
+                reload.ReloadType = BotReload.EReloadType.AmmoReload;
+                reload.Reloading = true;
+                AmmoPackReloadingClass ammoPack = new AmmoPackReloadingClass(ammoToLoad);
+                owner.BotTalk?.Say(EPhraseTrigger.NeedAmmo, false, null);
+
+                if (launcher.ReloadMode == Weapon.EReloadMode.OnlyBarrel)
+                {
+                    shootController.ReloadBarrels(ammoPack, null, callback);
+                }
+                else if (launcher is RevolverItemClass)
+                {
+                    shootController.ReloadCylinderMagazine(ammoPack, callback, false);
+                }
+                else
+                {
+                    shootController.ReloadWithAmmo(ammoPack, callback);
+                }
+
+                blockReason = "started";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                reload.Reloading = false;
+                blockReason = "exception";
+                pitFireTeam.Log?.LogError($"[Combat][Launcher] Failed to start loose-ammo reload: {ex}");
+                return false;
+            }
+        }
+
+        private static bool TryCollectLooseLauncherAmmo(
+            BotOwner owner,
+            Weapon launcher,
+            out List<AmmoItemClass> ammoToLoad)
+        {
+            ammoToLoad = new List<AmmoItemClass>();
+            int missingRounds = GetMissingLooseLauncherRounds(launcher);
+            if (missingRounds <= 0)
+            {
+                return false;
+            }
+
+            List<AmmoItemClass> candidates = new List<AmmoItemClass>();
+            InventoryController inventoryController = owner.GetPlayer.InventoryController;
+            Predicate<AmmoItemClass> predicate = ammo =>
+                ammo != null &&
+                ammo.StackObjectsCount > 0 &&
+                inventoryController.Examined(ammo) &&
+                ammo.CheckAction(null).Succeeded &&
+                CanActiveLauncherAcceptLooseAmmo(launcher, ammo);
+
+            if (launcher is RevolverItemClass)
+            {
+                inventoryController.GetReachableItemsOfTypeNonAlloc(candidates, predicate);
+            }
+            else
+            {
+                inventoryController.GetAcceptableItemsNonAlloc(
+                    BotReload.AvailableEquipmentSlots,
+                    candidates,
+                    predicate,
+                    null);
+            }
+
+            for (int i = 0; i < candidates.Count && missingRounds > 0; i++)
+            {
+                AmmoItemClass ammo = candidates[i];
+                ammoToLoad.Add(ammo);
+                missingRounds -= ammo.StackObjectsCount;
+            }
+
+            return ammoToLoad.Count > 0;
+        }
+
+        private static int GetMissingLooseLauncherRounds(Weapon launcher)
+        {
+            if (launcher.ReloadMode == Weapon.EReloadMode.OnlyBarrel)
+            {
+                int emptyChambers = 0;
+                Slot[] chambers = launcher.Chambers;
+                for (int i = 0; i < chambers.Length; i++)
+                {
+                    if (chambers[i].ContainedItem == null)
+                    {
+                        emptyChambers++;
+                    }
+                }
+
+                return emptyChambers;
+            }
+
+            MagazineItemClass? magazine = launcher.GetCurrentMagazine();
+            if (magazine != null)
+            {
+                int missing = magazine.MaxCount - magazine.Count;
+                if (launcher.ChamberAmmoCount == 0 && !launcher.HasChambers)
+                {
+                    return missing;
+                }
+
+                return Math.Max(0, missing);
+            }
+
+            return launcher.ChamberAmmoCount == 0 ? 1 : 0;
+        }
+
+        private static bool CanActiveLauncherAcceptLooseAmmo(Weapon launcher, AmmoItemClass ammo)
+        {
+            MagazineItemClass? magazine = launcher.GetCurrentMagazine();
+            if (magazine != null && magazine.CheckCompatibility(ammo))
+            {
+                return true;
+            }
+
+            Slot[] chambers = launcher.Chambers;
+            for (int i = 0; i < chambers.Length; i++)
+            {
+                if (chambers[i].CanAccept(ammo))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void TryReleaseOwnedGrenadeLauncher()
@@ -4485,7 +5059,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            RaycastHit[] softObstructionHits = new RaycastHit[1];
+            RaycastHit[] softObstructionHits = new RaycastHit[SoftSuppressionLaneMaxHits];
             int hitCount = Physics.RaycastNonAlloc(
                 new Ray(fireOrigin, direction / distance),
                 softObstructionHits,
@@ -4496,13 +5070,34 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            Collider collider = softObstructionHits[0].collider;
-            if (collider == null)
+            bool foundSoftObstruction = false;
+            float targetIgnoreDistanceSqr =
+                SoftSuppressionLaneTargetIgnoreDistance *
+                SoftSuppressionLaneTargetIgnoreDistance;
+            int count = Mathf.Min(hitCount, softObstructionHits.Length);
+            for (int i = 0; i < count; i++)
             {
-                return false;
+                RaycastHit hit = softObstructionHits[i];
+                Collider collider = hit.collider;
+                if (collider == null)
+                {
+                    continue;
+                }
+
+                if ((hit.point - suppressTarget).sqrMagnitude <= targetIgnoreDistanceSqr)
+                {
+                    continue;
+                }
+
+                if (!IsSoftFoliageCollider(collider))
+                {
+                    return false;
+                }
+
+                foundSoftObstruction = true;
             }
 
-            return IsSoftFoliageCollider(collider);
+            return foundSoftObstruction;
         }
 
         private static bool IsSoftFoliageCollider(Collider collider)
@@ -6822,6 +7417,7 @@ namespace pitTeam.BigBrain
 
             // Decision 4: enemy unseen and low threat -> close pressure/push.
             if (!goalEnemy.IsVisible &&
+                !Enemy.IsMemoryOnlyAcquisitionWithoutPersonalContact(goalEnemy) &&
                 !ShouldBlockProactiveAutoPushForWeaponThreat(goalEnemy) &&
                 IsEnemyLowThreat(goalEnemy, aggression > 0.6f, aggression >= 0.8f ? 2f : 1f) &&
                 IsWeakEnemyAutoPushRoleAllowed(goalEnemy))
@@ -6885,6 +7481,13 @@ namespace pitTeam.BigBrain
             {
                 ClearDogFightState();
                 return null;
+            }
+
+            if (TryGetDogFightInjuredSuppressRetreatDecision(
+                    goalEnemy,
+                    out AICoreActionResultStruct<BotLogicDecision, GClass26> injuredSuppressRetreat))
+            {
+                return injuredSuppressRetreat;
             }
 
             bool hasLiveVisibleDogFightContact = HasFreshVisibleShootableContact(goalEnemy, CloseThreatRecentSeenSeconds);
@@ -6958,6 +7561,87 @@ namespace pitTeam.BigBrain
             }
 
             return null;
+        }
+
+        private bool TryGetDogFightInjuredSuppressRetreatDecision(
+            EnemyInfo goalEnemy,
+            out AICoreActionResultStruct<BotLogicDecision, GClass26> decision)
+        {
+            decision = default;
+            if (!ShouldUseDogFightInjuredSuppressRetreat(goalEnemy) ||
+                botOwner.SuppressShoot == null ||
+                !TryGetSuppressTarget(goalEnemy, out Vector3 suppressTarget) ||
+                !HasSafeDogFightInjuredSuppressLane(suppressTarget))
+            {
+                return false;
+            }
+
+            bool coverTried = false;
+            CustomNavigationPoint? suppressFrom = null;
+            if (TryAssignCloseSuppressedHealCover(goalEnemy, ref coverTried))
+            {
+                suppressFrom = botOwner.Memory?.CurCustomCoverPoint;
+                if (suppressFrom != null)
+                {
+                    botOwner.GoToSomePointData?.SetPoint(suppressFrom.Position);
+                }
+            }
+
+            if (!botOwner.SuppressShoot.InitToPoint(suppressTarget, suppressFrom))
+            {
+                return false;
+            }
+
+            ClearDogFightState();
+            botOwner.Steering.LookToPoint(suppressTarget);
+            decision = new AICoreActionResultStruct<BotLogicDecision, GClass26>(
+                BotLogicDecision.suppressFire,
+                suppressFrom != null
+                    ? "autoSuppress.dogFightHealRetreat.move"
+                    : "autoSuppress.dogFightHealRetreat.place");
+            return true;
+        }
+
+        private bool ShouldUseDogFightInjuredSuppressRetreat(EnemyInfo goalEnemy)
+        {
+            if (!IsDogFightActive() ||
+                !HasActiveCombatEnemy(goalEnemy) ||
+                !HasActiveOrPendingHealWork() ||
+                !CanCurrentWeaponSuppress())
+            {
+                return false;
+            }
+
+            bool recentContact =
+                goalEnemy.IsVisible ||
+                Time.time - goalEnemy.PersonalSeenTime <= DogFightInjuredSuppressRetreatRecentSeenSeconds ||
+                Time.time - goalEnemy.PersonalLastSeenTime <= DogFightInjuredSuppressRetreatRecentSeenSeconds;
+            if (!recentContact)
+            {
+                return false;
+            }
+
+            return HasUrgentHealWork() ||
+                   IsFollowerCriticallyWounded() ||
+                   IsFollowerInjured() ||
+                   botOwner.Memory.IsUnderFire ||
+                   WasHitRecently(botOwner, 1.5f) ||
+                   FollowerAwareness.WasRecentlyDamaged(botOwner);
+        }
+
+        private bool HasSafeDogFightInjuredSuppressLane(Vector3 suppressTarget)
+        {
+            Vector3 fireOrigin = botOwner.WeaponRoot != null
+                ? botOwner.WeaponRoot.position
+                : botOwner.Position + Vector3.up * 1.2f;
+            if (!FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, fireOrigin, suppressTarget))
+            {
+                return true;
+            }
+
+            Vector3 standingOrigin = GetStandingSuppressionFireOrigin(botOwner);
+            return (standingOrigin - fireOrigin).sqrMagnitude > 0.04f &&
+                   !FollowerShotSafety.IsFriendlyInSuppressionLane(botOwner, standingOrigin, suppressTarget);
         }
 
         public bool TryGetReloadRetreatDecision(
@@ -9604,8 +10288,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (secondaryWeapon!.ChamberAmmoCount > 0 ||
-                secondaryWeapon.GetCurrentMagazine()?.Count > 0)
+            if (CountLoadedRounds(secondaryWeapon) > 0)
             {
                 return true;
             }
@@ -9615,9 +10298,7 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            // Patrol does not pre-reload launchers, but combat launcher suppression can still
-            // proceed when EFT sees compatible ammo and can perform its normal reload path.
-            return owner?.WeaponManager?.SecondWeaponInfo?.CheckHaveAmmoForReload() == true;
+            return true;
         }
 
         public static bool IsUsingAutomaticSecondaryOverNonAutomaticPrimary(BotOwner? owner)
@@ -10767,6 +11448,15 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("reloadRetreatNeeded", true);
             }
 
+            if (goalEnemy != null &&
+                ShouldUseDogFightInjuredSuppressRetreat(goalEnemy) &&
+                botOwner.SuppressShoot != null &&
+                TryGetSuppressTarget(goalEnemy, out Vector3 suppressTarget) &&
+                HasSafeDogFightInjuredSuppressLane(suppressTarget))
+            {
+                return new AICoreActionEndStruct("dogFightInjuredSuppressRetreat", true);
+            }
+
             if ((goalEnemy == null || goalEnemy.Distance > botOwner.Settings.FileSettings.Mind.DOG_FIGHT_OUT) &&
                 !botOwner.WeaponManager.Reload.Reloading &&
                 !botOwner.Memory.BotCurrentCoverInfo.UseDogFight(botOwner.Settings.FileSettings.Cover.DOG_FIGHT_AFTER_LEAVE))
@@ -11350,15 +12040,13 @@ namespace pitTeam.BigBrain
             float protectedSeconds = GetFollowerSuppressProtectedSeconds(ordered);
 
             bool launcherSuppress = IsGrenadeLauncherSuppressReason(reason);
-            if (!ordered && suppressElapsed >= AutoSuppressMaxSeconds)
-            {
-                return new AICoreActionEndStruct("autoSuppressTimedOut", true);
-            }
-
+            float effectiveSuppressElapsed = launcherSuppress
+                ? GetLauncherSuppressEffectiveElapsed(suppressElapsed)
+                : suppressElapsed;
             bool launcherOpeningAim =
                 launcherSuppress &&
                 !activeLauncherSuppressShotDetected &&
-                suppressElapsed < GrenadeLauncherSuppressAimSettleSeconds;
+                effectiveSuppressElapsed < GrenadeLauncherSuppressAimSettleSeconds;
             if (launcherSuppress &&
                 TryGetLauncherSuppressFireEndReason(
                     launcherOpeningAim ? false : botOwner.SuppressShoot.Complete,
@@ -11370,11 +12058,16 @@ namespace pitTeam.BigBrain
             }
 
             if (launcherSuppress &&
-                IsGrenadeLauncherSuppressCommitmentExpired(reason))
+                IsGrenadeLauncherSuppressCommitmentExpired(reason, effectiveSuppressElapsed))
             {
                 RecordLauncherSuppressCommitmentExpired(reason, goalEnemy);
                 followerData?.ClearCommand("SuppressEnemy:launcherCommitmentExpired");
                 return new AICoreActionEndStruct("launcherCommitmentExpired", true);
+            }
+
+            if (!ordered && effectiveSuppressElapsed >= AutoSuppressMaxSeconds)
+            {
+                return new AICoreActionEndStruct("autoSuppressTimedOut", true);
             }
 
             if (ordered && !launcherSuppress && suppressElapsed >= OrderedWeaponSuppressMaxSeconds)
@@ -11464,7 +12157,8 @@ namespace pitTeam.BigBrain
             }
 
             Vector3 suppressFireOrigin = launcherSuppress ? acceptedLauncherFireOrigin : fireOrigin;
-            if (ShouldBreakFollowerSuppressForPointBlankContact(goalEnemy, point.Value, suppressFireOrigin))
+            if (!IsDogFightHealRetreatSuppressReason(reason) &&
+                ShouldBreakFollowerSuppressForPointBlankContact(goalEnemy, point.Value, suppressFireOrigin))
             {
                 followerData?.ClearCommand("SuppressEnemy:pointBlankNonFoliageContact");
                 return new AICoreActionEndStruct("pointBlankNonFoliageContact", true);
@@ -11624,6 +12318,12 @@ namespace pitTeam.BigBrain
             return reason != null && reason.StartsWith("autoSuppress", StringComparison.Ordinal);
         }
 
+        private static bool IsDogFightHealRetreatSuppressReason(string? reason)
+        {
+            return reason != null &&
+                   reason.StartsWith("autoSuppress.dogFightHealRetreat", StringComparison.Ordinal);
+        }
+
         public static bool IsAutonomousSuppressReason(string? reason)
         {
             return IsAutoSuppressReason(reason) ||
@@ -11659,6 +12359,22 @@ namespace pitTeam.BigBrain
                 FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
                 ClearCommittedGrenade();
                 return new AICoreActionEndStruct("suppressGrenadeUnsafe", true);
+            }
+
+            if (!FollowerGrenadeRuntimeGate.HasReleasedThrow(botOwner) &&
+                IsPendingGrenadeImpactUnsafe(grenades, includeMovementPrediction: true, out string impactRejectReason))
+            {
+                BattleRecorder.RecordGrenadeEvent(
+                    botOwner,
+                    "abort",
+                    $"friendlyImpact:{impactRejectReason}",
+                    goalEnemy: goalEnemy,
+                    target: grenades.AIGreanageThrowData?.Target);
+                AbortPendingGrenadeThrow(grenades);
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                ClearCommittedGrenade();
+                return new AICoreActionEndStruct("suppressGrenadeFriendlyImpact", true);
             }
 
             if (!HasAnyActiveCombatEnemy() &&
@@ -11725,6 +12441,11 @@ namespace pitTeam.BigBrain
             if (!pitFireTeam.botGrenades.Value)
             {
                 return RejectFollowerGrenade("disabled", goalEnemy: goalEnemy);
+            }
+
+            if (FollowerGrenadeRuntimeGate.ShouldBlockThrowAttempt(botOwner, out string runtimeGateRejectReason))
+            {
+                return RejectFollowerGrenade(runtimeGateRejectReason, goalEnemy: goalEnemy);
             }
 
             if (!TryGetFollowerGrenadeTarget(goalEnemy, out Vector3 goalTargetPosition, out string? targetRejectReason))
@@ -11798,9 +12519,14 @@ namespace pitTeam.BigBrain
                 return RejectFollowerGrenade(distanceRejectReason ?? "distance", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
-            if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, FollowerRegularGrenadeUnsafeRadius))
+            if (FollowerShotSafety.IsFriendlyNearGrenadeImpact(
+                    botOwner,
+                    targetPosition,
+                    FollowerRegularGrenadeUnsafeRadius,
+                    includeMovementPrediction: true,
+                    out string impactRejectReason))
             {
-                return RejectFollowerGrenade("friendlyTooClose", suppressEnemy, cancelPending: true, disableGate: true);
+                return RejectFollowerGrenade($"friendlyImpact:{impactRejectReason}", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
             string? candidateRejectReason = null;
@@ -11879,9 +12605,15 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            if (!TryInitFollowerSuppressGrenade(suppressEnemy, throwType, targetPosition))
+            if (!TryInitFollowerSuppressGrenade(
+                    suppressEnemy,
+                    grenade,
+                    throwType,
+                    targetPosition,
+                    out AIGreanageThrowData? throwData,
+                    out string? trajectoryRejectReason))
             {
-                rejectReason = $"initFailed:{throwType}";
+                rejectReason = trajectoryRejectReason ?? $"initFailed:{throwType}";
                 return false;
             }
 
@@ -11894,7 +12626,7 @@ namespace pitTeam.BigBrain
             BattleRecorder.RecordGrenadeEvent(
                 botOwner,
                 "init",
-                CreateFollowerGrenadeRecorderReason(decisionReason, grenade, targetPosition),
+                CreateFollowerGrenadeRecorderReason(decisionReason, grenade, targetPosition, throwData),
                 goalEnemy: suppressEnemy,
                 target: targetPosition);
             CommitGrenadeDecision(decision);
@@ -12030,11 +12762,15 @@ namespace pitTeam.BigBrain
         private string CreateFollowerGrenadeRecorderReason(
             string decisionReason,
             ThrowWeapItemClass grenade,
-            Vector3 targetPosition)
+            Vector3 targetPosition,
+            AIGreanageThrowData? throwData)
         {
             float distance = Vector3.Distance(botOwner.Position, targetPosition);
             float maxDistance = GetFollowerRegularGrenadeMaxDistance(grenade);
-            return $"{decisionReason}:{grenade.ThrowType}:{GetFollowerGrenadeTimerLabel(grenade)}:d{Mathf.RoundToInt(distance)}:max{Mathf.RoundToInt(maxDistance)}";
+            string trajectory = throwData != null
+                ? $":ang{Mathf.RoundToInt(throwData.Ang)}:flight{EstimateFollowerGrenadeFlightSeconds(throwData):0.0}"
+                : string.Empty;
+            return $"{decisionReason}:{grenade.ThrowType}:{GetFollowerGrenadeTimerLabel(grenade)}:d{Mathf.RoundToInt(distance)}:max{Mathf.RoundToInt(maxDistance)}{trajectory}";
         }
 
         private string GetFollowerGrenadeTimerLabel(ThrowWeapItemClass grenade)
@@ -12049,33 +12785,163 @@ namespace pitTeam.BigBrain
 
         private bool TryInitFollowerSuppressGrenade(
             EnemyInfo suppressEnemy,
+            ThrowWeapItemClass grenade,
             ThrowWeapType throwType,
-            Vector3 targetPosition)
+            Vector3 targetPosition,
+            out AIGreanageThrowData? throwData,
+            out string? rejectReason)
         {
+            throwData = null;
+            rejectReason = null;
             if (botOwner.SuppressGrenade == null ||
                 botOwner.WeaponManager?.Grenades == null ||
                 !IsFinite(targetPosition))
             {
+                rejectReason = $"initFailed:{throwType}";
                 return false;
             }
 
-            Vector3 throwTarget = targetPosition + BotOwner.STAY_HEIGHT;
-            if (!TryInitFollowerSuppressGrenadeAtAnyAngle(throwTarget))
+            Vector3 throwTarget = targetPosition + Vector3.up * FollowerRegularGrenadeTargetHeight;
+            if (!TryGetFollowerGrenadeThrowData(
+                    grenade,
+                    throwType,
+                    throwTarget,
+                    out throwData,
+                    out rejectReason))
             {
                 return false;
             }
 
             botOwner.SuppressGrenade.method_0(suppressEnemy, null);
-            botOwner.WeaponManager.Grenades.AIGreanageThrowData.GrenadeType = throwType;
+            throwData!.GrenadeType = throwType;
+            botOwner.WeaponManager.Grenades.SetThrowData(throwData);
             return true;
         }
 
-        private bool TryInitFollowerSuppressGrenadeAtAnyAngle(Vector3 throwTarget)
+        private bool TryGetFollowerGrenadeThrowData(
+            ThrowWeapItemClass grenade,
+            ThrowWeapType throwType,
+            Vector3 throwTarget,
+            out AIGreanageThrowData? throwData,
+            out string? rejectReason)
         {
-            return botOwner.SuppressGrenade != null &&
-                   (botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang25) ||
-                    botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang45) ||
-                    botOwner.SuppressGrenade.Init(throwTarget, AIGreandeAng.ang65));
+            throwData = null;
+            rejectReason = null;
+            BotGrenadeController? grenades = botOwner.WeaponManager?.Grenades;
+            if (grenades == null)
+            {
+                rejectReason = $"grenadeControllerMissing:{throwType}";
+                return false;
+            }
+
+            AIGreandeAng[] candidateAngles = GetFollowerGrenadeCandidateAngles(grenade);
+            string? lastRejectReason = null;
+            for (int i = 0; i < candidateAngles.Length; i++)
+            {
+                AIGreandeAng angle = candidateAngles[i];
+                AIGreanageThrowData candidate = GClass577.CanThrowGrenade2(
+                    botOwner.Position,
+                    throwTarget,
+                    grenades,
+                    angle,
+                    botOwner.Settings.FileSettings.Grenade.MIN_THROW_GRENADE_DIST_SQRT);
+                if (candidate == null || !candidate.CanThrow)
+                {
+                    lastRejectReason = $"trajectoryBlocked:{angle}";
+                    continue;
+                }
+
+                float flightSeconds = EstimateFollowerGrenadeFlightSeconds(candidate);
+                if (!IsFollowerGrenadeFlightSafe(grenade, flightSeconds))
+                {
+                    lastRejectReason =
+                        $"airburstRisk:{angle}:flight{flightSeconds:0.0}:fuse{GetFollowerGrenadeExplDelay(grenade):0.0}";
+                    continue;
+                }
+
+                throwData = candidate;
+                return true;
+            }
+
+            rejectReason = lastRejectReason ?? $"trajectoryUnavailable:{throwType}";
+            return false;
+        }
+
+        private static AIGreandeAng[] GetFollowerGrenadeCandidateAngles(ThrowWeapItemClass grenade)
+        {
+            if (GetFollowerGrenadeExplDelay(grenade) <= FollowerRegularGrenadeImpactDelayThreshold)
+            {
+                return new[]
+                {
+                    AIGreandeAng.ang15,
+                    AIGreandeAng.ang25,
+                    AIGreandeAng.ang35,
+                    AIGreandeAng.ang45,
+                    AIGreandeAng.ang55,
+                    AIGreandeAng.ang65
+                };
+            }
+
+            float fuseSeconds = GetFollowerGrenadeExplDelay(grenade);
+            if (fuseSeconds < 2f)
+            {
+                return new[]
+                {
+                    AIGreandeAng.ang15,
+                    AIGreandeAng.ang25,
+                    AIGreandeAng.ang35
+                };
+            }
+
+            if (fuseSeconds < 3f)
+            {
+                return new[]
+                {
+                    AIGreandeAng.ang15,
+                    AIGreandeAng.ang25,
+                    AIGreandeAng.ang35,
+                    AIGreandeAng.ang45
+                };
+            }
+
+            return new[]
+            {
+                AIGreandeAng.ang15,
+                AIGreandeAng.ang25,
+                AIGreandeAng.ang35,
+                AIGreandeAng.ang45,
+                AIGreandeAng.ang55
+            };
+        }
+
+        private static bool IsFollowerGrenadeFlightSafe(ThrowWeapItemClass grenade, float flightSeconds)
+        {
+            if (GetFollowerGrenadeExplDelay(grenade) <= FollowerRegularGrenadeImpactDelayThreshold)
+            {
+                return true;
+            }
+
+            return flightSeconds > 0f &&
+                   flightSeconds + FollowerRegularGrenadeAirburstFuseMarginSeconds <= GetFollowerGrenadeExplDelay(grenade);
+        }
+
+        private static float EstimateFollowerGrenadeFlightSeconds(AIGreanageThrowData throwData)
+        {
+            if (throwData == null ||
+                !IsFinite(throwData.Position) ||
+                !IsFinite(throwData.Target) ||
+                throwData.Force <= 0.01f)
+            {
+                return 0f;
+            }
+
+            Vector3 offset = throwData.Target - throwData.Position;
+            offset.y = 0f;
+            float horizontalDistance = offset.magnitude;
+            float angleRadians = throwData.Ang * Mathf.Deg2Rad;
+            float solverSpeed = throwData.Force / 1.3f;
+            float horizontalSpeed = solverSpeed * Mathf.Cos(angleRadians);
+            return horizontalSpeed > 0.01f ? horizontalDistance / horizontalSpeed : 0f;
         }
 
         private bool IsSafeGrenadeThrowPosition(EnemyInfo goalEnemy, Vector3 enemyAnchor)
@@ -12153,6 +13019,22 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        private bool IsPendingGrenadeImpactUnsafe(
+            BotGrenadeController grenades,
+            bool includeMovementPrediction,
+            out string reason)
+        {
+            reason = string.Empty;
+            Vector3? target = grenades?.AIGreanageThrowData?.Target;
+            return target.HasValue &&
+                   FollowerShotSafety.IsFriendlyNearGrenadeImpact(
+                       botOwner,
+                       target.Value,
+                       FollowerRegularGrenadeUnsafeRadius,
+                       includeMovementPrediction,
+                       out reason);
+        }
+
         private EnemyInfo GetSuppressGrenadeTarget(EnemyInfo goalEnemy, out ThrowWeapType? preferredThrowType)
         {
             preferredThrowType = null;
@@ -12171,44 +13053,6 @@ namespace pitTeam.BigBrain
             }
 
             return goalEnemy;
-        }
-
-        private bool IsFriendlyTooCloseToGrenadeTarget(Vector3 targetPosition, float unsafeRadius)
-        {
-            float unsafeRadiusSqr = unsafeRadius * unsafeRadius;
-
-            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
-            {
-                return false;
-            }
-
-            Player bossPlayer = boss.realPlayer;
-            if (bossPlayer != null && (bossPlayer.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
-            {
-                return true;
-            }
-
-            var followers = boss.Followers;
-            if (followers == null)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < followers.Count; i++)
-            {
-                BotOwner follower = followers[i];
-                if (follower == null || follower == botOwner || follower.IsDead)
-                {
-                    continue;
-                }
-
-                if ((follower.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         private void CancelActiveHealIfNeeded()

@@ -39,11 +39,18 @@ namespace pitTeam.Modules
 
             try
             {
+                string[] trackedLootIdsArray = InteractableObjects.GetStoredItems(player.ProfileId)?
+                    .Where(itemId => !string.IsNullOrWhiteSpace(itemId))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray()
+                    ?? Array.Empty<string>();
                 HashSet<string> trackedLootIds = new HashSet<string>(
-                    InteractableObjects.GetStoredItems(player.ProfileId) ?? Enumerable.Empty<string>(),
+                    trackedLootIdsArray,
                     StringComparer.Ordinal);
 
                 string ownerId = player.Profile?.AccountId ?? player.ProfileId;
+                FlatItemsDataClass[] equipmentItems = SerializeEquipment(
+                    player.InventoryController?.Inventory?.Equipment);
                 List<RecoverableGearCandidate> candidates = GetRecoverableTopLevelGear(
                         player,
                         trackedLootIds,
@@ -68,7 +75,9 @@ namespace pitTeam.Modules
                         Aid = ownerId,
                         ProfileId = player.ProfileId,
                         Nickname = player.Profile?.Nickname ?? "Squadmate",
-                        Position = player.Position
+                        Position = player.Position,
+                        EquipmentItems = equipmentItems,
+                        TrackedItemIds = trackedLootIdsArray
                     });
                 }
 
@@ -90,6 +99,34 @@ namespace pitTeam.Modules
                 FallenSquadmateSnapshots.Clear();
                 FallenSquadmateInfos.Clear();
             }
+        }
+
+        public static bool TryGetFallenSquadmateSnapshot(
+            string aid,
+            string profileId,
+            out FlatItemsDataClass[] equipmentItems,
+            out string[] trackedItemIds)
+        {
+            equipmentItems = null;
+            trackedItemIds = Array.Empty<string>();
+
+            FallenSquadmateInfo fallen;
+            lock (FallenSnapshotLock)
+            {
+                fallen = FallenSquadmateInfos.FirstOrDefault(info =>
+                    info != null &&
+                    ((!string.IsNullOrWhiteSpace(aid) && string.Equals(info.Aid, aid, StringComparison.Ordinal)) ||
+                     (!string.IsNullOrWhiteSpace(profileId) && string.Equals(info.ProfileId, profileId, StringComparison.Ordinal))));
+            }
+
+            if (fallen == null)
+            {
+                return false;
+            }
+
+            equipmentItems = fallen.EquipmentItems;
+            trackedItemIds = fallen.TrackedItemIds ?? Array.Empty<string>();
+            return equipmentItems != null && equipmentItems.Length > 0;
         }
 
         public static bool HasFallenSquadmateSnapshots()
@@ -134,9 +171,10 @@ namespace pitTeam.Modules
                 }
 
                 // A teammate who died before the player does not get an escape roll, but the server
-                // still needs a lost outcome so Immersive/Realistic can strip their saved gear.
+                // still needs a lost outcome so Immersive/Realistic can strip saved gear and
+                // Restricted maintenance can persist the death-time equipment state.
                 // Do not distance-gate this profile outcome. The nearby-radius check belongs to
-                // physical gear recovery only; loadout loss is a raid result, not a carrier range.
+                // physical gear recovery only; loadout persistence is a raid result, not a carrier range.
                 entries.Add(new FollowerDeathEscapeOutcomeEntry
                 {
                     Aid = fallen.Aid,
@@ -151,8 +189,8 @@ namespace pitTeam.Modules
                     EnemyAveragePower = 0f,
                     AliveSquadmates = 0,
                     HasSecureMeds = false,
-                    EquipmentItems = null,
-                    TrackedItemIds = Array.Empty<string>()
+                    EquipmentItems = fallen.EquipmentItems,
+                    TrackedItemIds = fallen.TrackedItemIds ?? Array.Empty<string>()
                 });
                 knownIds.Add(fallen.Aid);
                 if (!string.IsNullOrWhiteSpace(fallen.ProfileId))

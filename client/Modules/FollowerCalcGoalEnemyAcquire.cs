@@ -1,5 +1,6 @@
 using Comfort.Common;
 using EFT;
+using pitTeam.BigBrain;
 using pitTeam.Components;
 using pitTeam.Utils;
 using System;
@@ -93,17 +94,32 @@ namespace pitTeam.Modules
                 return;
             }
 
-            EnemyInfo info = Enemy.MakeEnemy(owner, firstVisible);
+            EnemyInfo? info = Enemy.MakeEnemy(
+                owner,
+                firstVisible,
+                EBotEnemyCause.checkAddTODO,
+                countSharedSeenAsPersonal: false);
             if (info == null)
             {
                 return;
             }
 
-            PromoteGoalEnemy(owner, info);
+            bool ownerHasDirectContact = FollowerEnemyInfoCorrection.RefreshDirectContactForAcquisition(owner, info);
+            Enemy.RepairPersonalMemory(info, firstVisible.Position, ownerHasDirectContact);
+            if (!ownerHasDirectContact)
+            {
+                return;
+            }
+
+            PromoteGoalEnemy(owner, info, hasDirectVisibility: true);
 
             owner.BotFollower.BossToFollow?.Followers?.ForEach(follower =>
             {
                 if (follower == null || follower.IsDead || follower.GetPlayer == null || follower == owner)
+                {
+                    return;
+                }
+                if (FollowerEnemyEnforceSuppression.IsSuppressed(follower))
                 {
                     return;
                 }
@@ -113,25 +129,40 @@ namespace pitTeam.Modules
                     return;
                 }
 
-                EnemyInfo? followerInfo = Enemy.MakeEnemy(follower, firstVisible);
-                PromoteGoalEnemy(follower, followerInfo);
+                EnemyInfo? followerInfo = Enemy.MakeEnemy(
+                    follower,
+                    firstVisible,
+                    EBotEnemyCause.checkAddTODO,
+                    countSharedSeenAsPersonal: false);
+                bool siblingHasDirectContact = FollowerEnemyInfoCorrection.RefreshDirectContactForAcquisition(follower, followerInfo);
+                Enemy.RepairPersonalMemory(followerInfo, firstVisible.Position, siblingHasDirectContact);
+                if (!siblingHasDirectContact)
+                {
+                    return;
+                }
+
+                PromoteGoalEnemy(follower, followerInfo, hasDirectVisibility: true);
             });
         }
 
-        private static void PromoteGoalEnemy(BotOwner follower, EnemyInfo? info)
+        private static void PromoteGoalEnemy(BotOwner follower, EnemyInfo? info, bool hasDirectVisibility)
         {
             if (follower?.Memory == null || info == null)
             {
                 return;
             }
 
-            if (follower.Memory.GoalEnemy == null ||
-                !follower.Memory.HaveEnemy ||
-                follower.Memory.GoalEnemy.Person?.HealthController?.IsAlive != true)
+            bool willPromote = follower.Memory.GoalEnemy == null ||
+                               !follower.Memory.HaveEnemy ||
+                               follower.Memory.GoalEnemy.Person?.HealthController?.IsAlive != true;
+            if (willPromote)
             {
                 follower.Memory.IsPeace = false;
                 info.IgnoreUntilAggression = false;
-                follower.Memory.GoalEnemy = info;
+                using (FollowerGoalEnemyTracker.Begin("FollowerCalcGoalEnemyAcquire.PromoteGoalEnemy", "idleOrSiblingAcquire"))
+                {
+                    follower.Memory.GoalEnemy = info;
+                }
                 FollowerContactEnemyRetention.RegisterCurrentGoal(follower, prioritized: false);
             }
         }

@@ -16,6 +16,7 @@ namespace pitTeam.Utils
         private const float SuppressionDistancePadding = 2.0f;
         private const float AimLaneRadius = 0.5f;
         private const float AimLaneDistancePadding = 0.5f;
+        public const float RegularGrenadeUnsafeRadius = 8f;
 
         public static bool IsFriendlyInShotLane(BotOwner shooter, Vector3 targetPosition)
         {
@@ -155,6 +156,132 @@ namespace pitTeam.Utils
             }
 
             return false;
+        }
+
+        public static bool IsFriendlyNearGrenadeImpact(
+            BotOwner shooter,
+            Vector3 impactPosition,
+            float unsafeRadius,
+            bool includeMovementPrediction,
+            out string reason)
+        {
+            reason = string.Empty;
+            if (unsafeRadius <= 0f ||
+                shooter?.BotFollower?.BossToFollow is not pitAIBossPlayer boss ||
+                boss.realPlayer == null ||
+                !IsFinite(impactPosition))
+            {
+                return false;
+            }
+
+            if (IsPlayerNearGrenadeImpact(boss.realPlayer, impactPosition, unsafeRadius))
+            {
+                reason = "bossNearImpact";
+                return true;
+            }
+
+            var followers = boss.Followers;
+            if (followers == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < followers.Count; i++)
+            {
+                BotOwner follower = followers[i];
+                if (follower == null || follower == shooter || follower.IsDead)
+                {
+                    continue;
+                }
+
+                Player player = follower.GetPlayer;
+                if (player?.HealthController?.IsAlive != true)
+                {
+                    continue;
+                }
+
+                if (IsPlayerNearGrenadeImpact(player, impactPosition, unsafeRadius))
+                {
+                    reason = $"allyNearImpact:{GetSafeName(follower)}";
+                    return true;
+                }
+
+                if (includeMovementPrediction &&
+                    IsFollowerMovementSegmentNearImpact(follower, impactPosition, unsafeRadius))
+                {
+                    reason = $"allyMovementCrossesImpact:{GetSafeName(follower)}";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsPlayerNearGrenadeImpact(Player player, Vector3 impactPosition, float unsafeRadius)
+        {
+            if (player == null || !IsFinite(player.Position))
+            {
+                return false;
+            }
+
+            float unsafeRadiusSqr = unsafeRadius * unsafeRadius;
+            return (player.Position - impactPosition).sqrMagnitude <= unsafeRadiusSqr;
+        }
+
+        private static bool IsFollowerMovementSegmentNearImpact(
+            BotOwner follower,
+            Vector3 impactPosition,
+            float unsafeRadius)
+        {
+            if (follower?.GoToSomePointData?.HaveTarget() != true ||
+                follower.GoToSomePointData.IsCome() ||
+                !IsFinite(follower.Position) ||
+                !IsFinite(follower.GoToSomePointData.Point))
+            {
+                return false;
+            }
+
+            Vector3 from = follower.Position;
+            Vector3 to = follower.GoToSomePointData.Point;
+            if ((to - from).sqrMagnitude <= 0.25f)
+            {
+                return false;
+            }
+
+            float distanceSqr = DistancePointToSegmentXZSqr(impactPosition, from, to);
+            return distanceSqr <= unsafeRadius * unsafeRadius;
+        }
+
+        private static float DistancePointToSegmentXZSqr(Vector3 point, Vector3 segmentStart, Vector3 segmentEnd)
+        {
+            Vector2 p = new Vector2(point.x, point.z);
+            Vector2 a = new Vector2(segmentStart.x, segmentStart.z);
+            Vector2 b = new Vector2(segmentEnd.x, segmentEnd.z);
+            Vector2 ab = b - a;
+            float abSqr = ab.sqrMagnitude;
+            if (abSqr <= 0.0001f)
+            {
+                return (p - a).sqrMagnitude;
+            }
+
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / abSqr);
+            Vector2 closest = a + ab * t;
+            return (p - closest).sqrMagnitude;
+        }
+
+        private static string GetSafeName(BotOwner bot)
+        {
+            return bot?.Profile?.Nickname ?? bot?.ProfileId ?? "unknown";
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !(float.IsNaN(value.x) ||
+                     float.IsNaN(value.y) ||
+                     float.IsNaN(value.z) ||
+                     float.IsInfinity(value.x) ||
+                     float.IsInfinity(value.y) ||
+                     float.IsInfinity(value.z));
         }
 
         private static bool IsFriendlyInSuppressionLaneCore(BotOwner shooter, Vector3 origin, Vector3 direction, float maxDistance)

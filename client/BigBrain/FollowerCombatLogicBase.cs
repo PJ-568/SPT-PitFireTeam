@@ -69,6 +69,7 @@ namespace pitTeam.BigBrain
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             followerData?.SetCombatRegroupBossAnchor(false);
             followerData?.ClearOrderedPushTargetLock("CombatLogic:Reset");
+            FollowerCombatTargetCommitments.ClearMission(BotOwner, null, "CombatLogic:Reset");
             combatCommon.Reset();
             defaultObjective.Reset();
             sniperObjective.Reset();
@@ -83,6 +84,7 @@ namespace pitTeam.BigBrain
         public virtual AICoreActionResultStruct<BotLogicDecision, GClass26> GetDecision()
         {
             combatCommon.RepairGoalEnemyMemory();
+            combatCommon.TryRestoreMissionTargetIfReady("combatDecisionRestoreMission", out _);
             EnemyInfo? goalEnemy = BotOwner.Memory.GoalEnemy;
             if (goalEnemy == null)
             {
@@ -106,6 +108,13 @@ namespace pitTeam.BigBrain
                 }
 
                 RefreshObjective(goalEnemy);
+                if (currentObjective != CombatObjectiveKind.Grenadier &&
+                    combatCommon.TryCreatePendingLauncherPrimaryFallbackDecision(
+                        out AICoreActionResultStruct<BotLogicDecision, GClass26> fallbackDecision))
+                {
+                    return fallbackDecision;
+                }
+
                 AICoreActionResultStruct<BotLogicDecision, GClass26> decision = GetCurrentObjective().GetDecision(goalEnemy);
                 // Default combat can request an objective switch without leaking a fake action to the layer.
                 // When that happens, activate regroup immediately and return regroup's first real decision.
@@ -145,6 +154,10 @@ namespace pitTeam.BigBrain
 
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             EnemyInfo? goalEnemy = BotOwner.Memory?.GoalEnemy;
+            if (combatCommon.TryRestoreMissionTargetIfReady("combatEndRestoreMission", out EnemyInfo? restoredMission))
+            {
+                goalEnemy = restoredMission;
+            }
             FollowerEnemyInfoCorrection.CorrectDistanceOnly(BotOwner, goalEnemy);
 
             if (currentObjective == CombatObjectiveKind.OrderedPush &&
@@ -543,6 +556,7 @@ namespace pitTeam.BigBrain
         private void ActivateRegroupObjective(BotFollowerPlayer followerData)
         {
             followerData.ClearOrderedPushTargetLock("CombatObjective:Regroup");
+            combatCommon.ClearCommittedPushDecision("CombatObjective:Regroup");
             followerData.ClearCommand("CombatObjective:ConsumeRegroup");
             ActivateRegroupObjective(forceReset: true, "activateRegroupOrder");
             followerData.SetCombatRegroupBossAnchor(true);
@@ -582,6 +596,7 @@ namespace pitTeam.BigBrain
         private void ActivateSuppressionObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)
         {
             followerData.ClearOrderedPushTargetLock("CombatObjective:Suppression");
+            combatCommon.ClearCommittedPushDecision("CombatObjective:Suppression");
             if (!combatCommon.HasActiveCombatEnemy(goalEnemy))
             {
                 followerData.ClearCommand("CombatObjective:RejectSuppression");
@@ -666,6 +681,7 @@ namespace pitTeam.BigBrain
         private void ActivateNeedSniperObjective(BotFollowerPlayer followerData, EnemyInfo goalEnemy)
         {
             followerData.ClearOrderedPushTargetLock("CombatObjective:NeedSniper");
+            combatCommon.ClearCommittedPushDecision("CombatObjective:NeedSniper");
             if (ShouldRejectNeedSniperObjective(goalEnemy))
             {
                 followerData.ClearCommand("CombatObjective:RejectNeedSniper");

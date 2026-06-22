@@ -18,7 +18,16 @@ namespace pitTeam.Patches
                     return false;
                 }
 
-                return TeammateCorpseIdentity.IsTeammateCorpseOwner(item.Owner);
+                Slot sourceSlot = item.CurrentAddress?.Container as Slot;
+                if (sourceSlot == null ||
+                    sourceSlot.ParentItem is not InventoryEquipment corpseEquipment ||
+                    !ReferenceEquals(sourceSlot.ContainedItem, item) ||
+                    !string.Equals(sourceSlot.ID, EquipmentSlot.Dogtag.ToString(), StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                return TeammateCorpseIdentity.IsTeammateCorpseEquipment(corpseEquipment);
             }
             catch (Exception ex)
             {

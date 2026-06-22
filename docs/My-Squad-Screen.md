@@ -303,6 +303,7 @@ Verified entry groups:
 - `Loadout Management`
     - `Simple`
     - `Restricted`
+    - `Field Upkeep` (visible only while `Restricted` is active)
     - `Immersive`
     - `Realistic`
 - `Input Settings`
@@ -342,9 +343,11 @@ It is rendered as four mutually exclusive rows using cloned Ragfair `UIAnimatedT
 
 The rows are intentionally vertical: each row shows the mode description on the left and the selectable mode toggle on the right.
 
+When `Restricted` is the active mode, a `Field Upkeep` checkbox row appears between `Restricted` and `Immersive`. It defaults off and uses the same settings-row layout as other checkbox settings instead of joining the radio `ToggleGroup`.
+
 Changing from the current mode opens a confirmation overlay before the setting is applied. The overlay warns that switching loadout management will switch all teammates to their `Default` loadout. `Continue` applies the mode and closes the overlay; the `X` cancels and leaves the previous mode selected.
 
-On confirmation, the client saves the BepInEx setting, syncs the new mode to the server, and updates the visible radio state in place instead of rebuilding the full settings panel.
+On confirmation, the client saves the BepInEx setting, syncs the new mode to the server, and rebuilds the settings entries so conditional rows such as `Field Upkeep` appear or disappear immediately.
 
 Crossing into or out of `Realistic` also strips the secure-container tree from saved teammate `Default` loadouts before the next profile/edit view can expose it.
 

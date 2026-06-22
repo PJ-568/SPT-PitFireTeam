@@ -8,6 +8,7 @@ using EFT.UI;
 using EFT.UI.Builds;
 using EFT.UI.DragAndDrop;
 using EFT.UI.Health;
+using EFT.UI.Ragfair;
 using EFT.UI.Screens;
 using HarmonyLib;
 using Newtonsoft.Json;
@@ -36,6 +37,24 @@ namespace pitTeam.Patches
         private static readonly FieldInfo EditBuildOnlyAvailableToggleField = AccessTools.Field(typeof(EditBuildScreen), "_onlyAvailableToggle");
         private const string BuyKitRoute = "/singleplayer/pitfireteam/teammate/profile/buy-kit";
         private const float MarketPricesRefreshIntervalSeconds = 300f;
+        private const double PrimaryWeaponBaseDiscount = 0.10;
+        private const double PrimaryWeaponArmorDiscount = 0.10;
+        private const double PrimaryWeaponHelmetDiscount = 0.10;
+        private const double PrimaryWeaponSupplyDiscount = 0.10;
+        private const double PrimaryWeaponMaxDiscount = 0.40;
+        private const double SecondaryWeaponBaseDiscount = 0.10;
+        private const double SecondaryWeaponSupplyDiscount = 0.15;
+        private const double SecondaryWeaponMaxDiscount = 0.25;
+        private const double PistolBaseDiscount = 0.20;
+        private const double PistolSupplyDiscount = 0.20;
+        private const double PistolMaxDiscount = 0.40;
+        private const double ArmorPlateSystemMaxDiscount = 0.20;
+        private const double RagfairWeaponOfferSimilarityThreshold = 0.80;
+        private const double RagfairWeaponConditionTolerancePercent = 0.5;
+        private const int RagfairWeaponOfferPageSize = 50;
+        private const double DiscountComparisonTolerance = 0.000001;
+        private static bool DisableKitLoadoutDiscountPricing = false;
+        private static bool EnableKitLoadoutPricingDiagnostics = true;
 
         private static string _accountId;
         private static ResultProfile _profile;
@@ -59,6 +78,11 @@ namespace pitTeam.Patches
         private static readonly List<Action> BuyConfirmIconBindings = new List<Action>();
         private static readonly MarketPriceSource BuildMarketPriceSource = new MarketPriceSource();
         private static readonly Dictionary<int, BuildRowState> BuildRowStates = new Dictionary<int, BuildRowState>();
+        private static readonly Dictionary<string, TraderWeaponOfferPricingPlan> TraderWeaponOfferPricingPlanCache = new Dictionary<string, TraderWeaponOfferPricingPlan>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, RagfairWeaponOfferPricingPlan> RagfairWeaponOfferPricingPlanCache = new Dictionary<string, RagfairWeaponOfferPricingPlan>(StringComparer.Ordinal);
+        private static readonly HashSet<string> PendingRagfairWeaponOfferPricingPlanKeys = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> LoggedBuildPricingKeys = new HashSet<string>(StringComparer.Ordinal);
+        private static string _buildPricingLogPhase = "initial";
 
         public static bool IsActive => !string.IsNullOrWhiteSpace(_accountId);
         public static bool ShouldCustomizeBuildsScreen => _customizingBuildsScreen && IsActive;
@@ -119,6 +143,11 @@ namespace pitTeam.Patches
             _returningToProfile = false;
             _customizingBuildsScreen = true;
             _excludeExistingItems = false;
+            TraderWeaponOfferPricingPlanCache.Clear();
+            RagfairWeaponOfferPricingPlanCache.Clear();
+            PendingRagfairWeaponOfferPricingPlanKeys.Clear();
+            LoggedBuildPricingKeys.Clear();
+            _buildPricingLogPhase = _marketPrices != null ? "cached-market" : "initial";
 
             // Buy mode is a scoped overlay on top of EFT's stock builds screen. The
             // later patches use this state to decide whether they should behave like
@@ -130,7 +159,10 @@ namespace pitTeam.Patches
             new EquipmentBuildsScreen.GClass3870(session, backendController, healthController, backendController.Inventory.Equipment)
                 .ShowScreen(EScreenState.Queued);
 
-            pitFireTeam.Log.LogInfo($"[UI] Opening teammate equipment builds screen for '{profile.AccountId}'.");
+            if (EnableKitLoadoutPricingDiagnostics)
+            {
+                pitFireTeam.Log.LogInfo($"[UI] Opening teammate equipment builds screen for '{profile.AccountId}'. Kit pricing diagnostics phase='{_buildPricingLogPhase}', marketPricesLoaded={_marketPrices != null}.");
+            }
         }
 
         public static bool ConsumeProfileTransition(Action profileBackOverrideAction)
@@ -370,6 +402,10 @@ namespace pitTeam.Patches
             _excludeExistingItems = false;
             _selectedBuildMissingCounts = new Dictionary<string, int>();
             _selectedBuildMissingItems = new List<Item>();
+            RagfairWeaponOfferPricingPlanCache.Clear();
+            PendingRagfairWeaponOfferPricingPlanKeys.Clear();
+            LoggedBuildPricingKeys.Clear();
+            _buildPricingLogPhase = "initial";
         }
 
         private static void CaptureScreenChrome(EquipmentBuildsScreen screen)
@@ -620,9 +656,10 @@ namespace pitTeam.Patches
                 return false;
             }
 
-            int fullKitPrice = CalculateBuildMarketRoublePrice(selectedBuild.Equipment);
+            KitLoadoutPricingContext pricingContext = CreateKitLoadoutPricingContext(selectedBuild.Equipment);
+            int fullKitPrice = CalculateBuildMarketRoublePrice(selectedBuild.Equipment, pricingContext);
             StashOnlyExclusionPlan exclusionPlan = _excludeExistingItems
-                ? CreateStashOnlyExclusionPlan(selectedBuild.Equipment, fullKitPrice)
+                ? CreateStashOnlyExclusionPlan(selectedBuild.Equipment, fullKitPrice, pricingContext)
                 : StashOnlyExclusionPlan.Empty(fullKitPrice);
 
             quote = new EquipmentBuildBuyQuote
@@ -1911,7 +1948,9 @@ namespace pitTeam.Patches
                 return;
             }
 
-            int price = CalculateBuildMarketRoublePrice(selectedBuild.Equipment);
+            KitLoadoutPricingContext pricingContext = CreateKitLoadoutPricingContext(selectedBuild.Equipment);
+            int price = CalculateBuildMarketRoublePrice(selectedBuild.Equipment, pricingContext);
+            LogBuildPriceDiagnosticsOnce(selectedBuild, pricingContext, price, "selected");
             weightPanel.SetParameterValue(new ValueStruct
             {
                 Current = price,
@@ -1933,7 +1972,9 @@ namespace pitTeam.Patches
                 return;
             }
 
-            int price = CalculateBuildMarketRoublePrice(build.Equipment);
+            KitLoadoutPricingContext pricingContext = CreateKitLoadoutPricingContext(build.Equipment);
+            int price = CalculateBuildMarketRoublePrice(build.Equipment, pricingContext);
+            LogBuildPriceDiagnosticsOnce(build, pricingContext, price, "list");
             weightPanel.SetParameterValue(new ValueStruct
             {
                 Current = price,
@@ -1943,6 +1984,11 @@ namespace pitTeam.Patches
         }
 
         private static int CalculateBuildMarketRoublePrice(InventoryEquipment equipment)
+        {
+            return CalculateBuildMarketRoublePrice(equipment, CreateKitLoadoutPricingContext(equipment));
+        }
+
+        private static int CalculateBuildMarketRoublePrice(InventoryEquipment equipment, KitLoadoutPricingContext pricingContext)
         {
             if (equipment == null)
             {
@@ -1957,15 +2003,105 @@ namespace pitTeam.Patches
                     continue;
                 }
 
-                total += CalculateSingleItemMarketRoublePrice(item);
+                total += CalculateKitLoadoutItemMarketRoublePrice(item, pricingContext);
             }
 
             return Mathf.Max(0, Convert.ToInt32(Math.Floor(total)));
         }
 
-        private static StashOnlyExclusionPlan CreateStashOnlyExclusionPlan(InventoryEquipment equipment, int fullKitPrice)
+        private static void LogBuildPriceDiagnosticsOnce(GClass3953 build, KitLoadoutPricingContext pricingContext, int finalPrice, string source)
         {
-            List<BuildItemRequirement> requirements = CreateBuildItemRequirements(equipment);
+            if (!EnableKitLoadoutPricingDiagnostics || build?.Equipment == null || pricingContext == null)
+            {
+                return;
+            }
+
+            string buildKey = $"{_buildPricingLogPhase}|{CreateBuildPricingLogKey(build)}";
+            if (!LoggedBuildPricingKeys.Add(buildKey))
+            {
+                return;
+            }
+
+            string buildName = string.IsNullOrWhiteSpace(build.Name) ? "Selected loadout" : build.Name;
+            List<Item> items = CollectEquipmentBuildItems(build.Equipment)
+                .Where(item => !IsIgnoredKitRequirementItem(item))
+                .ToList();
+            double rawTotal = items.Sum(item => Math.Max(0.0, CalculateSingleItemMarketRoublePrice(item)));
+            pitFireTeam.Log.LogInfo($"[UI][KitPrice] phase={_buildPricingLogPhase} source={source} build='{buildName}' items={items.Count} rawTotal={Math.Floor(rawTotal)} finalTotal={finalPrice} marketPricesLoaded={_marketPrices != null}");
+
+            foreach (string line in pricingContext.Diagnostics)
+            {
+                pitFireTeam.Log.LogInfo($"[UI][KitPrice] build='{buildName}' {line}");
+            }
+
+            foreach (Item item in items)
+            {
+                double rawPrice = Math.Max(0.0, CalculateSingleItemMarketRoublePrice(item));
+                double finalItemPrice = pricingContext.TryGetItemPricingEntry(item, out KitLoadoutPricingEntry entry)
+                    ? entry.Price
+                    : rawPrice;
+                string rule = entry?.Rule ?? "full value";
+                string slotLabel = GetEquipmentSlotLabel(build.Equipment, item);
+                pitFireTeam.Log.LogInfo(
+                    $"[UI][KitPrice] build='{buildName}' slot={slotLabel} item='{GetItemDisplayName(item)}' tpl={item.TemplateId} raw={Math.Floor(rawPrice)} final={Math.Floor(finalItemPrice)} rule={rule}");
+            }
+        }
+
+        private static string CreateBuildPricingLogKey(GClass3953 build)
+        {
+            if (build?.Equipment == null)
+            {
+                return string.IsNullOrWhiteSpace(build?.Name) ? "null-build" : build.Name;
+            }
+
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (Item item in CollectEquipmentBuildItems(build.Equipment))
+            {
+                if (IsIgnoredKitRequirementItem(item) || string.IsNullOrWhiteSpace(item?.TemplateId))
+                {
+                    continue;
+                }
+
+                if (counts.TryGetValue(item.TemplateId, out int existing))
+                {
+                    counts[item.TemplateId] = existing + 1;
+                }
+                else
+                {
+                    counts[item.TemplateId] = 1;
+                }
+            }
+
+            return $"{build.Name}|{string.Join("|", counts.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}:{pair.Value}"))}";
+        }
+
+        private static string GetEquipmentSlotLabel(InventoryEquipment equipment, Item item)
+        {
+            if (equipment == null || item == null)
+            {
+                return "Unknown";
+            }
+
+            foreach (Slot slot in equipment.Slots)
+            {
+                if (slot?.ContainedItem == null)
+                {
+                    continue;
+                }
+
+                if (string.Equals(slot.ContainedItem.Id, item.Id, StringComparison.Ordinal)
+                    || IsInsideItemTree(item, slot.ContainedItem))
+                {
+                    return slot.ID;
+                }
+            }
+
+            return "Unknown";
+        }
+
+        private static StashOnlyExclusionPlan CreateStashOnlyExclusionPlan(InventoryEquipment equipment, int fullKitPrice, KitLoadoutPricingContext pricingContext)
+        {
+            List<BuildItemRequirement> requirements = CreateBuildItemRequirements(equipment, pricingContext);
             Dictionary<string, int> stashCounts = CreateStashOnlyTemplateCounts();
             Dictionary<string, int> missingCounts = new Dictionary<string, int>(_selectedBuildMissingCounts, StringComparer.Ordinal);
             List<UsedStashItemSummary> usedItems = new List<UsedStashItemSummary>();
@@ -2026,6 +2162,11 @@ namespace pitTeam.Patches
 
         private static List<BuildItemRequirement> CreateBuildItemRequirements(InventoryEquipment equipment)
         {
+            return CreateBuildItemRequirements(equipment, CreateKitLoadoutPricingContext(equipment));
+        }
+
+        private static List<BuildItemRequirement> CreateBuildItemRequirements(InventoryEquipment equipment, KitLoadoutPricingContext pricingContext)
+        {
             Dictionary<string, BuildItemRequirement> requirements = new Dictionary<string, BuildItemRequirement>(StringComparer.Ordinal);
             if (equipment == null)
             {
@@ -2034,7 +2175,7 @@ namespace pitTeam.Patches
 
             foreach (Item item in CollectEquipmentBuildItems(equipment))
             {
-                AddRequirement(requirements, item, Mathf.Max(1, item.StackObjectsCount), CalculateSingleItemMarketRoublePrice(item));
+                AddRequirement(requirements, item, Mathf.Max(1, item.StackObjectsCount), CalculateKitLoadoutItemMarketRoublePrice(item, pricingContext));
             }
 
             return requirements.Values.ToList();
@@ -2233,6 +2374,1293 @@ namespace pitTeam.Patches
                 : 0.0;
         }
 
+        private static double CalculateKitLoadoutItemMarketRoublePrice(Item item, KitLoadoutPricingContext pricingContext)
+        {
+            if (item == null)
+            {
+                return 0.0;
+            }
+
+            if (pricingContext != null && pricingContext.TryGetItemPriceOverride(item, out double overridePrice))
+            {
+                return overridePrice;
+            }
+
+            return CalculateSingleItemMarketRoublePrice(item);
+        }
+
+        private static KitLoadoutPricingContext CreateKitLoadoutPricingContext(InventoryEquipment equipment)
+        {
+            KitLoadoutPricingContext context = new KitLoadoutPricingContext();
+            if (equipment == null)
+            {
+                return context;
+            }
+
+            if (DisableKitLoadoutDiscountPricing)
+            {
+                context.AddDiagnostic("pricingMode raw-market-only discountsDisabled=True traderPricingDisabled=True");
+                return context;
+            }
+
+            List<Item> allItems = CollectEquipmentBuildItems(equipment);
+            Weapon primaryWeapon = GetEquipmentWeapon(equipment, EquipmentSlot.FirstPrimaryWeapon);
+            Weapon secondaryWeapon = GetEquipmentWeapon(equipment, EquipmentSlot.SecondPrimaryWeapon);
+            Weapon pistol = GetEquipmentWeapon(equipment, EquipmentSlot.Holster);
+
+            bool hasArmor = HasKitArmor(equipment);
+            bool hasHelmet = HasKitHelmet(equipment);
+            bool primaryHasSupply = HasPrimaryWeaponSupply(primaryWeapon, allItems);
+            bool secondaryHasSupply = HasAnyWeaponSupply(secondaryWeapon, allItems);
+            bool pistolHasSupply = HasAnyWeaponSupply(pistol, allItems);
+
+            double primaryDiscount = CalculatePrimaryWeaponDiscount(primaryWeapon, hasArmor, hasHelmet, primaryHasSupply);
+            double secondaryDiscount = CalculateSecondaryWeaponDiscount(secondaryWeapon, secondaryHasSupply, primaryDiscount);
+            double pistolDiscount = CalculatePistolDiscount(pistol, pistolHasSupply, primaryDiscount, secondaryDiscount);
+
+            context.AddDiagnostic($"primaryFallback discount={FormatPercent(primaryDiscount)} weaponPresent={primaryWeapon != null} armor={hasArmor} helmet={hasHelmet} supply={primaryHasSupply}");
+            context.AddDiagnostic($"secondaryFallback discount={FormatPercent(secondaryDiscount)} weaponPresent={secondaryWeapon != null} supply={secondaryHasSupply} primaryAtMax={primaryDiscount + DiscountComparisonTolerance >= PrimaryWeaponMaxDiscount}");
+            context.AddDiagnostic($"pistolFallback discount={FormatPercent(pistolDiscount)} weaponPresent={pistol != null} supply={pistolHasSupply} primaryDiscounted={primaryDiscount > 0.0} secondaryDiscounted={secondaryDiscount > 0.0}");
+
+            ApplyWeaponTreePricing(context, primaryWeapon, primaryDiscount, "primary");
+            ApplyWeaponTreePricing(context, secondaryWeapon, secondaryDiscount, "secondary");
+            ApplyWeaponTreePricing(context, pistol, pistolDiscount, "pistol");
+            ApplyArmorPlateSystemPricing(context, equipment.GetSlot(EquipmentSlot.ArmorVest)?.ContainedItem, "armorVest");
+            ApplyArmorPlateSystemPricing(context, equipment.GetSlot(EquipmentSlot.TacticalVest)?.ContainedItem, "tacticalVest");
+            return context;
+        }
+
+        private static Weapon GetEquipmentWeapon(InventoryEquipment equipment, EquipmentSlot slot)
+        {
+            return equipment?.GetSlot(slot)?.ContainedItem as Weapon;
+        }
+
+        private static double CalculatePrimaryWeaponDiscount(Weapon weapon, bool hasArmor, bool hasHelmet, bool hasSupply)
+        {
+            if (weapon == null)
+            {
+                return 0.0;
+            }
+
+            if (!hasArmor && !hasHelmet && !hasSupply)
+            {
+                return 0.0;
+            }
+
+            double discount = PrimaryWeaponBaseDiscount;
+            if (hasArmor)
+            {
+                discount += PrimaryWeaponArmorDiscount;
+            }
+
+            if (hasHelmet)
+            {
+                discount += PrimaryWeaponHelmetDiscount;
+            }
+
+            if (hasSupply)
+            {
+                discount += PrimaryWeaponSupplyDiscount;
+            }
+
+            return Math.Min(PrimaryWeaponMaxDiscount, discount);
+        }
+
+        private static double CalculateSecondaryWeaponDiscount(Weapon weapon, bool hasSupply, double primaryDiscount)
+        {
+            if (weapon == null || primaryDiscount + DiscountComparisonTolerance < PrimaryWeaponMaxDiscount)
+            {
+                return 0.0;
+            }
+
+            double discount = SecondaryWeaponBaseDiscount;
+            if (hasSupply)
+            {
+                discount += SecondaryWeaponSupplyDiscount;
+            }
+
+            return Math.Min(SecondaryWeaponMaxDiscount, discount);
+        }
+
+        private static double CalculatePistolDiscount(Weapon weapon, bool hasSupply, double primaryDiscount, double secondaryDiscount)
+        {
+            if (weapon == null || primaryDiscount <= 0.0 || secondaryDiscount <= 0.0)
+            {
+                return 0.0;
+            }
+
+            double discount = PistolBaseDiscount;
+            if (hasSupply)
+            {
+                discount += PistolSupplyDiscount;
+            }
+
+            return Math.Min(PistolMaxDiscount, discount);
+        }
+
+        private static bool HasKitArmor(InventoryEquipment equipment)
+        {
+            if (equipment == null)
+            {
+                return false;
+            }
+
+            if (equipment.GetSlot(EquipmentSlot.ArmorVest)?.ContainedItem != null)
+            {
+                return true;
+            }
+
+            Item tacticalVest = equipment.GetSlot(EquipmentSlot.TacticalVest)?.ContainedItem;
+            return IsArmoredTacticalVest(tacticalVest);
+        }
+
+        private static bool HasKitHelmet(InventoryEquipment equipment)
+        {
+            return equipment?.GetSlot(EquipmentSlot.Headwear)?.ContainedItem is HeadwearItemClass;
+        }
+
+        private static bool IsArmoredTacticalVest(Item item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return item.TryGetItemComponent<ArmorHolderComponent>(out _)
+                    || item.GetItemComponentsInChildren<ArmorComponent>(true).Any()
+                    || item.GetItemComponentsInChildren<CompositeArmorComponent>(true).Any();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void ApplyArmorPlateSystemPricing(KitLoadoutPricingContext context, Item armorItem, string itemLabel)
+        {
+            if (context == null || armorItem == null)
+            {
+                return;
+            }
+
+            if (!TryGetArmorPlateCoverageDiscount(armorItem, out double discount, out int filledSlots, out int totalSlots))
+            {
+                context.AddDiagnostic($"{itemLabel}ArmorPricing noPlateSystem");
+                return;
+            }
+
+            context.AddDiagnostic($"{itemLabel}ArmorPricing filledPlates={filledSlots}/{totalSlots} discount={FormatPercent(discount)}");
+            if (discount <= 0.0)
+            {
+                return;
+            }
+
+            List<Item> priceableItems = CollectArmorPlateSystemPriceableItems(armorItem);
+            if (priceableItems.Count == 0)
+            {
+                context.AddDiagnostic($"{itemLabel}ArmorPricing noPriceableItems");
+                return;
+            }
+
+            ApplyDiscountedItemPricing(context, priceableItems, discount, $"{itemLabel} armor plates {FormatPercent(discount)}");
+        }
+
+        private static bool TryGetArmorPlateCoverageDiscount(Item armorItem, out double discount, out int filledSlots, out int totalSlots)
+        {
+            discount = 0.0;
+            filledSlots = 0;
+            totalSlots = 0;
+            if (armorItem == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!armorItem.TryGetItemComponent<ArmorHolderComponent>(out ArmorHolderComponent armorHolder)
+                    || armorHolder?.ArmorSlots == null)
+                {
+                    return false;
+                }
+
+                List<GClass3125> armorSlots = armorHolder.ArmorSlots.Where(slot => slot != null).ToList();
+                totalSlots = armorSlots.Count;
+                if (totalSlots <= 0)
+                {
+                    return false;
+                }
+
+                filledSlots = armorSlots.Count(slot => slot.ContainedItem != null);
+                discount = ArmorPlateSystemMaxDiscount * ((double)filledSlots / totalSlots);
+                return true;
+            }
+            catch
+            {
+                discount = 0.0;
+                filledSlots = 0;
+                totalSlots = 0;
+                return false;
+            }
+        }
+
+        private static List<Item> CollectArmorPlateSystemPriceableItems(Item armorItem)
+        {
+            List<Item> items = new List<Item>();
+            if (armorItem == null)
+            {
+                return items;
+            }
+
+            HashSet<string> seenItemIds = new HashSet<string>(StringComparer.Ordinal);
+            if (!IsIgnoredKitRequirementItem(armorItem)
+                && !string.IsNullOrWhiteSpace(armorItem.Id)
+                && seenItemIds.Add(armorItem.Id))
+            {
+                items.Add(armorItem);
+            }
+
+            void AddArmorSlotTree(Item rootItem)
+            {
+                foreach (Item item in CollectDeepItemTree(rootItem))
+                {
+                    if (IsIgnoredKitRequirementItem(item)
+                        || string.IsNullOrWhiteSpace(item?.Id)
+                        || !seenItemIds.Add(item.Id))
+                    {
+                        continue;
+                    }
+
+                    items.Add(item);
+                }
+            }
+
+            if (!armorItem.TryGetItemComponent<ArmorHolderComponent>(out ArmorHolderComponent armorHolder)
+                || armorHolder?.ArmorSlots == null)
+            {
+                return items;
+            }
+
+            foreach (GClass3125 armorSlot in armorHolder.ArmorSlots)
+            {
+                if (armorSlot?.ContainedItem == null)
+                {
+                    continue;
+                }
+
+                AddArmorSlotTree(armorSlot.ContainedItem);
+            }
+
+            return items;
+        }
+
+        private static bool HasPrimaryWeaponSupply(Weapon weapon, List<Item> allItems)
+        {
+            if (weapon == null)
+            {
+                return false;
+            }
+
+            return UsesExternalSpareMagazine(weapon)
+                ? HasSpareMagazineForWeapon(weapon, allItems)
+                : HasCompatibleLooseAmmoForWeapon(weapon, allItems);
+        }
+
+        private static bool HasAnyWeaponSupply(Weapon weapon, List<Item> allItems)
+        {
+            return HasSpareMagazineForWeapon(weapon, allItems)
+                || HasCompatibleLooseAmmoForWeapon(weapon, allItems);
+        }
+
+        private static bool UsesExternalSpareMagazine(Weapon weapon)
+        {
+            if (weapon == null)
+            {
+                return false;
+            }
+
+            return weapon.ReloadMode == Weapon.EReloadMode.ExternalMagazine
+                || weapon.ReloadMode == Weapon.EReloadMode.ExternalMagazineWithInternalReloadSupport;
+        }
+
+        private static bool HasSpareMagazineForWeapon(Weapon weapon, List<Item> allItems)
+        {
+            if (weapon == null || allItems == null)
+            {
+                return false;
+            }
+
+            Slot magazineSlot = GetWeaponMagazineSlot(weapon);
+            MagazineItemClass currentMagazine = weapon.GetCurrentMagazine();
+            foreach (MagazineItemClass magazine in allItems.OfType<MagazineItemClass>())
+            {
+                if (magazine == null || IsInsideItemTree(magazine, weapon))
+                {
+                    continue;
+                }
+
+                if (currentMagazine != null && string.Equals(magazine.TemplateId, currentMagazine.TemplateId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (magazineSlot != null && magazineSlot.CanAccept(magazine))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static Slot GetWeaponMagazineSlot(Weapon weapon)
+        {
+            try
+            {
+                return weapon?.GetMagazineSlot();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool HasCompatibleLooseAmmoForWeapon(Weapon weapon, List<Item> allItems)
+        {
+            if (weapon == null || allItems == null)
+            {
+                return false;
+            }
+
+            foreach (AmmoItemClass ammo in allItems.OfType<AmmoItemClass>())
+            {
+                if (ammo == null
+                    || ammo.StackObjectsCount <= 0
+                    || IsInsideItemTree(ammo, weapon))
+                {
+                    continue;
+                }
+
+                if (IsAmmoCompatibleWithWeapon(weapon, ammo))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsAmmoCompatibleWithWeapon(Weapon weapon, AmmoItemClass ammo)
+        {
+            if (weapon == null || ammo == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (weapon.Chambers != null)
+                {
+                    foreach (Slot chamber in weapon.Chambers)
+                    {
+                        if (chamber != null && chamber.CanAccept(ammo))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                MagazineItemClass currentMagazine = weapon.GetCurrentMagazine();
+                return currentMagazine?.Cartridges?.Filters?.CheckItemFilter(ammo) == true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsInsideItemTree(Item item, Item root)
+        {
+            if (item == null || root == null)
+            {
+                return false;
+            }
+
+            if (string.Equals(item.Id, root.Id, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            foreach (Item parent in item.GetAllParentItems())
+            {
+                if (parent != null && string.Equals(parent.Id, root.Id, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void ApplyWeaponTreePricing(KitLoadoutPricingContext context, Weapon weapon, double fallbackDiscount, string weaponLabel)
+        {
+            if (context == null || weapon == null)
+            {
+                return;
+            }
+
+            List<Item> priceableItems = CollectWeaponTreePriceableItems(weapon);
+            if (priceableItems.Count == 0)
+            {
+                return;
+            }
+
+            if (TryGetBestRagfairWeaponTreePricingPlan(weapon, priceableItems, out RagfairWeaponOfferPricingPlan ragfairPlan))
+            {
+                context.AddDiagnostic($"{weaponLabel}RagfairMatch coverage={FormatPercent(ragfairPlan.TargetCoverage)} candidateCoverage={FormatPercent(ragfairPlan.CandidateCoverage)} adjustedPrice={Math.Floor(ragfairPlan.TotalPrice)} offer={ragfairPlan.SourceDescription}");
+                ApplyDistributedWeaponTreePrice(context, priceableItems, ragfairPlan.TotalPrice, $"{weaponLabel} ragfair near-match");
+                return;
+            }
+
+            if (TryGetBestTraderWeaponTreePricingPlan(weapon, priceableItems, out TraderWeaponOfferPricingPlan traderPlan))
+            {
+                context.AddDiagnostic($"{weaponLabel}TraderOverlap matchedTemplates={traderPlan.MatchedTemplateCounts.Count} scaledPrice={Math.Floor(traderPlan.TotalPrice)} fallbackDiscount={FormatPercent(fallbackDiscount)} offer={traderPlan.SourceDescription}");
+                ApplyTraderWeaponOfferPricingPlan(context, priceableItems, fallbackDiscount, traderPlan, weaponLabel);
+                return;
+            }
+
+            if (fallbackDiscount <= 0.0)
+            {
+                context.AddDiagnostic($"{weaponLabel}Pricing noTraderOverlap fallbackDiscount=0%");
+                return;
+            }
+
+            context.AddDiagnostic($"{weaponLabel}Pricing fallbackOnly discount={FormatPercent(fallbackDiscount)}");
+            ApplyDiscountedItemPricing(context, priceableItems, fallbackDiscount, $"{weaponLabel} fallback {FormatPercent(fallbackDiscount)}");
+        }
+
+        private static bool TryGetBestRagfairWeaponTreePricingPlan(
+            Weapon targetWeapon,
+            List<Item> targetPriceableItems,
+            out RagfairWeaponOfferPricingPlan pricingPlan)
+        {
+            pricingPlan = null;
+            if (targetWeapon == null || targetPriceableItems == null || targetPriceableItems.Count == 0 || _session == null)
+            {
+                return false;
+            }
+
+            Dictionary<string, int> targetCounts = CreateWeaponTreeTemplateCounts(targetWeapon);
+            if (targetCounts.Count == 0)
+            {
+                return false;
+            }
+
+            string cacheKey = CreateWeaponTreeTemplateCountsKey(targetCounts);
+            if (RagfairWeaponOfferPricingPlanCache.TryGetValue(cacheKey, out RagfairWeaponOfferPricingPlan cachedPlan))
+            {
+                pricingPlan = cachedPlan;
+                return pricingPlan?.HasMatch == true;
+            }
+
+            if (PendingRagfairWeaponOfferPricingPlanKeys.Add(cacheKey))
+            {
+                double targetConditionPercent = GetRagfairRootConditionPercent(targetWeapon);
+                RequestRagfairWeaponTreePricingPlanAsync(cacheKey, targetWeapon.TemplateId, targetPriceableItems, targetCounts, targetConditionPercent);
+            }
+
+            return false;
+        }
+
+        private static async void RequestRagfairWeaponTreePricingPlanAsync(
+            string cacheKey,
+            string weaponTemplateId,
+            List<Item> targetPriceableItems,
+            Dictionary<string, int> targetCounts,
+            double targetConditionPercent)
+        {
+            try
+            {
+                RagfairWeaponOfferPricingPlan plan = await BuildRagfairWeaponOfferPricingPlanAsync(weaponTemplateId, targetPriceableItems, targetCounts, targetConditionPercent);
+                RagfairWeaponOfferPricingPlanCache[cacheKey] = plan ?? RagfairWeaponOfferPricingPlan.NoMatch;
+                if (EnableKitLoadoutPricingDiagnostics)
+                {
+                    if (plan?.HasMatch == true)
+                    {
+                        pitFireTeam.Log.LogInfo($"[UI][KitPrice][Ragfair] weaponTpl={weaponTemplateId} result=match adjustedPrice={Math.Floor(plan.TotalPrice)} coverage={FormatPercent(plan.TargetCoverage)} offer={plan.SourceDescription}");
+                    }
+                    else
+                    {
+                        double targetRawPrice = CalculateItemsRawPrice(targetPriceableItems);
+                        pitFireTeam.Log.LogInfo($"[UI][KitPrice][Ragfair] weaponTpl={weaponTemplateId} result=noMatch targetItems={targetPriceableItems?.Count ?? 0} targetRaw={Math.Floor(targetRawPrice)}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogDebug($"[UI] Ragfair weapon offer pricing failed for '{weaponTemplateId}': {ex.Message}");
+                RagfairWeaponOfferPricingPlanCache[cacheKey] = RagfairWeaponOfferPricingPlan.NoMatch;
+            }
+            finally
+            {
+                PendingRagfairWeaponOfferPricingPlanKeys.Remove(cacheKey);
+                if (EnableKitLoadoutPricingDiagnostics)
+                {
+                    LoggedBuildPricingKeys.Clear();
+                    _buildPricingLogPhase = "ragfair-refresh";
+                }
+
+                RefreshActivePriceLabels();
+            }
+        }
+
+        private static async Task<RagfairWeaponOfferPricingPlan> BuildRagfairWeaponOfferPricingPlanAsync(
+            string weaponTemplateId,
+            List<Item> targetPriceableItems,
+            Dictionary<string, int> targetCounts,
+            double targetConditionPercent)
+        {
+            if (string.IsNullOrWhiteSpace(weaponTemplateId)
+                || targetPriceableItems == null
+                || targetPriceableItems.Count == 0
+                || targetCounts == null
+                || targetCounts.Count == 0
+                || _session == null)
+            {
+                return RagfairWeaponOfferPricingPlan.NoMatch;
+            }
+
+            string handbookId = ResolveRagfairHandbookIdForItem(weaponTemplateId);
+            int conditionFrom = GetRagfairConditionFromPercent(targetConditionPercent);
+            Result<OffersList> result = await _session.GetOffers(
+                page: 0,
+                limit: RagfairWeaponOfferPageSize,
+                sortType: (int)ESortType.Price,
+                direction: false,
+                currency: 1,
+                priceFrom: 0,
+                priceTo: 0,
+                quantityFrom: 0,
+                quantityTo: 0,
+                conditionFrom: conditionFrom,
+                conditionTo: 100,
+                oneHourExpiration: false,
+                removeBartering: true,
+                offerOwnerType: (int)EOfferOwnerType.AnyOwnerType,
+                onlyFunctional: true,
+                handbookId: handbookId,
+                linkedSearchId: string.Empty,
+                neededSearchId: string.Empty,
+                buildItems: new Dictionary<string, int>(),
+                buildCount: 0,
+                updateOfferCount: false);
+
+            if (!result.Succeed || result.Value?.offers == null || result.Value.offers.Length == 0)
+            {
+                if (EnableKitLoadoutPricingDiagnostics)
+                {
+                    pitFireTeam.Log.LogInfo($"[UI][KitPrice][Ragfair] weaponTpl={weaponTemplateId} handbookId={handbookId} result=emptyOrFailed succeed={result.Succeed} offers={result.Value?.offers?.Length ?? 0}");
+                }
+
+                return RagfairWeaponOfferPricingPlan.NoMatch;
+            }
+
+            double targetRawPrice = CalculateItemsRawPrice(targetPriceableItems);
+            if (targetRawPrice <= 0.0)
+            {
+                return RagfairWeaponOfferPricingPlan.NoMatch;
+            }
+
+            RagfairWeaponOfferPricingPlan bestPlan = null;
+            int rejectedEligibility = 0;
+            int rejectedPrice = 0;
+            int rejectedEmptyTree = 0;
+            int rejectedOverlap = 0;
+            int rejectedCoverage = 0;
+            int rejectedCondition = 0;
+            int rejectedRaw = 0;
+            foreach (Offer offer in result.Value.offers)
+            {
+                if (offer?.Item is not Weapon candidateWeapon
+                    || !offer.CanBeBought
+                    || !offer.OnlyMoney
+                    || !string.Equals(candidateWeapon.TemplateId, weaponTemplateId, StringComparison.Ordinal))
+                {
+                    rejectedEligibility++;
+                    continue;
+                }
+
+                if (!TryGetRagfairOfferRoublePrice(offer, out double offerPrice) || offerPrice <= 0.0)
+                {
+                    rejectedPrice++;
+                    continue;
+                }
+
+                double candidateConditionPercent = GetRagfairRootConditionPercent(candidateWeapon);
+                if (targetConditionPercent > 0.0
+                    && candidateConditionPercent + RagfairWeaponConditionTolerancePercent < targetConditionPercent)
+                {
+                    rejectedCondition++;
+                    continue;
+                }
+
+                List<Item> candidatePriceableItems = CollectWeaponTreePriceableItems(candidateWeapon);
+                if (candidatePriceableItems.Count == 0)
+                {
+                    rejectedEmptyTree++;
+                    continue;
+                }
+
+                Dictionary<string, int> candidateCounts = CreateWeaponTreeTemplateCounts(candidateWeapon);
+                if (!TryCreateOfferOverlapMatch(targetCounts, candidateCounts, weaponTemplateId, out Dictionary<string, int> matchedTemplateCounts))
+                {
+                    rejectedOverlap++;
+                    continue;
+                }
+
+                double matchedTargetRawPrice = CalculateMatchedTemplateRawPrice(targetPriceableItems, matchedTemplateCounts);
+                if (matchedTargetRawPrice <= 0.0)
+                {
+                    rejectedRaw++;
+                    continue;
+                }
+
+                double targetCoverage = matchedTargetRawPrice / targetRawPrice;
+                if (targetCoverage + DiscountComparisonTolerance < RagfairWeaponOfferSimilarityThreshold)
+                {
+                    rejectedCoverage++;
+                    continue;
+                }
+
+                double candidateRawPrice = CalculateItemsRawPrice(candidatePriceableItems);
+                if (candidateRawPrice <= 0.0)
+                {
+                    rejectedRaw++;
+                    continue;
+                }
+
+                double matchedCandidateRawPrice = CalculateMatchedTemplateRawPrice(candidatePriceableItems, matchedTemplateCounts);
+                if (matchedCandidateRawPrice <= 0.0)
+                {
+                    rejectedRaw++;
+                    continue;
+                }
+
+                double candidateCoverage = matchedCandidateRawPrice / candidateRawPrice;
+                double unmatchedTargetRawPrice = Math.Max(0.0, targetRawPrice - matchedTargetRawPrice);
+                double unmatchedCandidateRawPrice = Math.Max(0.0, candidateRawPrice - matchedCandidateRawPrice);
+                double adjustedPrice = Math.Max(0.0, offerPrice - unmatchedCandidateRawPrice + unmatchedTargetRawPrice);
+
+                RagfairWeaponOfferPricingPlan candidatePlan = new RagfairWeaponOfferPricingPlan
+                {
+                    HasMatch = true,
+                    TotalPrice = adjustedPrice,
+                    TargetCoverage = targetCoverage,
+                    CandidateCoverage = candidateCoverage,
+                    SourceDescription = $"{GetItemDisplayName(candidateWeapon)} offerPrice={Math.Floor(offerPrice)} targetCoverage={FormatPercent(targetCoverage)} candidateCoverage={FormatPercent(candidateCoverage)} targetCondition={FormatPercent(targetConditionPercent / 100.0)} candidateCondition={FormatPercent(candidateConditionPercent / 100.0)} deltaAdd={Math.Floor(unmatchedTargetRawPrice)} deltaRemove={Math.Floor(unmatchedCandidateRawPrice)}"
+                };
+
+                if (bestPlan == null
+                    || candidatePlan.TargetCoverage > bestPlan.TargetCoverage + DiscountComparisonTolerance
+                    || (candidatePlan.TargetCoverage.ApproxEquals(bestPlan.TargetCoverage) && candidatePlan.CandidateCoverage > bestPlan.CandidateCoverage + DiscountComparisonTolerance)
+                    || (candidatePlan.TargetCoverage.ApproxEquals(bestPlan.TargetCoverage) && candidatePlan.CandidateCoverage.ApproxEquals(bestPlan.CandidateCoverage) && candidatePlan.TotalPrice < bestPlan.TotalPrice))
+                {
+                    bestPlan = candidatePlan;
+                }
+            }
+
+            if (bestPlan == null && EnableKitLoadoutPricingDiagnostics)
+            {
+                pitFireTeam.Log.LogInfo($"[UI][KitPrice][Ragfair] weaponTpl={weaponTemplateId} handbookId={handbookId} conditionFrom={conditionFrom} offers={result.Value.offers.Length} targetRaw={Math.Floor(targetRawPrice)} result=noUsableOffer rejectedEligibility={rejectedEligibility} rejectedPrice={rejectedPrice} rejectedCondition={rejectedCondition} rejectedEmptyTree={rejectedEmptyTree} rejectedOverlap={rejectedOverlap} rejectedCoverage={rejectedCoverage} rejectedRaw={rejectedRaw}");
+            }
+
+            return bestPlan ?? RagfairWeaponOfferPricingPlan.NoMatch;
+        }
+
+        private static int GetRagfairConditionFromPercent(double targetConditionPercent)
+        {
+            if (targetConditionPercent <= 0.0)
+            {
+                return 0;
+            }
+
+            return Mathf.Clamp(
+                Mathf.FloorToInt((float)(targetConditionPercent - RagfairWeaponConditionTolerancePercent)),
+                0,
+                100);
+        }
+
+        private static double GetRagfairRootConditionPercent(Item item)
+        {
+            if (item == null)
+            {
+                return 0.0;
+            }
+
+            try
+            {
+                if (item.TryGetItemComponent<RepairableComponent>(out RepairableComponent repairable)
+                    && repairable != null
+                    && repairable.TemplateDurability > 0)
+                {
+                    return Math.Max(0.0, Math.Min(100.0, repairable.Durability / repairable.TemplateDurability * 100.0));
+                }
+            }
+            catch
+            {
+                return 0.0;
+            }
+
+            return 0.0;
+        }
+
+        private static string ResolveRagfairHandbookIdForItem(string templateId)
+        {
+            if (string.IsNullOrWhiteSpace(templateId) || !Singleton<HandbookClass>.Instantiated)
+            {
+                return templateId ?? string.Empty;
+            }
+
+            try
+            {
+                EntityNodeClass node = Singleton<HandbookClass>.Instance[templateId];
+                return !string.IsNullOrWhiteSpace(node?.Data?.Id) ? node.Data.Id : templateId;
+            }
+            catch
+            {
+                return templateId;
+            }
+        }
+
+        private static bool TryGetRagfairOfferRoublePrice(Offer offer, out double price)
+        {
+            price = 0.0;
+            if (offer?.Requirements == null || offer.Requirements.Length != 1 || !offer.OnlyMoney)
+            {
+                return false;
+            }
+
+            IExchangeRequirement requirement = offer.Requirements[0];
+            if (requirement == null
+                || !string.Equals(requirement.TemplateId, GClass3130.ROUBLE_ID.ToString(), StringComparison.Ordinal)
+                    && !string.Equals(requirement.TemplateId, GClass3130.ROUBLE_STACK_ID.ToString(), StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            price = requirement.IntCount;
+            return price > 0.0;
+        }
+
+        private static List<Item> CollectWeaponTreePriceableItems(Weapon weapon)
+        {
+            List<Item> items = new List<Item>();
+            if (weapon == null)
+            {
+                return items;
+            }
+
+            foreach (Item item in CollectDeepItemTree(weapon))
+            {
+                if (IsIgnoredKitRequirementItem(item)
+                    || item is AmmoItemClass
+                    || string.IsNullOrWhiteSpace(item?.Id))
+                {
+                    continue;
+                }
+
+                items.Add(item);
+            }
+
+            return items;
+        }
+
+        private static void ApplyTraderWeaponOfferPricingPlan(
+            KitLoadoutPricingContext context,
+            List<Item> priceableItems,
+            double fallbackDiscount,
+            TraderWeaponOfferPricingPlan traderPlan,
+            string weaponLabel)
+        {
+            if (context == null || priceableItems == null || priceableItems.Count == 0 || traderPlan?.MatchedTemplateCounts == null)
+            {
+                return;
+            }
+
+            List<Item> matchedItems = ConsumeMatchedTemplateItems(priceableItems, traderPlan.MatchedTemplateCounts);
+            if (matchedItems.Count == 0)
+            {
+                ApplyDiscountedItemPricing(context, priceableItems, fallbackDiscount, $"{weaponLabel} fallback {FormatPercent(fallbackDiscount)}");
+                return;
+            }
+
+            ApplyDistributedWeaponTreePrice(context, matchedItems, traderPlan.TotalPrice, $"{weaponLabel} trader overlap");
+
+            HashSet<string> matchedItemIds = new HashSet<string>(
+                matchedItems.Where(item => !string.IsNullOrWhiteSpace(item?.Id)).Select(item => item.Id),
+                StringComparer.Ordinal);
+
+            if (matchedItemIds.Count == priceableItems.Count)
+            {
+                return;
+            }
+
+            List<Item> unmatchedItems = priceableItems
+                .Where(item => item != null && !matchedItemIds.Contains(item.Id))
+                .ToList();
+            ApplyDiscountedItemPricing(context, unmatchedItems, fallbackDiscount, $"{weaponLabel} fallback {FormatPercent(fallbackDiscount)}");
+        }
+
+        private static void ApplyDiscountedItemPricing(KitLoadoutPricingContext context, List<Item> priceableItems, double discount, string rule)
+        {
+            if (context == null || priceableItems == null || priceableItems.Count == 0 || discount <= 0.0)
+            {
+                return;
+            }
+
+            double multiplier = Math.Max(0.0, 1.0 - discount);
+            foreach (Item item in priceableItems)
+            {
+                context.SetItemPriceOverride(item, CalculateSingleItemMarketRoublePrice(item) * multiplier, rule);
+            }
+        }
+
+        private static void ApplyDistributedWeaponTreePrice(KitLoadoutPricingContext context, List<Item> priceableItems, double totalPrice, string rule)
+        {
+            if (context == null || priceableItems == null || priceableItems.Count == 0 || totalPrice <= 0.0)
+            {
+                return;
+            }
+
+            Dictionary<Item, double> rawPrices = new Dictionary<Item, double>();
+            double rawTotal = 0.0;
+            foreach (Item item in priceableItems)
+            {
+                double rawPrice = Math.Max(0.0, CalculateSingleItemMarketRoublePrice(item));
+                rawPrices[item] = rawPrice;
+                rawTotal += rawPrice;
+            }
+
+            if (rawTotal <= 0.0)
+            {
+                context.SetItemPriceOverride(priceableItems[0], totalPrice, rule);
+                return;
+            }
+
+            double assigned = 0.0;
+            for (int i = 0; i < priceableItems.Count; i++)
+            {
+                Item item = priceableItems[i];
+                double itemPrice = i == priceableItems.Count - 1
+                    ? Math.Max(0.0, totalPrice - assigned)
+                    : totalPrice * (rawPrices[item] / rawTotal);
+                assigned += itemPrice;
+                context.SetItemPriceOverride(item, itemPrice, rule);
+            }
+        }
+
+        private static bool TryGetBestTraderWeaponTreePricingPlan(
+            Weapon targetWeapon,
+            List<Item> targetPriceableItems,
+            out TraderWeaponOfferPricingPlan pricingPlan)
+        {
+            pricingPlan = null;
+            if (targetWeapon == null || _session?.Traders == null)
+            {
+                return false;
+            }
+
+            Dictionary<string, int> targetCounts = CreateWeaponTreeTemplateCounts(targetWeapon);
+            if (targetCounts.Count == 0)
+            {
+                return false;
+            }
+
+            string cacheKey = CreateWeaponTreeTemplateCountsKey(targetCounts);
+            if (TraderWeaponOfferPricingPlanCache.TryGetValue(cacheKey, out TraderWeaponOfferPricingPlan cachedPlan))
+            {
+                pricingPlan = cachedPlan;
+                return pricingPlan?.MatchedTemplateCounts != null;
+            }
+
+            try
+            {
+                TraderWeaponOfferPricingPlan bestPlan = null;
+                double bestSavings = 0.0;
+                double bestCoverage = 0.0;
+                foreach (TraderClass trader in _session.Traders)
+                {
+                    TraderAssortmentControllerClass assortment = trader?.CurrentAssortment;
+                    Item rootItem = assortment?.TraderController?.RootItem;
+                    if (!IsTraderUsableForExactKitOffer(trader, assortment) || rootItem == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (Weapon candidateWeapon in CollectDeepItemTree(rootItem).OfType<Weapon>())
+                    {
+                        if (HasParentWeapon(candidateWeapon)
+                            || !IsTraderOfferAvailable(trader, assortment, candidateWeapon)
+                            || !string.Equals(candidateWeapon.TemplateId, targetWeapon.TemplateId, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        List<Item> candidatePriceableItems = CollectWeaponTreePriceableItems(candidateWeapon);
+                        Dictionary<string, int> candidateCounts = CreateWeaponTreeTemplateCounts(candidateWeapon);
+                        if (!AreTemplateCountsEqual(targetCounts, candidateCounts)
+                            || !TryCreateOfferOverlapMatch(targetCounts, candidateCounts, targetWeapon.TemplateId, out Dictionary<string, int> matchedTemplateCounts))
+                        {
+                            continue;
+                        }
+
+                        BarterScheme scheme = assortment.GetSchemeForItem(candidateWeapon);
+                        if (!TryCalculateBarterSchemeRoublePrice(scheme, out double offerPrice) || offerPrice <= 0.0)
+                        {
+                            continue;
+                        }
+
+                        double candidateRawPrice = CalculateItemsRawPrice(candidatePriceableItems);
+                        if (candidateRawPrice <= 0.0)
+                        {
+                            continue;
+                        }
+
+                        double coverageRawPrice = CalculateMatchedTemplateRawPrice(targetPriceableItems, matchedTemplateCounts);
+                        double matchedCandidateRawPrice = CalculateMatchedTemplateRawPrice(candidatePriceableItems, matchedTemplateCounts);
+                        if (coverageRawPrice <= 0.0 || matchedCandidateRawPrice <= 0.0)
+                        {
+                            continue;
+                        }
+
+                        double scaledOfferPrice = offerPrice * (matchedCandidateRawPrice / candidateRawPrice);
+                        if (scaledOfferPrice >= coverageRawPrice)
+                        {
+                            continue;
+                        }
+
+                        double savings = coverageRawPrice - scaledOfferPrice;
+                        if (bestPlan == null
+                            || savings > bestSavings
+                            || (savings.ApproxEquals(bestSavings) && coverageRawPrice > bestCoverage)
+                            || (savings.ApproxEquals(bestSavings) && coverageRawPrice.ApproxEquals(bestCoverage) && scaledOfferPrice < bestPlan.TotalPrice))
+                        {
+                            bestSavings = savings;
+                            bestCoverage = coverageRawPrice;
+                            bestPlan = new TraderWeaponOfferPricingPlan
+                            {
+                                MatchedTemplateCounts = new Dictionary<string, int>(matchedTemplateCounts, StringComparer.Ordinal),
+                                TotalPrice = scaledOfferPrice,
+                                SourceDescription = $"{trader.Settings.Nickname.Localized(null)}:{GetItemDisplayName(candidateWeapon)} exactMatch matchedRaw={Math.Floor(coverageRawPrice)} candidateRaw={Math.Floor(candidateRawPrice)} scaledOffer={Math.Floor(scaledOfferPrice)}"
+                            };
+                        }
+                    }
+                }
+
+                pricingPlan = bestPlan ?? TraderWeaponOfferPricingPlan.NoMatch;
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogDebug($"[UI] Exact trader weapon offer pricing failed for '{targetWeapon.Id}': {ex.Message}");
+                pricingPlan = TraderWeaponOfferPricingPlan.NoMatch;
+                TraderWeaponOfferPricingPlanCache[cacheKey] = pricingPlan;
+                return false;
+            }
+
+            TraderWeaponOfferPricingPlanCache[cacheKey] = pricingPlan;
+            return pricingPlan.MatchedTemplateCounts != null;
+        }
+
+        private static bool IsTraderUsableForExactKitOffer(TraderClass trader, TraderAssortmentControllerClass assortment)
+        {
+            return trader?.Info != null
+                && trader.Info.Unlocked
+                && assortment != null
+                && !trader.AssortmentLoading;
+        }
+
+        private static bool IsTraderOfferAvailable(TraderClass trader, TraderAssortmentControllerClass assortment, Item item)
+        {
+            if (trader?.Info == null || assortment == null || item == null)
+            {
+                return false;
+            }
+
+            if (assortment.LoyalLevelItems != null
+                && assortment.LoyalLevelItems.TryGetValue(item.Id, out int requiredLevel)
+                && requiredLevel > trader.Info.LoyaltyLevel)
+            {
+                return false;
+            }
+
+            return assortment.GetSchemeForItem(item) != null;
+        }
+
+        private static bool HasParentWeapon(Item item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            foreach (Item parent in item.GetAllParentItems())
+            {
+                if (parent is Weapon)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static Dictionary<string, int> CreateWeaponTreeTemplateCounts(Item weapon)
+        {
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (weapon == null)
+            {
+                return counts;
+            }
+
+            foreach (Item item in CollectDeepItemTree(weapon))
+            {
+                if (IsIgnoredKitRequirementItem(item)
+                    || item is AmmoItemClass
+                    || string.IsNullOrWhiteSpace(item?.TemplateId))
+                {
+                    continue;
+                }
+
+                string templateId = item.TemplateId;
+                int count = Mathf.Max(1, item.StackObjectsCount);
+                if (counts.TryGetValue(templateId, out int existing))
+                {
+                    counts[templateId] = existing + count;
+                }
+                else
+                {
+                    counts[templateId] = count;
+                }
+            }
+
+            return counts;
+        }
+
+        private static string CreateWeaponTreeTemplateCountsKey(Dictionary<string, int> counts)
+        {
+            if (counts == null || counts.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return string.Join("|", counts
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}:{pair.Value}"));
+        }
+
+        private static bool TryCreateOfferOverlapMatch(
+            Dictionary<string, int> targetCounts,
+            Dictionary<string, int> candidateCounts,
+            string rootTemplateId,
+            out Dictionary<string, int> matchedTemplateCounts)
+        {
+            matchedTemplateCounts = null;
+            if (targetCounts == null || candidateCounts == null || targetCounts.Count == 0 || candidateCounts.Count == 0)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(rootTemplateId)
+                || !targetCounts.ContainsKey(rootTemplateId)
+                || !candidateCounts.ContainsKey(rootTemplateId))
+            {
+                return false;
+            }
+
+            Dictionary<string, int> overlap = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, int> pair in candidateCounts)
+            {
+                if (!targetCounts.TryGetValue(pair.Key, out int targetCount))
+                {
+                    continue;
+                }
+
+                int overlapCount = Math.Min(targetCount, pair.Value);
+                if (overlapCount > 0)
+                {
+                    overlap[pair.Key] = overlapCount;
+                }
+            }
+
+            if (!overlap.TryGetValue(rootTemplateId, out int rootCount) || rootCount <= 0)
+            {
+                return false;
+            }
+
+            matchedTemplateCounts = overlap;
+            return overlap.Count > 0;
+        }
+
+        private static double CalculateMatchedTemplateRawPrice(List<Item> targetPriceableItems, Dictionary<string, int> matchedTemplateCounts)
+        {
+            if (targetPriceableItems == null || matchedTemplateCounts == null || matchedTemplateCounts.Count == 0)
+            {
+                return 0.0;
+            }
+
+            double total = 0.0;
+            foreach (Item item in ConsumeMatchedTemplateItems(targetPriceableItems, matchedTemplateCounts))
+            {
+                total += Math.Max(0.0, CalculateSingleItemMarketRoublePrice(item));
+            }
+
+            return total;
+        }
+
+        private static double CalculateItemsRawPrice(List<Item> items)
+        {
+            if (items == null || items.Count == 0)
+            {
+                return 0.0;
+            }
+
+            double total = 0.0;
+            foreach (Item item in items)
+            {
+                total += Math.Max(0.0, CalculateSingleItemMarketRoublePrice(item));
+            }
+
+            return total;
+        }
+
+        private static List<Item> ConsumeMatchedTemplateItems(List<Item> targetPriceableItems, Dictionary<string, int> matchedTemplateCounts)
+        {
+            List<Item> matchedItems = new List<Item>();
+            if (targetPriceableItems == null || matchedTemplateCounts == null || matchedTemplateCounts.Count == 0)
+            {
+                return matchedItems;
+            }
+
+            Dictionary<string, int> remainingCounts = new Dictionary<string, int>(matchedTemplateCounts, StringComparer.Ordinal);
+            foreach (Item item in targetPriceableItems)
+            {
+                if (item == null
+                    || string.IsNullOrWhiteSpace(item.TemplateId)
+                    || !remainingCounts.TryGetValue(item.TemplateId, out int remaining)
+                    || remaining <= 0)
+                {
+                    continue;
+                }
+
+                matchedItems.Add(item);
+                remainingCounts[item.TemplateId] = remaining - 1;
+            }
+
+            return matchedItems;
+        }
+
+        private static bool AreTemplateCountsEqual(Dictionary<string, int> left, Dictionary<string, int> right)
+        {
+            if (left == null || right == null || left.Count != right.Count)
+            {
+                return false;
+            }
+
+            foreach (KeyValuePair<string, int> pair in left)
+            {
+                if (!right.TryGetValue(pair.Key, out int rightCount) || rightCount != pair.Value)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryCalculateBarterSchemeRoublePrice(BarterScheme scheme, out double price)
+        {
+            price = 0.0;
+            if (scheme == null || scheme.Count == 0)
+            {
+                return false;
+            }
+
+            double bestPrice = double.MaxValue;
+            foreach (BarterVariant variant in scheme)
+            {
+                if (TryCalculateBarterVariantRoublePrice(variant, out double variantPrice)
+                    && variantPrice > 0.0
+                    && variantPrice < bestPrice)
+                {
+                    bestPrice = variantPrice;
+                }
+            }
+
+            if (bestPrice == double.MaxValue)
+            {
+                return false;
+            }
+
+            price = bestPrice;
+            return true;
+        }
+
+        private static bool TryCalculateBarterVariantRoublePrice(BarterVariant variant, out double price)
+        {
+            price = 0.0;
+            if (variant == null || variant.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (GClass2335 requisite in variant)
+            {
+                if (requisite == null || string.IsNullOrWhiteSpace(requisite._tpl) || requisite.count <= 0.0)
+                {
+                    return false;
+                }
+
+                double unitPrice = GetTemplateRoubleValue(requisite._tpl);
+                if (unitPrice <= 0.0)
+                {
+                    return false;
+                }
+
+                price += unitPrice * requisite.count;
+            }
+
+            return price > 0.0;
+        }
+
+        private static double GetTemplateRoubleValue(string templateId)
+        {
+            if (string.IsNullOrWhiteSpace(templateId))
+            {
+                return 0.0;
+            }
+
+            if (string.Equals(templateId, GClass3130.ROUBLE_ID.ToString(), StringComparison.Ordinal)
+                || string.Equals(templateId, GClass3130.ROUBLE_STACK_ID.ToString(), StringComparison.Ordinal))
+            {
+                return 1.0;
+            }
+
+            try
+            {
+                return BuildMarketPriceSource.GetBasePrice(new MongoID(templateId));
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+
+        private static string FormatPercent(double value)
+        {
+            return $"{Math.Round(value * 100.0)}%";
+        }
+
         private static List<Item> CollectDeepItemTree(Item item)
         {
             List<Item> items = new List<Item>();
@@ -2345,6 +3773,11 @@ namespace pitTeam.Patches
 
             _marketPrices = new Dictionary<string, float>(result.Value);
             _marketPricesUpdatedAt = Time.realtimeSinceStartup;
+            TraderWeaponOfferPricingPlanCache.Clear();
+            RagfairWeaponOfferPricingPlanCache.Clear();
+            PendingRagfairWeaponOfferPricingPlanKeys.Clear();
+            LoggedBuildPricingKeys.Clear();
+            _buildPricingLogPhase = "market-refresh";
             UpdateHandbookPrices(_marketPrices);
             RefreshActivePriceLabels();
         }
@@ -2653,6 +4086,80 @@ namespace pitTeam.Patches
             public string DisplayName;
             public int RequiredCount;
             public double TotalPrice;
+        }
+
+        private sealed class TraderWeaponOfferPricingPlan
+        {
+            public static readonly TraderWeaponOfferPricingPlan NoMatch = new TraderWeaponOfferPricingPlan();
+
+            public Dictionary<string, int> MatchedTemplateCounts;
+            public double TotalPrice;
+            public string SourceDescription;
+        }
+
+        private sealed class RagfairWeaponOfferPricingPlan
+        {
+            public static readonly RagfairWeaponOfferPricingPlan NoMatch = new RagfairWeaponOfferPricingPlan();
+
+            public bool HasMatch;
+            public double TotalPrice;
+            public double TargetCoverage;
+            public double CandidateCoverage;
+            public string SourceDescription;
+        }
+
+        private sealed class KitLoadoutPricingEntry
+        {
+            public double Price;
+            public string Rule;
+        }
+
+        private sealed class KitLoadoutPricingContext
+        {
+            private readonly Dictionary<string, KitLoadoutPricingEntry> _itemPriceOverrides = new Dictionary<string, KitLoadoutPricingEntry>(StringComparer.Ordinal);
+            public readonly List<string> Diagnostics = new List<string>();
+
+            public void SetItemPriceOverride(Item item, double price, string rule)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.Id))
+                {
+                    return;
+                }
+
+                _itemPriceOverrides[item.Id] = new KitLoadoutPricingEntry
+                {
+                    Price = Math.Max(0.0, price),
+                    Rule = rule ?? string.Empty
+                };
+            }
+
+            public bool TryGetItemPriceOverride(Item item, out double price)
+            {
+                price = 0.0;
+                if (!TryGetItemPricingEntry(item, out KitLoadoutPricingEntry entry))
+                {
+                    return false;
+                }
+
+                price = entry.Price;
+                return true;
+            }
+
+            public bool TryGetItemPricingEntry(Item item, out KitLoadoutPricingEntry entry)
+            {
+                entry = null;
+                return item != null
+                    && !string.IsNullOrWhiteSpace(item.Id)
+                    && _itemPriceOverrides.TryGetValue(item.Id, out entry);
+            }
+
+            public void AddDiagnostic(string line)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    Diagnostics.Add(line);
+                }
+            }
         }
 
         private sealed class UsedStashItemSummary

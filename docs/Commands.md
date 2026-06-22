@@ -229,6 +229,13 @@ Execution:
 - Applies command look override if present; otherwise random look-around.
 - Persistent until replaced, cleared, or interrupted by command management.
 
+Picked-up follower behavior:
+
+- Recruited/picked-up followers roll command acceptance before taking the hold.
+- Higher-level picked-up followers are more likely to refuse with `Negative` because they do not fully accept the player as their boss.
+- Lower-level picked-up followers are more likely to accept, with a small stable personality bias per follower.
+- The same personality bias also feeds autonomous combat protection: less loyal pickups tolerate more distance from the player and are less likely to break their own fight to protect the boss.
+
 ### Stop Phrase
 
 Input:
@@ -247,6 +254,10 @@ Execution:
 
 - Same `HoldPosition` request-layer action as hold gesture.
 - Does not force crouch.
+
+Picked-up follower behavior:
+
+- Uses the same level/personality acceptance roll as the hold gesture.
 
 Vanilla handling:
 
@@ -455,6 +466,7 @@ Behavior:
 - Rifleman/default behavior becomes less proactive and more defensive/regroup-oriented.
 - Marksman suppresses proactive close-search/auto-search behavior.
 - Defensive survival behavior still wins: immediate fire, dogfight, healing, boss protection, and other urgent actions can still run.
+- Picked-up followers may refuse this hold with `Negative`; higher-level and more independent recruits are more likely to ignore the order.
 
 SAIN addon:
 
@@ -492,6 +504,15 @@ Input:
 Command state:
 
 - `SetPushEnemy(...)`, consumed by combat into a durable ordered-push objective
+
+Picked-up follower behavior:
+
+- Picked-up followers can now accept or refuse the ordered push instead of always refusing it.
+- Acceptance is based on a personality-weighted roll using follower level versus player level and follower gear power versus the current enemy's gear power.
+- Better gear relative to the enemy increases push acceptance.
+- Lower-level picked-up followers are more likely to get scared and refuse; higher-level picked-up followers may refuse because they are cocky or independent.
+- Outside direct orders, the same personality model makes picked-up followers less boss-centered than saved squadmates. Low-protection pickups delay autonomous regroup and may ignore boss-under-attack support opportunities.
+- `On Your Own` remains accepted; it is the player cutting the recruit loose, not bossing them around.
 
 Core behavior:
 

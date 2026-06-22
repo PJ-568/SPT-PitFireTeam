@@ -76,7 +76,14 @@ namespace pitTeam.BigBrain
         private const float OutOfCombatReloadActionCooldown = 5f;
         private const float OutOfCombatReloadSlotCooldown = 2f;
         private const float OutOfCombatReloadFullCycleCooldown = 30f;
+        private const float OutOfCombatReloadGiveUpCooldown = 300f;
+        private const int OutOfCombatReloadMaxSwitchAttemptsPerWeapon = 2;
+        private const int OutOfCombatReloadMaxFailedReloadsPerWeapon = 2;
         private const float HealNodeStartTimeout = 4f;
+        private const float HealActionStartRetryCooldown = 3f;
+        private const float PatrolHealCoverSearchRadius = 60f;
+        private const float PatrolHealCoverArriveDistance = 2f;
+        private const string PatrolHealCoverActionReason = "runToHeal";
 
         private static readonly EquipmentSlot[] ReloadSlotOrder =
         {
@@ -98,13 +105,21 @@ namespace pitTeam.BigBrain
         private readonly HashSet<EquipmentSlot> reloadSlotsTried = new HashSet<EquipmentSlot>();
         private readonly HashSet<string> reloadWeaponsProcessed = new HashSet<string>();
         private readonly Dictionary<EquipmentSlot, float> reloadSlotRetryAfter = new Dictionary<EquipmentSlot, float>();
+        private readonly Dictionary<string, int> reloadSwitchAttemptsByWeapon = new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> reloadFailuresByWeapon = new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, float> reloadGiveUpUntilByWeapon = new Dictionary<string, float>(StringComparer.Ordinal);
         private EquipmentSlot? forcedTopOffSlot = null;
         private EquipmentSlot? returnAfterTopOffSlot = null;
         private string? reloadingWeaponId = null;
         private float nextPatrolLauncherFallbackRecordAt = 0f;
         private float nextHealWorkRefreshAt = 0f;
+        private float nextHealActionRetryAt = 0f;
         private bool stoppedForHealDecision = false;
-        private bool sawEnemyDuringCurrentCycle = false;
+        private bool healUseObserved = false;
+        private CustomNavigationPoint? patrolHealCover;
+        private bool patrolHealCoverSearchDone;
+        private bool patrolHealCoverFallback;
+        private bool patrolHealStartAnnounced;
         private BotFollowerPlayer? followerData;
 
         private Action? selectedAction = null;
@@ -143,13 +158,11 @@ namespace pitTeam.BigBrain
 
             if (BotOwner.Memory.HaveEnemy)
             {
-                sawEnemyDuringCurrentCycle = true;
                 return false;
             }
 
             if (HasVisibleKnownEnemy())
             {
-                sawEnemyDuringCurrentCycle = true;
                 return false;
             }
 
@@ -172,11 +185,6 @@ namespace pitTeam.BigBrain
             if (!followerData.IsReadyForPatrolAfterCombat())
             {
                 return false;
-            }
-
-            if (sawEnemyDuringCurrentCycle)
-            {
-                sawEnemyDuringCurrentCycle = false;
             }
 
             return true;
@@ -220,7 +228,11 @@ namespace pitTeam.BigBrain
         {
             isHealing = false;
             stoppedForHealDecision = false;
+            patrolHealStartAnnounced = false;
+            nextHealActionRetryAt = 0f;
+            healUseObserved = false;
             selectedAction = null;
+            ResetPatrolHealCoverState();
             ResetReloadState();
             base.Stop();
         }
@@ -230,6 +242,10 @@ namespace pitTeam.BigBrain
             base.Start();
             isHealing = false;
             stoppedForHealDecision = false;
+            patrolHealStartAnnounced = false;
+            nextHealActionRetryAt = 0f;
+            healUseObserved = false;
+            ResetPatrolHealCoverState();
             ResetReloadState();
             BossPlayers.Instance?.GetFollower(BotOwner)?.ClearCombatIndependent();
             if (BossPlayers.Instance?.GetFollower(BotOwner)?.IsBackpackInspectionActive != true)
@@ -283,18 +299,34 @@ namespace pitTeam.BigBrain
 
             try
             {
+                if (TryCompletePostCombatFullHealRestore())
+                {
+                    selectedAction = new Action(typeof(FollowAction), "FollowerPatrol");
+                    return selectedAction;
+                }
+
                 RefreshHealWorkIfNeeded();
 
-                bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
-                bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
-                bool hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
+                GetPatrolHealState(
+                    out bool isUsingHeal,
+                    out bool hasPendingHealWork,
+                    out bool hasRecoverableTopOffWork,
+                    out _);
 
-                if (isUsingHeal || hasPendingHealWork || hasRecoverableTopOffWork)
+                if (CanStartPatrolHealAction(isUsingHeal, hasPendingHealWork, hasRecoverableTopOffWork))
                 {
+                    if (!isUsingHeal && TryCreatePatrolHealCoverAction(out Action? coverAction))
+                    {
+                        selectedAction = coverAction;
+                        return selectedAction;
+                    }
+
                     if (!isHealing)
                     {
-                        healStartAt = Time.time;
+                        healStartAt = 0f;
+                        healUseObserved = false;
                         healNodeEnteredAt = Time.time;
+                        AnnouncePatrolHealStartOnce();
                         StopMovementForHealDecision();
                     }
 
@@ -309,6 +341,8 @@ namespace pitTeam.BigBrain
 
                 isHealing = false;
                 stoppedForHealDecision = false;
+                healUseObserved = false;
+                ResetPatrolHealStartAnnouncementIfSequenceComplete();
 
                 if (TryReturnSelectedLauncherToPrimaryAfterCombat())
                 {
@@ -336,6 +370,7 @@ namespace pitTeam.BigBrain
             try
             {
                 bool isHealAction = selectedAction?.Type == typeof(HealAction);
+                bool isHealCoverAction = selectedAction?.Type == typeof(CombatRunToCoverAction);
                 bool isHealDecision = BotOwner.Brain.Agent?.LastResult().Action == BotLogicDecision.heal;
 
                 if (!isHealAction && !isHealDecision)
@@ -345,8 +380,23 @@ namespace pitTeam.BigBrain
                         return true;
                     }
 
+                    if (TryCompletePostCombatFullHealRestore())
+                    {
+                        return true;
+                    }
+
                     RefreshHealWorkIfNeeded();
-                    if (HasPendingHealWork() || Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner))
+                    GetPatrolHealState(
+                        out bool isUsingHeal,
+                        out bool hasPendingHealWork,
+                        out bool hasRecoverableTopOffWork,
+                        out _);
+                    if (isHealCoverAction)
+                    {
+                        return IsPatrolHealCoverActionEnding(isUsingHeal || hasPendingHealWork || hasRecoverableTopOffWork);
+                    }
+
+                    if (CanStartPatrolHealAction(isUsingHeal, hasPendingHealWork, hasRecoverableTopOffWork))
                     {
                         return true;
                     }
@@ -435,14 +485,30 @@ namespace pitTeam.BigBrain
         {
             bool isHealAction = selectedAction?.Type == typeof(HealAction);
 
-            bool isUsingHeal = BotOwner.Medecine.FirstAid.Using || BotOwner.Medecine.SurgicalKit.Using;
-            bool hasPendingHealWork = BotOwner.Medecine.FirstAid.Have2Do || BotOwner.Medecine.SurgicalKit.HaveWork;
-            bool hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
-            bool canStartHeal = CanStartVanillaHealNode();
+            if (TryCompletePostCombatFullHealRestore())
+            {
+                CompleteHealing();
+                return true;
+            }
+
+            GetPatrolHealState(
+                out bool isUsingHeal,
+                out bool hasPendingHealWork,
+                out bool hasRecoverableTopOffWork,
+                out bool shouldKeepPostCombatFullHeal);
+            bool canStartHeal = CanStartVanillaHealNode() || Utils.FollowerMedical.CanStartFirstAidTopOff(BotOwner);
 
             float healTimeout = BotOwner.Medecine.SurgicalKit.Using ? 45f : 15f;
             if (isUsingHeal)
             {
+                nextHealActionRetryAt = 0f;
+                healNodeEnteredAt = Time.time;
+                if (!healUseObserved || healStartAt <= 0f)
+                {
+                    healUseObserved = true;
+                    healStartAt = Time.time;
+                }
+
                 if (healStartAt > 0f && healStartAt + healTimeout < Time.time)
                 {
                     AbortHealing();
@@ -452,27 +518,57 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
-            // Old EndHeal equivalent: no pending heal work -> end heal action.
+            healUseObserved = false;
+            healStartAt = 0f;
+
+            // Old EndHeal equivalent: no real medical work -> end heal action. The post-combat
+            // restore timer can keep running after movement resumes.
             if (!hasPendingHealWork && !hasRecoverableTopOffWork)
             {
                 CompleteHealing();
                 return true;
             }
 
-            if (!hasPendingHealWork && hasRecoverableTopOffWork)
-            {
-                return false;
-            }
-
-            if (!canStartHeal && healNodeEnteredAt > 0f && healNodeEnteredAt + HealNodeStartTimeout < Time.time)
+            if (healNodeEnteredAt > 0f && healNodeEnteredAt + HealNodeStartTimeout < Time.time)
             {
                 RefreshHealWorkForRetry();
-                if (!CanStartVanillaHealNode())
+                GetPatrolHealState(
+                    out isUsingHeal,
+                    out hasPendingHealWork,
+                    out hasRecoverableTopOffWork,
+                    out shouldKeepPostCombatFullHeal);
+                if (isUsingHeal)
                 {
+                    nextHealActionRetryAt = 0f;
                     return false;
                 }
 
-                healNodeEnteredAt = Time.time;
+                if (!hasPendingHealWork && !hasRecoverableTopOffWork)
+                {
+                    CompleteHealing();
+                    return true;
+                }
+
+                canStartHeal = CanStartVanillaHealNode() || Utils.FollowerMedical.CanStartFirstAidTopOff(BotOwner);
+                if (!canStartHeal)
+                {
+                    if (Utils.FollowerMedical.IsPostCombatFullHealActive(BotOwner) &&
+                        !hasRecoverableTopOffWork &&
+                        !shouldKeepPostCombatFullHeal)
+                    {
+                        Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
+                        CompleteHealing();
+                        return true;
+                    }
+
+                    nextHealActionRetryAt = Time.time + HealActionStartRetryCooldown;
+                    CompleteHealing();
+                    return true;
+                }
+
+                nextHealActionRetryAt = Time.time + HealActionStartRetryCooldown;
+                CompleteHealing();
+                return true;
             }
 
             if (!IsActive() && isHealAction)
@@ -483,13 +579,45 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        private void GetPatrolHealState(
+            out bool isUsingHeal,
+            out bool hasPendingHealWork,
+            out bool hasRecoverableTopOffWork,
+            out bool shouldKeepPostCombatFullHeal)
+        {
+            bool isUsingFirstAid = BotOwner?.Medecine?.FirstAid?.Using == true;
+            bool isUsingSurgery = BotOwner?.Medecine?.SurgicalKit?.Using == true;
+            bool hasFirstAidWork = BotOwner?.Medecine?.FirstAid?.Have2Do == true;
+            bool hasSurgeryWork = BotOwner?.Medecine?.SurgicalKit?.HaveWork == true;
+
+            isUsingHeal = isUsingFirstAid || isUsingSurgery;
+            hasPendingHealWork = hasSurgeryWork || hasFirstAidWork;
+            hasRecoverableTopOffWork = Utils.FollowerMedical.HasRecoverableFirstAidDamage(BotOwner);
+            bool hasKnownWork = isUsingHeal || hasPendingHealWork || hasRecoverableTopOffWork;
+            shouldKeepPostCombatFullHeal = Utils.FollowerMedical.ShouldKeepPostCombatFullHeal(
+                BotOwner,
+                hasKnownWork,
+                scanForWork: false);
+
+            if (!isUsingHeal &&
+                !hasPendingHealWork &&
+                !hasRecoverableTopOffWork &&
+                !shouldKeepPostCombatFullHeal)
+            {
+                Utils.FollowerMedical.CompletePostCombatFullHeal(BotOwner);
+            }
+        }
+
         private void CompleteHealing()
         {
             isHealing = false;
             stoppedForHealDecision = false;
+            healUseObserved = false;
+            ResetPatrolHealStartAnnouncementIfSequenceComplete();
             healStartAt = 0f;
             healSoftTimeoutAt = 0f;
             healNodeEnteredAt = 0f;
+            ResetPatrolHealCoverStateIfSequenceComplete();
             // Normal patrol healing should finish/cancel medical state without restoring all raid HP.
             Utils.FollowerMedical.CompleteHealing(BotOwner);
         }
@@ -498,10 +626,216 @@ namespace pitTeam.BigBrain
         {
             isHealing = false;
             stoppedForHealDecision = false;
+            healUseObserved = false;
+            ResetPatrolHealStartAnnouncementIfSequenceComplete();
             healStartAt = 0f;
             healSoftTimeoutAt = 0f;
             healNodeEnteredAt = 0f;
+            ResetPatrolHealCoverStateIfSequenceComplete();
             Utils.FollowerMedical.AbortHealing(BotOwner, recoverDestroyedSurgeryParts: true);
+        }
+
+        private bool TryCompletePostCombatFullHealRestore()
+        {
+            if (!Utils.FollowerMedical.TryCompletePostCombatFullHealRestore(BotOwner))
+            {
+                return false;
+            }
+
+            isHealing = false;
+            stoppedForHealDecision = false;
+            patrolHealStartAnnounced = false;
+            nextHealActionRetryAt = 0f;
+            healUseObserved = false;
+            healStartAt = 0f;
+            healSoftTimeoutAt = 0f;
+            healNodeEnteredAt = 0f;
+            ResetPatrolHealCoverState();
+            return true;
+        }
+
+        private bool TryCreatePatrolHealCoverAction(out Action? coverAction)
+        {
+            coverAction = null;
+
+            if (patrolHealCoverFallback || BotOwner == null)
+            {
+                return false;
+            }
+
+            if (!patrolHealCoverSearchDone)
+            {
+                patrolHealCoverSearchDone = true;
+                patrolHealCover = FindPatrolHealCover();
+                if (patrolHealCover == null)
+                {
+                    patrolHealCoverFallback = true;
+                    return false;
+                }
+            }
+
+            if (patrolHealCover == null || !IsPatrolHealCoverValid(patrolHealCover))
+            {
+                patrolHealCover = null;
+                patrolHealCoverFallback = true;
+                return false;
+            }
+
+            if (IsAtPatrolHealCover())
+            {
+                return false;
+            }
+
+            BotOwner.Memory.SetCoverPoints(patrolHealCover, "PatrolHealCover");
+            AnnouncePatrolHealStartOnce();
+            coverAction = new Action(
+                typeof(CombatRunToCoverAction),
+                PatrolHealCoverActionReason,
+                new FollowerCombatActionData(BotLogicDecision.runToCover, PatrolHealCoverActionReason, null));
+            return true;
+        }
+
+        private bool IsPatrolHealCoverActionEnding(bool hasHealWork)
+        {
+            if (!hasHealWork)
+            {
+                ResetPatrolHealCoverStateIfSequenceComplete();
+                return true;
+            }
+
+            if (patrolHealCover == null || !IsPatrolHealCoverValid(patrolHealCover))
+            {
+                patrolHealCoverFallback = true;
+                return true;
+            }
+
+            BotOwner.Memory.SetCoverPoints(patrolHealCover, "PatrolHealCover");
+            return IsAtPatrolHealCover();
+        }
+
+        private CustomNavigationPoint? FindPatrolHealCover()
+        {
+            try
+            {
+                return Utils.Covers.GetClosestCoverPoint(
+                    BotOwner,
+                    BotOwner.Position,
+                    PatrolHealCoverSearchRadius,
+                    IsPatrolHealCoverValid,
+                    CoverSearchType.distToToCenter);
+            }
+            catch (Exception ex)
+            {
+                LogLayerException("FindPatrolHealCover", ex);
+                return null;
+            }
+        }
+
+        private bool IsPatrolHealCoverValid(CustomNavigationPoint? cover)
+        {
+            if (cover == null || BotOwner == null)
+            {
+                return false;
+            }
+
+            if (!cover.IsFreeById(BotOwner.Id) || cover.IsSpotted)
+            {
+                return false;
+            }
+
+            return Utils.Covers.IsNavigablePoint(BotOwner.Position, cover.Position, PatrolHealCoverSearchRadius);
+        }
+
+        private bool IsAtPatrolHealCover()
+        {
+            if (patrolHealCover == null || BotOwner == null)
+            {
+                return false;
+            }
+
+            if ((BotOwner.Position - patrolHealCover.Position).sqrMagnitude <= PatrolHealCoverArriveDistance * PatrolHealCoverArriveDistance)
+            {
+                return true;
+            }
+
+            try
+            {
+                bool goToPointArrived =
+                    BotOwner.GoToSomePointData?.HaveTarget() == true &&
+                    (BotOwner.GoToSomePointData.Point - patrolHealCover.Position).sqrMagnitude <= 1f &&
+                    BotOwner.GoToSomePointData.IsCome();
+
+                return BotOwner.Mover?.IsComeTo(PatrolHealCoverArriveDistance, true, patrolHealCover) == true ||
+                       goToPointArrived;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ResetPatrolHealCoverState()
+        {
+            patrolHealCover = null;
+            patrolHealCoverSearchDone = false;
+            patrolHealCoverFallback = false;
+        }
+
+        private void ResetPatrolHealCoverStateIfSequenceComplete()
+        {
+            if (Utils.FollowerMedical.IsPostCombatFullHealActive(BotOwner))
+            {
+                return;
+            }
+
+            ResetPatrolHealCoverState();
+        }
+
+        private void ResetPatrolHealStartAnnouncementIfSequenceComplete()
+        {
+            if (Utils.FollowerMedical.IsPostCombatFullHealActive(BotOwner))
+            {
+                return;
+            }
+
+            patrolHealStartAnnounced = false;
+        }
+
+        private void AnnouncePatrolHealStartOnce()
+        {
+            if (patrolHealStartAnnounced)
+            {
+                return;
+            }
+
+            patrolHealStartAnnounced = true;
+            try
+            {
+                BotOwner?.BotTalk?.TrySay(EPhraseTrigger.StartHeal, false);
+            }
+            catch (Exception ex)
+            {
+                LogLayerException("AnnouncePatrolHealStartOnce", ex);
+            }
+        }
+
+        private bool CanStartPatrolHealAction(
+            bool isUsingHeal,
+            bool hasPendingHealWork,
+            bool hasRecoverableTopOffWork)
+        {
+            if (isUsingHeal)
+            {
+                return true;
+            }
+
+            if (Time.time < nextHealActionRetryAt)
+            {
+                return false;
+            }
+
+            return (hasPendingHealWork && CanStartVanillaHealNode()) ||
+                   (hasRecoverableTopOffWork && Utils.FollowerMedical.CanStartFirstAidTopOff(BotOwner));
         }
 
         private bool CanStartVanillaHealNode()
@@ -653,6 +987,7 @@ namespace pitTeam.BigBrain
 
                 reloadingInProgress = false;
                 MarkReloadWeaponProcessed(reloadingWeaponId);
+                ClearOutOfCombatReloadAttemptBudget(reloadingWeaponId);
                 reloadingWeaponId = null;
                 TryReturnAfterTopOffSwitch(selector);
                 nextReloadCheckAt = Time.time + OutOfCombatReloadSlotCooldown;
@@ -686,9 +1021,15 @@ namespace pitTeam.BigBrain
                 // The weapon is only marked done after the reload animation has fully settled.
                 EquipmentSlot currentSlot = selector.LastEquipmentSlot;
                 string? currentWeaponId = GetReloadWeaponId(currentSlot);
+                Weapon? currentWeapon = GetWeaponInSlot(currentSlot) ?? BotOwner.WeaponManager.CurrentWeapon;
                 reloadSlotsTried.Add(currentSlot);
                 reloadingInProgress = TryForceReloadCurrentWeaponOutOfCombat();
                 reloadingWeaponId = reloadingInProgress ? currentWeaponId : null;
+                if (!reloadingInProgress)
+                {
+                    RecordOutOfCombatReloadFailure(currentSlot, currentWeapon, "reloadRejected");
+                }
+
                 if (forcedTopOffSlot == currentSlot)
                 {
                     if (!reloadingInProgress)
@@ -751,9 +1092,15 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            EquipmentSlot currentSlot = BotOwner.WeaponManager.Selector?.LastEquipmentSlot ?? EquipmentSlot.FirstPrimaryWeapon;
+            if (IsOutOfCombatReloadGiveUpActive(currentSlot, currentWeapon))
+            {
+                return false;
+            }
+
             bool forceTopOffCurrentSlot =
                 forcedTopOffSlot.HasValue &&
-                BotOwner.WeaponManager.Selector?.LastEquipmentSlot == forcedTopOffSlot.Value;
+                currentSlot == forcedTopOffSlot.Value;
 
             // Chamber/OnlyBarrel support weapons do not always report magazine-style reload counts.
             if (currentWeapon.ReloadMode != Weapon.EReloadMode.ExternalMagazine)
@@ -857,6 +1204,13 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (IsOutOfCombatReloadGiveUpActive(slot, weapon))
+            {
+                MarkReloadWeaponProcessed(weapon.Id);
+                processedSlot = true;
+                return false;
+            }
+
             if (!ShouldReloadWeaponInSlot(slot, weapon))
             {
                 // No ammo, no better magazine, or already cooling down: this weapon is done for
@@ -879,6 +1233,13 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (IsOutOfCombatReloadSwitchBudgetSpent(slot, weapon))
+            {
+                MarkReloadWeaponProcessed(weapon.Id);
+                processedSlot = true;
+                return false;
+            }
+
             bool switched = slot switch
             {
                 EquipmentSlot.FirstPrimaryWeapon => selector.ChangeToMain(),
@@ -889,6 +1250,7 @@ namespace pitTeam.BigBrain
 
             if (switched)
             {
+                RecordOutOfCombatReloadSwitchAttempt(slot, weapon);
                 forcedTopOffSlot = slot;
                 if (previousSlot != slot)
                 {
@@ -917,6 +1279,11 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (IsOutOfCombatReloadGiveUpActive(slot, weapon))
+            {
+                return false;
+            }
+
             if (IsReloadSlotRetryCoolingDown(slot))
             {
                 return false;
@@ -939,6 +1306,102 @@ namespace pitTeam.BigBrain
         private bool IsReloadSlotRetryCoolingDown(EquipmentSlot slot)
         {
             return reloadSlotRetryAfter.TryGetValue(slot, out float retryAt) && Time.time < retryAt;
+        }
+
+        private bool IsOutOfCombatReloadGiveUpActive(EquipmentSlot slot, Weapon weapon)
+        {
+            string key = GetOutOfCombatReloadAttemptKey(slot, weapon);
+            if (!reloadGiveUpUntilByWeapon.TryGetValue(key, out float retryAt))
+            {
+                return false;
+            }
+
+            if (Time.time < retryAt)
+            {
+                return true;
+            }
+
+            reloadGiveUpUntilByWeapon.Remove(key);
+            reloadSwitchAttemptsByWeapon.Remove(key);
+            reloadFailuresByWeapon.Remove(key);
+            return false;
+        }
+
+        private bool IsOutOfCombatReloadSwitchBudgetSpent(EquipmentSlot slot, Weapon weapon)
+        {
+            if (IsOutOfCombatReloadGiveUpActive(slot, weapon))
+            {
+                return true;
+            }
+
+            string key = GetOutOfCombatReloadAttemptKey(slot, weapon);
+            if (!reloadSwitchAttemptsByWeapon.TryGetValue(key, out int attempts) ||
+                attempts < OutOfCombatReloadMaxSwitchAttemptsPerWeapon)
+            {
+                return false;
+            }
+
+            GiveUpOutOfCombatReload(slot, weapon, $"switchAttempts={attempts}");
+            return true;
+        }
+
+        private void RecordOutOfCombatReloadSwitchAttempt(EquipmentSlot slot, Weapon weapon)
+        {
+            string key = GetOutOfCombatReloadAttemptKey(slot, weapon);
+            int attempts = reloadSwitchAttemptsByWeapon.TryGetValue(key, out int currentAttempts)
+                ? currentAttempts + 1
+                : 1;
+            reloadSwitchAttemptsByWeapon[key] = attempts;
+        }
+
+        private void RecordOutOfCombatReloadFailure(EquipmentSlot slot, Weapon? weapon, string reason)
+        {
+            if (weapon == null || IsOutOfCombatReloadGiveUpActive(slot, weapon))
+            {
+                return;
+            }
+
+            string key = GetOutOfCombatReloadAttemptKey(slot, weapon);
+            int failures = reloadFailuresByWeapon.TryGetValue(key, out int currentFailures)
+                ? currentFailures + 1
+                : 1;
+            reloadFailuresByWeapon[key] = failures;
+
+            if (failures >= OutOfCombatReloadMaxFailedReloadsPerWeapon)
+            {
+                GiveUpOutOfCombatReload(slot, weapon, $"{reason}:failures={failures}");
+            }
+        }
+
+        private void GiveUpOutOfCombatReload(EquipmentSlot slot, Weapon weapon, string reason)
+        {
+            string key = GetOutOfCombatReloadAttemptKey(slot, weapon);
+            float retryAt = Time.time + OutOfCombatReloadGiveUpCooldown;
+            reloadGiveUpUntilByWeapon[key] = retryAt;
+            reloadSlotRetryAfter[slot] = retryAt;
+            reloadSlotsTried.Add(slot);
+            MarkReloadWeaponProcessed(weapon.Id);
+
+            Modules.Logger.LogInfo(
+                $"[PatrolReload] Giving up out-of-combat reload top-off for {BotOwner?.Profile?.Nickname ?? BotOwner?.name ?? "<unknown>"} " +
+                $"slot={slot} weaponId={weapon.Id} template={weapon.TemplateId} reason={reason}");
+        }
+
+        private void ClearOutOfCombatReloadAttemptBudget(string? weaponId)
+        {
+            if (string.IsNullOrEmpty(weaponId))
+            {
+                return;
+            }
+
+            reloadSwitchAttemptsByWeapon.Remove(weaponId);
+            reloadFailuresByWeapon.Remove(weaponId);
+            reloadGiveUpUntilByWeapon.Remove(weaponId);
+        }
+
+        private static string GetOutOfCombatReloadAttemptKey(EquipmentSlot slot, Weapon? weapon)
+        {
+            return !string.IsNullOrEmpty(weapon?.Id) ? weapon.Id : slot.ToString();
         }
 
         private bool AreAllReloadWeaponsProcessed()
@@ -1087,7 +1550,9 @@ namespace pitTeam.BigBrain
             botOwner.GetPlayer.InventoryController.GetReachableItemsOfTypeNonAlloc<MagazineItemClass>(magazines, null);
             foreach (MagazineItemClass magazine in magazines)
             {
-                if (magazine == null || magazine.Count - currentCount < MinimumBetterMagazineGain)
+                if (magazine == null ||
+                    IsInstalledInWeaponTree(magazine) ||
+                    magazine.Count - currentCount < MinimumBetterMagazineGain)
                 {
                     continue;
                 }
@@ -1184,6 +1649,7 @@ namespace pitTeam.BigBrain
                 magazines,
                 magazine =>
                     magazine != null &&
+                    !IsInstalledInWeaponTree(magazine) &&
                     magazine.Count < magazine.MaxCount &&
                     InteractionsHandlerClass.CheckMoveIgnoringTargetItem(
                         magazine,
@@ -1248,6 +1714,24 @@ namespace pitTeam.BigBrain
 
             botOwner.GetPlayer.InventoryController.TryRunNetworkTransaction(result, null);
             return true;
+        }
+
+        private static bool IsInstalledInWeaponTree(Item item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            foreach (Item parent in item.GetAllParentItems())
+            {
+                if (parent is Weapon)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool IsLauncherWeapon(Weapon weapon)

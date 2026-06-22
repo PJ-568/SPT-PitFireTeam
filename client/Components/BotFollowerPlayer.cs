@@ -121,6 +121,7 @@ namespace pitTeam.Components
         private float _temporaryCombatAggressionClearAfter;
         private FollowerCombatTactic _combatTactic = FollowerCombatTactic.Balanced;
         private bool _backpackInspectionActive;
+        private float? _pickupIndependence01;
         public bool CanPatrol
         {
             get
@@ -194,6 +195,38 @@ namespace pitTeam.Components
             }
         }
 
+        public float PickupIndependence01
+        {
+            get
+            {
+                if (_IsSquadMate)
+                {
+                    return 0f;
+                }
+
+                _pickupIndependence01 ??= CalculatePickupIndependence01();
+                return _pickupIndependence01.Value;
+            }
+        }
+
+        public float BossProtectionWillingness01
+        {
+            get
+            {
+                if (_IsSquadMate)
+                {
+                    return 1f;
+                }
+
+                int followerLevel = Mathf.Max(1, _bot?.Profile?.Info?.Level ?? 1);
+                int playerLevel = Mathf.Max(1, _player?.realPlayer?.Profile?.Info?.Level ?? 1);
+                return PickupFollowerPersonality.CalculateBossProtectionWillingness01(
+                    followerLevel,
+                    playerLevel,
+                    PickupIndependence01);
+            }
+        }
+
         public FollowerCombatTactic CombatTactic
         {
             get
@@ -218,6 +251,17 @@ namespace pitTeam.Components
 
             if (player.realPlayer.Side != EPlayerSide.Savage) NpcMessage.AddNpc(bot, isSquad);
 
+        }
+
+        private float CalculatePickupIndependence01()
+        {
+            string seed =
+                _bot?.ProfileId ??
+                _bot?.Profile?.AccountId ??
+                _bot?.Profile?.Nickname ??
+                _bot?.name ??
+                string.Empty;
+            return PickupFollowerPersonality.CalculateIndependence01(seed);
         }
 
         public virtual void Init()
@@ -444,7 +488,10 @@ namespace pitTeam.Components
                 Utils.Enemy.ForceIgnoreUntilAggressionOff(group);
                 Utils.Enemy.ForceIgnoreUntilAggressionOff(_bot);
 
-                _bot.Memory.GoalEnemy = null;
+                using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.SetFollowerGroup", "groupReassignClear"))
+                {
+                    _bot.Memory.GoalEnemy = null;
+                }
             }
 
             if (isPickedUp)
@@ -932,7 +979,10 @@ namespace pitTeam.Components
 
                         if (key.ProfileId == _player.Player().ProfileId && _bot.EnemiesController.EnemyInfos.TryGetValue(_player.Player(), out var eninfo))
                         {
-                            _bot.Memory.GoalEnemy = eninfo;
+                            using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.Dismiss", "warnPlayer"))
+                            {
+                                _bot.Memory.GoalEnemy = eninfo;
+                            }
                             Modules.Logger.LogInfo("Make player the enemy");
                         }
                     });
@@ -973,7 +1023,10 @@ namespace pitTeam.Components
             if (_bot == null) return;
 
             // Clear current/last enemy pointers first to avoid group decision sorting stale EnemyInfo.
-            _bot.Memory.GoalEnemy = null;
+            using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.ClearInvalidEnemyState", "clearInvalidEnemyState"))
+            {
+                _bot.Memory.GoalEnemy = null;
+            }
             _bot.Memory.LastEnemy = null;
 
             if (_bot.EnemiesController?.EnemyInfos != null)
@@ -1713,6 +1766,11 @@ namespace pitTeam.Components
             _orderedPushTargetLockActive = true;
             _orderedPushTargetProfileId = goalEnemy.ProfileId;
             _orderedPushTargetPosition = GetOrderedPushTargetPosition(goalEnemy);
+            FollowerCombatTargetCommitments.SetMission(
+                _bot,
+                goalEnemy,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                "activateOrderedPushTargetLock");
         }
 
         public void RefreshOrderedPushTargetLock(EnemyInfo? goalEnemy)
@@ -1729,6 +1787,12 @@ namespace pitTeam.Components
             {
                 _orderedPushTargetPosition = position;
             }
+
+            FollowerCombatTargetCommitments.RefreshMission(
+                _bot,
+                goalEnemy,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                "refreshOrderedPushTargetLock");
         }
 
         public void RefreshOrderedPushTargetLock(Player target)
@@ -1744,6 +1808,12 @@ namespace pitTeam.Components
             {
                 _orderedPushTargetPosition = target.Position;
             }
+
+            FollowerCombatTargetCommitments.RefreshMission(
+                _bot,
+                target,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                "refreshOrderedPushTargetLock");
         }
 
         public void ClearOrderedPushTargetLock(string reason = "unspecified")
@@ -1751,6 +1821,10 @@ namespace pitTeam.Components
             _orderedPushTargetLockActive = false;
             _orderedPushTargetProfileId = null;
             _orderedPushTargetPosition = Vector3.zero;
+            FollowerCombatTargetCommitments.ClearMission(
+                _bot,
+                FollowerCombatTargetMissionKind.OrderedPush,
+                reason);
         }
 
         private static Vector3 GetOrderedPushTargetPosition(EnemyInfo goalEnemy)
@@ -2217,7 +2291,10 @@ namespace pitTeam.Components
 
                 ClearCommand("PickupReset");
                 _bot.Memory.IsPeace = false;
-                _bot.Memory.GoalEnemy = null;
+                using (FollowerGoalEnemyTracker.Begin("BotFollowerPlayer.ResetPickupFollowerRuntimeState", "pickupReset"))
+                {
+                    _bot.Memory.GoalEnemy = null;
+                }
                 _bot.Memory.LastEnemy = null;
                 _bot.Memory?.GoalTarget?.Clear();
 

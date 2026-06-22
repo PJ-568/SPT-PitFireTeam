@@ -75,6 +75,12 @@ namespace pitTeam.BigBrain
                 return false;
             }
 
+            if (ShouldYieldPostCombatLingerToRequestCommand())
+            {
+                CompletePostCombatLinger();
+                return false;
+            }
+
             bool isCombatActive = ShouldTreatCombatAsActive();
             if (isCombatActive)
             {
@@ -133,6 +139,7 @@ namespace pitTeam.BigBrain
         public override void Stop()
         {
             BattleRecorder.RecordCombatLayerState(BotOwner, false, "layerStop");
+            BeginPostCombatFullHealIfCombatEnded();
             MarkActive(false);
             BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
             followerData?.ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
@@ -146,6 +153,7 @@ namespace pitTeam.BigBrain
             ClearLinger();
             ClearMedicalKeepActive();
             FollowerContactEnemyRetention.Clear(BotOwner);
+            FollowerCombatTargetCommitments.ClearMission(BotOwner, null, "CombatLayer:Stop");
             FollowerGrenadeRuntimeGate.EnforceDisabled(BotOwner);
             combatLogic?.Reset();
             base.Stop();
@@ -229,6 +237,12 @@ namespace pitTeam.BigBrain
             // again; otherwise end when the linger window expires.
             if (currentDecision.HasValue && currentDecision.Value.Reason == LingerReason)
             {
+                if (ShouldYieldPostCombatLingerToRequestCommand())
+                {
+                    CompletePostCombatLinger();
+                    return true;
+                }
+
                 if (ShouldTreatCombatAsActive())
                 {
                     if (HasCurrentLiveGoalEnemy())
@@ -249,8 +263,7 @@ namespace pitTeam.BigBrain
                 bool expired = IsLingerExpired();
                 if (expired)
                 {
-                    hadCombatSinceActivation = false;
-                    ClearLinger();
+                    CompletePostCombatLinger();
                 }
 
                 return expired;
@@ -302,6 +315,31 @@ namespace pitTeam.BigBrain
                    action == (BotLogicDecision)CustomBotDecisions.attackRetreat;
         }
 
+        private bool ShouldYieldPostCombatLingerToRequestCommand()
+        {
+            return (hadCombatSinceActivation || lingerArmed) &&
+                   !ShouldTreatCombatAsActive() &&
+                   !ShouldKeepCombatLayerForMedicalWork() &&
+                   HasPendingRequestLayerCommand();
+        }
+
+        private bool HasPendingRequestLayerCommand()
+        {
+            BotFollowerPlayer? followerData = BossPlayers.Instance?.GetFollower(BotOwner);
+            if (followerData == null ||
+                !followerData.TryPeekActiveCommand(out FollowerCommandType command, out _, out float untilTime))
+            {
+                return false;
+            }
+
+            if (untilTime > 0f && Time.time > untilTime)
+            {
+                return false;
+            }
+
+            return !IsCombatOwnedCommand(command);
+        }
+
         private void ArmLingerIfNeeded()
         {
             if (lingerArmed)
@@ -323,9 +361,18 @@ namespace pitTeam.BigBrain
 
         private void CompletePostCombatLinger()
         {
+            Utils.FollowerMedical.BeginPostCombatFullHeal(BotOwner);
             hadCombatSinceActivation = false;
             ClearLinger();
             BossPlayers.Instance?.GetFollower(BotOwner)?.ClearTemporaryCombatAggressionOverrideAfterCombatCooldown();
+        }
+
+        private void BeginPostCombatFullHealIfCombatEnded()
+        {
+            if (hadCombatSinceActivation || lingerArmed || IsHealingDecision(currentDecision))
+            {
+                Utils.FollowerMedical.BeginPostCombatFullHeal(BotOwner);
+            }
         }
 
         private void ClearMedicalKeepActive()
@@ -381,6 +428,14 @@ namespace pitTeam.BigBrain
 
         private bool ShouldTreatCombatAsActive()
         {
+            if (FollowerCombatTargetCommitments.TryRestoreMissionIfTemporaryExpired(
+                    BotOwner,
+                    "combatLayerRestoreMission",
+                    out _))
+            {
+                return true;
+            }
+
             if (FollowerContactEnemyRetention.TryRestore(BotOwner, out _))
             {
                 return true;
@@ -453,7 +508,8 @@ namespace pitTeam.BigBrain
                     return true;
                 }
 
-                if (IsImmediateVisibleSelfDefenseThreat(goalEnemy))
+                if (FollowerCombatTargetCommitments.IsActiveTemporaryTarget(BotOwner, goalEnemy) ||
+                    IsImmediateVisibleSelfDefenseThreat(goalEnemy))
                 {
                     return true;
                 }
@@ -505,7 +561,10 @@ namespace pitTeam.BigBrain
             }
 
             BotOwner.Memory.IsPeace = false;
-            BotOwner.Memory.GoalEnemy = restored;
+            using (FollowerGoalEnemyTracker.Begin("FollowerCombatLayer.TryRestoreOrderedPushGoalEnemy", "orderedPushTargetLockRestore"))
+            {
+                BotOwner.Memory.GoalEnemy = restored;
+            }
             followerData.RefreshOrderedPushTargetLock(target);
             return IsGoalEnemyAlive(restored);
         }
@@ -622,17 +681,26 @@ namespace pitTeam.BigBrain
             }
 
             if (reason == "CombatLayer:Start" &&
-                (command == FollowerCommandType.PushEnemy ||
-                 command == FollowerCommandType.SuppressEnemy ||
-                 command == FollowerCommandType.RegroupNearBoss ||
-                 command == FollowerCommandType.NeedSniper ||
-                 command == FollowerCommandType.CombatComeToBossCover ||
-                 command == FollowerCommandType.CombatMoveToPointTactical))
+                (IsCombatOwnedCommand(command) || command == FollowerCommandType.RegroupNearBoss))
+            {
+                return;
+            }
+
+            if (reason == "CombatLayer:Stop" && !IsCombatOwnedCommand(command))
             {
                 return;
             }
 
             followerData.ClearCommand(reason);
+        }
+
+        private static bool IsCombatOwnedCommand(FollowerCommandType command)
+        {
+            return command == FollowerCommandType.PushEnemy ||
+                   command == FollowerCommandType.SuppressEnemy ||
+                   command == FollowerCommandType.NeedSniper ||
+                   command == FollowerCommandType.CombatComeToBossCover ||
+                   command == FollowerCommandType.CombatMoveToPointTactical;
         }
 
         private static bool IsMovementContinuationDecision(BotLogicDecision decision)

@@ -6,9 +6,12 @@ namespace pitTeam.Modules
 {
     internal static class FollowerGrenadeRuntimeGate
     {
+        private const float BlockedRetryCooldownSeconds = 7f;
+
         private static readonly HashSet<string> AlwaysDisabledByProfileId = new();
         private static readonly HashSet<string> ExplicitThrowEnabledByProfileId = new();
         private static readonly Dictionary<string, string> ExplicitThrowOwnerByGroupKey = new();
+        private static readonly Dictionary<string, float> BlockedRetryUntilByProfileId = new();
         private static readonly HashSet<string> ReleasedThrowByProfileId = new();
 
         public static void EnforceDisabled(BotOwner bot)
@@ -46,6 +49,7 @@ namespace pitTeam.Modules
             string? groupKey = GetGroupKey(bot);
             if (string.IsNullOrEmpty(groupKey))
             {
+                BlockedRetryUntilByProfileId.Remove(bot.ProfileId);
                 SetThrowState(bot, enabled: true, disabled: false);
                 return;
             }
@@ -59,6 +63,11 @@ namespace pitTeam.Modules
 
             bool ownsThrowWindow = ExplicitThrowOwnerByGroupKey.TryGetValue(groupKey, out ownerProfileId) &&
                                    ownerProfileId == bot.ProfileId;
+            if (ownsThrowWindow)
+            {
+                BlockedRetryUntilByProfileId.Remove(bot.ProfileId);
+            }
+
             SetThrowState(bot, enabled: ownsThrowWindow, disabled: !ownsThrowWindow);
             RefreshFollowerGroup(bot);
         }
@@ -129,6 +138,40 @@ namespace pitTeam.Modules
             return ReleasedThrowByProfileId.Contains(bot.ProfileId);
         }
 
+        public static bool ShouldBlockThrowAttempt(BotOwner bot, out string reason)
+        {
+            reason = string.Empty;
+            if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
+            {
+                return false;
+            }
+
+            float now = Time.time;
+            if (BlockedRetryUntilByProfileId.TryGetValue(bot.ProfileId, out float retryUntil))
+            {
+                if (now < retryUntil)
+                {
+                    reason = $"runtimeGateCooldown:{Mathf.CeilToInt(retryUntil - now)}s";
+                    return true;
+                }
+
+                BlockedRetryUntilByProfileId.Remove(bot.ProfileId);
+            }
+
+            string? groupKey = GetGroupKey(bot);
+            if (string.IsNullOrEmpty(groupKey) ||
+                !ExplicitThrowOwnerByGroupKey.TryGetValue(groupKey, out string ownerProfileId) ||
+                string.IsNullOrEmpty(ownerProfileId) ||
+                ownerProfileId == bot.ProfileId)
+            {
+                return false;
+            }
+
+            BlockedRetryUntilByProfileId[bot.ProfileId] = now + BlockedRetryCooldownSeconds;
+            reason = "runtimeGateBlocked";
+            return true;
+        }
+
         public static bool IsThrowAllowed(BotOwner bot)
         {
             if (bot == null || string.IsNullOrEmpty(bot.ProfileId))
@@ -155,6 +198,15 @@ namespace pitTeam.Modules
             }
 
             return ExplicitThrowEnabledByProfileId.Contains(bot.ProfileId);
+        }
+
+        public static void ClearAll()
+        {
+            AlwaysDisabledByProfileId.Clear();
+            ExplicitThrowEnabledByProfileId.Clear();
+            ExplicitThrowOwnerByGroupKey.Clear();
+            BlockedRetryUntilByProfileId.Clear();
+            ReleasedThrowByProfileId.Clear();
         }
 
         private static void SetThrowState(BotOwner bot, bool enabled, bool disabled)

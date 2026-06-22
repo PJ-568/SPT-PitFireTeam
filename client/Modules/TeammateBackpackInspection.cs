@@ -26,6 +26,7 @@ namespace pitTeam.Modules
         private static SearchableItemItemClass? _targetBackpack;
         private static HashSet<string>? _initialBackpackItemIds;
         private static HashSet<string>? _initialTrackedItemIds;
+        private static Dictionary<string, HashSet<string>>? _initialTrackedItemTreeIds;
         private static float _openedAtTime;
         private static bool _closeRequested;
         private static bool _ending;
@@ -152,6 +153,7 @@ namespace pitTeam.Modules
                 _targetBackpack = backpack;
                 _initialBackpackItemIds = SnapshotAllItemIds(backpack);
                 _initialTrackedItemIds = SnapshotTrackedItemIdsInBackpack(liveBot, _initialBackpackItemIds);
+                _initialTrackedItemTreeIds = SnapshotTrackedItemTreesInBackpack(backpack, _initialTrackedItemIds);
                 _openedAtTime = Time.time;
                 _closeRequested = false;
                 _ending = false;
@@ -557,6 +559,7 @@ namespace pitTeam.Modules
                 _targetBackpack = null;
                 _initialBackpackItemIds = null;
                 _initialTrackedItemIds = null;
+                _initialTrackedItemTreeIds = null;
                 _openedAtTime = 0f;
                 _closeRequested = false;
                 _ending = false;
@@ -592,13 +595,34 @@ namespace pitTeam.Modules
             }
 
             // If the player removes an item that was previously marked for return, unmark it immediately so
-            // post-raid return handling does not try to give back something the player already took.
+            // post-raid return handling and protected-extraction cleanup do not touch something the player
+            // already took back.
+            HashSet<string> removedTrackedTreeIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (string trackedItemId in _initialTrackedItemIds)
             {
                 if (!currentBackpackItemIds.Contains(trackedItemId))
                 {
                     InteractableObjects.RemoveStoredItem(_targetBot.ProfileId, trackedItemId);
                 }
+            }
+
+            foreach (KeyValuePair<string, HashSet<string>> trackedTree in _initialTrackedItemTreeIds ?? new Dictionary<string, HashSet<string>>())
+            {
+                foreach (string itemId in trackedTree.Value)
+                {
+                    if (!currentBackpackItemIds.Contains(itemId))
+                    {
+                        removedTrackedTreeIds.Add(itemId);
+                    }
+                }
+            }
+
+            if (removedTrackedTreeIds.Count > 0)
+            {
+                InteractableObjects.RemoveProtectedRaidItemIds(
+                    removedTrackedTreeIds,
+                    "tracked follower item returned to player",
+                    synchronous: true);
             }
         }
 
@@ -628,6 +652,56 @@ namespace pitTeam.Modules
                 {
                     ids.Add(itemId);
                 }
+            }
+
+            return ids;
+        }
+
+        private static Dictionary<string, HashSet<string>> SnapshotTrackedItemTreesInBackpack(
+            SearchableItemItemClass backpack,
+            HashSet<string> trackedItemIds)
+        {
+            Dictionary<string, HashSet<string>> trees = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            if (backpack == null || trackedItemIds == null || trackedItemIds.Count == 0)
+            {
+                return trees;
+            }
+
+            foreach (Item item in backpack.GetAllItems())
+            {
+                if (item == null || !trackedItemIds.Contains(item.Id))
+                {
+                    continue;
+                }
+
+                trees[item.Id] = SnapshotItemTreeIds(item);
+            }
+
+            return trees;
+        }
+
+        private static HashSet<string> SnapshotItemTreeIds(Item item)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            if (item == null)
+            {
+                return ids;
+            }
+
+            ids.Add(item.Id);
+            try
+            {
+                foreach (Item child in item.GetAllItems())
+                {
+                    if (child != null)
+                    {
+                        ids.Add(child.Id);
+                    }
+                }
+            }
+            catch
+            {
+                ids.Add(item.Id);
             }
 
             return ids;

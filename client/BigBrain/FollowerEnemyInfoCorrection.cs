@@ -161,6 +161,47 @@ namespace pitTeam.BigBrain
             return lastSeenTime > 0f && Time.time - lastSeenTime <= maxAge;
         }
 
+        public static bool RefreshDirectContactForAcquisition(BotOwner botOwner, EnemyInfo? enemyInfo)
+        {
+            if (botOwner == null ||
+                enemyInfo?.Owner == null ||
+                enemyInfo.Owner != botOwner ||
+                !BossPlayers.IsFollower(botOwner))
+            {
+                return false;
+            }
+
+            SensorState previousState = CaptureState(enemyInfo);
+            if (enemyInfo.Person?.HealthController?.IsAlive != true)
+            {
+                ForceInvisibleAndUnshootable(enemyInfo);
+                return false;
+            }
+
+            if (!TryGetReliableDistance(botOwner, enemyInfo, out float distance, out Vector3 enemyPosition))
+            {
+                enemyInfo.SetCanShoot(false);
+                DemoteVisibility(enemyInfo, previousState);
+                return false;
+            }
+
+            CorrectDistanceAndDirection(botOwner, enemyInfo, distance, enemyPosition);
+
+            bool directlyVisible = HasDirectVisibility(botOwner, enemyInfo, distance);
+            bool canShoot = directlyVisible && HasVerifiedShootLane(botOwner, enemyInfo, distance);
+            if (directlyVisible)
+            {
+                PromoteDirectVisible(enemyInfo, enemyPosition, previousState);
+            }
+            else
+            {
+                DemoteVisibility(enemyInfo, previousState);
+            }
+
+            enemyInfo.SetCanShoot(canShoot);
+            return directlyVisible || canShoot;
+        }
+
         private static void CorrectDistanceAndDirection(
             BotOwner botOwner,
             EnemyInfo enemyInfo,

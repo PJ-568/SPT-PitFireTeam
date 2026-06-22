@@ -256,7 +256,9 @@ public class FriendlyPostRaidService(
             return;
         }
 
-        RegisterProtectedRaidItemIds(sessionId, request.ItemIds, request.Context ?? "client registration");
+        string context = request.Context ?? "client registration";
+        RemoveProtectedRaidItemIds(sessionId, request.RemoveItemIds, context);
+        RegisterProtectedRaidItemIds(sessionId, request.ItemIds, context);
     }
 
     public void RegisterProtectedRaidItemIds(MongoId sessionId, IEnumerable<string>? itemIds, string context)
@@ -283,6 +285,46 @@ public class FriendlyPostRaidService(
         }
 
         logger.Info($"Registered {ids.Length} protected teammate raid item id(s). context='{context}'.");
+    }
+
+    private void RemoveProtectedRaidItemIds(MongoId sessionId, IEnumerable<string>? itemIds, string context)
+    {
+        string[] ids = itemIds?
+            .Where(itemId => !string.IsNullOrWhiteSpace(itemId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
+        if (ids.Length == 0)
+        {
+            return;
+        }
+
+        string sessionKey = sessionId.ToString();
+        if (!ProtectedRaidItemIds.TryGetValue(sessionKey, out HashSet<string>? protectedIds))
+        {
+            return;
+        }
+
+        int removed = 0;
+        lock (protectedIds)
+        {
+            foreach (string itemId in ids)
+            {
+                if (protectedIds.Remove(itemId))
+                {
+                    removed++;
+                }
+            }
+
+            if (protectedIds.Count == 0)
+            {
+                ProtectedRaidItemIds.TryRemove(sessionKey, out _);
+            }
+        }
+
+        if (removed > 0)
+        {
+            logger.Info($"Unregistered {removed} protected teammate raid item id(s). context='{context}'.");
+        }
     }
 
     public void RemoveProtectedTeammateItemsFromExtractedProfile(MongoId sessionId, EndLocalRaidRequestData request)

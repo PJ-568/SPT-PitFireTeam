@@ -41,6 +41,7 @@ namespace pitTeam.BigBrain.Actions
         public override void Start()
         {
             base.Start();
+            StopStationaryCombatMovement();
             moveStatus = DogFightMoveStatus.None;
             nextMoveUpdateTime = 0f;
         }

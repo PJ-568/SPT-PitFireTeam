@@ -103,6 +103,7 @@ namespace pitTeam
         public Dictionary<string, string> loadoutManagement { get; set; }
         public Dictionary<string, string> loadoutManagementSimple { get; set; }
         public Dictionary<string, string> loadoutManagementRestricted { get; set; }
+        public Dictionary<string, string> loadoutManagementRestrictedGearMaintenance { get; set; }
         public Dictionary<string, string> loadoutManagementImmersive { get; set; }
         public Dictionary<string, string> loadoutManagementExtreme { get; set; }
         public Dictionary<string, string> npcSendMessage { get; set; }
@@ -155,7 +156,7 @@ namespace pitTeam
         public string[] jerkKillMessages { get; set; }
     }
 
-    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.3")]
+    [BepInPlugin("xyz.pit.fireteam", "PitAlex-PitFireTeam", "0.8.5")]
     [BepInDependency("xyz.drakia.bigbrain")]
     public class pitFireTeam : BaseUnityPlugin
     {
@@ -190,6 +191,7 @@ namespace pitTeam
         public static ConfigEntry<bool> englishBear;
         public static ConfigEntry<bool> pmcArmbands;
         public static ConfigEntry<LoadoutManagementMode> loadoutManagementMode;
+        public static ConfigEntry<bool> restrictedGearMaintenance;
 
         public static ConfigEntry<bool> botPrefetch;
 
@@ -342,6 +344,7 @@ namespace pitTeam
             // bot misc patches
             new BotTalkTrySayPatch().Enable();
             new BotTalkSayPatch().Enable();
+            new FollowerWeaponTakenAfterDeathPatch().Enable();
             new FollowerWeaponSelectorManualUpdatePatch().Enable();
             new FollowerSupportNoAmmoMainSwitchPolicyPatch().Enable();
             new FollowerHoldLingerReloadSuppressPatch().Enable();
@@ -448,7 +451,6 @@ namespace pitTeam
             new OtherPlayerProfileScreenClosePatch().Enable();
             new LoadoutEditorUnloadAmmoPatch().Enable();
             new LoadoutEditorRepairContextInteractionPatch().Enable();
-            new LoadoutEditorRepairExecuteInteractionPatch().Enable();
             new LoadoutEditorRepairByKitPatch().Enable();
             new LoadoutEditorRepairByTraderPatch().Enable();
             new LoadoutEditorLockContextInteractionPatch().Enable();
@@ -784,6 +786,9 @@ namespace pitTeam
 
             loadoutManagementMode = Config.Bind("", "14 LoadoutManagement", LoadoutManagementMode.Simple, new ConfigDescription(optionsLang.loadoutManagement["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.loadoutManagement)));
 
+            restrictedGearMaintenance = Config.Bind("", "14 LoadoutManagementRestrictedGearMaintenance", false, new ConfigDescription(optionsLang.loadoutManagementRestrictedGearMaintenance["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.loadoutManagementRestrictedGearMaintenance)));
+            restrictedGearMaintenance.SettingChanged += (_, _) => SyncServerSettings();
+
             botGrenades = Config.Bind("", "15 BotGrenades", true, new ConfigDescription(optionsLang.botGrenades["Description"], null, CreateConfigAttributes(-1005, false, optionsLang.botGrenades)));
 
             regroupRadius = Config.Bind("", "15 RegroupRadius", 18, new ConfigDescription(optionsLang.regroupRadius["Description"], new AcceptableValueRange<int>(10, 38), CreateConfigAttributes(-1005, false, optionsLang.regroupRadius)));
@@ -869,7 +874,8 @@ namespace pitTeam
                 string requestBody = JsonConvert.SerializeObject(new
                 {
                     pmcArmbands = pmcArmbands?.Value ?? true,
-                    loadoutManagementMode = (loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple).ToString()
+                    loadoutManagementMode = (loadoutManagementMode?.Value ?? LoadoutManagementMode.Simple).ToString(),
+                    restrictedGearMaintenance = restrictedGearMaintenance?.Value ?? false
                 });
                 return Task.Run(() =>
                 {

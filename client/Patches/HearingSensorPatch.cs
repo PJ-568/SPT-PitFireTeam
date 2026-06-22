@@ -49,6 +49,11 @@ namespace pitTeam.Patches
         public static void PatchPostfix(BotHearingSensor __instance, IPlayer player, Vector3 position, float power, AISoundType type)
         {
             BotOwner botOwner_0 = __instance.BotOwner;
+            if (BossPlayers.IsFollower(botOwner_0) && FollowerEnemyEnforceSuppression.IsSuppressed(botOwner_0))
+            {
+                return;
+            }
+
             // check if enemy is trying to sneak up on the bot - only during combat
             if (type == AISoundType.step)
             {
@@ -184,6 +189,7 @@ namespace pitTeam.Patches
             foreach (var follower in BossPlayers.GetFollowers())
             {
                 BotOwner bot = follower.GetBot();
+                if (bot == null || FollowerEnemyEnforceSuppression.IsSuppressed(bot)) continue;
                 if (bot.ProfileId == __instance.ProfileId) continue;
                 bool knownEnemy = bot.EnemiesController.IsEnemy(__instance) || bot.BotsGroup.IsEnemy(__instance);
                 bool hostileToBossGroup = FollowerAwareness.IsHostileToBossGroupForReaction(bot, __instance);
@@ -267,6 +273,7 @@ namespace pitTeam.Patches
                 BotOwner bot = follower.GetBot();
                 if (bot == null || bot.IsDead || bot.GetPlayer == null || bot.HearingSensor == null) return;
                 if (bot.EnemiesController == null || bot.Memory == null || bot.BotsGroup == null) return;
+                if (FollowerEnemyEnforceSuppression.IsSuppressed(bot)) return;
                 if (FollowerAwareness.WasRecentlyHit(bot))
                 {
                     Trace(bot, $"Voice ignore recentlyHit src={__instance.ProfileId}");
@@ -310,8 +317,12 @@ namespace pitTeam.Patches
                         if (canAcquire)
                         {
                             if (!reportEnemy) bot.BotsGroup.ReportAboutEnemy(__instance, EEnemyPartVisibleType.Visible, bot);
-                            EnemyInfo info = Utils.Enemy.MakeEnemy(bot, __instance);
+                            EnemyInfo? info = Utils.Enemy.MakeEnemy(
+                                bot,
+                                __instance,
+                                countSharedSeenAsPersonal: false);
                             info?.SetVisible(true);
+                            Utils.Enemy.RepairPersonalMemory(info, __instance.Transform.position, true);
                             reportEnemy = true;
                             Trace(bot, $"Voice react close result turn=false autoAcquire={info != null} dist={effectiveDistance:F1} followerLos={followerHasLosToSpeaker}");
                         }
