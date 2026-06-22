@@ -928,8 +928,6 @@ namespace pitTeam.Patches
 
         private static void CloseLoadoutEditorChildWindows()
         {
-            CloseLoadoutEditorSaveBeforeRepairOverlay();
-
             try
             {
                 GClass3752.RequestGlobalClose();
@@ -1326,111 +1324,6 @@ namespace pitTeam.Patches
                 && item.GetItemComponentsInChildren<RepairableComponent>(true).Any();
         }
 
-        internal static bool ShouldRequireLoadoutEditorSaveBeforeRepair(Item item)
-        {
-            if (!CanRepairLoadoutEditorEquipmentItem(item))
-            {
-                return false;
-            }
-
-            // Teammate repair is server-authoritative and targets the saved teammate equipment tree.
-            // Newly staged editor gear has only local editor ownership until Done commits it, so letting
-            // stock repair submit would leak into the player repair route with an unknown teammate item id.
-            return !IsLoadoutEditorEquipmentItemSavedToTeammateProfile(item);
-        }
-
-        internal static IResult ShowLoadoutEditorSaveBeforeRepairPrompt()
-        {
-            string message = GetSocialUiText("LoadoutEditorSaveBeforeRepair");
-
-            ShowLoadoutEditorSaveBeforeRepairOverlay(message);
-            return new FailedResult(message, 0);
-        }
-
-        private static void ShowLoadoutEditorSaveBeforeRepairOverlay(string message)
-        {
-            CloseLoadoutEditorSaveBeforeRepairOverlay();
-
-            if (LoadoutEditorOverlayRoot == null)
-            {
-                NotificationManagerClass.DisplayWarningNotification(message, ENotificationDurationType.Default);
-                return;
-            }
-
-            DefaultUIButton buttonTemplate = BackButtonField?.GetValue(ActiveProfileScreen) as DefaultUIButton;
-            if (buttonTemplate == null)
-            {
-                NotificationManagerClass.DisplayWarningNotification(message, ENotificationDurationType.Default);
-                return;
-            }
-
-            GameObject overlayRoot = new GameObject("pitFireTeam_LoadoutEditorSaveBeforeRepairOverlay", typeof(RectTransform), typeof(Image));
-            overlayRoot.transform.SetParent(LoadoutEditorOverlayRoot.transform, false);
-            RectTransform overlayRect = overlayRoot.GetComponent<RectTransform>();
-            overlayRect.anchorMin = Vector2.zero;
-            overlayRect.anchorMax = Vector2.one;
-            overlayRect.offsetMin = Vector2.zero;
-            overlayRect.offsetMax = Vector2.zero;
-            overlayRect.localScale = Vector3.one;
-            overlayRect.SetAsLastSibling();
-
-            Image backdrop = overlayRoot.GetComponent<Image>();
-            backdrop.color = new Color(0f, 0f, 0f, 0.58f);
-            backdrop.raycastTarget = true;
-
-            GameObject panel = new GameObject("pitFireTeam_LoadoutEditorSaveBeforeRepairPanel", typeof(RectTransform), typeof(Image));
-            panel.transform.SetParent(overlayRoot.transform, false);
-            RectTransform panelRect = panel.GetComponent<RectTransform>();
-            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
-            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.sizeDelta = new Vector2(620f, 190f);
-            panelRect.localScale = Vector3.one;
-
-            Image panelImage = panel.GetComponent<Image>();
-            panelImage.color = new Color(0.02f, 0.02f, 0.02f, 0.98f);
-            panelImage.raycastTarget = true;
-
-            CreateOverlayText(
-                "pitFireTeam_LoadoutEditorSaveBeforeRepairText",
-                panel.transform,
-                new Vector2(28f, 74f),
-                new Vector2(-28f, -30f),
-                TextAlignmentOptions.Center,
-                message,
-                22f,
-                new Color(0.88f, 0.88f, 0.84f, 1f));
-
-            DefaultUIButton cancelButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(122f, 20f), new Vector2(170f, 36f));
-            cancelButton.name = "pitFireTeam_LoadoutEditorSaveBeforeRepairCancelButton";
-            cancelButton.SetRawText(GetSocialUiText("Cancel"), 20);
-            cancelButton.OnClick.RemoveAllListeners();
-            cancelButton.OnClick.AddListener(CloseLoadoutEditorSaveBeforeRepairOverlay);
-
-            DefaultUIButton saveButton = CreateOverlayButton(buttonTemplate, panel.transform, new Vector2(328f, 20f), new Vector2(170f, 36f));
-            saveButton.name = "pitFireTeam_LoadoutEditorSaveBeforeRepairSaveButton";
-            saveButton.SetRawText(GetSocialUiText("Save"), 20);
-            saveButton.OnClick.RemoveAllListeners();
-            saveButton.OnClick.AddListener(async () =>
-            {
-                CloseLoadoutEditorSaveBeforeRepairOverlay();
-                await CommitLoadoutEditorPresetFromUiAsync(ViewedProfile);
-            });
-
-            LoadoutEditorSaveBeforeRepairOverlayRoot = overlayRoot;
-        }
-
-        private static void CloseLoadoutEditorSaveBeforeRepairOverlay()
-        {
-            if (LoadoutEditorSaveBeforeRepairOverlayRoot == null)
-            {
-                return;
-            }
-
-            GameObject.Destroy(LoadoutEditorSaveBeforeRepairOverlayRoot);
-            LoadoutEditorSaveBeforeRepairOverlayRoot = null;
-        }
-
         private static bool IsLoadoutEditorEquipmentItemSavedToTeammateProfile(Item item)
         {
             if (item == null || ViewedProfile?.Equipment == null)
@@ -1438,8 +1331,7 @@ namespace pitTeam.Patches
                 return false;
             }
 
-            return ViewedProfile.Equipment
-                .GetAllItemsFromCollection()
+            return EnumerateLoadoutEditorItemTree(ViewedProfile.Equipment)
                 .Any(candidate => candidate != null && string.Equals(candidate.Id, item.Id, StringComparison.Ordinal));
         }
 
@@ -1453,6 +1345,17 @@ namespace pitTeam.Patches
             SetLoadoutEditorBusy(true);
             try
             {
+                IResult prepareResult = await PrepareLoadoutEditorRepairTargetAsync(itemToRepair.Id);
+                if (prepareResult.Failed)
+                {
+                    return prepareResult;
+                }
+
+                if (!TryGetLoadoutEditorEquipmentItem(itemToRepair.Id, out itemToRepair))
+                {
+                    return new FailedResult("This teammate loadout item must remain on teammate equipment to be repaired", 0);
+                }
+
                 string responseJson = await Task.Run(() => RequestHandler.PostJson(
                     RepairEquipmentRoute,
                     SerializeBody(new FriendlyTeammateRepairEquipmentRequest
@@ -1500,6 +1403,17 @@ namespace pitTeam.Patches
             SetLoadoutEditorBusy(true);
             try
             {
+                IResult prepareResult = await PrepareLoadoutEditorRepairTargetAsync(itemToRepair.Id);
+                if (prepareResult.Failed)
+                {
+                    return prepareResult;
+                }
+
+                if (!TryGetLoadoutEditorEquipmentItem(itemToRepair.Id, out itemToRepair))
+                {
+                    return new FailedResult("This teammate loadout item must remain on teammate equipment to be repaired", 0);
+                }
+
                 string responseJson = await Task.Run(() => RequestHandler.PostJson(
                     RepairEquipmentRoute,
                     SerializeBody(new FriendlyTeammateRepairEquipmentRequest
@@ -1537,6 +1451,100 @@ namespace pitTeam.Patches
             }
         }
 
+        private static async Task<IResult> PrepareLoadoutEditorRepairTargetAsync(string targetItemId)
+        {
+            if (!TryGetLoadoutEditorEquipmentItem(targetItemId, out Item itemToRepair)
+                || !CanRepairLoadoutEditorEquipmentItem(itemToRepair))
+            {
+                return new FailedResult("This teammate loadout item must remain on teammate equipment to be repaired", 0);
+            }
+
+            if (!ShouldCommitLoadoutEditorBeforeRepair(itemToRepair))
+            {
+                return SuccessfulResult.New;
+            }
+
+            IResult commitResult = await CommitLoadoutEditorStateBeforeRepairAsync(ViewedProfile);
+            if (commitResult.Failed)
+            {
+                return commitResult;
+            }
+
+            if (!TryGetLoadoutEditorEquipmentItem(targetItemId, out Item savedItem)
+                || !CanRepairLoadoutEditorEquipmentItem(savedItem)
+                || !IsLoadoutEditorEquipmentItemSavedToTeammateProfile(savedItem))
+            {
+                return new FailedResult("This teammate loadout item must remain on teammate equipment to be repaired", 0);
+            }
+
+            return SuccessfulResult.New;
+        }
+
+        private static bool ShouldCommitLoadoutEditorBeforeRepair(Item item)
+        {
+            return !IsLoadoutEditorEquipmentItemSavedToTeammateProfile(item)
+                || HasPendingLoadoutEditorRealChanges();
+        }
+
+        private static async Task<IResult> CommitLoadoutEditorStateBeforeRepairAsync(ResultProfile profile)
+        {
+            if (profile == null || LoadoutEditorProfile?.Inventory?.Equipment == null)
+            {
+                return new FailedResult(GetSocialUiText("LoadoutEditorSaveFailed"), 0);
+            }
+
+            try
+            {
+                bool realItemCommit = IsRealDefaultLoadoutEditorCommit();
+                FlatItemsDataClass[] serializedEquipment = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(
+                    new Item[] { CreateSanitizedLoadoutEditorSaveEquipment() });
+                if (serializedEquipment == null || serializedEquipment.Length == 0)
+                {
+                    return new FailedResult("Loadout editor default equipment was unavailable for save.", 0);
+                }
+
+                FlatItemsDataClass[] serializedPlayerStash = realItemCommit
+                    ? CreateLoadoutEditorSaveStashItems()
+                    : null;
+
+                pitFireTeam.Log.LogInfo("[UI] Saving pending teammate loadout editor changes before repair.");
+                string responseJson = await Task.Run(() => RequestHandler.PostJson(
+                    DefaultEquipmentRoute,
+                    SerializeBody(new FriendlyTeammateDefaultEquipmentRequest
+                    {
+                        aid = profile.AccountId,
+                        items = serializedEquipment,
+                        playerStashItems = serializedPlayerStash,
+                        realItemCommit = realItemCommit
+                    })));
+
+                FriendlyTeammateBodyResponse<FriendlyTeammateDefaultEquipmentResponse> response =
+                    DeserializeBodySuccess<FriendlyTeammateDefaultEquipmentResponse>(responseJson);
+
+                if (realItemCommit)
+                {
+                    ApplyServerSavedPlayerStash(response?.data?.playerStashItems);
+                    ApplyServerSavedLoadoutEditorStash(response?.data?.playerStashItems);
+                }
+                else
+                {
+                    CaptureLoadoutEditorInitialState(LoadoutEditorProfile, realItemCommit: false);
+                }
+
+                ActiveTeammateLoadoutId = DefaultLoadoutId;
+                ActiveTeammateLoadoutName = DefaultLoadoutName;
+                RefreshCurrentTeammateLoadoutSelector(profile);
+                MarkSquadRosterDirty(profile.AccountId);
+                return SuccessfulResult.New;
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogError("[UI] Failed to save pending teammate loadout editor changes before repair.");
+                pitFireTeam.Log.LogError(ex);
+                return new FailedResult(ex.Message ?? GetSocialUiText("LoadoutEditorSaveFailed"), 0);
+            }
+        }
+
         private static void ApplyLoadoutEditorRepairResult(Item itemToRepair, FriendlyTeammateRepairEquipmentResponse response)
         {
             RepairableComponent repairable = itemToRepair.GetItemComponent<RepairableComponent>();
@@ -1563,8 +1571,9 @@ namespace pitTeam.Patches
 
             try
             {
-                ItemFactoryClass.GStruct181 tree = Singleton<ItemFactoryClass>.Instance.FlatItemsToTree(savedStashItems, false, null);
-                string stashRootId = savedStashItems[0]._id.ToString();
+                FlatItemsDataClass[] editorStashItems = RemoveLoadoutEditorEquipmentItemsFromSavedStash(savedStashItems);
+                ItemFactoryClass.GStruct181 tree = Singleton<ItemFactoryClass>.Instance.FlatItemsToTree(editorStashItems, false, null);
+                string stashRootId = editorStashItems[0]._id.ToString();
                 if (!tree.Items.TryGetValue(stashRootId, out Item savedRoot) || !(savedRoot is StashItemClass savedStash))
                 {
                     throw new InvalidOperationException("Server-saved player stash root was unavailable for loadout editor refresh.");
@@ -1572,7 +1581,7 @@ namespace pitTeam.Patches
 
                 ApplyLoadoutEditorOriginalPinLocks(savedStash);
                 LoadoutEditorProfile.Inventory.Stash = savedStash;
-                LoadoutEditorInitialStashItems = savedStashItems;
+                CaptureLoadoutEditorInitialState(LoadoutEditorProfile, realItemCommit: true);
             }
             catch (Exception ex)
             {
@@ -1580,6 +1589,26 @@ namespace pitTeam.Patches
                 pitFireTeam.Log.LogError(ex);
                 throw;
             }
+        }
+
+        private static FlatItemsDataClass[] RemoveLoadoutEditorEquipmentItemsFromSavedStash(FlatItemsDataClass[] savedStashItems)
+        {
+            InventoryEquipment equipment = LoadoutEditorProfile?.Inventory?.Equipment;
+            if (equipment == null || savedStashItems == null || savedStashItems.Length == 0)
+            {
+                return savedStashItems;
+            }
+
+            HashSet<string> equipmentIds = EnumerateLoadoutEditorItemTree(equipment)
+                .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Id))
+                .Select(item => item.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            string stashRootId = savedStashItems[0]._id.ToString();
+            return savedStashItems
+                .Where(item => item?._id != null
+                    && (string.Equals(item._id.ToString(), stashRootId, StringComparison.OrdinalIgnoreCase)
+                        || !equipmentIds.Contains(item._id.ToString())))
+                .ToArray();
         }
 
         private static void SyncLoadoutEditorRepairKitsFromActiveProfile(RepairItem[] repairKitsInfo)
@@ -1968,6 +1997,33 @@ namespace pitTeam.Patches
 
             return !FlatItemArraysEqual(LoadoutEditorInitialEquipmentItems, currentEquipment)
                 || !FlatItemArraysEqual(LoadoutEditorInitialStashItems, currentStash);
+        }
+
+        private static bool HasPendingLoadoutEditorRealChanges()
+        {
+            if (!IsRealDefaultLoadoutEditorCommit())
+            {
+                return false;
+            }
+
+            try
+            {
+                InventoryEquipment equipment = LoadoutEditorProfile?.Inventory?.Equipment;
+                Item stash = LoadoutEditorProfile?.Inventory?.Stash;
+                if (equipment == null || stash == null)
+                {
+                    return true;
+                }
+
+                FlatItemsDataClass[] currentEquipment = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(new Item[] { equipment });
+                FlatItemsDataClass[] currentStash = Singleton<ItemFactoryClass>.Instance.TreeToFlatItems(new Item[] { stash });
+                return HasLoadoutEditorRealChanges(currentEquipment, currentStash);
+            }
+            catch (Exception ex)
+            {
+                pitFireTeam.Log.LogWarning($"[UI] Unable to compare loadout editor state before repair: {ex.Message}");
+                return true;
+            }
         }
 
         private static bool FlatItemArraysEqual(FlatItemsDataClass[] left, FlatItemsDataClass[] right)

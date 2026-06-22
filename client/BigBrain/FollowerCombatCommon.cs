@@ -82,7 +82,7 @@ namespace pitTeam.BigBrain
         private const float FollowerRegularTimedGrenadeMaxFuseSeconds = 3.5f;
         private const float FollowerRegularTimedGrenadeMinFuseMaxDistance = 28f;
         private const float FollowerRegularGrenadeImpactDelayThreshold = 0.25f;
-        private const float FollowerRegularGrenadeUnsafeRadius = 8f;
+        private const float FollowerRegularGrenadeUnsafeRadius = FollowerShotSafety.RegularGrenadeUnsafeRadius;
         private const float FollowerRegularGrenadeFreshContactDelaySeconds = 0.75f;
         private const float FollowerRegularGrenadeRejectRecordSeconds = 2f;
         private const float FollowerRegularGrenadeTargetHeight = 0.25f;
@@ -12361,6 +12361,22 @@ namespace pitTeam.BigBrain
                 return new AICoreActionEndStruct("suppressGrenadeUnsafe", true);
             }
 
+            if (!FollowerGrenadeRuntimeGate.HasReleasedThrow(botOwner) &&
+                IsPendingGrenadeImpactUnsafe(grenades, includeMovementPrediction: true, out string impactRejectReason))
+            {
+                BattleRecorder.RecordGrenadeEvent(
+                    botOwner,
+                    "abort",
+                    $"friendlyImpact:{impactRejectReason}",
+                    goalEnemy: goalEnemy,
+                    target: grenades.AIGreanageThrowData?.Target);
+                AbortPendingGrenadeThrow(grenades);
+                FollowerGrenadeCooldowns.CancelPending(botOwner);
+                FollowerGrenadeRuntimeGate.EnforceDisabled(botOwner);
+                ClearCommittedGrenade();
+                return new AICoreActionEndStruct("suppressGrenadeFriendlyImpact", true);
+            }
+
             if (!HasAnyActiveCombatEnemy() &&
                 (grenades.ThrowindNow || grenades.ReadyToThrow) &&
                 !FollowerGrenadeRuntimeGate.HasReleasedThrow(botOwner))
@@ -12503,9 +12519,14 @@ namespace pitTeam.BigBrain
                 return RejectFollowerGrenade(distanceRejectReason ?? "distance", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
-            if (IsFriendlyTooCloseToGrenadeTarget(targetPosition, FollowerRegularGrenadeUnsafeRadius))
+            if (FollowerShotSafety.IsFriendlyNearGrenadeImpact(
+                    botOwner,
+                    targetPosition,
+                    FollowerRegularGrenadeUnsafeRadius,
+                    includeMovementPrediction: true,
+                    out string impactRejectReason))
             {
-                return RejectFollowerGrenade("friendlyTooClose", suppressEnemy, cancelPending: true, disableGate: true);
+                return RejectFollowerGrenade($"friendlyImpact:{impactRejectReason}", suppressEnemy, cancelPending: true, disableGate: true);
             }
 
             string? candidateRejectReason = null;
@@ -12998,6 +13019,22 @@ namespace pitTeam.BigBrain
             return false;
         }
 
+        private bool IsPendingGrenadeImpactUnsafe(
+            BotGrenadeController grenades,
+            bool includeMovementPrediction,
+            out string reason)
+        {
+            reason = string.Empty;
+            Vector3? target = grenades?.AIGreanageThrowData?.Target;
+            return target.HasValue &&
+                   FollowerShotSafety.IsFriendlyNearGrenadeImpact(
+                       botOwner,
+                       target.Value,
+                       FollowerRegularGrenadeUnsafeRadius,
+                       includeMovementPrediction,
+                       out reason);
+        }
+
         private EnemyInfo GetSuppressGrenadeTarget(EnemyInfo goalEnemy, out ThrowWeapType? preferredThrowType)
         {
             preferredThrowType = null;
@@ -13016,44 +13053,6 @@ namespace pitTeam.BigBrain
             }
 
             return goalEnemy;
-        }
-
-        private bool IsFriendlyTooCloseToGrenadeTarget(Vector3 targetPosition, float unsafeRadius)
-        {
-            float unsafeRadiusSqr = unsafeRadius * unsafeRadius;
-
-            if (botOwner.BotFollower?.BossToFollow is not pitAIBossPlayer boss)
-            {
-                return false;
-            }
-
-            Player bossPlayer = boss.realPlayer;
-            if (bossPlayer != null && (bossPlayer.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
-            {
-                return true;
-            }
-
-            var followers = boss.Followers;
-            if (followers == null)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < followers.Count; i++)
-            {
-                BotOwner follower = followers[i];
-                if (follower == null || follower == botOwner || follower.IsDead)
-                {
-                    continue;
-                }
-
-                if ((follower.Position - targetPosition).sqrMagnitude <= unsafeRadiusSqr)
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         private void CancelActiveHealIfNeeded()

@@ -386,7 +386,6 @@ namespace pitTeam.Patches
         public static DefaultUIButton EditLoadoutButton { get; set; }
         public static Transform EditLoadoutButtonRoot { get; set; }
         public static GameObject LoadoutEditorOverlayRoot { get; set; }
-        public static GameObject LoadoutEditorSaveBeforeRepairOverlayRoot { get; set; }
         public static GameObject ProfileRecoveryOverlayRoot { get; set; }
         public static SimpleStashPanel LoadoutEditorStashPanel { get; set; }
         public static ComplexStashPanel LoadoutEditorEquipmentPanel { get; set; }
@@ -453,10 +452,8 @@ namespace pitTeam.Patches
                 return false;
             }
 
-            return ReferenceEquals(item, LoadoutEditorProfile.Inventory.Equipment)
-                || LoadoutEditorProfile.Inventory.Equipment
-                    .GetAllItemsFromCollection()
-                    .Any(candidate => ReferenceEquals(candidate, item) || candidate.Id == item.Id);
+            return EnumerateLoadoutEditorItemTree(LoadoutEditorProfile.Inventory.Equipment)
+                .Any(candidate => ReferenceEquals(candidate, item) || candidate.Id == item.Id);
         }
 
         internal static bool TryGetLoadoutEditorEquipmentItem(string itemId, out Item item)
@@ -467,8 +464,25 @@ namespace pitTeam.Patches
                 return false;
             }
 
-            item = LoadoutEditorProfile.Inventory.Equipment
-                .GetAllItemsFromCollection()
+            item = EnumerateLoadoutEditorItemTree(LoadoutEditorProfile.Inventory.Equipment)
+                .FirstOrDefault(candidate => string.Equals(candidate?.Id, itemId, StringComparison.Ordinal));
+            return item != null;
+        }
+
+        internal static bool TryGetLoadoutEditorItem(string itemId, out Item item)
+        {
+            item = null;
+            if (string.IsNullOrWhiteSpace(itemId) || LoadoutEditorProfile?.Inventory == null || LoadoutEditorOverlayRoot == null)
+            {
+                return false;
+            }
+
+            if (TryGetLoadoutEditorEquipmentItem(itemId, out item))
+            {
+                return true;
+            }
+
+            item = EnumerateLoadoutEditorItemTree(LoadoutEditorProfile.Inventory.Stash)
                 .FirstOrDefault(candidate => string.Equals(candidate?.Id, itemId, StringComparison.Ordinal));
             return item != null;
         }
@@ -608,27 +622,66 @@ namespace pitTeam.Patches
                 return true;
             }
 
-            return root is GClass3248 collection
-                && collection.GetAllItemsFromCollection()
-                    .Any(candidate => ReferenceEquals(candidate, item) || candidate.Id == item.Id);
+            return EnumerateLoadoutEditorItemTree(root)
+                .Any(candidate => ReferenceEquals(candidate, item) || candidate.Id == item.Id);
         }
 
         private static IEnumerable<Item> EnumerateItemTree(Item root)
+        {
+            return EnumerateLoadoutEditorItemTree(root);
+        }
+
+        private static IEnumerable<Item> EnumerateLoadoutEditorItemTree(Item root)
         {
             if (root == null)
             {
                 yield break;
             }
 
-            yield return root;
+            HashSet<string> seenIds = new HashSet<string>(StringComparer.Ordinal);
+            Stack<Item> pendingItems = new Stack<Item>();
+            pendingItems.Push(root);
 
-            if (root is GClass3248 collection)
+            while (pendingItems.Count > 0)
             {
-                foreach (Item item in collection.GetAllItemsFromCollection())
+                Item current = pendingItems.Pop();
+                if (current == null || !seenIds.Add(current.Id))
                 {
-                    if (item != null)
+                    continue;
+                }
+
+                yield return current;
+
+                if (current is GClass3248 collection)
+                {
+                    foreach (Item item in collection.GetAllItemsFromCollection())
                     {
-                        yield return item;
+                        if (item != null)
+                        {
+                            pendingItems.Push(item);
+                        }
+                    }
+                }
+
+                foreach (RepairableComponent repairable in current.GetItemComponentsInChildren<RepairableComponent>(true))
+                {
+                    if (repairable?.Item != null)
+                    {
+                        pendingItems.Push(repairable.Item);
+                    }
+                }
+
+                if (!current.TryGetItemComponent<ArmorHolderComponent>(out ArmorHolderComponent armorHolder)
+                    || armorHolder?.ArmorSlots == null)
+                {
+                    continue;
+                }
+
+                foreach (GClass3125 armorSlot in armorHolder.ArmorSlots)
+                {
+                    if (armorSlot?.ContainedItem != null)
+                    {
+                        pendingItems.Push(armorSlot.ContainedItem);
                     }
                 }
             }

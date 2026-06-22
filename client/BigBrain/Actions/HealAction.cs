@@ -18,6 +18,12 @@ namespace pitTeam.BigBrain.Actions
             baseLogic = new GClass197(botOwner);
         }
 
+        public override void Start()
+        {
+            base.Start();
+            FollowerMedical.MarkPostCombatFullHealActionStarted(BotOwner);
+        }
+
         public override void Update(CustomLayer.ActionData data)
         {
             if (BotOwner?.Medecine?.Using != true && Time.time >= nextMedicalRefreshAt)

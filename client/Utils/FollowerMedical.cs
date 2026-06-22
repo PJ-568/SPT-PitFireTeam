@@ -20,7 +20,6 @@ namespace pitTeam.Utils
         private const float EmergencySurgeryHealthPenalty = 0.5f;
         private const float FirstAidTopOffMinMissingHealth = 0.5f;
         private const float PostCombatFullHealRestoreDelay = 12f;
-        private const bool ManualFirstAidTopOffEnabled = false;
 
         private static readonly EBodyPart[] SurgeryRecoveryParts =
         {
@@ -184,6 +183,19 @@ namespace pitTeam.Utils
             PostCombatFullHealStates.Remove(key);
         }
 
+        public static bool IsPostCombatFullHealRestoreWindowElapsed(BotOwner bot)
+        {
+            string key = GetBotKey(bot);
+            if (string.IsNullOrEmpty(key) ||
+                !PostCombatFullHealStates.TryGetValue(key, out PostCombatFullHealState state) ||
+                state.HealStartedAt <= 0f)
+            {
+                return false;
+            }
+
+            return Time.time - state.HealStartedAt >= PostCombatFullHealRestoreDelay;
+        }
+
         public static bool ShouldKeepPostCombatFullHeal(
             BotOwner bot,
             bool hasKnownWork = false,
@@ -204,13 +216,13 @@ namespace pitTeam.Utils
                     return true;
                 }
 
-                if (state.HealStartedAt <= 0f ||
-                    Time.time - state.HealStartedAt < PostCombatFullHealRestoreDelay)
+                if (state.HealStartedAt > 0f)
                 {
                     return true;
                 }
 
-                return true;
+                PostCombatFullHealStates.Remove(key);
+                return false;
             }
             catch
             {
@@ -243,8 +255,6 @@ namespace pitTeam.Utils
 
                 if (IsUsingMedical(bot))
                 {
-                    CancelActiveMedical(bot);
-                    TryReturnToMainWeapon(bot);
                     return false;
                 }
 
@@ -297,7 +307,7 @@ namespace pitTeam.Utils
                        FindBestBleedTreatment(firstAid, bleedingType) != null;
             }
 
-            return false;
+            return HasRecoverableFirstAidDamage(bot);
         }
 
         public static void UpdateMedicalHandsWatchdog(BotOwner bot)
@@ -654,18 +664,24 @@ namespace pitTeam.Utils
             }
         }
 
+        public static bool CanStartFirstAidTopOff(BotOwner bot)
+        {
+            try
+            {
+                return CanAttemptFirstAidTopOff(bot) &&
+                       TryFindFirstAidTopOffTarget(bot, out _, out _);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static bool TryStartFirstAidTopOff(BotOwner bot)
         {
             try
             {
-                if (bot?.Medecine?.FirstAid == null ||
-                    bot.Medecine.Using ||
-                    bot.Medecine.FirstAid.Using ||
-                    bot.Medecine.SurgicalKit?.HaveWork == true ||
-                    bot.Medecine.SurgicalKit?.Using == true ||
-                    bot.WeaponManager?.Grenades?.ThrowindNow == true ||
-                    bot.WeaponManager?.Reload?.Reloading == true ||
-                    !bot.Medecine.FirstAid.method_1())
+                if (!CanAttemptFirstAidTopOff(bot))
                 {
                     return false;
                 }
@@ -690,6 +706,18 @@ namespace pitTeam.Utils
             }
         }
 
+        private static bool CanAttemptFirstAidTopOff(BotOwner bot)
+        {
+            return bot?.Medecine?.FirstAid != null &&
+                   !bot.Medecine.Using &&
+                   !bot.Medecine.FirstAid.Using &&
+                   bot.Medecine.SurgicalKit?.HaveWork != true &&
+                   bot.Medecine.SurgicalKit?.Using != true &&
+                   bot.WeaponManager?.Grenades?.ThrowindNow != true &&
+                   bot.WeaponManager?.Reload?.Reloading != true &&
+                   bot.Medecine.FirstAid.method_1();
+        }
+
         private static bool TryFindFirstAidTopOffTarget(BotOwner bot, out EBodyPart bodyPart, out MedsItemClass med)
         {
             bodyPart = default;
@@ -702,7 +730,7 @@ namespace pitTeam.Utils
                 firstAid == null ||
                 bot.HealthController?.IsAlive != true ||
                 bot.Settings?.FileSettings?.Mind?.CAN_USE_MEDS != true ||
-                !ManualFirstAidTopOffEnabled ||
+                !ShouldAllowManualFirstAidTopOff(bot) ||
                 bot.Memory?.HaveEnemy == true ||
                 HasVisibleKnownEnemy(bot) ||
                 firstAid.Using ||
@@ -714,6 +742,12 @@ namespace pitTeam.Utils
             }
 
             return TryFindFirstAidTopOffTargetCore(player, firstAid, out bodyPart, out med);
+        }
+
+        private static bool ShouldAllowManualFirstAidTopOff(BotOwner bot)
+        {
+            return IsPostCombatFullHealActive(bot) &&
+                   !IsPostCombatFullHealRestoreWindowElapsed(bot);
         }
 
         private static bool TryFindFirstAidTopOffTargetCore(
