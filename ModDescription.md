@@ -457,6 +457,8 @@ If the teammate dies, the carried loot is lost.
 
 Found in My Squad → Settings
 
+Before editing teammate loadouts, check **Known Issues and Conflicts** for current loadout management limitations.
+
 ![Loadout Management](https://iili.io/BpKDP4I.md.png)
 
 - **Simple** — Create teammate loadouts freely using gear from your stash as a template, without consuming any items. Teammate gear is protected: it is not lost on death and cannot be looted.
@@ -492,6 +494,8 @@ Mods that add custom gear like belts should not be used on teammates, it can cau
 Career Log mod is not compatible with this mod as it causes the "add teammate" button to not work. 
 
 The Labyrinth is a special map with special AI, not meant to AI followers. Do not spawn with your teammates there.
+
+In teammate loadout editing, do not repair equipment and then move items into or out of the teammate loadout before saving. For now, repair should be the last step before saving. If the editor starts failing after this, cancel out of the Edit Loadout overlay, re-open Edit Loadout, then save without moving anything.
 
 - Teammates can linger after combat. Use **Attention** to reset them.
 - Teammates might not heal their health all the way. It is a game issue, use the Heal key to force heal.
